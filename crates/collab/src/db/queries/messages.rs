@@ -531,6 +531,19 @@ impl Database {
                 }
             }
 
+            let notification_kid_id = self
+                .notification_kinds_by_id
+                .iter()
+                .find(|(_, kind)| **kind == "ChannelMessageMention")
+                .map(|kind| kind.0 .0);
+
+            // remove all the mention notifications for this message
+            notification::Entity::delete_many()
+                .filter(notification::Column::EntityId.eq(message_id))
+                .filter(notification::Column::Kind.eq(notification_kid_id))
+                .exec(&*tx)
+                .await?;
+
             Ok(participant_connection_ids)
         })
         .await
