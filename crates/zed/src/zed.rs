@@ -9,6 +9,7 @@ use breadcrumbs::Breadcrumbs;
 use client::ZED_URL_SCHEME;
 use collections::VecDeque;
 use editor::{scroll::Autoscroll, Editor, MultiBuffer};
+use git_panel::GitPanel;
 use gpui::{
     actions, point, px, AppContext, AsyncAppContext, Context, FocusableView, MenuItem, PromptLevel,
     ReadGlobal, TitlebarOptions, View, ViewContext, VisualContext, WindowKind, WindowOptions,
@@ -165,7 +166,7 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut AppContext) {
                 .unwrap_or(true)
         });
 
-        let project = workspace.project().clone();
+        let project = workspace.project();
         if project.update(cx, |project, cx| {
             project.is_local() || project.ssh_connection_string(cx).is_some()
         }) {
@@ -190,6 +191,7 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut AppContext) {
             let assistant_panel =
                 assistant::AssistantPanel::load(workspace_handle.clone(), cx.clone());
             let project_panel = ProjectPanel::load(workspace_handle.clone(), cx.clone());
+            let git_panel = GitPanel::load(workspace_handle.clone(), cx.clone());
             let terminal_panel = TerminalPanel::load(workspace_handle.clone(), cx.clone());
             let channels_panel =
                 collab_ui::collab_panel::CollabPanel::load(workspace_handle.clone(), cx.clone());
@@ -207,6 +209,7 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut AppContext) {
                 channels_panel,
                 chat_panel,
                 notification_panel,
+                git_panel,
             ) = futures::try_join!(
                 project_panel,
                 terminal_panel,
@@ -214,6 +217,7 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut AppContext) {
                 channels_panel,
                 chat_panel,
                 notification_panel,
+                git_panel
             )?;
 
             workspace_handle.update(&mut cx, |workspace, cx| {
@@ -239,6 +243,7 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut AppContext) {
                     }
                 }
                 workspace.add_panel(channels_panel, cx);
+                workspace.add_panel(git_panel, cx);
                 workspace.add_panel(chat_panel, cx);
                 workspace.add_panel(notification_panel, cx);
                 cx.focus_self();
@@ -3113,6 +3118,7 @@ mod tests {
             project_panel::init_settings(cx);
             collab_ui::init(&app_state, cx);
             project_panel::init((), cx);
+            git_panel::init(cx);
             terminal_view::init(cx);
             assistant::init(app_state.client.clone(), cx);
             tasks_ui::init(cx);
