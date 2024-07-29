@@ -81,15 +81,6 @@ impl DebugPanel {
                                     Self::handle_start_debugging_request(this, client, request, cx)
                                         .log_err();
                                 }
-
-                                // dbg!(request);
-                                // if RunInTerminal::COMMAND == request.command {
-                                //     Self::handle_run_in_terminal_request(&this, request, cx).await?;
-                                // } else if StartDebugging::COMMAND == request.command {
-                                //     Self::handle_start_debugging_request(&this, request, cx).await?;
-                                // } else {
-                                //     unreachable!("Unknown reverse request {}", request.command);
-                                // }
                             }
                             _ => unreachable!(),
                         }

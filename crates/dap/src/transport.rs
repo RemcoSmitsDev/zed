@@ -167,8 +167,6 @@ impl Transport {
 
         let msg = std::str::from_utf8(&content).context("invalid utf8 from server")?;
 
-        dbg!(&msg);
-
         Ok(serde_json::from_str::<Payload>(msg)?)
     }
 
