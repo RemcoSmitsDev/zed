@@ -467,15 +467,22 @@ impl DebugPanel {
                     if !existing_item {
                         let debug_panel = cx.view().clone();
 
-                        let _ = this.workspace.update(cx, |_, cx| {
-                            this.pane.update(cx, |this, cx| {
-                                let tab = cx.new_view(|cx| {
-                                    DebugPanelItem::new(debug_panel, client.clone(), thread_id, cx)
-                                });
+                        this.workspace
+                            .update(cx, |_, cx| {
+                                this.pane.update(cx, |this, cx| {
+                                    let tab = cx.new_view(|cx| {
+                                        DebugPanelItem::new(
+                                            debug_panel,
+                                            client.clone(),
+                                            thread_id,
+                                            cx,
+                                        )
+                                    });
 
-                                this.add_item(Box::new(tab.clone()), false, false, None, cx)
+                                    this.add_item(Box::new(tab.clone()), false, false, None, cx)
+                                })
                             })
-                        });
+                            .log_err();
                     }
 
                     cx.emit(DebugPanelEvent::Stopped((client_id, event)));
