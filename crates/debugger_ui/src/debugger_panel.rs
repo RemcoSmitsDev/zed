@@ -176,7 +176,6 @@ impl DebugPanel {
             workspace.project().update(cx, |project, cx| {
                 // start debug adapter and force to use json as launch params
                 project.start_debug_adapter_client(
-                    DebugAdapterClientId(2),
                     client.config(),
                     client.command.clone(),
                     client.args.clone(),
@@ -253,7 +252,7 @@ impl DebugPanel {
                 editor.go_to_line::<DebugCurrentRowHighlight>(
                     row,
                     column,
-                    Some(cx.theme().colors().editor_highlighted_line_background),
+                    Some(cx.theme().colors().editor_debugger_active_line_background),
                     cx,
                 );
             })

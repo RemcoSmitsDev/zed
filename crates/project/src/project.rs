@@ -192,6 +192,7 @@ pub struct Project {
         HashMap<LanguageServerId, HashMap<String, Vec<FileSystemWatcher>>>,
     client: Arc<client::Client>,
     next_entry_id: Arc<AtomicUsize>,
+    next_debugger_id: AtomicUsize,
     join_project_response_message_id: u32,
     next_diagnostic_group_id: usize,
     diagnostic_summaries:
@@ -823,6 +824,7 @@ impl Project {
                 fs,
                 ssh_session: None,
                 next_entry_id: Default::default(),
+                next_debugger_id: Default::default(),
                 next_diagnostic_group_id: Default::default(),
                 diagnostics: Default::default(),
                 diagnostic_summaries: Default::default(),
@@ -987,6 +989,7 @@ impl Project {
                 fs,
                 ssh_session: None,
                 next_entry_id: Default::default(),
+                next_debugger_id: Default::default(),
                 next_diagnostic_group_id: Default::default(),
                 diagnostic_summaries: Default::default(),
                 diagnostics: Default::default(),
@@ -1220,7 +1223,6 @@ impl Project {
         let request_args = adapter_config.request_args.as_ref().map(|a| a.args.clone());
 
         self.start_debug_adapter_client(
-            DebugAdapterClientId(1),
             adapter_config,
             command,
             args,
@@ -1232,7 +1234,6 @@ impl Project {
 
     pub fn start_debug_adapter_client(
         &mut self,
-        id: DebugAdapterClientId,
         config: DebugAdapterConfig,
         command: String,
         args: Vec<String>,
@@ -1240,6 +1241,7 @@ impl Project {
         request_args: Option<serde_json::Value>,
         cx: &mut ModelContext<Self>,
     ) {
+        let id = DebugAdapterClientId(self.next_debugger_id());
         let task = cx.spawn(|this, mut cx| async move {
             let project = this.clone();
             let client = DebugAdapterClient::new(
@@ -10521,6 +10523,10 @@ impl Project {
         } else {
             Vec::new()
         }
+    }
+
+    fn next_debugger_id(&mut self) -> usize {
+        self.next_debugger_id.fetch_add(1, SeqCst)
     }
 
     pub fn task_context_for_location(
