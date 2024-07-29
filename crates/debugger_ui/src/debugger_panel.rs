@@ -169,12 +169,8 @@ impl DebugPanel {
         }
         merge_json_value_into(arguments.configuration, &mut json);
 
-        dbg!("start debugging request", &json);
-
-        // todo: start new debug adapter with same config only append the data from the request
         this.workspace.update(cx, |workspace, cx| {
             workspace.project().update(cx, |project, cx| {
-                // start debug adapter and force to use json as launch params
                 project.start_debug_adapter_client(
                     client.config(),
                     client.command.clone(),
