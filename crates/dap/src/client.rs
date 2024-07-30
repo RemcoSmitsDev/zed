@@ -14,6 +14,7 @@ use dap_types::{
 };
 use futures::{AsyncBufRead, AsyncReadExt, AsyncWrite};
 use gpui::{AppContext, AsyncAppContext};
+use language::Buffer;
 use parking_lot::{Mutex, MutexGuard};
 use serde_json::Value;
 use smol::{
@@ -34,6 +35,7 @@ use std::{
     time::Duration,
 };
 use task::{DebugAdapterConfig, DebugConnectionType, DebugRequestType, TCPHost};
+use text::Point;
 use util::ResultExt;
 
 #[derive(Copy, Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -368,6 +370,7 @@ impl DebugAdapterClient {
         self.server_tx.send(Payload::Request(request)).await?;
 
         let response = callback_rx.recv().await??;
+        let _ = self.next_sequence_id();
 
         match response.success {
             true => Ok(serde_json::from_value(response.body.unwrap_or_default())?),
@@ -557,5 +560,26 @@ impl DebugAdapterClient {
     pub async fn configuration_done(&self) -> Result<()> {
         self.request::<ConfigurationDone>(ConfigurationDoneArguments)
             .await
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct Breakpoint {
+    pub position: multi_buffer::Anchor,
+}
+
+impl Breakpoint {
+    pub fn to_source_breakpoint(&self, buffer: &Buffer) -> SourceBreakpoint {
+        SourceBreakpoint {
+            line: (buffer
+                .summary_for_anchor::<Point>(&self.position.text_anchor)
+                .row
+                + 1) as u64,
+            condition: None,
+            hit_condition: None,
+            log_message: None,
+            column: None,
+            mode: None,
+        }
     }
 }
