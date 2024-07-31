@@ -582,7 +582,18 @@ impl DebugAdapterClient {
     }
 
     pub async fn configuration_done(&self) -> Result<()> {
-        self.request::<ConfigurationDone>(ConfigurationDoneArguments)
+        let support_configuration_done_request = self
+            .capabilities()
+            .supports_configuration_done_request
+            .unwrap_or_default();
+
+        if support_configuration_done_request {
+            self.request::<ConfigurationDone>(ConfigurationDoneArguments)
+                .await
+        } else {
+            Ok(())
+        }
+    }
             .await
     }
 
