@@ -4,13 +4,13 @@ use anyhow::{anyhow, Context, Result};
 use dap_types::{
     requests::{
         Attach, ConfigurationDone, Continue, Disconnect, Initialize, Launch, Next, Pause, Request,
-        Restart, SetBreakpoints, StepBack, StepIn, StepOut,
+        Restart, SetBreakpoints, StepBack, StepIn, StepOut, TerminateThreads,
     },
     AttachRequestArguments, ConfigurationDoneArguments, ContinueArguments, ContinueResponse,
     DisconnectArguments, InitializeRequestArgumentsPathFormat, LaunchRequestArguments,
     NextArguments, PauseArguments, RestartArguments, Scope, SetBreakpointsArguments,
     SetBreakpointsResponse, Source, SourceBreakpoint, StackFrame, StepBackArguments,
-    StepInArguments, StepOutArguments, SteppingGranularity, Variable,
+    StepInArguments, StepOutArguments, SteppingGranularity, TerminateThreadsArguments, Variable,
 };
 use futures::{AsyncBufRead, AsyncReadExt, AsyncWrite};
 use gpui::{AppContext, AsyncAppContext};
@@ -524,14 +524,13 @@ impl DebugAdapterClient {
             .log_err();
     }
 
-    pub async fn stop(&self) {
+    pub async fn stop(&self) -> Result<()> {
         self.request::<Disconnect>(DisconnectArguments {
             restart: Some(false),
             terminate_debuggee: Some(false),
             suspend_debuggee: Some(false),
         })
         .await
-        .log_err();
     }
 
     pub async fn set_breakpoints(
@@ -561,6 +560,11 @@ impl DebugAdapterClient {
 
     pub async fn configuration_done(&self) -> Result<()> {
         self.request::<ConfigurationDone>(ConfigurationDoneArguments)
+            .await
+    }
+
+    pub async fn terminate_threads(&self, thread_ids: Option<Vec<u64>>) -> Result<()> {
+        self.request::<TerminateThreads>(TerminateThreadsArguments { thread_ids })
             .await
     }
 }
