@@ -531,10 +531,27 @@ impl DebugAdapterClient {
     }
 
     pub async fn step_out(&self, thread_id: u64) -> Result<()> {
+        let capabilities = self.capabilities();
+
+        let supports_single_thread_execution_requests = capabilities
+            .supports_single_thread_execution_requests
+            .unwrap_or_default();
+        let supports_stepping_granularity = capabilities
+            .supports_stepping_granularity
+            .unwrap_or_default();
+
         self.request::<StepOut>(StepOutArguments {
             thread_id,
-            granularity: Some(SteppingGranularity::Statement),
-            single_thread: Some(true),
+            granularity: if supports_stepping_granularity {
+                Some(SteppingGranularity::Statement)
+            } else {
+                None
+            },
+            single_thread: if supports_single_thread_execution_requests {
+                Some(true)
+            } else {
+                None
+            },
         })
         .await
     }
