@@ -461,9 +461,18 @@ impl DebugAdapterClient {
     }
 
     pub async fn resume(&self, thread_id: u64) -> Result<ContinueResponse> {
+        let supports_single_thread_execution_requests = self
+            .capabilities()
+            .supports_single_thread_execution_requests
+            .unwrap_or_default();
+
         self.request::<Continue>(ContinueArguments {
             thread_id,
-            single_thread: Some(true),
+            single_thread: if supports_single_thread_execution_requests {
+                Some(true)
+            } else {
+                None
+            },
         })
         .await
     }
