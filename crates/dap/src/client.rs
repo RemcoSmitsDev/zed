@@ -557,10 +557,27 @@ impl DebugAdapterClient {
     }
 
     pub async fn step_back(&self, thread_id: u64) -> Result<()> {
+        let capabilities = self.capabilities();
+
+        let supports_single_thread_execution_requests = capabilities
+            .supports_single_thread_execution_requests
+            .unwrap_or_default();
+        let supports_stepping_granularity = capabilities
+            .supports_stepping_granularity
+            .unwrap_or_default();
+
         self.request::<StepBack>(StepBackArguments {
             thread_id,
-            single_thread: Some(true),
-            granularity: Some(SteppingGranularity::Statement),
+            granularity: if supports_stepping_granularity {
+                Some(SteppingGranularity::Statement)
+            } else {
+                None
+            },
+            single_thread: if supports_single_thread_execution_requests {
+                Some(true)
+            } else {
+                None
+            },
         })
         .await
     }
