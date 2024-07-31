@@ -587,8 +587,17 @@ impl DebugAdapterClient {
     }
 
     pub async fn terminate_threads(&self, thread_ids: Option<Vec<u64>>) -> Result<()> {
-        self.request::<TerminateThreads>(TerminateThreadsArguments { thread_ids })
-            .await
+        let support_terminate_threads = self
+            .capabilities()
+            .supports_terminate_threads_request
+            .unwrap_or_default();
+
+        if support_terminate_threads {
+            self.request::<TerminateThreads>(TerminateThreadsArguments { thread_ids })
+                .await
+        } else {
+            self.disconnect(None, Some(true), None).await
+        }
     }
 }
 
