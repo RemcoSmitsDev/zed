@@ -397,7 +397,7 @@ impl DebugPanelItem {
 
         cx.background_executor()
             .spawn(async move { client.restart().await })
-            .detach();
+            .detach_and_log_err(cx);
     }
 
     fn handle_pause_action(&mut self, _: &Pause, cx: &mut ViewContext<Self>) {
@@ -405,7 +405,7 @@ impl DebugPanelItem {
         let thread_id = self.thread_id;
         cx.background_executor()
             .spawn(async move { client.pause(thread_id).await })
-            .detach();
+            .detach_and_log_err(cx);
     }
 
     fn handle_stop_action(&mut self, _: &Stop, cx: &mut ViewContext<Self>) {
@@ -414,14 +414,14 @@ impl DebugPanelItem {
 
         cx.background_executor()
             .spawn(async move { client.terminate_threads(Some(thread_ids)).await })
-            .detach();
+            .detach_and_log_err(cx);
     }
 
     fn handle_disconnect_action(&mut self, _: &Disconnect, cx: &mut ViewContext<Self>) {
         let client = self.client.clone();
         cx.background_executor()
             .spawn(async move { client.disconnect(None, Some(true), None).await })
-            .detach();
+            .detach_and_log_err(cx);
     }
 }
 

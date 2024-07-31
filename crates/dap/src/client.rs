@@ -582,7 +582,7 @@ impl DebugAdapterClient {
         .await
     }
 
-    pub async fn restart(&self) {
+    pub async fn restart(&self) -> Result<()> {
         self.request::<Restart>(RestartArguments {
             raw: self
                 .config
@@ -592,13 +592,10 @@ impl DebugAdapterClient {
                 .unwrap_or(Value::Null),
         })
         .await
-        .log_err();
     }
 
-    pub async fn pause(&self, thread_id: u64) {
-        self.request::<Pause>(PauseArguments { thread_id })
-            .await
-            .log_err();
+    pub async fn pause(&self, thread_id: u64) -> Result<()> {
+        self.request::<Pause>(PauseArguments { thread_id }).await
     }
 
     pub async fn disconnect(
