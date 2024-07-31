@@ -524,11 +524,34 @@ impl DebugAdapterClient {
             .log_err();
     }
 
-    pub async fn stop(&self) -> Result<()> {
+    pub async fn disconnect(
+        &self,
+        restart: Option<bool>,
+        terminate: Option<bool>,
+        suspend: Option<bool>,
+    ) -> Result<()> {
+        let supports_terminate_debuggee = self
+            .capabilities()
+            .support_terminate_debuggee
+            .unwrap_or_default();
+
+        let supports_suspend_debuggee = self
+            .capabilities()
+            .support_terminate_debuggee
+            .unwrap_or_default();
+
         self.request::<Disconnect>(DisconnectArguments {
-            restart: Some(false),
-            terminate_debuggee: Some(false),
-            suspend_debuggee: Some(false),
+            restart,
+            terminate_debuggee: if supports_terminate_debuggee {
+                terminate
+            } else {
+                None
+            },
+            suspend_debuggee: if supports_suspend_debuggee {
+                suspend
+            } else {
+                None
+            },
         })
         .await
     }
