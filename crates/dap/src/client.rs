@@ -538,7 +538,7 @@ impl DebugAdapterClient {
         path: PathBuf,
         breakpoints: Option<Vec<SourceBreakpoint>>,
     ) -> Result<SetBreakpointsResponse> {
-        let adapter_data = self.config.request_args.clone().map(|c| c.args);
+        let adapter_data = self.request_args.clone();
 
         self.request::<SetBreakpoints>(SetBreakpointsArguments {
             source: Source {
