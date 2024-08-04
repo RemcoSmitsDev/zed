@@ -544,12 +544,14 @@ impl DebugPanel {
         _: &ExitedEvent,
         cx: &mut ViewContext<Self>,
     ) {
-        cx.spawn(|_, _| async move {
+        cx.spawn(|this, mut cx| async move {
             for thread_state in client.thread_states().values_mut() {
                 thread_state.status = ThreadStatus::Exited;
             }
+
+            this.update(&mut cx, |_, cx| cx.notify())
         })
-        .detach();
+        .detach_and_log_err(cx);
     }
 
     fn handle_terminated_event(
