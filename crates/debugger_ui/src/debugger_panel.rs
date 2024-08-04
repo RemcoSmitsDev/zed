@@ -522,6 +522,8 @@ impl DebugPanel {
         } else {
             client.update_thread_state_status(thread_id, ThreadStatus::Ended);
 
+            cx.notify();
+
             // TODO: we want to figure out for witch clients/threads we should remove the highlights
             cx.spawn({
                 let client = client.clone();
