@@ -5,9 +5,9 @@ use dap::requests::{Disconnect, Request, Scopes, StackTrace, StartDebugging, Var
 use dap::transport::Payload;
 use dap::{client::DebugAdapterClient, transport::Events};
 use dap::{
-    Capabilities, ContinuedEvent, DisconnectArguments, ExitedEvent, Scope, ScopesArguments,
-    StackFrame, StackTraceArguments, StartDebuggingRequestArguments, StoppedEvent, TerminatedEvent,
-    ThreadEvent, ThreadEventReason, Variable, VariablesArguments,
+    Capabilities, ContinuedEvent, DisconnectArguments, ExitedEvent, OutputEvent, Scope,
+    ScopesArguments, StackFrame, StackTraceArguments, StartDebuggingRequestArguments, StoppedEvent,
+    TerminatedEvent, ThreadEvent, ThreadEventReason, Variable, VariablesArguments,
 };
 use editor::Editor;
 use futures::future::try_join_all;
@@ -29,10 +29,10 @@ use workspace::{
 
 enum DebugCurrentRowHighlight {}
 
-#[derive(Debug)]
 pub enum DebugPanelEvent {
     Stopped((DebugAdapterClientId, StoppedEvent)),
     Thread((DebugAdapterClientId, ThreadEvent)),
+    Output((DebugAdapterClientId, OutputEvent)),
 }
 
 actions!(debug_panel, [ToggleFocus]);
@@ -187,7 +187,7 @@ impl DebugPanel {
             Events::Exited(event) => Self::handle_exited_event(client, event, cx),
             Events::Terminated(event) => Self::handle_terminated_event(this, client, event, cx),
             Events::Thread(event) => Self::handle_thread_event(client, event, cx),
-            Events::Output(_) => {}
+            Events::Output(event) => Self::handle_output_event(client, event, cx),
             Events::Breakpoint(_) => {}
             Events::Module(_) => {}
             Events::LoadedSource(_) => {}
@@ -582,6 +582,14 @@ impl DebugPanel {
             }
         })
         .detach_and_log_err(cx);
+    }
+
+    fn handle_output_event(
+        client: Arc<DebugAdapterClient>,
+        event: &OutputEvent,
+        cx: &mut ViewContext<Self>,
+    ) {
+        cx.emit(DebugPanelEvent::Output((client.id(), event.clone())));
     }
 }
 

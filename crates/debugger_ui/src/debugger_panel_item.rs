@@ -1,7 +1,8 @@
 use crate::debugger_panel::{DebugPanel, DebugPanelEvent};
 use anyhow::Result;
 use dap::client::{DebugAdapterClient, DebugAdapterClientId, ThreadState, ThreadStatus};
-use dap::{Scope, StackFrame, StoppedEvent, ThreadEvent, Variable};
+use dap::{OutputEvent, Scope, StackFrame, StoppedEvent, ThreadEvent, Variable};
+use editor::Editor;
 use gpui::{
     actions, list, AnyElement, AppContext, AsyncWindowContext, EventEmitter, FocusHandle,
     FocusableView, ListState, Subscription, View, WeakView,
@@ -26,6 +27,7 @@ pub struct DebugPanelItem {
     _subscriptions: Vec<Subscription>,
     current_stack_frame_id: Option<u64>,
     active_thread_item: ThreadItem,
+    output_editor: View<Editor>,
 }
 
 actions!(
@@ -62,14 +64,33 @@ impl DebugPanelItem {
                     DebugPanelEvent::Thread((client_id, event)) => {
                         Self::handle_thread_event(this, client_id, event, cx)
                     }
+                    DebugPanelEvent::Output((client_id, event)) => {
+                        Self::handle_output_event(this, client_id, event, cx)
+                    }
                 };
             }
         })];
+
+        let output_editor = cx.new_view(|cx| {
+            let mut editor = Editor::multi_line(cx);
+            editor.move_to_end(&editor::actions::MoveToEnd, cx);
+            editor.set_placeholder_text("Debug adapter and script output", cx);
+            editor.set_read_only(true);
+            editor.set_show_inline_completions(false);
+            editor.set_searchable(true);
+            editor.set_auto_replace_emoji_shortcode(false);
+            editor.set_show_indent_guides(false, cx);
+            editor.set_autoindent(false);
+            editor.set_show_gutter(false, cx);
+            editor.set_show_line_numbers(false, cx);
+            editor
+        });
 
         Self {
             client,
             thread_id,
             focus_handle,
+            output_editor,
             _subscriptions,
             stack_frame_list,
             current_stack_frame_id: None,
@@ -111,6 +132,25 @@ impl DebugPanelItem {
         }
 
         // TODO: handle thread event
+    }
+
+    fn handle_output_event(
+        this: &mut Self,
+        client_id: &DebugAdapterClientId,
+        event: &OutputEvent,
+        cx: &mut ViewContext<Self>,
+    ) {
+        if Self::should_skip_event(this, client_id, this.thread_id) {
+            return;
+        }
+
+        this.output_editor.update(cx, |editor, cx| {
+            editor.set_read_only(false);
+            editor.insert(&event.output.as_str(), cx);
+            editor.set_read_only(true);
+
+            cx.notify();
+        });
     }
 }
 
@@ -614,6 +654,9 @@ impl Render for DebugPanelItem {
                     )
                     .when(*active_thread_item == ThreadItem::Variables, |this| {
                         this.child(self.render_scopes(cx))
+                    })
+                    .when(*active_thread_item == ThreadItem::Output, |this| {
+                        this.child(self.output_editor.clone())
                     }),
             )
             .into_any()
