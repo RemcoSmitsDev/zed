@@ -73,7 +73,6 @@ impl DebugPanelItem {
 
         let output_editor = cx.new_view(|cx| {
             let mut editor = Editor::multi_line(cx);
-            editor.move_to_end(&editor::actions::MoveToEnd, cx);
             editor.set_placeholder_text("Debug adapter and script output", cx);
             editor.set_read_only(true);
             editor.set_show_inline_completions(false);
