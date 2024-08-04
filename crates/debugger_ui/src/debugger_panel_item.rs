@@ -157,10 +157,7 @@ impl DebugPanelItem {
         this.output_editor.update(cx, |editor, cx| {
             editor.set_read_only(false);
             editor.move_to_end(&editor::actions::MoveToEnd, cx);
-            if !editor.text(cx).is_empty() {
-                editor.insert("\n", cx);
-            }
-            editor.insert(&event.output.trim_end(), cx);
+            editor.insert(format!("{}\n", &event.output.trim_end()).as_str(), cx);
             editor.set_read_only(true);
 
             cx.notify();
