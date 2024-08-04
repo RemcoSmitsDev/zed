@@ -1,7 +1,9 @@
 use crate::debugger_panel::{DebugPanel, DebugPanelEvent};
 use anyhow::Result;
 use dap::client::{DebugAdapterClient, DebugAdapterClientId, ThreadState, ThreadStatus};
-use dap::{OutputEvent, Scope, StackFrame, StoppedEvent, ThreadEvent, Variable};
+use dap::{
+    OutputEvent, OutputEventCategory, Scope, StackFrame, StoppedEvent, ThreadEvent, Variable,
+};
 use editor::Editor;
 use gpui::{
     actions, list, AnyElement, AppContext, AsyncWindowContext, EventEmitter, FocusHandle,
@@ -140,6 +142,15 @@ impl DebugPanelItem {
         cx: &mut ViewContext<Self>,
     ) {
         if Self::should_skip_event(this, client_id, this.thread_id) {
+            return;
+        }
+
+        if event
+            .category
+            .as_ref()
+            .map(|c| *c == OutputEventCategory::Telemetry)
+            .unwrap_or(false)
+        {
             return;
         }
 
