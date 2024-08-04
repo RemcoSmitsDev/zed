@@ -478,6 +478,8 @@ impl DebugPanel {
 
                     cx.emit(DebugPanelEvent::Stopped((client_id, event)));
 
+                    cx.notify();
+
                     if let Some(item) = this.pane.read(cx).active_item() {
                         if let Some(pane) = item.downcast::<DebugPanelItem>() {
                             let pane = pane.read(cx);
