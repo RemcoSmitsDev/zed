@@ -149,7 +149,7 @@ impl DebugPanelItem {
             if !editor.text(cx).is_empty() {
                 editor.insert("\n", cx);
             }
-            editor.insert(&event.output.as_str(), cx);
+            editor.insert(&event.output.trim_end(), cx);
             editor.set_read_only(true);
 
             cx.notify();
