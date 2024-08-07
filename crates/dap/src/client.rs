@@ -38,6 +38,16 @@ use std::{
 use task::{DebugAdapterConfig, DebugConnectionType, DebugRequestType, TCPHost};
 use text::Point;
 
+#[derive(Debug, Clone)]
+pub enum ThreadEntry {
+    Scope(Scope),
+    Variable {
+        depth: usize,
+        variable: Variable,
+        has_children: bool,
+    },
+}
+
 #[derive(Copy, Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ThreadStatus {
     #[default]
@@ -55,8 +65,7 @@ pub struct DebugAdapterClientId(pub usize);
 pub struct ThreadState {
     pub status: ThreadStatus,
     pub stack_frames: Vec<StackFrame>,
-    pub scopes: HashMap<u64, Vec<Scope>>, // stack_frame_id -> scopes
-    pub variables: HashMap<u64, Vec<Variable>>, // scope.variable_reference -> variables
+    pub stack_frame_entries: HashMap<u64, Vec<ThreadEntry>>, // stack_frame_id -> ThreadEntry(scope & variables)
     pub current_stack_frame_id: Option<u64>,
 }
 

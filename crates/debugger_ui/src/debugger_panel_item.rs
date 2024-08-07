@@ -1,6 +1,8 @@
 use crate::debugger_panel::{DebugPanel, DebugPanelEvent};
 use anyhow::Result;
-use dap::client::{DebugAdapterClient, DebugAdapterClientId, ThreadState, ThreadStatus};
+use dap::client::{
+    DebugAdapterClient, DebugAdapterClientId, ThreadEntry, ThreadState, ThreadStatus,
+};
 use dap::{
     OutputEvent, OutputEventCategory, Scope, StackFrame, StoppedEvent, ThreadEvent, Variable,
 };
@@ -21,28 +23,17 @@ enum ThreadItem {
     Output,
 }
 
-#[derive(Debug)]
-enum VariableListEntry {
-    Scope(Scope),
-    Variable {
-        depth: usize,
-        variable: Variable,
-        has_children: bool,
-    },
-}
-
 pub struct DebugPanelItem {
     thread_id: u64,
     variable_list: ListState,
     focus_handle: FocusHandle,
     stack_frame_list: ListState,
     output_editor: View<Editor>,
-    collapsed_variables: Vec<u64>,
+    collapsed_variables: Vec<SharedString>,
     active_thread_item: ThreadItem,
     client: Arc<DebugAdapterClient>,
     _subscriptions: Vec<Subscription>,
     current_stack_frame_id: Option<u64>,
-    variable_list_entries: Vec<VariableListEntry>,
 }
 
 actions!(
@@ -121,7 +112,6 @@ impl DebugPanelItem {
             stack_frame_list,
             current_stack_frame_id: None,
             collapsed_variables: Default::default(),
-            variable_list_entries: Default::default(),
             active_thread_item: ThreadItem::Variables,
         }
     }
@@ -149,7 +139,9 @@ impl DebugPanelItem {
         this.stack_frame_list.reset(thread_state.stack_frames.len());
         this.current_stack_frame_id = thread_state.stack_frames.first().map(|s| s.id);
 
-        this.build_variable_list_entries(thread_state.stack_frames.first().unwrap().id);
+        if let Some(stack_frame_id) = this.current_stack_frame_id {
+            this.build_variable_list_entries(stack_frame_id);
+        }
 
         cx.notify();
     }
@@ -267,35 +259,47 @@ impl DebugPanelItem {
         ix: usize,
         cx: &mut ViewContext<Self>,
     ) -> AnyElement {
-        match &self.variable_list_entries[ix] {
-            VariableListEntry::Scope(scope) => self.render_scope(scope, cx),
-            VariableListEntry::Variable {
+        let thread_state = self.current_thread_state();
+        let Some(entries) = thread_state
+            .stack_frame_entries
+            .get(&self.current_stack_frame_id.unwrap_or_default())
+        else {
+            return div().into_any_element();
+        };
+
+        match &entries[ix] {
+            ThreadEntry::Scope(scope) => self.render_scope(scope, cx),
+            ThreadEntry::Variable {
                 depth,
                 variable,
                 has_children,
+                ..
             } => self.render_variable(variable.clone(), *depth, *has_children, cx),
         }
     }
 
     fn render_scope(&self, scope: &Scope, cx: &mut ViewContext<Self>) -> AnyElement {
-        let scope_id = scope.variables_reference;
+        let element_id = scope.variables_reference;
 
-        let disclosed = self.collapsed_variables.binary_search(&scope_id).is_err();
+        let scope_id = SharedString::from(format!("scope-{}", element_id));
+        let disclosed = self
+            .collapsed_variables
+            .binary_search(&scope_id.clone())
+            .is_err();
 
         div()
-            .id(scope_id as usize)
+            .id(element_id as usize)
             .group("")
             .flex()
             .w_full()
             .h_full()
             .child(
-                ListItem::new(scope_id as usize)
+                ListItem::new(element_id as usize)
                     .indent_level(1)
-                    .selected(false)
                     .toggle(disclosed)
                     .on_toggle(
                         cx.listener(move |this, _, cx| {
-                            this.toggle_variable_collapsed(scope_id, cx)
+                            this.toggle_variable_collapsed(&scope_id, cx)
                         }),
                     )
                     .child(div().text_ui(cx).h_6().w_full().child(scope.name.clone())),
@@ -310,8 +314,7 @@ impl DebugPanelItem {
         has_children: bool,
         cx: &mut ViewContext<Self>,
     ) -> AnyElement {
-        let variable_id = variable.variables_reference;
-
+        let variable_id = SharedString::from(format!("variable-{}", variable.name));
         let disclosed = has_children.then(|| {
             self.collapsed_variables
                 .binary_search(&variable_id)
@@ -329,10 +332,9 @@ impl DebugPanelItem {
                 ListItem::new(element_id)
                     .indent_level(depth + 1)
                     .indent_step_size(px(20.))
-                    .selected(false)
                     .toggle(disclosed)
                     .on_toggle(cx.listener(move |this, _, cx| {
-                        this.toggle_variable_collapsed(variable_id, cx)
+                        this.toggle_variable_collapsed(&variable_id, cx)
                     }))
                     .child(
                         h_flex()
@@ -416,31 +418,12 @@ impl DebugPanelItem {
     }
 
     pub fn build_variable_list_entries(&mut self, stack_frame_id: u64) {
-        let mut entries: Vec<VariableListEntry> = vec![];
-
         let thread_state = self.current_thread_state();
-        let scopes = thread_state.scopes.get(&stack_frame_id).unwrap();
+        let Some(entries) = thread_state.stack_frame_entries.get(&stack_frame_id) else {
+            return;
+        };
 
-        for scope in scopes {
-            entries.push(VariableListEntry::Scope(scope.clone()));
-
-            let variables = thread_state
-                .variables
-                .get(&scope.variables_reference)
-                .unwrap();
-
-            for variable in variables {
-                entries.push(VariableListEntry::Variable {
-                    depth: 0,
-                    variable: variable.clone(),
-                    has_children: variable.variables_reference > 0,
-                });
-            }
-        }
-
-        let len = entries.len();
-        self.variable_list_entries = entries;
-        self.variable_list.reset(len);
+        self.variable_list.reset(entries.len());
     }
 
     // fn render_scopes(&self, cx: &mut ViewContext<Self>) -> impl IntoElement {
@@ -631,15 +614,24 @@ impl DebugPanelItem {
             .detach_and_log_err(cx);
     }
 
-    fn toggle_variable_collapsed(&mut self, variable_id: u64, cx: &mut ViewContext<Self>) {
+    fn toggle_variable_collapsed(
+        &mut self,
+        variable_id: &SharedString,
+        cx: &mut ViewContext<Self>,
+    ) {
         match self.collapsed_variables.binary_search(&variable_id) {
             Ok(ix) => {
                 self.collapsed_variables.remove(ix);
             }
             Err(ix) => {
-                self.collapsed_variables.insert(ix, variable_id);
+                self.collapsed_variables.insert(ix, variable_id.clone());
             }
         };
+
+        if let Some(stack_frame_id) = self.current_stack_frame_id {
+            self.build_variable_list_entries(stack_frame_id);
+        }
+
         cx.notify();
     }
 }
