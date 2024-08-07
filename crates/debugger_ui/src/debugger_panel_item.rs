@@ -9,6 +9,7 @@ use gpui::{
     actions, list, AnyElement, AppContext, AsyncWindowContext, EventEmitter, FocusHandle,
     FocusableView, ListState, Subscription, View, WeakView,
 };
+use std::fmt::format;
 use std::sync::Arc;
 use ui::{prelude::*, Tooltip};
 use ui::{ListItem, WindowContext};
@@ -306,13 +307,15 @@ impl DebugPanelItem {
 
         let disclosed = self.collapsed_variables.binary_search(&variable_id).is_ok();
 
+        let element_id = SharedString::from(format!("{}-{}", variable.name, variable_id));
+
         div()
-            .id(variable_id as usize)
+            .id(element_id.clone())
             .group("")
             .h_4()
             .size_full()
             .child(
-                ListItem::new(variable_id as usize)
+                ListItem::new(element_id)
                     .indent_level(depth + 1)
                     .indent_step_size(px(20.))
                     .selected(false)
