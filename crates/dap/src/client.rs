@@ -66,7 +66,7 @@ pub struct ThreadState {
     pub status: ThreadStatus,
     pub stack_frames: Vec<StackFrame>,
     pub stack_frame_entries: HashMap<u64, Vec<ThreadEntry>>, // stack_frame_id -> ThreadEntry(scope & variables)
-    pub current_stack_frame_id: Option<u64>,
+    pub current_stack_frame_id: u64,
 }
 
 pub struct DebugAdapterClient {

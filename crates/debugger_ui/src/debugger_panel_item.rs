@@ -33,7 +33,6 @@ pub struct DebugPanelItem {
     active_thread_item: ThreadItem,
     client: Arc<DebugAdapterClient>,
     _subscriptions: Vec<Subscription>,
-    current_stack_frame_id: Option<u64>,
 }
 
 actions!(
@@ -110,7 +109,6 @@ impl DebugPanelItem {
             output_editor,
             _subscriptions,
             stack_frame_list,
-            current_stack_frame_id: None,
             collapsed_variables: Default::default(),
             active_thread_item: ThreadItem::Variables,
         }
@@ -137,11 +135,10 @@ impl DebugPanelItem {
         let thread_state = this.current_thread_state();
 
         this.stack_frame_list.reset(thread_state.stack_frames.len());
-        this.current_stack_frame_id = thread_state.stack_frames.first().map(|s| s.id);
-
-        if let Some(stack_frame_id) = this.current_stack_frame_id {
+        if let Some(stack_frame_id) = thread_state.stack_frames.first().map(|s| s.id) {
+            this.update_stack_frame_id(stack_frame_id);
             this.build_variable_list_entries(stack_frame_id);
-        }
+        };
 
         cx.notify();
     }
@@ -254,6 +251,15 @@ impl DebugPanelItem {
             .unwrap()
     }
 
+    fn update_stack_frame_id(&self, stack_frame_id: u64) {
+        let mut thread_state = self.client.thread_states();
+        let Some(thread_state) = thread_state.get_mut(&self.thread_id) else {
+            return;
+        };
+
+        thread_state.current_stack_frame_id = stack_frame_id;
+    }
+
     pub fn render_variable_list_entry(
         &mut self,
         ix: usize,
@@ -262,7 +268,7 @@ impl DebugPanelItem {
         let thread_state = self.current_thread_state();
         let Some(entries) = thread_state
             .stack_frame_entries
-            .get(&self.current_stack_frame_id.unwrap_or_default())
+            .get(&thread_state.current_stack_frame_id)
         else {
             return div().into_any_element();
         };
@@ -364,8 +370,8 @@ impl DebugPanelItem {
         let stack_frame = self.stack_frame_for_index(ix);
 
         let source = stack_frame.source.clone();
-        let selected_frame_id = self.current_stack_frame_id;
-        let is_selected_frame = Some(stack_frame.id) == selected_frame_id;
+        let is_selected_frame =
+            stack_frame.id == self.current_thread_state().current_stack_frame_id;
 
         let formatted_path = format!(
             "{}:{}",
@@ -387,8 +393,10 @@ impl DebugPanelItem {
             })
             .on_click(cx.listener({
                 let stack_frame = stack_frame.clone();
-                move |this, _, _| {
-                    this.current_stack_frame_id = Some(stack_frame.id);
+                move |this, _, cx| {
+                    this.update_stack_frame_id(stack_frame.id);
+
+                    cx.notify();
 
                     // let client = this.client();
                     // DebugPanel::go_to_stack_frame(&stack_frame, client, true, cx)
@@ -628,9 +636,7 @@ impl DebugPanelItem {
             }
         };
 
-        if let Some(stack_frame_id) = self.current_stack_frame_id {
-            self.build_variable_list_entries(stack_frame_id);
-        }
+        self.build_variable_list_entries(self.current_thread_state().current_stack_frame_id);
 
         cx.notify();
     }

@@ -490,7 +490,7 @@ impl DebugPanel {
                         .entry(thread_id)
                         .or_insert(ThreadState::default());
 
-                    thread_state.current_stack_frame_id = Some(current_stack_frame.clone().id);
+                    thread_state.current_stack_frame_id = current_stack_frame.clone().id;
                     thread_state.stack_frames = stack_trace_response.stack_frames;
                     thread_state.stack_frame_entries = stack_frame_entries;
                     thread_state.status = ThreadStatus::Stopped;
