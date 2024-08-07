@@ -9,7 +9,6 @@ use gpui::{
     actions, list, AnyElement, AppContext, AsyncWindowContext, EventEmitter, FocusHandle,
     FocusableView, ListState, Subscription, View, WeakView,
 };
-use std::fmt::format;
 use std::sync::Arc;
 use ui::{prelude::*, Tooltip};
 use ui::{ListItem, WindowContext};
@@ -25,7 +24,11 @@ enum ThreadItem {
 #[derive(Debug)]
 enum VariableListEntry {
     Scope(Scope),
-    Variable { depth: usize, variable: Variable },
+    Variable {
+        depth: usize,
+        variable: Variable,
+        has_children: bool,
+    },
 }
 
 pub struct DebugPanelItem {
@@ -265,16 +268,18 @@ impl DebugPanelItem {
     ) -> AnyElement {
         match &self.variable_list_entries[ix] {
             VariableListEntry::Scope(scope) => self.render_scope(scope, cx),
-            VariableListEntry::Variable { depth, variable } => {
-                self.render_variable(depth, variable, cx)
-            }
+            VariableListEntry::Variable {
+                depth,
+                variable,
+                has_children,
+            } => self.render_variable(variable.clone(), *depth, *has_children, cx),
         }
     }
 
     fn render_scope(&self, scope: &Scope, cx: &mut ViewContext<Self>) -> AnyElement {
         let scope_id = scope.variables_reference;
 
-        let disclosed = self.collapsed_variables.binary_search(&scope_id).is_ok();
+        let disclosed = self.collapsed_variables.binary_search(&scope_id).is_err();
 
         div()
             .id(scope_id as usize)
@@ -299,13 +304,18 @@ impl DebugPanelItem {
 
     fn render_variable(
         &self,
-        depth: &usize,
-        variable: &Variable,
+        variable: Variable,
+        depth: usize,
+        has_children: bool,
         cx: &mut ViewContext<Self>,
     ) -> AnyElement {
         let variable_id = variable.variables_reference;
 
-        let disclosed = self.collapsed_variables.binary_search(&variable_id).is_ok();
+        let disclosed = has_children.then(|| {
+            self.collapsed_variables
+                .binary_search(&variable_id)
+                .is_err()
+        });
 
         let element_id = SharedString::from(format!("{}-{}", variable.name, variable_id));
 
@@ -422,6 +432,7 @@ impl DebugPanelItem {
                 entries.push(VariableListEntry::Variable {
                     depth: 0,
                     variable: variable.clone(),
+                    has_children: variable.variables_reference > 0,
                 });
             }
         }
