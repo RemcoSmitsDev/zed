@@ -147,6 +147,7 @@ impl DebugPanelItem {
         let thread_state = this.current_thread_state();
 
         this.stack_frame_list.reset(thread_state.stack_frames.len());
+        this.current_stack_frame_id = thread_state.stack_frames.first().map(|s| s.id);
 
         this.build_variable_list_entries(thread_state.stack_frames.first().unwrap().id);
 
