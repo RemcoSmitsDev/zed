@@ -408,25 +408,25 @@ impl DebugPanel {
         for variable in response.variables {
             let client = client.clone();
             tasks.push(async move {
-                let mut variables = Vec::new();
-                variables.push(ThreadEntry::Variable {
+                let mut entries = Vec::new();
+                entries.push(ThreadEntry::Variable {
                     depth,
                     variable: variable.clone(),
                     has_children: variable.variables_reference > 0,
                 });
 
                 if variable.variables_reference > 0 {
-                    let mut nested_variables = Box::pin(Self::fetch_variables(
+                    let mut nested_entries = Box::pin(Self::fetch_variables(
                         client,
                         variable.variables_reference,
                         depth + 1,
                     ))
                     .await?;
 
-                    variables.append(&mut nested_variables);
+                    entries.append(&mut nested_entries);
                 }
 
-                anyhow::Ok(variables)
+                anyhow::Ok(entries)
             });
         }
 
