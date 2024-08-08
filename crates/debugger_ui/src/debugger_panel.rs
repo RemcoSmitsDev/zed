@@ -468,20 +468,34 @@ impl DebugPanel {
 
                 let mut stack_frame_entries: HashMap<u64, Vec<ThreadEntry>> = HashMap::new();
 
-                for (thread_id, response) in try_join_all(scope_tasks).await? {
+                let mut tasks = Vec::new();
+
+                for (stack_frame_id, response) in try_join_all(scope_tasks).await? {
+                    let client = client.clone();
+                    tasks.push(async move {
+                        let mut entries = Vec::new();
+
+                        for scope in response.scopes {
+                            let scope_reference = scope.variables_reference;
+
+                            entries.push(ThreadEntry::Scope(scope));
+
+                            entries.append(
+                                &mut Self::fetch_variables(client.clone(), scope_reference, 1)
+                                    .await?,
+                            );
+                        }
+
+                        anyhow::Ok((stack_frame_id, entries))
+                    });
+                }
+
+                for (stack_frame_id, mut scope_entries) in try_join_all(tasks).await? {
                     let entries = stack_frame_entries
-                        .entry(thread_id)
+                        .entry(stack_frame_id)
                         .or_insert(Vec::default());
 
-                    for scope in response.scopes {
-                        let scope_reference = scope.variables_reference;
-
-                        entries.push(ThreadEntry::Scope(scope));
-
-                        entries.append(
-                            &mut Self::fetch_variables(client.clone(), scope_reference, 1).await?,
-                        );
-                    }
+                    entries.append(&mut scope_entries);
                 }
 
                 this.update(&mut cx, |this, cx| {
