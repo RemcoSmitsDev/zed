@@ -3,11 +3,11 @@ use anyhow::Result;
 use dap::client::{DebugAdapterClientId, ThreadState, ThreadStatus};
 use dap::requests::{Disconnect, Request, Scopes, StackTrace, StartDebugging, Variables};
 use dap::transport::Payload;
-use dap::{client::DebugAdapterClient, transport::Events};
+use dap::{client::DebugAdapterClient, client::ThreadEntry, transport::Events};
 use dap::{
-    Capabilities, ContinuedEvent, DisconnectArguments, ExitedEvent, OutputEvent, Scope,
-    ScopesArguments, StackFrame, StackTraceArguments, StartDebuggingRequestArguments, StoppedEvent,
-    TerminatedEvent, ThreadEvent, ThreadEventReason, Variable, VariablesArguments,
+    Capabilities, ContinuedEvent, DisconnectArguments, ExitedEvent, OutputEvent, ScopesArguments,
+    StackFrame, StackTraceArguments, StartDebuggingRequestArguments, StoppedEvent, TerminatedEvent,
+    ThreadEvent, ThreadEventReason, VariablesArguments,
 };
 use editor::Editor;
 use futures::future::try_join_all;
@@ -389,6 +389,56 @@ impl DebugPanel {
         cx.notify();
     }
 
+    async fn fetch_variables(
+        client: Arc<DebugAdapterClient>,
+        variables_reference: u64,
+        depth: usize,
+    ) -> Result<Vec<ThreadEntry>> {
+        let response = client
+            .request::<Variables>(VariablesArguments {
+                variables_reference,
+                filter: None,
+                start: None,
+                count: None,
+                format: None,
+            })
+            .await?;
+
+        let mut tasks = Vec::new();
+        for variable in response.variables {
+            let client = client.clone();
+            tasks.push(async move {
+                let mut entries = Vec::new();
+                entries.push(ThreadEntry::Variable {
+                    depth,
+                    variable: variable.clone(),
+                    has_children: variable.variables_reference > 0,
+                });
+
+                if variable.variables_reference > 0 {
+                    let mut nested_entries = Box::pin(Self::fetch_variables(
+                        client,
+                        variable.variables_reference,
+                        depth + 1,
+                    ))
+                    .await?;
+
+                    entries.append(&mut nested_entries);
+                }
+
+                anyhow::Ok(entries)
+            });
+        }
+
+        let mut entries = Vec::new();
+
+        for mut variable_entries in try_join_all(tasks).await? {
+            entries.append(&mut variable_entries);
+        }
+
+        anyhow::Ok(entries)
+    }
+
     fn handle_stopped_event(
         client: Arc<DebugAdapterClient>,
         event: &StoppedEvent,
@@ -427,35 +477,36 @@ impl DebugPanel {
                     });
                 }
 
-                let mut scopes: HashMap<u64, Vec<Scope>> = HashMap::new();
-                let mut variables: HashMap<u64, Vec<Variable>> = HashMap::new();
+                let mut stack_frame_entries: HashMap<u64, Vec<ThreadEntry>> = HashMap::new();
 
-                let mut variable_tasks = Vec::new();
-                for (thread_id, response) in try_join_all(scope_tasks).await? {
-                    scopes.insert(thread_id, response.scopes.clone());
+                let mut tasks = Vec::new();
 
-                    for scope in response.scopes {
-                        let scope_reference = scope.variables_reference;
-                        let client = client.clone();
-                        variable_tasks.push(async move {
-                            anyhow::Ok((
-                                scope_reference,
-                                client
-                                    .request::<Variables>(VariablesArguments {
-                                        variables_reference: scope_reference,
-                                        filter: None,
-                                        start: None,
-                                        count: None,
-                                        format: None,
-                                    })
+                for (stack_frame_id, response) in try_join_all(scope_tasks).await? {
+                    let client = client.clone();
+                    tasks.push(async move {
+                        let mut entries = Vec::new();
+
+                        for scope in response.scopes {
+                            let scope_reference = scope.variables_reference;
+
+                            entries.push(ThreadEntry::Scope(scope));
+
+                            entries.append(
+                                &mut Self::fetch_variables(client.clone(), scope_reference, 1)
                                     .await?,
-                            ))
-                        });
-                    }
+                            );
+                        }
+
+                        anyhow::Ok((stack_frame_id, entries))
+                    });
                 }
 
-                for (scope_reference, response) in try_join_all(variable_tasks).await? {
-                    variables.insert(scope_reference, response.variables.clone());
+                for (stack_frame_id, mut scope_entries) in try_join_all(tasks).await? {
+                    let entries = stack_frame_entries
+                        .entry(stack_frame_id)
+                        .or_insert(Vec::default());
+
+                    entries.append(&mut scope_entries);
                 }
 
                 this.update(&mut cx, |this, cx| {
@@ -464,10 +515,9 @@ impl DebugPanel {
                         .entry(thread_id)
                         .or_insert(ThreadState::default());
 
-                    thread_state.current_stack_frame_id = Some(current_stack_frame.clone().id);
+                    thread_state.current_stack_frame_id = current_stack_frame.clone().id;
                     thread_state.stack_frames = stack_trace_response.stack_frames;
-                    thread_state.scopes = scopes;
-                    thread_state.variables = variables;
+                    thread_state.stack_frame_entries = stack_frame_entries;
                     thread_state.status = ThreadStatus::Stopped;
 
                     let existing_item = this
@@ -496,7 +546,7 @@ impl DebugPanel {
                                         )
                                     });
 
-                                    this.add_item(Box::new(tab.clone()), false, false, None, cx)
+                                    this.add_item(Box::new(tab), false, false, None, cx)
                                 })
                             })
                             .log_err();
