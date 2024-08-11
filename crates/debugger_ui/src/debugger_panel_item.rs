@@ -38,7 +38,7 @@ pub struct DebugPanelItem {
     focus_handle: FocusHandle,
     stack_frame_list: ListState,
     output_editor: View<Editor>,
-    collapsed_variables: Vec<SharedString>,
+    collapsed_entries: Vec<SharedString>,
     stack_frame_entries: HashMap<u64, Vec<ThreadEntry>>,
     active_thread_item: ThreadItem,
     client: Arc<DebugAdapterClient>,
@@ -119,8 +119,8 @@ impl DebugPanelItem {
             output_editor,
             _subscriptions,
             stack_frame_list,
+            collapsed_entries: Default::default(),
             stack_frame_entries: Default::default(),
-            collapsed_variables: Default::default(),
             active_thread_item: ThreadItem::Variables,
         }
     }
@@ -291,14 +291,15 @@ impl DebugPanelItem {
         }
     }
 
+    fn scope_entry_id(scope: &Scope) -> SharedString {
+        SharedString::from(format!("scope-{}", scope.variables_reference))
+    }
+
     fn render_scope(&self, scope: &Scope, cx: &mut ViewContext<Self>) -> AnyElement {
         let element_id = scope.variables_reference;
 
-        let scope_id = SharedString::from(format!("scope-{}", element_id));
-        let disclosed = self
-            .collapsed_variables
-            .binary_search(&scope_id.clone())
-            .is_err();
+        let scope_id = Self::scope_entry_id(scope);
+        let disclosed = self.collapsed_entries.binary_search(&scope_id).is_err();
 
         div()
             .id(element_id as usize)
@@ -307,14 +308,12 @@ impl DebugPanelItem {
             .w_full()
             .h_full()
             .child(
-                ListItem::new(element_id as usize)
+                ListItem::new(scope_id.clone())
                     .indent_level(1)
                     .indent_step_size(px(20.))
                     .toggle(disclosed)
                     .on_toggle(
-                        cx.listener(move |this, _, cx| {
-                            this.toggle_variable_collapsed(&scope_id, cx)
-                        }),
+                        cx.listener(move |this, _, cx| this.toggle_entry_collapsed(&scope_id, cx)),
                     )
                     .child(div().text_ui(cx).w_full().child(scope.name.clone())),
             )
@@ -445,6 +444,15 @@ impl DebugPanelItem {
                 continue;
             }
 
+            entries.push(ThreadEntry::Scope(scope.clone()));
+
+            if self
+                .collapsed_entries
+                .binary_search(&Self::scope_entry_id(scope))
+                .is_ok()
+            {
+                continue;
+            }
 
             for (depth, variable) in variables {
                 entries.push(ThreadEntry::Variable {
@@ -569,17 +577,13 @@ impl DebugPanelItem {
             .detach_and_log_err(cx);
     }
 
-    fn toggle_variable_collapsed(
-        &mut self,
-        variable_id: &SharedString,
-        cx: &mut ViewContext<Self>,
-    ) {
-        match self.collapsed_variables.binary_search(&variable_id) {
+    fn toggle_entry_collapsed(&mut self, entry_id: &SharedString, cx: &mut ViewContext<Self>) {
+        match self.collapsed_entries.binary_search(&entry_id) {
             Ok(ix) => {
-                self.collapsed_variables.remove(ix);
+                self.collapsed_entries.remove(ix);
             }
             Err(ix) => {
-                self.collapsed_variables.insert(ix, variable_id.clone());
+                self.collapsed_entries.insert(ix, entry_id.clone());
             }
         };
 
