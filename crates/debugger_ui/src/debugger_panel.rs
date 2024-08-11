@@ -466,7 +466,7 @@ impl DebugPanel {
                     let client = client.clone();
                     scope_tasks.push(async move {
                         anyhow::Ok((
-                            stack_frame.clone(),
+                            stack_frame.id,
                             client
                                 .request::<Scopes>(ScopesArguments {
                                     frame_id: stack_frame.id,
@@ -477,7 +477,7 @@ impl DebugPanel {
                 }
 
                 let mut stack_frame_tasks = Vec::new();
-                for (stack_frame, response) in try_join_all(scope_tasks).await? {
+                for (stack_frame_id, response) in try_join_all(scope_tasks).await? {
                     let client = client.clone();
                     stack_frame_tasks.push(async move {
                         let mut variable_tasks = Vec::new();
@@ -494,14 +494,14 @@ impl DebugPanel {
                             });
                         }
 
-                        anyhow::Ok((stack_frame, try_join_all(variable_tasks).await?))
+                        anyhow::Ok((stack_frame_id, try_join_all(variable_tasks).await?))
                     });
                 }
 
-                for (stack_frame, scopes) in try_join_all(stack_frame_tasks).await? {
+                for (stack_frame_id, scopes) in try_join_all(stack_frame_tasks).await? {
                     let stack_frame_state = thread_state
                         .variables
-                        .entry(stack_frame)
+                        .entry(stack_frame_id)
                         .or_insert_with(BTreeMap::default);
 
                     for (scope, variables) in scopes {

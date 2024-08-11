@@ -55,7 +55,7 @@ pub struct DebugAdapterClientId(pub usize);
 pub struct ThreadState {
     pub status: ThreadStatus,
     pub stack_frames: Vec<StackFrame>,
-    pub variables: BTreeMap<StackFrame, BTreeMap<Scope, Vec<(usize, Variable)>>>,
+    pub variables: HashMap<u64, BTreeMap<Scope, Vec<(usize, Variable)>>>,
     pub current_stack_frame_id: u64,
 }
 
