@@ -25,7 +25,7 @@ use smol::{
     process::{self, Child},
 };
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     net::{Ipv4Addr, SocketAddrV4},
     path::PathBuf,
     process::Stdio,
@@ -37,16 +37,6 @@ use std::{
 };
 use task::{DebugAdapterConfig, DebugConnectionType, DebugRequestType, TCPHost};
 use text::Point;
-
-#[derive(Debug, Clone)]
-pub enum ThreadEntry {
-    Scope(Scope),
-    Variable {
-        depth: usize,
-        variable: Variable,
-        has_children: bool,
-    },
-}
 
 #[derive(Copy, Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ThreadStatus {
@@ -65,7 +55,7 @@ pub struct DebugAdapterClientId(pub usize);
 pub struct ThreadState {
     pub status: ThreadStatus,
     pub stack_frames: Vec<StackFrame>,
-    pub stack_frame_entries: HashMap<u64, Vec<ThreadEntry>>, // stack_frame_id -> ThreadEntry(scope & variables)
+    pub variables: BTreeMap<StackFrame, BTreeMap<Scope, Vec<(usize, Variable)>>>,
     pub current_stack_frame_id: u64,
 }
 

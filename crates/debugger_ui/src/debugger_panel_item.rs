@@ -1,8 +1,6 @@
 use crate::debugger_panel::{DebugPanel, DebugPanelEvent};
 use anyhow::Result;
-use dap::client::{
-    DebugAdapterClient, DebugAdapterClientId, ThreadEntry, ThreadState, ThreadStatus,
-};
+use dap::client::{DebugAdapterClient, DebugAdapterClientId, ThreadState, ThreadStatus};
 use dap::{
     OutputEvent, OutputEventCategory, Scope, StackFrame, StoppedEvent, ThreadEvent, Variable,
 };
@@ -11,6 +9,7 @@ use gpui::{
     actions, list, AnyElement, AppContext, AsyncWindowContext, EventEmitter, FocusHandle,
     FocusableView, ListState, Subscription, View, WeakView,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 use ui::{prelude::*, Tooltip};
 use ui::{ListItem, WindowContext};
@@ -23,6 +22,16 @@ enum ThreadItem {
     Output,
 }
 
+#[derive(Debug, Clone)]
+pub enum ThreadEntry {
+    Scope(Scope),
+    Variable {
+        depth: usize,
+        variable: Variable,
+        has_children: bool,
+    },
+}
+
 pub struct DebugPanelItem {
     thread_id: u64,
     variable_list: ListState,
@@ -30,6 +39,7 @@ pub struct DebugPanelItem {
     stack_frame_list: ListState,
     output_editor: View<Editor>,
     collapsed_variables: Vec<SharedString>,
+    stack_frame_entries: HashMap<u64, Vec<ThreadEntry>>,
     active_thread_item: ThreadItem,
     client: Arc<DebugAdapterClient>,
     _subscriptions: Vec<Subscription>,
@@ -109,6 +119,7 @@ impl DebugPanelItem {
             output_editor,
             _subscriptions,
             stack_frame_list,
+            stack_frame_entries: Default::default(),
             collapsed_variables: Default::default(),
             active_thread_item: ThreadItem::Variables,
         }
@@ -135,9 +146,9 @@ impl DebugPanelItem {
         let thread_state = this.current_thread_state();
 
         this.stack_frame_list.reset(thread_state.stack_frames.len());
-        if let Some(stack_frame_id) = thread_state.stack_frames.first().map(|s| s.id) {
-            this.update_stack_frame_id(stack_frame_id);
-            this.build_variable_list_entries(stack_frame_id);
+        if let Some(stack_frame) = thread_state.stack_frames.first() {
+            this.update_stack_frame_id(stack_frame.id);
+            this.build_variable_list_entries(stack_frame);
         };
 
         cx.notify();
@@ -265,10 +276,9 @@ impl DebugPanelItem {
         ix: usize,
         cx: &mut ViewContext<Self>,
     ) -> AnyElement {
-        let thread_state = self.current_thread_state();
-        let Some(entries) = thread_state
+        let Some(entries) = self
             .stack_frame_entries
-            .get(&thread_state.current_stack_frame_id)
+            .get(&self.current_thread_state().current_stack_frame_id)
         else {
             return div().into_any_element();
         };
@@ -425,13 +435,31 @@ impl DebugPanelItem {
             .into_any()
     }
 
-    pub fn build_variable_list_entries(&mut self, stack_frame_id: u64) {
+    pub fn build_variable_list_entries(&mut self, stack_frame: &StackFrame) {
         let thread_state = self.current_thread_state();
-        let Some(entries) = thread_state.stack_frame_entries.get(&stack_frame_id) else {
+
+        let Some(scopes_and_vars) = thread_state.variables.get(stack_frame) else {
             return;
         };
 
-        self.variable_list.reset(entries.len());
+        let mut entries: Vec<ThreadEntry> = Vec::default();
+
+        for (scope, variables) in scopes_and_vars {
+            entries.push(ThreadEntry::Scope(scope.clone()));
+
+            for (depth, variable) in variables {
+                entries.push(ThreadEntry::Variable {
+                    depth: *depth,
+                    variable: variable.clone(),
+                    has_children: variable.variables_reference > 0,
+                });
+            }
+        }
+
+        let len = entries.len();
+        self.stack_frame_entries.insert(stack_frame.id, entries);
+
+        self.variable_list.reset(len);
     }
 
     // fn render_scopes(&self, cx: &mut ViewContext<Self>) -> impl IntoElement {
@@ -636,7 +664,8 @@ impl DebugPanelItem {
             }
         };
 
-        self.build_variable_list_entries(self.current_thread_state().current_stack_frame_id);
+        // TODO:
+        // self.build_variable_list_entries(self.current_thread_state().current_stack_frame_id);
 
         cx.notify();
     }
