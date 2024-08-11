@@ -410,6 +410,12 @@ impl DebugAdapterClient {
         };
     }
 
+    pub fn update_current_stack_frame(&self, thread_id: u64, stack_frame_id: u64) {
+        if let Some(thread_state) = self.thread_states().get_mut(&thread_id) {
+            thread_state.current_stack_frame_id = stack_frame_id;
+        };
+    }
+
     pub fn thread_states(&self) -> MutexGuard<HashMap<u64, ThreadState>> {
         self.thread_states.lock()
     }

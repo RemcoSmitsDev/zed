@@ -151,7 +151,6 @@ impl DebugPanelItem {
         this.stack_frame_list.reset(thread_state.stack_frames.len());
         if let Some(stack_frame) = thread_state.stack_frames.first() {
             this.update_stack_frame_id(stack_frame.id);
-            this.build_variable_list_entries(stack_frame.id);
         };
 
         cx.notify();
@@ -266,12 +265,8 @@ impl DebugPanelItem {
     }
 
     fn update_stack_frame_id(&mut self, stack_frame_id: u64) {
-        let mut thread_states = self.client.thread_states().clone();
-        let Some(thread_state) = thread_states.get_mut(&self.thread_id) else {
-            return;
-        };
-
-        thread_state.current_stack_frame_id = stack_frame_id;
+        self.client
+            .update_current_stack_frame(self.thread_id, stack_frame_id);
 
         self.build_variable_list_entries(stack_frame_id);
     }
@@ -415,9 +410,9 @@ impl DebugPanelItem {
                 this.bg(cx.theme().colors().element_hover)
             })
             .on_click(cx.listener({
-                let stack_frame = stack_frame.clone();
+                let stack_frame_id = stack_frame.id;
                 move |this, _, cx| {
-                    this.update_stack_frame_id(stack_frame.id);
+                    this.update_stack_frame_id(stack_frame_id);
 
                     cx.notify();
 
