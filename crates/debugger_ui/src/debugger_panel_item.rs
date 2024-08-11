@@ -287,12 +287,19 @@ impl DebugPanelItem {
                 variable,
                 has_children,
                 ..
-            } => self.render_variable(variable.clone(), *depth, *has_children, cx),
+            } => self.render_variable(variable, *depth, *has_children, cx),
         }
     }
 
     fn scope_entry_id(scope: &Scope) -> SharedString {
         SharedString::from(format!("scope-{}", scope.variables_reference))
+    }
+
+    fn variable_entry_id(variable: &Variable) -> SharedString {
+        SharedString::from(format!(
+            "variable-{}-{}",
+            variable.name, variable.variables_reference
+        ))
     }
 
     fn render_scope(&self, scope: &Scope, cx: &mut ViewContext<Self>) -> AnyElement {
@@ -322,33 +329,31 @@ impl DebugPanelItem {
 
     fn render_variable(
         &self,
-        variable: Variable,
+        variable: &Variable,
         depth: usize,
         has_children: bool,
         cx: &mut ViewContext<Self>,
     ) -> AnyElement {
-        let variable_id = SharedString::from(format!("variable-{}", variable.name));
-        let disclosed = has_children.then(|| {
-            self.collapsed_variables
-                .binary_search(&variable_id)
-                .is_err()
-        });
+        let variable_id = Self::variable_entry_id(variable);
 
-        let element_id = SharedString::from(format!("{}-{}", variable.name, variable_id));
+        let disclosed =
+            has_children.then(|| self.collapsed_entries.binary_search(&variable_id).is_err());
 
         div()
-            .id(element_id.clone())
+            .id(variable_id.clone())
             .group("")
             .h_4()
             .size_full()
             .child(
-                ListItem::new(element_id)
+                ListItem::new(variable_id.clone())
                     .indent_level(depth + 1)
                     .indent_step_size(px(20.))
                     .toggle(disclosed)
-                    .on_toggle(cx.listener(move |this, _, cx| {
-                        this.toggle_variable_collapsed(&variable_id, cx)
-                    }))
+                    .on_toggle(
+                        cx.listener(move |this, _, cx| {
+                            this.toggle_entry_collapsed(&variable_id, cx)
+                        }),
+                    )
                     .child(
                         h_flex()
                             .gap_1()
@@ -454,7 +459,23 @@ impl DebugPanelItem {
                 continue;
             }
 
+            let mut depth_check: usize = 0;
+
             for (depth, variable) in variables {
+                if depth_check != 0 && *depth > depth_check {
+                    continue;
+                } else if depth_check >= *depth {
+                    depth_check = 0;
+                }
+
+                if self
+                    .collapsed_entries
+                    .binary_search(&Self::variable_entry_id(variable))
+                    .is_ok()
+                {
+                    depth_check = *depth;
+                }
+
                 entries.push(ThreadEntry::Variable {
                     depth: *depth,
                     variable: variable.clone(),
