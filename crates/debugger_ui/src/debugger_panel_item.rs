@@ -24,7 +24,10 @@ enum ThreadItem {
 
 #[derive(Debug, Clone)]
 pub enum ThreadEntry {
-    Scope(Scope),
+    Scope {
+        scope: Scope,
+        has_children: bool,
+    },
     Variable {
         depth: usize,
         variable: Variable,
@@ -286,7 +289,10 @@ impl DebugPanelItem {
         };
 
         match &entries[ix] {
-            ThreadEntry::Scope(scope) => self.render_scope(scope, cx),
+            ThreadEntry::Scope {
+                scope,
+                has_children,
+            } => self.render_scope(scope, *has_children, cx),
             ThreadEntry::Variable {
                 depth,
                 variable,
@@ -296,7 +302,12 @@ impl DebugPanelItem {
         }
     }
 
-    fn render_scope(&self, scope: &Scope, cx: &mut ViewContext<Self>) -> AnyElement {
+    fn render_scope(
+        &self,
+        scope: &Scope,
+        _has_children: bool,
+        cx: &mut ViewContext<Self>,
+    ) -> AnyElement {
         let element_id = scope.variables_reference;
 
         let scope_id = SharedString::from(format!("scope-{}", element_id));
@@ -444,9 +455,11 @@ impl DebugPanelItem {
         };
 
         let mut entries: Vec<ThreadEntry> = Vec::default();
-
         for (scope, variables) in scopes_and_vars {
-            entries.push(ThreadEntry::Scope(scope.clone()));
+            entries.push(ThreadEntry::Scope {
+                scope: scope.clone(),
+                has_children: scope.variables_reference > 0,
+            });
 
             for (depth, variable) in variables {
                 entries.push(ThreadEntry::Variable {
