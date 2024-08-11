@@ -462,9 +462,14 @@ impl DebugPanelItem {
             let mut depth_check: usize = 0;
 
             for (depth, variable) in variables {
+                // if the depth of the variable is bigger than last collapsed variable,
+                // we have to continue (meaning nested variable)
                 if depth_check != 0 && *depth > depth_check {
                     continue;
-                } else if depth_check >= *depth {
+                }
+                // if we are out of the collapsed variables childs,
+                // we have to reset depth_check so we don't collapse variables after nested variables
+                else if depth_check >= *depth {
                     depth_check = 0;
                 }
 
