@@ -320,13 +320,24 @@ impl DebugPanelItem {
             .child(
                 ListItem::new(element_id as usize)
                     .indent_level(1)
+                    .indent_step_size(px(20.))
                     .toggle(disclosed)
                     .on_toggle(
                         cx.listener(move |this, _, cx| {
                             this.toggle_variable_collapsed(&scope_id, cx)
                         }),
                     )
-                    .child(div().text_ui(cx).h_6().w_full().child(scope.name.clone())),
+                    .child(div().text_ui(cx).w_full().child(scope.name.clone()).when(
+                        !_has_children,
+                        |this| {
+                            this.child(
+                                div()
+                                    .ml_2()
+                                    .text_ui_xs(cx)
+                                    .child("No variables found inside the current scope"),
+                            )
+                        },
+                    )),
             )
             .into_any()
     }
@@ -453,7 +464,7 @@ impl DebugPanelItem {
         for (scope, variables) in scopes_and_vars {
             entries.push(ThreadEntry::Scope {
                 scope: scope.clone(),
-                has_children: scope.variables_reference > 0,
+                has_children: variables.len() > 0,
             });
 
             for (depth, variable) in variables {
