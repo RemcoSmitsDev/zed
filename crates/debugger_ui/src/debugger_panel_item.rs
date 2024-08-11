@@ -24,10 +24,7 @@ enum ThreadItem {
 
 #[derive(Debug, Clone)]
 pub enum ThreadEntry {
-    Scope {
-        scope: Scope,
-        has_children: bool,
-    },
+    Scope(Scope),
     Variable {
         depth: usize,
         variable: Variable,
@@ -284,10 +281,7 @@ impl DebugPanelItem {
         };
 
         match &entries[ix] {
-            ThreadEntry::Scope {
-                scope,
-                has_children,
-            } => self.render_scope(scope, *has_children, cx),
+            ThreadEntry::Scope(scope) => self.render_scope(scope, cx),
             ThreadEntry::Variable {
                 depth,
                 variable,
@@ -297,12 +291,7 @@ impl DebugPanelItem {
         }
     }
 
-    fn render_scope(
-        &self,
-        scope: &Scope,
-        _has_children: bool,
-        cx: &mut ViewContext<Self>,
-    ) -> AnyElement {
+    fn render_scope(&self, scope: &Scope, cx: &mut ViewContext<Self>) -> AnyElement {
         let element_id = scope.variables_reference;
 
         let scope_id = SharedString::from(format!("scope-{}", element_id));
@@ -327,17 +316,7 @@ impl DebugPanelItem {
                             this.toggle_variable_collapsed(&scope_id, cx)
                         }),
                     )
-                    .child(div().text_ui(cx).w_full().child(scope.name.clone()).when(
-                        !_has_children,
-                        |this| {
-                            this.child(
-                                div()
-                                    .ml_2()
-                                    .text_ui_xs(cx)
-                                    .child("No variables found inside the current scope"),
-                            )
-                        },
-                    )),
+                    .child(div().text_ui(cx).w_full().child(scope.name.clone())),
             )
             .into_any()
     }
@@ -462,10 +441,10 @@ impl DebugPanelItem {
 
         let mut entries: Vec<ThreadEntry> = Vec::default();
         for (scope, variables) in scopes_and_vars {
-            entries.push(ThreadEntry::Scope {
-                scope: scope.clone(),
-                has_children: variables.len() > 0,
-            });
+            if variables.is_empty() {
+                continue;
+            }
+
 
             for (depth, variable) in variables {
                 entries.push(ThreadEntry::Variable {
