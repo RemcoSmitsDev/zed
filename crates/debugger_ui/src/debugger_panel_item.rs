@@ -38,7 +38,7 @@ pub struct DebugPanelItem {
     focus_handle: FocusHandle,
     stack_frame_list: ListState,
     output_editor: View<Editor>,
-    collapsed_entries: Vec<SharedString>,
+    open_entries: Vec<SharedString>,
     stack_frame_entries: HashMap<u64, Vec<ThreadEntry>>,
     active_thread_item: ThreadItem,
     client: Arc<DebugAdapterClient>,
@@ -102,7 +102,7 @@ impl DebugPanelItem {
             editor.set_placeholder_text("Debug adapter and script output", cx);
             editor.set_read_only(true);
             editor.set_show_inline_completions(false);
-            editor.set_searchable(true);
+            editor.set_searchable(false);
             editor.set_auto_replace_emoji_shortcode(false);
             editor.set_show_indent_guides(false, cx);
             editor.set_autoindent(false);
@@ -119,7 +119,7 @@ impl DebugPanelItem {
             output_editor,
             _subscriptions,
             stack_frame_list,
-            collapsed_entries: Default::default(),
+            open_entries: Default::default(),
             stack_frame_entries: Default::default(),
             active_thread_item: ThreadItem::Variables,
         }
@@ -265,7 +265,9 @@ impl DebugPanelItem {
         self.client
             .update_current_stack_frame(self.thread_id, stack_frame_id);
 
-        self.build_variable_list_entries(stack_frame_id);
+        self.open_entries.clear();
+
+        self.build_variable_list_entries(stack_frame_id, true);
     }
 
     pub fn render_variable_list_entry(
@@ -306,7 +308,7 @@ impl DebugPanelItem {
         let element_id = scope.variables_reference;
 
         let scope_id = Self::scope_entry_id(scope);
-        let disclosed = self.collapsed_entries.binary_search(&scope_id).is_err();
+        let disclosed = self.open_entries.binary_search(&scope_id).is_ok();
 
         div()
             .id(element_id as usize)
@@ -336,8 +338,7 @@ impl DebugPanelItem {
     ) -> AnyElement {
         let variable_id = Self::variable_entry_id(variable);
 
-        let disclosed =
-            has_children.then(|| self.collapsed_entries.binary_search(&variable_id).is_err());
+        let disclosed = has_children.then(|| self.open_entries.binary_search(&variable_id).is_ok());
 
         div()
             .id(variable_id.clone())
@@ -437,7 +438,7 @@ impl DebugPanelItem {
             .into_any()
     }
 
-    pub fn build_variable_list_entries(&mut self, stack_frame_id: u64) {
+    pub fn build_variable_list_entries(&mut self, stack_frame_id: u64, open_first_scope: bool) {
         let thread_state = self.current_thread_state();
         let Some(scopes_and_vars) = thread_state.variables.get(&stack_frame_id) else {
             return;
@@ -449,42 +450,45 @@ impl DebugPanelItem {
                 continue;
             }
 
+            if open_first_scope && self.open_entries.is_empty() {
+                self.open_entries.push(Self::scope_entry_id(scope));
+            }
+
             entries.push(ThreadEntry::Scope(scope.clone()));
 
             if self
-                .collapsed_entries
+                .open_entries
                 .binary_search(&Self::scope_entry_id(scope))
-                .is_ok()
+                .is_err()
             {
                 continue;
             }
 
-            let mut depth_check: usize = 0;
+            let mut depth_check: usize = 2;
 
             for (depth, variable) in variables {
-                // if the depth of the variable is bigger than last collapsed variable,
-                // we have to continue (meaning nested variable)
-                if depth_check != 0 && *depth > depth_check {
+                if *depth > 1 && *depth > depth_check {
                     continue;
                 }
-                // if we are out of the collapsed variables childs,
-                // we have to reset depth_check so we don't collapse variables after nested variables
-                else if depth_check >= *depth {
-                    depth_check = 0;
-                }
+
+                let has_children = variable.variables_reference > 0;
 
                 if self
-                    .collapsed_entries
+                    .open_entries
                     .binary_search(&Self::variable_entry_id(variable))
-                    .is_ok()
+                    .is_err()
                 {
-                    depth_check = *depth;
+                    if has_children {
+                        depth_check = *depth;
+                    } else {
+                        depth_check = *depth + 1;
+                    }
                 }
 
                 entries.push(ThreadEntry::Variable {
                     depth: *depth,
                     variable: variable.clone(),
-                    has_children: variable.variables_reference > 0,
+                    has_children,
                 });
             }
         }
@@ -604,16 +608,16 @@ impl DebugPanelItem {
     }
 
     fn toggle_entry_collapsed(&mut self, entry_id: &SharedString, cx: &mut ViewContext<Self>) {
-        match self.collapsed_entries.binary_search(&entry_id) {
+        match self.open_entries.binary_search(&entry_id) {
             Ok(ix) => {
-                self.collapsed_entries.remove(ix);
+                self.open_entries.remove(ix);
             }
             Err(ix) => {
-                self.collapsed_entries.insert(ix, entry_id.clone());
+                self.open_entries.insert(ix, entry_id.clone());
             }
         };
 
-        self.build_variable_list_entries(self.current_thread_state().current_stack_frame_id);
+        self.build_variable_list_entries(self.current_thread_state().current_stack_frame_id, false);
 
         cx.notify();
     }
