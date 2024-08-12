@@ -27,7 +27,7 @@ pub enum ThreadEntry {
     Scope(Scope),
     Variable {
         depth: usize,
-        variable: Variable,
+        variable: Arc<Variable>,
         has_children: bool,
     },
 }
@@ -486,7 +486,7 @@ impl DebugPanelItem {
 
                 entries.push(ThreadEntry::Variable {
                     depth: *depth,
-                    variable: variable.clone(),
+                    variable: Arc::new(variable.clone()),
                     has_children,
                 });
             }
