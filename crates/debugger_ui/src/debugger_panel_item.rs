@@ -297,11 +297,8 @@ impl DebugPanelItem {
         SharedString::from(format!("scope-{}", scope.variables_reference))
     }
 
-    fn variable_entry_id(variable: &Variable) -> SharedString {
-        SharedString::from(format!(
-            "variable-{}-{}",
-            variable.name, variable.variables_reference
-        ))
+    fn variable_entry_id(variable: &Variable, depth: usize) -> SharedString {
+        SharedString::from(format!("variable-{}-{}", depth, variable.name))
     }
 
     fn render_scope(&self, scope: &Scope, cx: &mut ViewContext<Self>) -> AnyElement {
@@ -336,7 +333,7 @@ impl DebugPanelItem {
         has_children: bool,
         cx: &mut ViewContext<Self>,
     ) -> AnyElement {
-        let variable_id = Self::variable_entry_id(variable);
+        let variable_id = Self::variable_entry_id(variable, depth);
 
         let disclosed = has_children.then(|| self.open_entries.binary_search(&variable_id).is_ok());
 
@@ -464,24 +461,26 @@ impl DebugPanelItem {
                 continue;
             }
 
-            let mut depth_check: usize = 2;
+            let mut depth_check: Option<usize> = None;
 
             for (depth, variable) in variables {
-                if *depth > 1 && *depth > depth_check {
+                if depth_check.is_some_and(|d| *depth > d) {
                     continue;
+                }
+
+                if depth_check.is_some_and(|d| d >= *depth) {
+                    depth_check = None;
                 }
 
                 let has_children = variable.variables_reference > 0;
 
                 if self
                     .open_entries
-                    .binary_search(&Self::variable_entry_id(variable))
+                    .binary_search(&Self::variable_entry_id(variable, *depth))
                     .is_err()
                 {
-                    if has_children {
-                        depth_check = *depth;
-                    } else {
-                        depth_check = *depth + 1;
+                    if depth_check.is_none() || depth_check.is_some_and(|d| d > *depth) {
+                        depth_check = Some(*depth);
                     }
                 }
 
