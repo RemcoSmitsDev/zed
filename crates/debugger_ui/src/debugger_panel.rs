@@ -158,11 +158,17 @@ impl DebugPanel {
 
             thread_panel.update(cx, |pane, cx| {
                 let thread_id = pane.thread_id();
-                let client = pane.client().clone();
-                cx.spawn(
-                    |_, _| async move { client.terminate_threads(Some(vec![thread_id; 1])).await },
-                )
-                .detach_and_log_err(cx);
+                let client = pane.client();
+                let thread_status = client.thread_state_by_id(thread_id).status;
+
+                // only terminate thread if the thread has not yet ended
+                if thread_status != ThreadStatus::Ended && thread_status != ThreadStatus::Exited {
+                    let client = client.clone();
+                    cx.spawn(|_, _| async move {
+                        client.terminate_threads(Some(vec![thread_id; 1])).await
+                    })
+                    .detach_and_log_err(cx);
+                }
             });
         };
     }
