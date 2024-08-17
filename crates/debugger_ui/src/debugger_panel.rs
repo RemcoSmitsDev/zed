@@ -11,6 +11,7 @@ use dap::{
 };
 use editor::Editor;
 use futures::future::try_join_all;
+use futures::FutureExt;
 use gpui::{
     actions, Action, AppContext, AsyncWindowContext, EventEmitter, FocusHandle, FocusableView,
     Subscription, Task, View, ViewContext, WeakView,
@@ -26,7 +27,7 @@ use workspace::{
     dock::{DockPosition, Panel, PanelEvent},
     Workspace,
 };
-use workspace::{pane, Pane};
+use workspace::{pane, Pane, StartDebugger};
 
 enum DebugCurrentRowHighlight {}
 
@@ -493,10 +494,7 @@ impl DebugPanel {
 
                             let client = client.clone();
                             variable_tasks.push(async move {
-                                anyhow::Ok((
-                                    scope,
-                                    Self::fetch_variables(client, scope_reference, 1).await?,
-                                ))
+                                anyhow::Ok((scope, client.variables(scope_reference).await?))
                             });
                         }
 
@@ -511,7 +509,17 @@ impl DebugPanel {
                         .or_insert_with(BTreeMap::default);
 
                     for (scope, variables) in scopes {
-                        stack_frame_state.insert(scope, variables);
+                        thread_state
+                            .vars
+                            .insert(scope.variables_reference, variables.clone());
+
+                        stack_frame_state.insert(
+                            scope,
+                            variables
+                                .into_iter()
+                                .map(|v| (1, v))
+                                .collect::<Vec<(usize, Variable)>>(),
+                        );
                     }
                 }
 
@@ -738,12 +746,43 @@ impl Panel for DebugPanel {
 }
 
 impl Render for DebugPanel {
-    fn render(&mut self, _: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         v_flex()
             .key_context("DebugPanel")
             .track_focus(&self.focus_handle)
             .size_full()
-            .child(self.pane.clone())
+            .map(|this| {
+                if self.pane.read(cx).items_len() == 0 {
+                    this.child(
+                        h_flex().size_full().items_center().justify_center().child(
+                            v_flex()
+                                .gap_2()
+                                .rounded_md()
+                                .max_w_64()
+                                .items_start()
+                                .child(
+                                    Label::new("You can create a debug task by creating a new task and setting the `type` key to `debug`")
+                                        .size(LabelSize::Small)
+                                        .color(Color::Muted),
+                                )
+                                .child(
+                                    h_flex().w_full().justify_end().child(
+                                        Button::new(
+                                            "start-debugger",
+                                            "Choose a debugger",
+                                        )
+                                        .label_size(LabelSize::Small)
+                                        .on_click(move |_, cx| {
+                                            cx.dispatch_action(StartDebugger.boxed_clone());
+                                        })
+                                    ),
+                                ),
+                        ),
+                    )
+                } else {
+                    this.child(self.pane.clone())
+                }
+            })
             .into_any()
     }
 }
