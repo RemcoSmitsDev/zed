@@ -94,6 +94,9 @@ impl DebugPanelItem {
                     DebugPanelEvent::Output((client_id, event)) => {
                         Self::handle_output_event(this, client_id, event, cx)
                     }
+                    DebugPanelEvent::ClientStopped(client_id) => {
+                        Self::handle_client_stopped_event(this, client_id, cx)
+                    }
                 };
             }
         })];
@@ -194,6 +197,21 @@ impl DebugPanelItem {
 
             cx.notify();
         });
+    }
+
+    fn handle_client_stopped_event(
+        this: &mut Self,
+        client_id: &DebugAdapterClientId,
+        cx: &mut ViewContext<Self>,
+    ) {
+        if Self::should_skip_event(this, client_id, this.thread_id) {
+            return;
+        }
+
+        cx.emit(ItemEvent::CloseItem);
+        cx.notify();
+
+        dbg!("should close item");
     }
 }
 

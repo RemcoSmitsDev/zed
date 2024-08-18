@@ -34,6 +34,7 @@ pub enum DebugPanelEvent {
     Stopped((DebugAdapterClientId, StoppedEvent)),
     Thread((DebugAdapterClientId, ThreadEvent)),
     Output((DebugAdapterClientId, OutputEvent)),
+    ClientStopped(DebugAdapterClientId),
 }
 
 actions!(debug_panel, [ToggleFocus]);
