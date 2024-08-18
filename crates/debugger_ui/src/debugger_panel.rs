@@ -1,17 +1,16 @@
 use crate::debugger_panel_item::DebugPanelItem;
 use anyhow::Result;
 use dap::client::{DebugAdapterClientId, ThreadState, ThreadStatus};
-use dap::requests::{Request, Scopes, StackTrace, StartDebugging, Variables};
+use dap::requests::{Request, Scopes, StackTrace, StartDebugging};
 use dap::transport::Payload;
 use dap::{client::DebugAdapterClient, transport::Events};
 use dap::{
     Capabilities, ContinuedEvent, ExitedEvent, OutputEvent, ScopesArguments, StackFrame,
     StackTraceArguments, StartDebuggingRequestArguments, StoppedEvent, TerminatedEvent,
-    ThreadEvent, ThreadEventReason, Variable, VariablesArguments,
+    ThreadEvent, ThreadEventReason, Variable,
 };
 use editor::Editor;
 use futures::future::try_join_all;
-use futures::FutureExt;
 use gpui::{
     actions, Action, AppContext, AsyncWindowContext, EventEmitter, FocusHandle, FocusableView,
     Subscription, Task, View, ViewContext, WeakView,
@@ -395,51 +394,6 @@ impl DebugPanel {
         }
 
         cx.notify();
-    }
-
-    async fn fetch_variables(
-        client: Arc<DebugAdapterClient>,
-        variables_reference: u64,
-        depth: usize,
-    ) -> Result<Vec<(usize, Variable)>> {
-        let response = client
-            .request::<Variables>(VariablesArguments {
-                variables_reference,
-                filter: None,
-                start: None,
-                count: None,
-                format: None,
-            })
-            .await?;
-
-        let mut tasks = Vec::new();
-        for variable in response.variables {
-            let client = client.clone();
-            tasks.push(async move {
-                let mut variables = vec![(depth, variable.clone())];
-
-                if variable.variables_reference > 0 {
-                    let mut nested_variables = Box::pin(Self::fetch_variables(
-                        client,
-                        variable.variables_reference,
-                        depth + 1,
-                    ))
-                    .await?;
-
-                    variables.append(&mut nested_variables);
-                }
-
-                anyhow::Ok(variables)
-            });
-        }
-
-        let mut variables = Vec::new();
-
-        for mut variable_entries in try_join_all(tasks).await? {
-            variables.append(&mut variable_entries);
-        }
-
-        anyhow::Ok(variables)
     }
 
     fn handle_stopped_event(
