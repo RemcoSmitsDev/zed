@@ -290,10 +290,11 @@ impl DebugPanelItem {
             ThreadEntry::Scope(scope) => self.render_scope(scope, cx),
             ThreadEntry::Variable {
                 depth,
+                scope,
                 variable,
                 has_children,
                 ..
-            } => self.render_variable(ix, variable, *depth, *has_children, cx),
+            } => self.render_variable(ix, variable, scope, *depth, *has_children, cx),
         }
     }
 
@@ -301,8 +302,11 @@ impl DebugPanelItem {
         SharedString::from(format!("scope-{}", scope.variables_reference))
     }
 
-    fn variable_entry_id(variable: &Variable, depth: usize) -> SharedString {
-        SharedString::from(format!("variable-{}-{}", depth, variable.name))
+    fn variable_entry_id(variable: &Variable, scope: &Scope, depth: usize) -> SharedString {
+        SharedString::from(format!(
+            "variable-{}-{}-{}",
+            depth, scope.variables_reference, variable.name
+        ))
     }
 
     fn render_scope(&self, scope: &Scope, cx: &mut ViewContext<Self>) -> AnyElement {
@@ -335,12 +339,13 @@ impl DebugPanelItem {
         &self,
         ix: usize,
         variable: &Variable,
+        scope: &Scope,
         depth: usize,
         has_children: bool,
         cx: &mut ViewContext<Self>,
     ) -> AnyElement {
         let variable_reference = variable.variables_reference;
-        let variable_id = Self::variable_entry_id(variable, depth);
+        let variable_id = Self::variable_entry_id(variable, scope, depth);
 
         let disclosed = has_children.then(|| self.open_entries.binary_search(&variable_id).is_ok());
 
@@ -404,7 +409,7 @@ impl DebugPanelItem {
                                         .and_then(|s| s.get_mut(&scope))
                                     {
                                         let position = state.iter().position(|(d, v)| {
-                                            Self::variable_entry_id(v, *d) == variable_id
+                                            Self::variable_entry_id(v, &scope, *d) == variable_id
                                         });
 
                                         if let Some(position) = position {
@@ -552,7 +557,7 @@ impl DebugPanelItem {
 
                 if self
                     .open_entries
-                    .binary_search(&Self::variable_entry_id(&variable, *depth))
+                    .binary_search(&Self::variable_entry_id(&variable, &scope, *depth))
                     .is_err()
                 {
                     if depth_check.is_none() || depth_check.is_some_and(|d| d > *depth) {
