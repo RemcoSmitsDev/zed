@@ -30,9 +30,6 @@ pub enum ThreadEntry {
         scope: Scope,
         variable: Arc<Variable>,
         has_children: bool,
-        // This is always none at the beginning,
-        // If you click on the variable we should fetch the nested first level variables
-        // task: Option<Task<Result<()>>>,
     },
 }
 
@@ -376,14 +373,14 @@ impl DebugPanelItem {
                             return this.toggle_entry_collapsed(&variable_id, cx);
                         }
 
-                        let mut entries = this.stack_frame_entries.clone();
-                        let Some(entries) =
-                            entries.get_mut(&this.current_thread_state().current_stack_frame_id)
+                        let Some(entries) = this
+                            .stack_frame_entries
+                            .get(&this.current_thread_state().current_stack_frame_id)
                         else {
                             return;
                         };
 
-                        let Some(entry) = entries.get_mut(ix) else {
+                        let Some(entry) = entries.get(ix) else {
                             return;
                         };
 

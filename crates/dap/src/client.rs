@@ -55,6 +55,7 @@ pub struct DebugAdapterClientId(pub usize);
 pub struct ThreadState {
     pub status: ThreadStatus,
     pub stack_frames: Vec<StackFrame>,
+    // HashMap<variable_reference_id, Vec<Variable>>
     pub vars: HashMap<u64, Vec<Variable>>,
     // HashMap<stack_frame_id, <scope, Vec<(depth, Variable)>>>
     pub variables: HashMap<u64, BTreeMap<Scope, Vec<(usize, Variable)>>>,
