@@ -75,7 +75,9 @@ impl DebugPanel {
                 cx.subscribe(&project, {
                     move |this: &mut Self, _, event, cx| match event {
                         project::Event::DebugClientEvent { payload, client_id } => {
-                            let client = this.debug_client_by_id(*client_id, cx);
+                            let Some(client) = this.debug_client_by_id(*client_id, cx) else {
+                                return cx.emit(DebugPanelEvent::ClientStopped(*client_id));
+                            };
 
                             match payload {
                                 Payload::Event(event) => {
@@ -93,7 +95,10 @@ impl DebugPanel {
                             }
                         }
                         project::Event::DebugClientStarted(client_id) => {
-                            let client = this.debug_client_by_id(*client_id, cx);
+                            let Some(client) = this.debug_client_by_id(*client_id, cx) else {
+                                return cx.emit(DebugPanelEvent::ClientStopped(*client_id));
+                            };
+
                             cx.spawn(|_, _| async move {
                                 client.initialize().await?;
 
@@ -108,6 +113,9 @@ impl DebugPanel {
                                 }
                             })
                             .detach_and_log_err(cx);
+                        }
+                        project::Event::DebugClientStopped(client_id) => {
+                            cx.emit(DebugPanelEvent::ClientStopped(*client_id));
                         }
                         _ => {}
                     }
@@ -137,15 +145,13 @@ impl DebugPanel {
         &self,
         client_id: DebugAdapterClientId,
         cx: &mut ViewContext<Self>,
-    ) -> Arc<DebugAdapterClient> {
+    ) -> Option<Arc<DebugAdapterClient>> {
         self.workspace
             .update(cx, |this, cx| {
-                this.project()
-                    .read(cx)
-                    .debug_adapter_by_id(client_id)
-                    .unwrap()
+                this.project().read(cx).debug_adapter_by_id(client_id)
             })
-            .unwrap()
+            .ok()
+            .flatten()
     }
 
     fn handle_pane_event(
@@ -154,24 +160,31 @@ impl DebugPanel {
         event: &pane::Event,
         cx: &mut ViewContext<Self>,
     ) {
-        if let pane::Event::RemovedItem { item } = event {
-            let thread_panel = item.downcast::<DebugPanelItem>().unwrap();
+        match event {
+            pane::Event::RemovedItem { item } => {
+                let thread_panel = item.downcast::<DebugPanelItem>().unwrap();
 
-            thread_panel.update(cx, |pane, cx| {
-                let thread_id = pane.thread_id();
-                let client = pane.client();
-                let thread_status = client.thread_state_by_id(thread_id).status;
+                thread_panel.update(cx, |pane, cx| {
+                    let thread_id = pane.thread_id();
+                    let client = pane.client();
+                    let thread_status = client.thread_state_by_id(thread_id).status;
 
-                // only terminate thread if the thread has not yet ended
-                if thread_status != ThreadStatus::Ended && thread_status != ThreadStatus::Exited {
-                    let client = client.clone();
-                    cx.spawn(|_, _| async move {
-                        client.terminate_threads(Some(vec![thread_id; 1])).await
-                    })
-                    .detach_and_log_err(cx);
-                }
-            });
-        };
+                    // only terminate thread if the thread has not yet ended
+                    if thread_status != ThreadStatus::Ended && thread_status != ThreadStatus::Exited
+                    {
+                        let client = client.clone();
+                        cx.spawn(|_, _| async move {
+                            client.terminate_threads(Some(vec![thread_id; 1])).await
+                        })
+                        .detach_and_log_err(cx);
+                    }
+                });
+            }
+            pane::Event::Remove => cx.emit(PanelEvent::Close),
+            pane::Event::ZoomIn => cx.emit(PanelEvent::ZoomIn),
+            pane::Event::ZoomOut => cx.emit(PanelEvent::ZoomOut),
+            _ => {}
+        }
     }
 
     fn handle_start_debugging_request(
@@ -515,6 +528,10 @@ impl DebugPanel {
                                 })
                             })
                             .log_err();
+                    } else {
+                        cx.emit(DebugPanelEvent::ClientStopped(client.id()));
+                        cx.notify();
+                        return Task::ready(anyhow::Ok(()));
                     }
 
                     cx.emit(DebugPanelEvent::Stopped((client_id, event)));
