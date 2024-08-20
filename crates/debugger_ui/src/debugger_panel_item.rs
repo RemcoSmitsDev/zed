@@ -1,5 +1,5 @@
 use crate::debugger_panel::{DebugPanel, DebugPanelEvent};
-use crate::elements::VariableList;
+use crate::elements::{self, VariableList};
 use anyhow::Result;
 use dap::client::{DebugAdapterClient, DebugAdapterClientId, ThreadState, ThreadStatus};
 use dap::{
@@ -8,7 +8,7 @@ use dap::{
 use editor::Editor;
 use gpui::{
     actions, list, AnyElement, AppContext, AsyncWindowContext, EventEmitter, FocusHandle,
-    FocusableView, ListState, Subscription, View, WeakView,
+    FocusableView, ListState, ModelContext, Subscription, View, WeakView,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -35,15 +35,13 @@ pub enum ThreadEntry {
 }
 
 pub struct DebugPanelItem {
-    thread_id: u64,
+    pub thread_id: u64,
     variable_list: View<VariableList>,
     focus_handle: FocusHandle,
     stack_frame_list: ListState,
     output_editor: View<Editor>,
-    open_entries: Vec<SharedString>,
-    stack_frame_entries: HashMap<u64, Vec<ThreadEntry>>,
     active_thread_item: ThreadItem,
-    client: Arc<DebugAdapterClient>,
+    pub client: Arc<DebugAdapterClient>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -128,8 +126,6 @@ impl DebugPanelItem {
             output_editor,
             _subscriptions,
             stack_frame_list,
-            open_entries: Default::default(),
-            stack_frame_entries: Default::default(),
             active_thread_item: ThreadItem::Variables,
         }
     }
@@ -263,7 +259,7 @@ impl DebugPanelItem {
             .unwrap()
     }
 
-    fn current_thread_state(&self) -> ThreadState {
+    pub fn current_thread_state(&self) -> ThreadState {
         self.client
             .thread_states()
             .get(&self.thread_id)
@@ -275,185 +271,60 @@ impl DebugPanelItem {
         self.client
             .update_current_stack_frame(self.thread_id, stack_frame_id);
 
-        self.open_entries.clear();
+        // self.open_entries.clear();
 
-        self.build_variable_list_entries(stack_frame_id, true, cx);
+        // self.build_variable_list_entries(stack_frame_id, true, cx);
     }
 
-    pub fn render_variable_list_entry(
-        &mut self,
-        ix: usize,
-        cx: &mut ViewContext<Self>,
-    ) -> AnyElement {
-        let Some(entries) = self
-            .stack_frame_entries
-            .get(&self.current_thread_state().current_stack_frame_id)
-        else {
-            return div().into_any_element();
-        };
+    // pub fn render_variable_list_entry(
+    //     &mut self,
+    //     ix: usize,
+    //     cx: &mut ViewContext<Self>,
+    // ) -> AnyElement {
+    //     let Some(entries) = self
+    //         .stack_frame_entries
+    //         .get(&self.current_thread_state().current_stack_frame_id)
+    //     else {
+    //         return div().into_any_element();
+    //     };
 
-        match &entries[ix] {
-            ThreadEntry::Scope(scope) => self.render_scope(scope, cx),
-            ThreadEntry::Variable {
-                depth,
-                scope,
-                variable,
-                has_children,
-                ..
-            } => self.render_variable(ix, variable, scope, *depth, *has_children, cx),
-        }
-    }
+    //     match &entries[ix] {
+    //         ThreadEntry::Scope(scope) => self.render_scope(scope, cx),
+    //         ThreadEntry::Variable {
+    //             depth,
+    //             scope,
+    //             variable,
+    //             has_children,
+    //             ..
+    //         } => self.render_variable(ix, variable, scope, *depth, *has_children, cx),
+    //     }
+    // }
 
-    fn scope_entry_id(scope: &Scope) -> SharedString {
-        SharedString::from(format!("scope-{}", scope.variables_reference))
-    }
+    // fn render_scope(&self, scope: &Scope, cx: &mut ViewContext<Self>) -> AnyElement {
+    //     let element_id = scope.variables_reference;
 
-    fn variable_entry_id(variable: &Variable, scope: &Scope, depth: usize) -> SharedString {
-        SharedString::from(format!(
-            "variable-{}-{}-{}",
-            depth, scope.variables_reference, variable.name
-        ))
-    }
+    //     let scope_id = Self::scope_entry_id(scope);
+    //     let disclosed = self.open_entries.binary_search(&scope_id).is_ok();
 
-    fn render_scope(&self, scope: &Scope, cx: &mut ViewContext<Self>) -> AnyElement {
-        let element_id = scope.variables_reference;
-
-        let scope_id = Self::scope_entry_id(scope);
-        let disclosed = self.open_entries.binary_search(&scope_id).is_ok();
-
-        div()
-            .id(element_id as usize)
-            .group("")
-            .flex()
-            .w_full()
-            .h_full()
-            .child(
-                ListItem::new(scope_id.clone())
-                    .indent_level(1)
-                    .indent_step_size(px(20.))
-                    .always_show_disclosure_icon(true)
-                    .toggle(disclosed)
-                    .on_toggle(
-                        cx.listener(move |this, _, cx| this.toggle_entry_collapsed(&scope_id, cx)),
-                    )
-                    .child(div().text_ui(cx).w_full().child(scope.name.clone())),
-            )
-            .into_any()
-    }
-
-    fn render_variable(
-        &self,
-        ix: usize,
-        variable: &Variable,
-        scope: &Scope,
-        depth: usize,
-        has_children: bool,
-        cx: &mut ViewContext<Self>,
-    ) -> AnyElement {
-        let variable_reference = variable.variables_reference;
-        let variable_id = Self::variable_entry_id(variable, scope, depth);
-
-        let disclosed = has_children.then(|| self.open_entries.binary_search(&variable_id).is_ok());
-
-        div()
-            .id(variable_id.clone())
-            .group("")
-            .h_4()
-            .size_full()
-            .child(
-                ListItem::new(variable_id.clone())
-                    .indent_level(depth + 1)
-                    .indent_step_size(px(20.))
-                    .always_show_disclosure_icon(true)
-                    .toggle(disclosed)
-                    .on_toggle(cx.listener(move |this, _, cx| {
-                        if !has_children {
-                            return;
-                        }
-
-                        // if we already opend the variable/we already fetched it
-                        // we can just toggle it because we already have the nested variable
-                        if disclosed.unwrap_or(true)
-                            || this
-                                .current_thread_state()
-                                .vars
-                                .contains_key(&variable_reference)
-                        {
-                            return this.toggle_entry_collapsed(&variable_id, cx);
-                        }
-
-                        let Some(entries) = this
-                            .stack_frame_entries
-                            .get(&this.current_thread_state().current_stack_frame_id)
-                        else {
-                            return;
-                        };
-
-                        let Some(entry) = entries.get(ix) else {
-                            return;
-                        };
-
-                        if let ThreadEntry::Variable { scope, depth, .. } = entry {
-                            let variable_id = variable_id.clone();
-                            let client = this.client.clone();
-                            let scope = scope.clone();
-                            let depth = *depth;
-                            cx.spawn(|this, mut cx| async move {
-                                let variables = client.variables(variable_reference).await?;
-
-                                this.update(&mut cx, |this, cx| {
-                                    let client = this.client.clone();
-                                    let mut thread_states = client.thread_states();
-                                    let Some(thread_state) = thread_states.get_mut(&this.thread_id)
-                                    else {
-                                        return;
-                                    };
-
-                                    if let Some(state) = thread_state
-                                        .variables
-                                        .get_mut(&thread_state.current_stack_frame_id)
-                                        .and_then(|s| s.get_mut(&scope))
-                                    {
-                                        let position = state.iter().position(|(d, v)| {
-                                            Self::variable_entry_id(v, &scope, *d) == variable_id
-                                        });
-
-                                        if let Some(position) = position {
-                                            state.splice(
-                                                position + 1..position + 1,
-                                                variables
-                                                    .clone()
-                                                    .into_iter()
-                                                    .map(|v| (depth + 1, v)),
-                                            );
-                                        }
-
-                                        thread_state.vars.insert(variable_reference, variables);
-                                    }
-
-                                    drop(thread_states);
-
-                                    this.toggle_entry_collapsed(&variable_id, cx);
-                                })
-                            })
-                            .detach_and_log_err(cx);
-                        }
-                    }))
-                    .child(
-                        h_flex()
-                            .gap_1()
-                            .text_ui_sm(cx)
-                            .child(variable.name.clone())
-                            .child(
-                                div()
-                                    .text_ui_xs(cx)
-                                    .text_color(cx.theme().colors().text_muted)
-                                    .child(variable.value.clone()),
-                            ),
-                    ),
-            )
-            .into_any()
-    }
+    //     div()
+    //         .id(element_id as usize)
+    //         .group("")
+    //         .flex()
+    //         .w_full()
+    //         .h_full()
+    //         .child(
+    //             ListItem::new(scope_id.clone())
+    //                 .indent_level(1)
+    //                 .indent_step_size(px(20.))
+    //                 .always_show_disclosure_icon(true)
+    //                 .toggle(disclosed)
+    //                 .on_toggle(
+    //                     cx.listener(move |this, _, cx| this.toggle_entry_collapsed(&scope_id, cx)),
+    //                 )
+    //                 .child(div().text_ui(cx).w_full().child(scope.name.clone())),
+    //         )
+    //         .into_any()
+    // }
 
     fn render_stack_frames(&self, _cx: &mut ViewContext<Self>) -> impl IntoElement {
         v_flex()
@@ -520,75 +391,6 @@ impl DebugPanelItem {
                     .when_some(source.and_then(|s| s.path), |this, path| this.child(path)),
             )
             .into_any()
-    }
-
-    pub fn build_variable_list_entries(
-        &mut self,
-        stack_frame_id: u64,
-        open_first_scope: bool,
-        cx: &mut ViewContext<Self>,
-    ) {
-        let thread_state = self.current_thread_state();
-        let Some(scopes_and_vars) = thread_state.variables.get(&stack_frame_id) else {
-            return;
-        };
-
-        let mut entries: Vec<ThreadEntry> = Vec::default();
-        for (scope, variables) in scopes_and_vars {
-            if variables.is_empty() {
-                continue;
-            }
-
-            if open_first_scope && self.open_entries.is_empty() {
-                self.open_entries.push(Self::scope_entry_id(scope));
-            }
-
-            entries.push(ThreadEntry::Scope(scope.clone()));
-
-            if self
-                .open_entries
-                .binary_search(&Self::scope_entry_id(scope))
-                .is_err()
-            {
-                continue;
-            }
-
-            let mut depth_check: Option<usize> = None;
-
-            for (depth, variable) in variables {
-                if depth_check.is_some_and(|d| *depth > d) {
-                    continue;
-                }
-
-                if depth_check.is_some_and(|d| d >= *depth) {
-                    depth_check = None;
-                }
-
-                let has_children = variable.variables_reference > 0;
-
-                if self
-                    .open_entries
-                    .binary_search(&Self::variable_entry_id(&variable, &scope, *depth))
-                    .is_err()
-                {
-                    if depth_check.is_none() || depth_check.is_some_and(|d| d > *depth) {
-                        depth_check = Some(*depth);
-                    }
-                }
-
-                entries.push(ThreadEntry::Variable {
-                    has_children,
-                    depth: *depth,
-                    scope: scope.clone(),
-                    variable: Arc::new(variable.clone()),
-                });
-            }
-        }
-
-        let len = entries.len();
-        self.stack_frame_entries.insert(stack_frame_id, entries);
-        self.variable_list
-            .update(cx, |this, cx| this.list.reset(len));
     }
 
     // if the debug adapter does not send the continued event,
@@ -698,25 +500,6 @@ impl DebugPanelItem {
         cx.background_executor()
             .spawn(async move { client.disconnect(None, Some(true), None).await })
             .detach_and_log_err(cx);
-    }
-
-    fn toggle_entry_collapsed(&mut self, entry_id: &SharedString, cx: &mut ViewContext<Self>) {
-        match self.open_entries.binary_search(&entry_id) {
-            Ok(ix) => {
-                self.open_entries.remove(ix);
-            }
-            Err(ix) => {
-                self.open_entries.insert(ix, entry_id.clone());
-            }
-        };
-
-        self.build_variable_list_entries(
-            self.current_thread_state().current_stack_frame_id,
-            false,
-            cx,
-        );
-
-        cx.notify();
     }
 }
 
