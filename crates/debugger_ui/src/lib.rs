@@ -4,6 +4,7 @@ use workspace::{StartDebugger, Workspace};
 
 pub mod debugger_panel;
 mod debugger_panel_item;
+mod elements;
 
 pub fn init(cx: &mut AppContext) {
     cx.observe_new_views(|workspace: &mut Workspace, _| {

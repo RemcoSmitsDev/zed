@@ -1,4 +1,5 @@
 use crate::debugger_panel::{DebugPanel, DebugPanelEvent};
+use crate::elements::VariableList;
 use anyhow::Result;
 use dap::client::{DebugAdapterClient, DebugAdapterClientId, ThreadState, ThreadStatus};
 use dap::{
@@ -35,7 +36,7 @@ pub enum ThreadEntry {
 
 pub struct DebugPanelItem {
     thread_id: u64,
-    variable_list: ListState,
+    variable_list: View<VariableList>,
     focus_handle: FocusHandle,
     stack_frame_list: ListState,
     output_editor: View<Editor>,
@@ -44,6 +45,11 @@ pub struct DebugPanelItem {
     active_thread_item: ThreadItem,
     client: Arc<DebugAdapterClient>,
     _subscriptions: Vec<Subscription>,
+}
+
+pub enum DebugPanelItemEvent {
+    RenderScope,
+    RenderVariable,
 }
 
 actions!(
@@ -61,14 +67,16 @@ impl DebugPanelItem {
         let focus_handle = cx.focus_handle();
 
         let weakview = cx.view().downgrade();
-        let variable_list =
-            ListState::new(0, gpui::ListAlignment::Top, px(1000.), move |ix, cx| {
-                if let Some(view) = weakview.upgrade() {
-                    view.update(cx, |view, cx| view.render_variable_list_entry(ix, cx))
-                } else {
-                    div().into_any()
-                }
-            });
+        // let variable_list =
+        //     ListState::new(0, gpui::ListAlignment::Top, px(1000.), move |ix, cx| {
+        //         if let Some(view) = weakview.upgrade() {
+        //             view.update(cx, |view, cx| view.render_variable_list_entry(ix, cx))
+        //         } else {
+        //             div().into_any()
+        //         }
+        //     });
+        let model = cx.model().clone();
+        let variable_list = cx.new_view(|cx| VariableList::new(model, cx));
 
         let weakview = cx.view().downgrade();
         let stack_frame_list =
@@ -148,7 +156,7 @@ impl DebugPanelItem {
 
         this.stack_frame_list.reset(thread_state.stack_frames.len());
         if let Some(stack_frame) = thread_state.stack_frames.first() {
-            this.update_stack_frame_id(stack_frame.id);
+            this.update_stack_frame_id(stack_frame.id, cx);
         };
 
         cx.notify();
@@ -198,6 +206,7 @@ impl DebugPanelItem {
 }
 
 impl EventEmitter<ItemEvent> for DebugPanelItem {}
+impl EventEmitter<DebugPanelItemEvent> for DebugPanelItem {}
 
 impl FocusableView for DebugPanelItem {
     fn focus_handle(&self, _: &AppContext) -> FocusHandle {
@@ -262,13 +271,13 @@ impl DebugPanelItem {
             .unwrap()
     }
 
-    fn update_stack_frame_id(&mut self, stack_frame_id: u64) {
+    fn update_stack_frame_id(&mut self, stack_frame_id: u64, cx: &mut ViewContext<Self>) {
         self.client
             .update_current_stack_frame(self.thread_id, stack_frame_id);
 
         self.open_entries.clear();
 
-        self.build_variable_list_entries(stack_frame_id, true);
+        self.build_variable_list_entries(stack_frame_id, true, cx);
     }
 
     pub fn render_variable_list_entry(
@@ -482,7 +491,7 @@ impl DebugPanelItem {
             .on_click(cx.listener({
                 let stack_frame_id = stack_frame.id;
                 move |this, _, cx| {
-                    this.update_stack_frame_id(stack_frame_id);
+                    this.update_stack_frame_id(stack_frame_id, cx);
 
                     cx.notify();
 
@@ -513,7 +522,12 @@ impl DebugPanelItem {
             .into_any()
     }
 
-    pub fn build_variable_list_entries(&mut self, stack_frame_id: u64, open_first_scope: bool) {
+    pub fn build_variable_list_entries(
+        &mut self,
+        stack_frame_id: u64,
+        open_first_scope: bool,
+        cx: &mut ViewContext<Self>,
+    ) {
         let thread_state = self.current_thread_state();
         let Some(scopes_and_vars) = thread_state.variables.get(&stack_frame_id) else {
             return;
@@ -573,7 +587,8 @@ impl DebugPanelItem {
 
         let len = entries.len();
         self.stack_frame_entries.insert(stack_frame_id, entries);
-        self.variable_list.reset(len);
+        self.variable_list
+            .update(cx, |this, cx| this.list.reset(len));
     }
 
     // if the debug adapter does not send the continued event,
@@ -695,7 +710,11 @@ impl DebugPanelItem {
             }
         };
 
-        self.build_variable_list_entries(self.current_thread_state().current_stack_frame_id, false);
+        self.build_variable_list_entries(
+            self.current_thread_state().current_stack_frame_id,
+            false,
+            cx,
+        );
 
         cx.notify();
     }
@@ -881,8 +900,7 @@ impl Render for DebugPanelItem {
                             ),
                     )
                     .when(*active_thread_item == ThreadItem::Variables, |this| {
-                        this.size_full()
-                            .child(list(self.variable_list.clone()).gap_1_5().size_full())
+                        this.size_full().child(self.variable_list.clone())
                     })
                     .when(*active_thread_item == ThreadItem::Output, |this| {
                         this.child(self.output_editor.clone())
