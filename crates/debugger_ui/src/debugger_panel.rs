@@ -99,20 +99,21 @@ impl DebugPanel {
                                 return cx.emit(DebugPanelEvent::ClientStopped(*client_id));
                             };
 
-                            cx.spawn(|_, _| async move {
-                                client.initialize().await?;
+                            cx.background_executor()
+                                .spawn(async move {
+                                    client.initialize().await?;
 
-                                // send correct request based on adapter config
-                                match client.config().request {
-                                    DebugRequestType::Launch => {
-                                        client.launch(client.request_args()).await
+                                    // send correct request based on adapter config
+                                    match client.config().request {
+                                        DebugRequestType::Launch => {
+                                            client.launch(client.request_args()).await
+                                        }
+                                        DebugRequestType::Attach => {
+                                            client.attach(client.request_args()).await
+                                        }
                                     }
-                                    DebugRequestType::Attach => {
-                                        client.attach(client.request_args()).await
-                                    }
-                                }
-                            })
-                            .detach_and_log_err(cx);
+                                })
+                                .detach_and_log_err(cx);
                         }
                         project::Event::DebugClientStopped(client_id) => {
                             cx.emit(DebugPanelEvent::ClientStopped(*client_id));
@@ -173,10 +174,11 @@ impl DebugPanel {
                     if thread_status != ThreadStatus::Ended && thread_status != ThreadStatus::Exited
                     {
                         let client = client.clone();
-                        cx.spawn(|_, _| async move {
-                            client.terminate_threads(Some(vec![thread_id; 1])).await
-                        })
-                        .detach_and_log_err(cx);
+                        cx.background_executor()
+                            .spawn(async move {
+                                client.terminate_threads(Some(vec![thread_id; 1])).await
+                            })
+                            .detach_and_log_err(cx);
                     }
                 });
             }
