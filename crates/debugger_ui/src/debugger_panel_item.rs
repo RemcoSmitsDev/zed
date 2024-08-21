@@ -209,9 +209,6 @@ impl DebugPanelItem {
         }
 
         cx.emit(ItemEvent::CloseItem);
-        cx.notify();
-
-        dbg!("should close item");
     }
 }
 

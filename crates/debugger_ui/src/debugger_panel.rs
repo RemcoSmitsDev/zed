@@ -516,7 +516,7 @@ impl DebugPanel {
 
                         this.workspace
                             .update(cx, |_, cx| {
-                                this.pane.update(cx, |this, cx| {
+                                this.pane.update(cx, |_, cx| {
                                     let tab = cx.new_view(|cx| {
                                         DebugPanelItem::new(
                                             debug_panel,
@@ -526,14 +526,12 @@ impl DebugPanel {
                                         )
                                     });
 
-                                    this.add_item(Box::new(tab), false, false, None, cx)
-                                })
+                                    cx.emit(pane::Event::AddItem {
+                                        item: Box::new(tab),
+                                    });
+                                });
                             })
                             .log_err();
-                    } else {
-                        cx.emit(DebugPanelEvent::ClientStopped(client.id()));
-                        cx.notify();
-                        return Task::ready(anyhow::Ok(()));
                     }
 
                     cx.emit(DebugPanelEvent::Stopped((client_id, event)));
