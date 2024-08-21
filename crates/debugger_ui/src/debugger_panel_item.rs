@@ -1,5 +1,5 @@
 use crate::debugger_panel::{DebugPanel, DebugPanelEvent};
-use crate::elements::{self, VariableList};
+use crate::elements::VariableList;
 use anyhow::Result;
 use dap::client::{DebugAdapterClient, DebugAdapterClientId, ThreadState, ThreadStatus};
 use dap::{
@@ -11,10 +11,9 @@ use gpui::{
     FocusableView, ListState, Subscription, View, WeakView,
 };
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::sync::Arc;
+use ui::WindowContext;
 use ui::{prelude::*, Tooltip};
-use ui::{ListItem, WindowContext};
 use workspace::dock::Panel;
 use workspace::item::{Item, ItemEvent};
 use workspace::Workspace;
@@ -48,10 +47,7 @@ pub struct DebugPanelItem {
     _subscriptions: Vec<Subscription>,
 }
 
-pub enum DebugPanelItemEvent {
-    RenderScope,
-    RenderVariable,
-}
+pub enum DebugPanelItemEvent {}
 
 impl_actions!(debug_panel_item, [DebugItemAction]);
 
@@ -87,15 +83,6 @@ impl DebugPanelItem {
     ) -> Self {
         let focus_handle = cx.focus_handle();
 
-        let weakview = cx.view().downgrade();
-        // let variable_list =
-        //     ListState::new(0, gpui::ListAlignment::Top, px(1000.), move |ix, cx| {
-        //         if let Some(view) = weakview.upgrade() {
-        //             view.update(cx, |view, cx| view.render_variable_list_entry(ix, cx))
-        //         } else {
-        //             div().into_any()
-        //         }
-        //     });
         let model = cx.model().clone();
         let variable_list = cx.new_view(|cx| VariableList::new(model, cx));
 
@@ -222,49 +209,7 @@ impl DebugPanelItem {
             cx.notify();
         });
     }
-}
 
-impl EventEmitter<ItemEvent> for DebugPanelItem {}
-impl EventEmitter<DebugPanelItemEvent> for DebugPanelItem {}
-
-impl FocusableView for DebugPanelItem {
-    fn focus_handle(&self, _: &AppContext) -> FocusHandle {
-        self.focus_handle.clone()
-    }
-}
-
-impl Item for DebugPanelItem {
-    type Event = ItemEvent;
-
-    fn tab_content(
-        &self,
-        params: workspace::item::TabContentParams,
-        _: &WindowContext,
-    ) -> AnyElement {
-        Label::new(format!(
-            "{} - Thread {}",
-            self.client.config().id,
-            self.thread_id
-        ))
-        .color(if params.selected {
-            Color::Default
-        } else {
-            Color::Muted
-        })
-        .into_any_element()
-    }
-
-    fn tab_tooltip_text(&self, _: &AppContext) -> Option<SharedString> {
-        Some(SharedString::from(format!(
-            "{} Thread {} - {:?}",
-            self.client.config().id,
-            self.thread_id,
-            self.current_thread_state().status
-        )))
-    }
-}
-
-impl DebugPanelItem {
     pub fn client(&self) -> Arc<DebugAdapterClient> {
         self.client.clone()
     }
@@ -294,60 +239,12 @@ impl DebugPanelItem {
         self.client
             .update_current_stack_frame(self.thread_id, stack_frame_id);
 
-        // self.open_entries.clear();
+        let thread_state = self.current_thread_state();
 
-        // self.build_variable_list_entries(stack_frame_id, true, cx);
+        self.variable_list.update(cx, |variable_list, cx| {
+            variable_list.build_entries(thread_state, true, cx)
+        });
     }
-
-    // pub fn render_variable_list_entry(
-    //     &mut self,
-    //     ix: usize,
-    //     cx: &mut ViewContext<Self>,
-    // ) -> AnyElement {
-    //     let Some(entries) = self
-    //         .stack_frame_entries
-    //         .get(&self.current_thread_state().current_stack_frame_id)
-    //     else {
-    //         return div().into_any_element();
-    //     };
-
-    //     match &entries[ix] {
-    //         ThreadEntry::Scope(scope) => self.render_scope(scope, cx),
-    //         ThreadEntry::Variable {
-    //             depth,
-    //             scope,
-    //             variable,
-    //             has_children,
-    //             ..
-    //         } => self.render_variable(ix, variable, scope, *depth, *has_children, cx),
-    //     }
-    // }
-
-    // fn render_scope(&self, scope: &Scope, cx: &mut ViewContext<Self>) -> AnyElement {
-    //     let element_id = scope.variables_reference;
-
-    //     let scope_id = Self::scope_entry_id(scope);
-    //     let disclosed = self.open_entries.binary_search(&scope_id).is_ok();
-
-    //     div()
-    //         .id(element_id as usize)
-    //         .group("")
-    //         .flex()
-    //         .w_full()
-    //         .h_full()
-    //         .child(
-    //             ListItem::new(scope_id.clone())
-    //                 .indent_level(1)
-    //                 .indent_step_size(px(20.))
-    //                 .always_show_disclosure_icon(true)
-    //                 .toggle(disclosed)
-    //                 .on_toggle(
-    //                     cx.listener(move |this, _, cx| this.toggle_entry_collapsed(&scope_id, cx)),
-    //                 )
-    //                 .child(div().text_ui(cx).w_full().child(scope.name.clone())),
-    //         )
-    //         .into_any()
-    // }
 
     fn render_stack_frames(&self, _cx: &mut ViewContext<Self>) -> impl IntoElement {
         v_flex()
@@ -452,10 +349,10 @@ impl DebugPanelItem {
             .and_then(|panel| panel.read(cx).pane())
         else {
             log::error!(
-                "Can't get Debug panel to handle Debug action: {:?}
-                This shouldn't happen because there has to be an Debug panel to click a button and trigger this action",
-                action.kind
-            );
+                    "Can't get Debug panel to handle Debug action: {:?}
+                    This shouldn't happen because there has to be an Debug panel to click a button and trigger this action",
+                    action.kind
+                );
             return;
         };
 
@@ -562,6 +459,46 @@ impl DebugPanelItem {
         cx.background_executor()
             .spawn(async move { client.disconnect(None, Some(true), None).await })
             .detach_and_log_err(cx);
+    }
+}
+
+impl EventEmitter<ItemEvent> for DebugPanelItem {}
+impl EventEmitter<DebugPanelItemEvent> for DebugPanelItem {}
+
+impl FocusableView for DebugPanelItem {
+    fn focus_handle(&self, _: &AppContext) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
+impl Item for DebugPanelItem {
+    type Event = ItemEvent;
+
+    fn tab_content(
+        &self,
+        params: workspace::item::TabContentParams,
+        _: &WindowContext,
+    ) -> AnyElement {
+        Label::new(format!(
+            "{} - Thread {}",
+            self.client.config().id,
+            self.thread_id
+        ))
+        .color(if params.selected {
+            Color::Default
+        } else {
+            Color::Muted
+        })
+        .into_any_element()
+    }
+
+    fn tab_tooltip_text(&self, _: &AppContext) -> Option<SharedString> {
+        Some(SharedString::from(format!(
+            "{} Thread {} - {:?}",
+            self.client.config().id,
+            self.thread_id,
+            self.current_thread_state().status
+        )))
     }
 }
 

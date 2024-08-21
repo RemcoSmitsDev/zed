@@ -1,6 +1,5 @@
 use crate::debugger_panel_item::{DebugPanelItem, DebugPanelItemEvent, ThreadEntry};
-use anyhow::Error;
-use dap::{Scope, Variable};
+use dap::{client::ThreadState, Scope, Variable};
 
 use gpui::{list, AnyElement, ListState, Model, Subscription};
 use ui::{prelude::*, ListItem};
@@ -22,7 +21,7 @@ impl VariableList {
         let list = ListState::new(0, gpui::ListAlignment::Top, px(1000.), move |ix, cx| {
             weakview
                 .upgrade()
-                .and_then(|view| Some(view.update(cx, |this, cx| this.render_entry(ix, cx))))
+                .map(|view| view.update(cx, |this, cx| this.render_entry(ix, cx)))
                 .unwrap_or(div().into_any())
         });
 
@@ -47,7 +46,7 @@ impl VariableList {
         };
 
         match &entries[ix] {
-            ThreadEntry::Scope(scope) => div().into_any_element(),
+            ThreadEntry::Scope(scope) => self.render_scope(scope, cx),
             ThreadEntry::Variable {
                 depth,
                 scope,
@@ -76,23 +75,21 @@ impl VariableList {
             }
         };
 
-        // debug_item.build_variable_list_entries(
-        //     debug_item.current_thread_state().current_stack_frame_id,
-        //     false,
-        //     cx,
-        // );
+        let thread_state = self
+            .debug_panel_item
+            .read_with(cx, |panel, _cx| panel.current_thread_state());
 
+        self.build_entries(thread_state, false, cx);
         cx.notify();
     }
 
     pub fn build_entries(
         &mut self,
-        stack_frame_id: u64,
+        thread_state: ThreadState,
         open_first_scope: bool,
-        cx: &mut ViewContext<Self>,
+        _cx: &mut ViewContext<Self>,
     ) {
-        let debug_item = self.debug_panel_item.read(cx);
-        let thread_state = debug_item.current_thread_state();
+        let stack_frame_id = thread_state.current_stack_frame_id;
         let Some(scopes_and_vars) = thread_state.variables.get(&stack_frame_id) else {
             return;
         };
@@ -214,51 +211,45 @@ impl VariableList {
                             let scope = scope.clone();
                             let depth = *depth;
 
-                            // cx.spawn(|this, mut cx| async move {
-                            //     let variables = client.variables(variable_reference).await?;
-                            //     let Some(this) = this.upgrade() else {
-                            //         return Ok(());
-                            //     };
+                            cx.spawn(|this, mut cx| async move {
+                                let variables = client.variables(variable_reference).await?;
 
-                            //     this.read(cx.into())
-                            //         .debug_panel_item
-                            //         .update(&mut cx, |this, cx| {
-                            //             let client = this.client.clone();
-                            //             let mut thread_states = client.thread_states();
-                            //             let Some(thread_state) =
-                            //                 thread_states.get_mut(&this.thread_id)
-                            //             else {
-                            //                 return;
-                            //             };
+                                this.update(&mut cx, |this, cx| {
+                                    let client = client.clone();
+                                    let mut thread_states = client.thread_states();
+                                    let Some(thread_state) = thread_states
+                                        .get_mut(&this.debug_panel_item.read(cx).thread_id)
+                                    else {
+                                        return;
+                                    };
 
-                            //             if let Some(state) = thread_state
-                            //                 .variables
-                            //                 .get_mut(&thread_state.current_stack_frame_id)
-                            //                 .and_then(|s| s.get_mut(&scope))
-                            //             {
-                            //                 let position = state.iter().position(|(d, v)| {
-                            //                     variable_entry_id(v, &scope, *d) == variable_id
-                            //                 });
+                                    if let Some(state) = thread_state
+                                        .variables
+                                        .get_mut(&thread_state.current_stack_frame_id)
+                                        .and_then(|s| s.get_mut(&scope))
+                                    {
+                                        let position = state.iter().position(|(d, v)| {
+                                            variable_entry_id(v, &scope, *d) == variable_id
+                                        });
 
-                            //                 if let Some(position) = position {
-                            //                     state.splice(
-                            //                         position + 1..position + 1,
-                            //                         variables
-                            //                             .clone()
-                            //                             .into_iter()
-                            //                             .map(|v| (depth + 1, v)),
-                            //                     );
-                            //                 }
+                                        if let Some(position) = position {
+                                            state.splice(
+                                                position + 1..position + 1,
+                                                variables
+                                                    .clone()
+                                                    .into_iter()
+                                                    .map(|v| (depth + 1, v)),
+                                            );
+                                        }
 
-                            //                 thread_state.vars.insert(variable_reference, variables);
-                            //             }
+                                        thread_state.vars.insert(variable_reference, variables);
+                                    }
 
-                            //             drop(thread_states);
-
-                            //             // self.toggle_entry_collapsed(&variable_id, cx);
-                            //         })
-                            // })
-                            // .detach_and_log_err(cx);
+                                    drop(thread_states);
+                                    this.toggle_entry_collapsed(&variable_id, cx);
+                                })
+                            })
+                            .detach_and_log_err(cx);
                         }
                     }))
                     .child(
@@ -273,6 +264,32 @@ impl VariableList {
                                     .child(variable.value.clone()),
                             ),
                     ),
+            )
+            .into_any()
+    }
+
+    fn render_scope(&self, scope: &Scope, cx: &mut ViewContext<Self>) -> AnyElement {
+        let element_id = scope.variables_reference;
+
+        let scope_id = scope_entry_id(scope);
+        let disclosed = self.open_entries.binary_search(&scope_id).is_ok();
+
+        div()
+            .id(element_id as usize)
+            .group("")
+            .flex()
+            .w_full()
+            .h_full()
+            .child(
+                ListItem::new(scope_id.clone())
+                    .indent_level(1)
+                    .indent_step_size(px(20.))
+                    .always_show_disclosure_icon(true)
+                    .toggle(disclosed)
+                    .on_toggle(
+                        cx.listener(move |this, _, cx| this.toggle_entry_collapsed(&scope_id, cx)),
+                    )
+                    .child(div().text_ui(cx).w_full().child(scope.name.clone())),
             )
             .into_any()
     }
