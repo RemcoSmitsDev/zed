@@ -267,6 +267,22 @@ pub enum Direction {
     Next,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Navigated {
+    Yes,
+    No,
+}
+
+impl Navigated {
+    pub fn from_bool(yes: bool) -> Navigated {
+        if yes {
+            Navigated::Yes
+        } else {
+            Navigated::No
+        }
+    }
+}
+
 pub fn init_settings(cx: &mut AppContext) {
     EditorSettings::register(cx);
 }
@@ -369,6 +385,7 @@ pub struct EditorStyle {
     pub status: StatusColors,
     pub inlay_hints_style: HighlightStyle,
     pub suggestions_style: HighlightStyle,
+    pub unnecessary_code_fade: f32,
 }
 
 impl Default for EditorStyle {
@@ -385,6 +402,7 @@ impl Default for EditorStyle {
             status: StatusColors::dark(),
             inlay_hints_style: HighlightStyle::default(),
             suggestions_style: HighlightStyle::default(),
+            unnecessary_code_fade: Default::default(),
         }
     }
 }
@@ -446,6 +464,14 @@ struct ResolvedTasks {
 struct MultiBufferOffset(usize);
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
 struct BufferOffset(usize);
+
+// Addons allow storing per-editor state in other crates (e.g. Vim)
+pub trait Addon: 'static {
+    fn extend_key_context(&self, _: &mut KeyContext, _: &AppContext) {}
+
+    fn to_any(&self) -> &dyn std::any::Any;
+}
+
 /// Zed's primary text input `View`, allowing users to edit a [`MultiBuffer`]
 ///
 /// See the [module level documentation](self) for more information.
@@ -517,7 +543,6 @@ pub struct Editor {
     collapse_matches: bool,
     autoindent_mode: Option<AutoindentMode>,
     workspace: Option<(WeakView<Workspace>, Option<WorkspaceId>)>,
-    keymap_context_layers: BTreeMap<TypeId, KeyContext>,
     input_enabled: bool,
     use_modal_editing: bool,
     read_only: bool,
@@ -535,7 +560,6 @@ pub struct Editor {
     _subscriptions: Vec<Subscription>,
     pixel_position_of_newest_cursor: Option<gpui::Point<Pixels>>,
     gutter_dimensions: GutterDimensions,
-    pub vim_replace_map: HashMap<Range<usize>, String>,
     style: Option<EditorStyle>,
     next_editor_action_id: EditorActionId,
     editor_actions: Rc<RefCell<BTreeMap<EditorActionId, Box<dyn Fn(&mut ViewContext<Self>)>>>>,
@@ -560,8 +584,7 @@ pub struct Editor {
     expect_bounds_change: Option<Bounds<Pixels>>,
     tasks: BTreeMap<(BufferId, BufferRow), RunnableTasks>,
     tasks_update_task: Option<Task<()>>,
-    /// All the breakpoints that are active within a project
-    /// Is shared with editor's active project
+    /// All the breakpoints that are contained within open buffers in the editor
     breakpoints: Option<Arc<RwLock<BTreeMap<BufferId, HashSet<Breakpoint>>>>>,
     /// Allow's a user to create a breakpoint by selecting this indicator
     /// It should be None while a user is not hovering over the gutter
@@ -572,6 +595,7 @@ pub struct Editor {
     breadcrumb_header: Option<String>,
     focused_block: Option<FocusedBlock>,
     next_scroll_position: NextScrollCursorCenterTopBottom,
+    addons: HashMap<TypeId, Box<dyn Addon>>,
     _scroll_cursor_center_top_bottom_task: Task<()>,
 }
 
@@ -909,6 +933,7 @@ enum ContextMenuOrigin {
 #[derive(Clone)]
 struct CompletionsMenu {
     id: CompletionId,
+    sort_completions: bool,
     initial_position: Anchor,
     buffer: Model<Buffer>,
     completions: Arc<RwLock<Box<[Completion]>>>,
@@ -1234,55 +1259,57 @@ impl CompletionsMenu {
         }
 
         let completions = self.completions.read();
-        matches.sort_unstable_by_key(|mat| {
-            // We do want to strike a balance here between what the language server tells us
-            // to sort by (the sort_text) and what are "obvious" good matches (i.e. when you type
-            // `Creat` and there is a local variable called `CreateComponent`).
-            // So what we do is: we bucket all matches into two buckets
-            // - Strong matches
-            // - Weak matches
-            // Strong matches are the ones with a high fuzzy-matcher score (the "obvious" matches)
-            // and the Weak matches are the rest.
-            //
-            // For the strong matches, we sort by the language-servers score first and for the weak
-            // matches, we prefer our fuzzy finder first.
-            //
-            // The thinking behind that: it's useless to take the sort_text the language-server gives
-            // us into account when it's obviously a bad match.
+        if self.sort_completions {
+            matches.sort_unstable_by_key(|mat| {
+                // We do want to strike a balance here between what the language server tells us
+                // to sort by (the sort_text) and what are "obvious" good matches (i.e. when you type
+                // `Creat` and there is a local variable called `CreateComponent`).
+                // So what we do is: we bucket all matches into two buckets
+                // - Strong matches
+                // - Weak matches
+                // Strong matches are the ones with a high fuzzy-matcher score (the "obvious" matches)
+                // and the Weak matches are the rest.
+                //
+                // For the strong matches, we sort by the language-servers score first and for the weak
+                // matches, we prefer our fuzzy finder first.
+                //
+                // The thinking behind that: it's useless to take the sort_text the language-server gives
+                // us into account when it's obviously a bad match.
 
-            #[derive(PartialEq, Eq, PartialOrd, Ord)]
-            enum MatchScore<'a> {
-                Strong {
-                    sort_text: Option<&'a str>,
-                    score: Reverse<OrderedFloat<f64>>,
-                    sort_key: (usize, &'a str),
-                },
-                Weak {
-                    score: Reverse<OrderedFloat<f64>>,
-                    sort_text: Option<&'a str>,
-                    sort_key: (usize, &'a str),
-                },
-            }
-
-            let completion = &completions[mat.candidate_id];
-            let sort_key = completion.sort_key();
-            let sort_text = completion.lsp_completion.sort_text.as_deref();
-            let score = Reverse(OrderedFloat(mat.score));
-
-            if mat.score >= 0.2 {
-                MatchScore::Strong {
-                    sort_text,
-                    score,
-                    sort_key,
+                #[derive(PartialEq, Eq, PartialOrd, Ord)]
+                enum MatchScore<'a> {
+                    Strong {
+                        sort_text: Option<&'a str>,
+                        score: Reverse<OrderedFloat<f64>>,
+                        sort_key: (usize, &'a str),
+                    },
+                    Weak {
+                        score: Reverse<OrderedFloat<f64>>,
+                        sort_text: Option<&'a str>,
+                        sort_key: (usize, &'a str),
+                    },
                 }
-            } else {
-                MatchScore::Weak {
-                    score,
-                    sort_text,
-                    sort_key,
+
+                let completion = &completions[mat.candidate_id];
+                let sort_key = completion.sort_key();
+                let sort_text = completion.lsp_completion.sort_text.as_deref();
+                let score = Reverse(OrderedFloat(mat.score));
+
+                if mat.score >= 0.2 {
+                    MatchScore::Strong {
+                        sort_text,
+                        score,
+                        sort_key,
+                    }
+                } else {
+                    MatchScore::Weak {
+                        score,
+                        sort_text,
+                        sort_key,
+                    }
                 }
-            }
-        });
+            });
+        }
 
         for mat in &mut matches {
             let completion = &completions[mat.candidate_id];
@@ -1567,6 +1594,7 @@ pub(crate) struct NavigationData {
     scroll_top_row: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GotoDefinitionKind {
     Symbol,
     Declaration,
@@ -1801,8 +1829,8 @@ impl Editor {
             None
         };
 
-        let breakpoints = if let Some(project) = project.as_ref() {
-            Some(project.update(cx, |project, _cx| project.breakpoints.clone()))
+        let opened_breakpoints = if let Some(project) = project.as_ref() {
+            project.read_with(cx, |project, _cx| Some(project.open_breakpoints.clone()))
         } else {
             None
         };
@@ -1868,7 +1896,6 @@ impl Editor {
             autoindent_mode: Some(AutoindentMode::EachLine),
             collapse_matches: false,
             workspace: None,
-            keymap_context_layers: Default::default(),
             input_enabled: true,
             use_modal_editing: mode == EditorMode::Full,
             read_only: false,
@@ -1893,7 +1920,6 @@ impl Editor {
             hovered_cursors: Default::default(),
             next_editor_action_id: EditorActionId::default(),
             editor_actions: Rc::default(),
-            vim_replace_map: Default::default(),
             show_inline_completions: mode == EditorMode::Full,
             custom_context_menu: None,
             show_git_blame_gutter: false,
@@ -1908,7 +1934,7 @@ impl Editor {
             blame_subscription: None,
             file_header_size,
             tasks: Default::default(),
-            breakpoints,
+            breakpoints: opened_breakpoints,
             gutter_breakpoint_indicator: None,
             _subscriptions: vec![
                 cx.observe(&buffer, Self::on_buffer_changed),
@@ -1934,6 +1960,7 @@ impl Editor {
             breadcrumb_header: None,
             focused_block: None,
             next_scroll_position: NextScrollCursorCenterTopBottom::default(),
+            addons: HashMap::default(),
             _scroll_cursor_center_top_bottom_task: Task::ready(()),
         };
         this.tasks_update_task = Some(this.refresh_runnables(cx));
@@ -1950,19 +1977,32 @@ impl Editor {
                 this.git_blame_inline_enabled = true;
                 this.start_git_blame_inline(false, cx);
             }
+
+            // Check if this buffer should have breakpoints added too it
+            if let Some((project_path, buffer_id, snapshot)) = buffer.read_with(cx, |buffer, cx| {
+                let snapshot = buffer.snapshot(cx);
+                let buffer = buffer.as_singleton()?.read(cx);
+                Some((buffer.project_path(cx)?, buffer.remote_id(), snapshot))
+            }) {
+                if let Some(project) = this.project.as_ref() {
+                    project.update(cx, |project, _cx| {
+                        project.convert_to_open_breakpoints(&project_path, buffer_id, snapshot)
+                    });
+                }
+            }
         }
 
         this.report_editor_event("open", None, cx);
         this
     }
 
-    pub fn mouse_menu_is_focused(&self, cx: &mut WindowContext) -> bool {
+    pub fn mouse_menu_is_focused(&self, cx: &WindowContext) -> bool {
         self.mouse_context_menu
             .as_ref()
             .is_some_and(|menu| menu.context_menu.focus_handle(cx).is_focused(cx))
     }
 
-    fn key_context(&self, cx: &AppContext) -> KeyContext {
+    fn key_context(&self, cx: &ViewContext<Self>) -> KeyContext {
         let mut key_context = KeyContext::new_with_defaults();
         key_context.add("Editor");
         let mode = match self.mode {
@@ -1993,8 +2033,13 @@ impl Editor {
             }
         }
 
-        for layer in self.keymap_context_layers.values() {
-            key_context.extend(layer);
+        // Disable vim contexts when a sub-editor (e.g. rename/inline assistant) is focused.
+        if !self.focus_handle(cx).contains_focused(cx)
+            || (self.is_focused(cx) || self.mouse_menu_is_focused(cx))
+        {
+            for addon in self.addons.values() {
+                addon.extend_key_context(&mut key_context, cx)
+            }
         }
 
         if let Some(extension) = self
@@ -2234,21 +2279,6 @@ impl Editor {
             self.display_map
                 .update(cx, |map, _| map.clip_at_line_ends = clip);
         }
-    }
-
-    pub fn set_keymap_context_layer<Tag: 'static>(
-        &mut self,
-        context: KeyContext,
-        cx: &mut ViewContext<Self>,
-    ) {
-        self.keymap_context_layers
-            .insert(TypeId::of::<Tag>(), context);
-        cx.notify();
-    }
-
-    pub fn remove_keymap_context_layer<Tag: 'static>(&mut self, cx: &mut ViewContext<Self>) {
-        self.keymap_context_layers.remove(&TypeId::of::<Tag>());
-        cx.notify();
     }
 
     pub fn set_input_enabled(&mut self, input_enabled: bool) {
@@ -4122,6 +4152,7 @@ impl Editor {
             trigger_kind,
         };
         let completions = provider.completions(&buffer, buffer_position, completion_context, cx);
+        let sort_completions = provider.sort_completions();
 
         let id = post_inc(&mut self.next_completion_id);
         let task = cx.spawn(|this, mut cx| {
@@ -4133,6 +4164,7 @@ impl Editor {
                 let menu = if let Some(completions) = completions {
                     let mut menu = CompletionsMenu {
                         id,
+                        sort_completions,
                         initial_position: position,
                         match_candidates: completions
                             .iter()
@@ -4391,11 +4423,11 @@ impl Editor {
             this.refresh_inline_completion(true, cx);
         });
 
-        if let Some(confirm) = completion.confirm.as_ref() {
-            (confirm)(intent, cx);
-        }
-
-        if completion.show_new_completions_on_confirm {
+        let show_new_completions_on_confirm = completion
+            .confirm
+            .as_ref()
+            .map_or(false, |confirm| confirm(intent, cx));
+        if show_new_completions_on_confirm {
             self.show_completions(&ShowCompletions { trigger: None }, cx);
         }
 
@@ -4855,7 +4887,7 @@ impl Editor {
 
                             let range = Anchor {
                                 buffer_id,
-                                excerpt_id: excerpt_id,
+                                excerpt_id,
                                 text_anchor: start,
                             }..Anchor {
                                 buffer_id,
@@ -5177,19 +5209,108 @@ impl Editor {
         }
     }
 
+    /// Get all display points of breakpoints that will be rendered within editor
+    ///
+    /// This function is used to handle overlaps between breakpoints and Code action/runner symbol.
+    /// It's also used to set the color of line numbers with breakpoints to the breakpoint color.
+    /// TODO Debugger: Use this function to color toggle symbols that house nested breakpoints
+    fn active_breakpoint_points(&mut self, cx: &mut ViewContext<Self>) -> HashSet<DisplayPoint> {
+        let mut breakpoint_display_points = HashSet::default();
+
+        let Some(opened_breakpoints) = self.breakpoints.clone() else {
+            return breakpoint_display_points;
+        };
+
+        let snapshot = self.snapshot(cx);
+
+        let opened_breakpoints = opened_breakpoints.read();
+
+        if let Some(buffer) = self.buffer.read(cx).as_singleton() {
+            let buffer = buffer.read(cx);
+
+            if let Some(breakpoints) = opened_breakpoints.get(&buffer.remote_id()) {
+                for breakpoint in breakpoints {
+                    breakpoint_display_points
+                        .insert(breakpoint.position.to_display_point(&snapshot));
+                    // Breakpoints TODO: Multibuffer bp toggle failing here
+                    // dued to invalid excerpt id. Multibuffer excerpt id isn't the same as a singular buffer id
+                }
+            };
+
+            return breakpoint_display_points;
+        }
+
+        let multi_buffer_snapshot = &snapshot.display_snapshot.buffer_snapshot;
+
+        for excerpt_boundary in
+            multi_buffer_snapshot.excerpt_boundaries_in_range(Point::new(0, 0)..)
+        {
+            let info = excerpt_boundary.next.as_ref();
+
+            if let Some(info) = info {
+                let Some(excerpt_ranges) =
+                    multi_buffer_snapshot.range_for_excerpt::<Point>(info.id)
+                else {
+                    continue;
+                };
+
+                // To translate a breakpoint's position within a singular buffer to a multi buffer
+                // position we need to know it's excerpt starting location, it's position within
+                // the singular buffer, and if that position is within the excerpt's range.
+                let excerpt_head = excerpt_ranges
+                    .start
+                    .to_display_point(&snapshot.display_snapshot);
+                let buffer_range = info // Buffer lines being shown within the excerpt
+                    .buffer
+                    .summary_for_anchor::<Point>(&info.range.context.start)
+                    ..info
+                        .buffer
+                        .summary_for_anchor::<Point>(&info.range.context.end);
+
+                if let Some(breakpoints) = opened_breakpoints.get(&info.buffer_id) {
+                    for breakpoint in breakpoints {
+                        let breakpoint_position = info // Breakpoint's position within the singular buffer
+                            .buffer
+                            .summary_for_anchor::<Point>(&breakpoint.position.text_anchor);
+
+                        if buffer_range.contains(&breakpoint_position) {
+                            // Translated breakpoint position from singular buffer to multi buffer
+                            let delta = breakpoint_position.row - buffer_range.start.row;
+
+                            let position = excerpt_head + DisplayPoint::new(DisplayRow(delta), 0);
+
+                            breakpoint_display_points.insert(position);
+                        }
+                    }
+                };
+            };
+        }
+
+        breakpoint_display_points
+    }
+
     fn render_breakpoint(
         &self,
         position: Anchor,
         row: DisplayRow,
         cx: &mut ViewContext<Self>,
     ) -> IconButton {
+        let color = if self
+            .gutter_breakpoint_indicator
+            .is_some_and(|gutter_bp| gutter_bp.row() == row)
+        {
+            Color::Hint
+        } else {
+            Color::Debugger
+        };
+
         IconButton::new(("breakpoint_indicator", row.0 as usize), ui::IconName::Play)
             .icon_size(IconSize::XSmall)
             .size(ui::ButtonSize::None)
-            .icon_color(Color::Error)
+            .icon_color(color)
             .on_click(cx.listener(move |editor, _e, cx| {
                 editor.focus(cx);
-                editor.toggle_breakpoint_at_row(position, cx) //TODO handle folded
+                editor.toggle_breakpoint_at_anchor(position, cx)
             }))
     }
 
@@ -5198,12 +5319,19 @@ impl Editor {
         _style: &EditorStyle,
         is_active: bool,
         row: DisplayRow,
+        overlaps_breakpoint: bool,
         cx: &mut ViewContext<Self>,
     ) -> IconButton {
+        let color = if overlaps_breakpoint {
+            Color::Debugger
+        } else {
+            Color::Muted
+        };
+
         IconButton::new(("run_indicator", row.0 as usize), ui::IconName::Play)
             .shape(ui::IconButtonShape::Square)
             .icon_size(IconSize::XSmall)
-            .icon_color(Color::Muted)
+            .icon_color(color)
             .selected(is_active)
             .on_click(cx.listener(move |editor, _e, cx| {
                 editor.focus(cx);
@@ -6030,16 +6158,20 @@ impl Editor {
     pub fn toggle_breakpoint(&mut self, _: &ToggleBreakpoint, cx: &mut ViewContext<Self>) {
         let cursor_position: Point = self.selections.newest(cx).head();
 
+        // We Set the column position to zero so this function interacts correctly
+        // between calls by clicking on the gutter & using an action to toggle a
+        // breakpoint. Otherwise, toggling a breakpoint through an action wouldn't
+        // untoggle a breakpoint that was added through clicking on the gutter
         let breakpoint_position = self
             .snapshot(cx)
             .display_snapshot
             .buffer_snapshot
-            .anchor_before(cursor_position);
+            .anchor_before(Point::new(cursor_position.row, 0));
 
-        self.toggle_breakpoint_at_row(breakpoint_position, cx);
+        self.toggle_breakpoint_at_anchor(breakpoint_position, cx);
     }
 
-    pub fn toggle_breakpoint_at_row(
+    pub fn toggle_breakpoint_at_anchor(
         &mut self,
         breakpoint_position: Anchor,
         cx: &mut ViewContext<Self>,
@@ -6052,11 +6184,9 @@ impl Editor {
             return;
         };
 
-        let Some(buffer) = self.buffer.read(cx).as_singleton() else {
+        let Some(buffer_id) = breakpoint_position.buffer_id else {
             return;
         };
-
-        let buffer_id = buffer.read(cx).remote_id();
 
         let breakpoint = Breakpoint {
             position: breakpoint_position,
@@ -9130,15 +9260,28 @@ impl Editor {
         &mut self,
         _: &GoToDefinition,
         cx: &mut ViewContext<Self>,
-    ) -> Task<Result<bool>> {
-        self.go_to_definition_of_kind(GotoDefinitionKind::Symbol, false, cx)
+    ) -> Task<Result<Navigated>> {
+        let definition = self.go_to_definition_of_kind(GotoDefinitionKind::Symbol, false, cx);
+        let references = self.find_all_references(&FindAllReferences, cx);
+        cx.background_executor().spawn(async move {
+            if definition.await? == Navigated::Yes {
+                return Ok(Navigated::Yes);
+            }
+            if let Some(references) = references {
+                if references.await? == Navigated::Yes {
+                    return Ok(Navigated::Yes);
+                }
+            }
+
+            Ok(Navigated::No)
+        })
     }
 
     pub fn go_to_declaration(
         &mut self,
         _: &GoToDeclaration,
         cx: &mut ViewContext<Self>,
-    ) -> Task<Result<bool>> {
+    ) -> Task<Result<Navigated>> {
         self.go_to_definition_of_kind(GotoDefinitionKind::Declaration, false, cx)
     }
 
@@ -9146,7 +9289,7 @@ impl Editor {
         &mut self,
         _: &GoToDeclaration,
         cx: &mut ViewContext<Self>,
-    ) -> Task<Result<bool>> {
+    ) -> Task<Result<Navigated>> {
         self.go_to_definition_of_kind(GotoDefinitionKind::Declaration, true, cx)
     }
 
@@ -9154,7 +9297,7 @@ impl Editor {
         &mut self,
         _: &GoToImplementation,
         cx: &mut ViewContext<Self>,
-    ) -> Task<Result<bool>> {
+    ) -> Task<Result<Navigated>> {
         self.go_to_definition_of_kind(GotoDefinitionKind::Implementation, false, cx)
     }
 
@@ -9162,7 +9305,7 @@ impl Editor {
         &mut self,
         _: &GoToImplementationSplit,
         cx: &mut ViewContext<Self>,
-    ) -> Task<Result<bool>> {
+    ) -> Task<Result<Navigated>> {
         self.go_to_definition_of_kind(GotoDefinitionKind::Implementation, true, cx)
     }
 
@@ -9170,7 +9313,7 @@ impl Editor {
         &mut self,
         _: &GoToTypeDefinition,
         cx: &mut ViewContext<Self>,
-    ) -> Task<Result<bool>> {
+    ) -> Task<Result<Navigated>> {
         self.go_to_definition_of_kind(GotoDefinitionKind::Type, false, cx)
     }
 
@@ -9178,7 +9321,7 @@ impl Editor {
         &mut self,
         _: &GoToDefinitionSplit,
         cx: &mut ViewContext<Self>,
-    ) -> Task<Result<bool>> {
+    ) -> Task<Result<Navigated>> {
         self.go_to_definition_of_kind(GotoDefinitionKind::Symbol, true, cx)
     }
 
@@ -9186,7 +9329,7 @@ impl Editor {
         &mut self,
         _: &GoToTypeDefinitionSplit,
         cx: &mut ViewContext<Self>,
-    ) -> Task<Result<bool>> {
+    ) -> Task<Result<Navigated>> {
         self.go_to_definition_of_kind(GotoDefinitionKind::Type, true, cx)
     }
 
@@ -9195,16 +9338,16 @@ impl Editor {
         kind: GotoDefinitionKind,
         split: bool,
         cx: &mut ViewContext<Self>,
-    ) -> Task<Result<bool>> {
+    ) -> Task<Result<Navigated>> {
         let Some(workspace) = self.workspace() else {
-            return Task::ready(Ok(false));
+            return Task::ready(Ok(Navigated::No));
         };
         let buffer = self.buffer.read(cx);
         let head = self.selections.newest::<usize>(cx).head();
         let (buffer, head) = if let Some(text_anchor) = buffer.text_anchor_for_position(head, cx) {
             text_anchor
         } else {
-            return Task::ready(Ok(false));
+            return Task::ready(Ok(Navigated::No));
         };
 
         let project = workspace.read(cx).project().clone();
@@ -9263,7 +9406,7 @@ impl Editor {
         mut definitions: Vec<HoverLink>,
         split: bool,
         cx: &mut ViewContext<Editor>,
-    ) -> Task<Result<bool>> {
+    ) -> Task<Result<Navigated>> {
         // If there is one definition, just open it directly
         if definitions.len() == 1 {
             let definition = definitions.pop().unwrap();
@@ -9279,77 +9422,61 @@ impl Editor {
             };
             cx.spawn(|editor, mut cx| async move {
                 let target = target_task.await.context("target resolution task")?;
-                if let Some(target) = target {
-                    editor.update(&mut cx, |editor, cx| {
-                        let Some(workspace) = editor.workspace() else {
-                            return false;
-                        };
-                        let pane = workspace.read(cx).active_pane().clone();
+                let Some(target) = target else {
+                    return Ok(Navigated::No);
+                };
+                editor.update(&mut cx, |editor, cx| {
+                    let Some(workspace) = editor.workspace() else {
+                        return Navigated::No;
+                    };
+                    let pane = workspace.read(cx).active_pane().clone();
 
-                        let range = target.range.to_offset(target.buffer.read(cx));
-                        let range = editor.range_for_match(&range);
+                    let range = target.range.to_offset(target.buffer.read(cx));
+                    let range = editor.range_for_match(&range);
 
-                        /// If select range has more than one line, we
-                        /// just point the cursor to range.start.
-                        fn check_multiline_range(
-                            buffer: &Buffer,
-                            range: Range<usize>,
-                        ) -> Range<usize> {
-                            if buffer.offset_to_point(range.start).row
-                                == buffer.offset_to_point(range.end).row
-                            {
-                                range
-                            } else {
-                                range.start..range.start
-                            }
-                        }
+                    if Some(&target.buffer) == editor.buffer.read(cx).as_singleton().as_ref() {
+                        let buffer = target.buffer.read(cx);
+                        let range = check_multiline_range(buffer, range);
+                        editor.change_selections(Some(Autoscroll::focused()), cx, |s| {
+                            s.select_ranges([range]);
+                        });
+                    } else {
+                        cx.window_context().defer(move |cx| {
+                            let target_editor: View<Self> =
+                                workspace.update(cx, |workspace, cx| {
+                                    let pane = if split {
+                                        workspace.adjacent_pane(cx)
+                                    } else {
+                                        workspace.active_pane().clone()
+                                    };
 
-                        if Some(&target.buffer) == editor.buffer.read(cx).as_singleton().as_ref() {
-                            let buffer = target.buffer.read(cx);
-                            let range = check_multiline_range(buffer, range);
-                            editor.change_selections(Some(Autoscroll::focused()), cx, |s| {
-                                s.select_ranges([range]);
-                            });
-                        } else {
-                            cx.window_context().defer(move |cx| {
-                                let target_editor: View<Self> =
-                                    workspace.update(cx, |workspace, cx| {
-                                        let pane = if split {
-                                            workspace.adjacent_pane(cx)
-                                        } else {
-                                            workspace.active_pane().clone()
-                                        };
-
-                                        workspace.open_project_item(
-                                            pane,
-                                            target.buffer.clone(),
-                                            true,
-                                            true,
-                                            cx,
-                                        )
-                                    });
-                                target_editor.update(cx, |target_editor, cx| {
-                                    // When selecting a definition in a different buffer, disable the nav history
-                                    // to avoid creating a history entry at the previous cursor location.
-                                    pane.update(cx, |pane, _| pane.disable_history());
-                                    let buffer = target.buffer.read(cx);
-                                    let range = check_multiline_range(buffer, range);
-                                    target_editor.change_selections(
-                                        Some(Autoscroll::focused()),
+                                    workspace.open_project_item(
+                                        pane,
+                                        target.buffer.clone(),
+                                        true,
+                                        true,
                                         cx,
-                                        |s| {
-                                            s.select_ranges([range]);
-                                        },
-                                    );
-                                    pane.update(cx, |pane, _| pane.enable_history());
+                                    )
                                 });
+                            target_editor.update(cx, |target_editor, cx| {
+                                // When selecting a definition in a different buffer, disable the nav history
+                                // to avoid creating a history entry at the previous cursor location.
+                                pane.update(cx, |pane, _| pane.disable_history());
+                                let buffer = target.buffer.read(cx);
+                                let range = check_multiline_range(buffer, range);
+                                target_editor.change_selections(
+                                    Some(Autoscroll::focused()),
+                                    cx,
+                                    |s| {
+                                        s.select_ranges([range]);
+                                    },
+                                );
+                                pane.update(cx, |pane, _| pane.enable_history());
                             });
-                        }
-                        true
-                    })
-                } else {
-                    Ok(false)
-                }
+                        });
+                    }
+                    Navigated::Yes
+                })
             })
         } else if !definitions.is_empty() {
             let replica_id = self.replica_id(cx);
@@ -9399,7 +9526,7 @@ impl Editor {
                     .context("location tasks")?;
 
                 let Some(workspace) = workspace else {
-                    return Ok(false);
+                    return Ok(Navigated::No);
                 };
                 let opened = workspace
                     .update(&mut cx, |workspace, cx| {
@@ -9409,10 +9536,10 @@ impl Editor {
                     })
                     .ok();
 
-                anyhow::Ok(opened.is_some())
+                anyhow::Ok(Navigated::from_bool(opened.is_some()))
             })
         } else {
-            Task::ready(Ok(false))
+            Task::ready(Ok(Navigated::No))
         }
     }
 
@@ -9471,7 +9598,7 @@ impl Editor {
         &mut self,
         _: &FindAllReferences,
         cx: &mut ViewContext<Self>,
-    ) -> Option<Task<Result<()>>> {
+    ) -> Option<Task<Result<Navigated>>> {
         let multi_buffer = self.buffer.read(cx);
         let selection = self.selections.newest::<usize>(cx);
         let head = selection.head();
@@ -9526,7 +9653,7 @@ impl Editor {
 
             let locations = references.await?;
             if locations.is_empty() {
-                return anyhow::Ok(());
+                return anyhow::Ok(Navigated::No);
             }
 
             workspace.update(&mut cx, |workspace, cx| {
@@ -9546,6 +9673,7 @@ impl Editor {
                 Self::open_locations_in_multibuffer(
                     workspace, locations, replica_id, title, false, cx,
                 );
+                Navigated::Yes
             })
         }))
     }
@@ -9793,6 +9921,7 @@ impl Editor {
                                                     color: Some(cx.theme().status().predictive),
                                                     ..HighlightStyle::default()
                                                 },
+                                                ..EditorStyle::default()
                                             },
                                         ))
                                         .into_any_element()
@@ -11956,7 +12085,6 @@ impl Editor {
         self.editor_actions.borrow_mut().insert(
             id,
             Box::new(move |cx| {
-                let _view = cx.view().clone();
                 let cx = cx.window_context();
                 let listener = listener.clone();
                 cx.on_action(TypeId::of::<A>(), move |action, phase, cx| {
@@ -12035,6 +12163,28 @@ impl Editor {
     fn gutter_bounds(&self) -> Option<Bounds<Pixels>> {
         let bounds = self.last_bounds?;
         Some(element::gutter_bounds(bounds, self.gutter_dimensions))
+    }
+
+    pub fn has_active_completions_menu(&self) -> bool {
+        self.context_menu.read().as_ref().map_or(false, |menu| {
+            menu.visible() && matches!(menu, ContextMenu::Completions(_))
+        })
+    }
+
+    pub fn register_addon<T: Addon>(&mut self, instance: T) {
+        self.addons
+            .insert(std::any::TypeId::of::<T>(), Box::new(instance));
+    }
+
+    pub fn unregister_addon<T: Addon>(&mut self) {
+        self.addons.remove(&std::any::TypeId::of::<T>());
+    }
+
+    pub fn addon<T: Addon>(&self) -> Option<&T> {
+        let type_id = std::any::TypeId::of::<T>();
+        self.addons
+            .get(&type_id)
+            .and_then(|item| item.to_any().downcast_ref::<T>())
     }
 }
 
@@ -12160,6 +12310,10 @@ pub trait CompletionProvider {
         trigger_in_words: bool,
         cx: &mut ViewContext<Editor>,
     ) -> bool;
+
+    fn sort_completions(&self) -> bool {
+        true
+    }
 }
 
 fn snippet_completions(
@@ -12247,7 +12401,6 @@ fn snippet_completions(
                     ..Default::default()
                 },
                 confirm: None,
-                show_new_completions_on_confirm: false,
             })
         })
         .collect()
@@ -12674,6 +12827,7 @@ impl Render for Editor {
                     color: Some(cx.theme().status().predictive),
                     ..HighlightStyle::default()
                 },
+                unnecessary_code_fade: ThemeSettings::get_global(cx).unnecessary_code_fade,
             },
         )
     }
@@ -13376,5 +13530,15 @@ fn hunk_status(hunk: &DiffHunk<MultiBufferRow>) -> DiffHunkStatus {
         DiffHunkStatus::Removed
     } else {
         DiffHunkStatus::Modified
+    }
+}
+
+/// If select range has more than one line, we
+/// just point the cursor to range.start.
+fn check_multiline_range(buffer: &Buffer, range: Range<usize>) -> Range<usize> {
+    if buffer.offset_to_point(range.start).row == buffer.offset_to_point(range.end).row {
+        range
+    } else {
+        range.start..range.start
     }
 }

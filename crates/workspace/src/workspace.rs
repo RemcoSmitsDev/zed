@@ -38,13 +38,12 @@ use gpui::{
     ResizeEdge, Size, Stateful, Subscription, Task, Tiling, View, WeakView, WindowBounds,
     WindowHandle, WindowId, WindowOptions,
 };
-use item::{
+pub use item::{
     FollowableItem, FollowableItemHandle, Item, ItemHandle, ItemSettings, PreviewTabsSettings,
     ProjectItem, SerializableItem, SerializableItemHandle, WeakItemHandle,
 };
 use itertools::Itertools;
 use language::{LanguageRegistry, Rope};
-use lazy_static::lazy_static;
 pub use modal_layer::*;
 use node_runtime::NodeRuntime;
 use notifications::{simple_message_notification::MessageNotification, NotificationHandle};
@@ -77,7 +76,7 @@ use std::{
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
     rc::Rc,
-    sync::{atomic::AtomicUsize, Arc, Weak},
+    sync::{atomic::AtomicUsize, Arc, LazyLock, Weak},
     time::Duration,
 };
 use task::SpawnInTerminal;
@@ -101,19 +100,24 @@ use crate::persistence::{
     SerializedAxis,
 };
 
-lazy_static! {
-    static ref ZED_WINDOW_SIZE: Option<Size<Pixels>> = env::var("ZED_WINDOW_SIZE")
+static ZED_WINDOW_SIZE: LazyLock<Option<Size<Pixels>>> = LazyLock::new(|| {
+    env::var("ZED_WINDOW_SIZE")
         .ok()
         .as_deref()
-        .and_then(parse_pixel_size_env_var);
-    static ref ZED_WINDOW_POSITION: Option<Point<Pixels>> = env::var("ZED_WINDOW_POSITION")
+        .and_then(parse_pixel_size_env_var)
+});
+
+static ZED_WINDOW_POSITION: LazyLock<Option<Point<Pixels>>> = LazyLock::new(|| {
+    env::var("ZED_WINDOW_POSITION")
         .ok()
         .as_deref()
-        .and_then(parse_pixel_position_env_var);
-}
+        .and_then(parse_pixel_position_env_var)
+});
 
 #[derive(Clone, PartialEq)]
 pub struct RemoveWorktreeFromProject(pub WorktreeId);
+
+actions!(assistant, [ShowConfiguration]);
 
 actions!(
     workspace,
@@ -1106,6 +1110,7 @@ impl Workspace {
             let mut worktree_roots: HashSet<Arc<Path>> = Default::default();
             let mut project_paths: Vec<(PathBuf, Option<ProjectPath>)> =
                 Vec::with_capacity(paths_to_open.len());
+
             for path in paths_to_open.into_iter() {
                 if let Some((worktree, project_entry)) = cx
                     .update(|cx| {
@@ -2617,6 +2622,33 @@ impl Workspace {
         open_project_item
     }
 
+    pub fn find_project_item<T>(
+        &self,
+        pane: &View<Pane>,
+        project_item: &Model<T::Item>,
+        cx: &AppContext,
+    ) -> Option<View<T>>
+    where
+        T: ProjectItem,
+    {
+        use project::Item as _;
+        let project_item = project_item.read(cx);
+        let entry_id = project_item.entry_id(cx);
+        let project_path = project_item.project_path(cx);
+
+        let mut item = None;
+        if let Some(entry_id) = entry_id {
+            item = pane.read(cx).item_for_entry(entry_id, cx);
+        }
+        if item.is_none() {
+            if let Some(project_path) = project_path {
+                item = pane.read(cx).item_for_path(project_path, cx);
+            }
+        }
+
+        item.and_then(|item| item.downcast::<T>())
+    }
+
     pub fn is_project_item_open<T>(
         &self,
         pane: &View<Pane>,
@@ -2626,13 +2658,7 @@ impl Workspace {
     where
         T: ProjectItem,
     {
-        use project::Item as _;
-
-        project_item
-            .read(cx)
-            .entry_id(cx)
-            .and_then(|entry_id| pane.read(cx).item_for_entry(entry_id, cx))
-            .and_then(|item| item.downcast::<T>())
+        self.find_project_item::<T>(pane, project_item, cx)
             .is_some()
     }
 
@@ -2647,19 +2673,12 @@ impl Workspace {
     where
         T: ProjectItem,
     {
-        use project::Item as _;
-
-        let entry_id = project_item.read(cx).entry_id(cx);
-        if let Some(item) = entry_id
-            .and_then(|entry_id| pane.read(cx).item_for_entry(entry_id, cx))
-            .and_then(|item| item.downcast())
-        {
+        if let Some(item) = self.find_project_item(&pane, &project_item, cx) {
             self.activate_item(&item, activate_pane, focus_item, cx);
             return item;
         }
 
         let item = cx.new_view(|cx| T::for_project_item(self.project().clone(), project_item, cx));
-
         let item_id = item.item_id();
         let mut destination_index = None;
         pane.update(cx, |pane, cx| {
@@ -4069,6 +4088,10 @@ impl Workspace {
         };
 
         if let Some(location) = location {
+            let breakpoint_lines = self
+                .project
+                .update(cx, |project, cx| project.serialize_breakpoints(cx));
+
             let center_group = build_serialized_pane_group(&self.center.root, cx);
             let docks = build_serialized_docks(self, cx);
             let window_bounds = Some(SerializedWindowBounds(cx.window_bounds()));
@@ -4081,6 +4104,7 @@ impl Workspace {
                 docks,
                 centered_layout: self.centered_layout,
                 session_id: self.session_id.clone(),
+                breakpoints: breakpoint_lines,
                 window_id: Some(cx.window_handle().window_id().as_u64()),
             };
             return cx.spawn(|_| persistence::DB.save_workspace(serialized_workspace));
@@ -4135,7 +4159,7 @@ impl Workspace {
     }
 
     pub(crate) fn load_workspace(
-        serialized_workspace: SerializedWorkspace,
+        mut serialized_workspace: SerializedWorkspace,
         paths_to_open: Vec<Option<ProjectPath>>,
         cx: &mut ViewContext<Workspace>,
     ) -> Task<Result<Vec<Option<Box<dyn ItemHandle>>>>> {
@@ -4144,6 +4168,32 @@ impl Workspace {
 
             let mut center_group = None;
             let mut center_items = None;
+
+            // Add unopened breakpoints to project before opening any items
+            workspace.update(&mut cx, |workspace, cx| {
+                workspace.project().update(cx, |project, cx| {
+                    let mut write_guard = project.closed_breakpoints.write();
+
+                    for worktree in project.worktrees(cx) {
+                        let (worktree_id, worktree_path) =
+                            worktree.read_with(cx, |tree, _cx| (tree.id(), tree.abs_path()));
+
+                        if let Some(serialized_breakpoints) =
+                            serialized_workspace.breakpoints.remove(&worktree_path)
+                        {
+                            for serialized_bp in serialized_breakpoints {
+                                write_guard
+                                    .entry(ProjectPath {
+                                        worktree_id,
+                                        path: serialized_bp.path.clone(),
+                                    })
+                                    .or_default()
+                                    .push(serialized_bp);
+                            }
+                        }
+                    }
+                })
+            })?;
 
             // Traverse the splits tree and add to things
             if let Some((group, active_pane, items)) = serialized_workspace
