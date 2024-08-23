@@ -14,7 +14,7 @@ use editor::Editor;
 use futures::future::try_join_all;
 use gpui::{
     actions, Action, AppContext, AsyncWindowContext, EventEmitter, FocusHandle, FocusableView,
-    ReadGlobal, Subscription, Task, View, ViewContext, WeakView,
+    Subscription, Task, View, ViewContext, WeakView,
 };
 use serde_json::json;
 use settings::Settings;
