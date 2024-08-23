@@ -1,6 +1,7 @@
 use crate::debugger_panel_item::DebugPanelItem;
 use anyhow::Result;
 use dap::client::{DebugAdapterClientId, ThreadState, ThreadStatus};
+use dap::debugger_settings::DebuggerSettings;
 use dap::requests::{Request, Scopes, StackTrace, StartDebugging};
 use dap::transport::Payload;
 use dap::{client::DebugAdapterClient, transport::Events};
@@ -13,9 +14,10 @@ use editor::Editor;
 use futures::future::try_join_all;
 use gpui::{
     actions, Action, AppContext, AsyncWindowContext, EventEmitter, FocusHandle, FocusableView,
-    Subscription, Task, View, ViewContext, WeakView,
+    ReadGlobal, Subscription, Task, View, ViewContext, WeakView,
 };
 use serde_json::json;
+use settings::Settings;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -696,8 +698,12 @@ impl Panel for DebugPanel {
         Some(IconName::Debug)
     }
 
-    fn icon_tooltip(&self, _cx: &WindowContext) -> Option<&'static str> {
-        Some("Debug Panel")
+    fn icon_tooltip(&self, cx: &WindowContext) -> Option<&'static str> {
+        if DebuggerSettings::get_global(cx).button {
+            Some("Debug Panel")
+        } else {
+            None
+        }
     }
 
     fn toggle_action(&self) -> Box<dyn Action> {
