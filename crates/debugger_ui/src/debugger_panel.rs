@@ -693,11 +693,11 @@ impl Panel for DebugPanel {
     }
 
     fn icon(&self, _cx: &WindowContext) -> Option<IconName> {
-        None
+        Some(IconName::Debug)
     }
 
     fn icon_tooltip(&self, _cx: &WindowContext) -> Option<&'static str> {
-        None
+        Some("Debug Panel")
     }
 
     fn toggle_action(&self) -> Box<dyn Action> {
