@@ -1,6 +1,7 @@
 use crate::debugger_panel_item::DebugPanelItem;
 use anyhow::Result;
 use dap::client::{DebugAdapterClientId, ThreadState, ThreadStatus};
+use dap::debugger_settings::DebuggerSettings;
 use dap::requests::{Request, Scopes, StackTrace, StartDebugging};
 use dap::transport::Payload;
 use dap::{client::DebugAdapterClient, transport::Events};
@@ -16,6 +17,7 @@ use gpui::{
     Subscription, Task, View, ViewContext, WeakView,
 };
 use serde_json::json;
+use settings::Settings;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -34,6 +36,7 @@ pub enum DebugPanelEvent {
     Stopped((DebugAdapterClientId, StoppedEvent)),
     Thread((DebugAdapterClientId, ThreadEvent)),
     Output((DebugAdapterClientId, OutputEvent)),
+    ClientStopped(DebugAdapterClientId),
 }
 
 actions!(debug_panel, [ToggleFocus]);
@@ -74,7 +77,9 @@ impl DebugPanel {
                 cx.subscribe(&project, {
                     move |this: &mut Self, _, event, cx| match event {
                         project::Event::DebugClientEvent { payload, client_id } => {
-                            let client = this.debug_client_by_id(*client_id, cx);
+                            let Some(client) = this.debug_client_by_id(*client_id, cx) else {
+                                return cx.emit(DebugPanelEvent::ClientStopped(*client_id));
+                            };
 
                             match payload {
                                 Payload::Event(event) => {
@@ -92,21 +97,28 @@ impl DebugPanel {
                             }
                         }
                         project::Event::DebugClientStarted(client_id) => {
-                            let client = this.debug_client_by_id(*client_id, cx);
-                            cx.spawn(|_, _| async move {
-                                client.initialize().await?;
+                            let Some(client) = this.debug_client_by_id(*client_id, cx) else {
+                                return cx.emit(DebugPanelEvent::ClientStopped(*client_id));
+                            };
 
-                                // send correct request based on adapter config
-                                match client.config().request {
-                                    DebugRequestType::Launch => {
-                                        client.launch(client.request_args()).await
+                            cx.background_executor()
+                                .spawn(async move {
+                                    client.initialize().await?;
+
+                                    // send correct request based on adapter config
+                                    match client.config().request {
+                                        DebugRequestType::Launch => {
+                                            client.launch(client.request_args()).await
+                                        }
+                                        DebugRequestType::Attach => {
+                                            client.attach(client.request_args()).await
+                                        }
                                     }
-                                    DebugRequestType::Attach => {
-                                        client.attach(client.request_args()).await
-                                    }
-                                }
-                            })
-                            .detach_and_log_err(cx);
+                                })
+                                .detach_and_log_err(cx);
+                        }
+                        project::Event::DebugClientStopped(client_id) => {
+                            cx.emit(DebugPanelEvent::ClientStopped(*client_id));
                         }
                         _ => {}
                     }
@@ -136,15 +148,13 @@ impl DebugPanel {
         &self,
         client_id: DebugAdapterClientId,
         cx: &mut ViewContext<Self>,
-    ) -> Arc<DebugAdapterClient> {
+    ) -> Option<Arc<DebugAdapterClient>> {
         self.workspace
             .update(cx, |this, cx| {
-                this.project()
-                    .read(cx)
-                    .debug_adapter_by_id(client_id)
-                    .unwrap()
+                this.project().read(cx).debug_adapter_by_id(client_id)
             })
-            .unwrap()
+            .ok()
+            .flatten()
     }
 
     fn handle_pane_event(
@@ -153,24 +163,32 @@ impl DebugPanel {
         event: &pane::Event,
         cx: &mut ViewContext<Self>,
     ) {
-        if let pane::Event::RemovedItem { item } = event {
-            let thread_panel = item.downcast::<DebugPanelItem>().unwrap();
+        match event {
+            pane::Event::RemovedItem { item } => {
+                let thread_panel = item.downcast::<DebugPanelItem>().unwrap();
 
-            thread_panel.update(cx, |pane, cx| {
-                let thread_id = pane.thread_id();
-                let client = pane.client();
-                let thread_status = client.thread_state_by_id(thread_id).status;
+                thread_panel.update(cx, |pane, cx| {
+                    let thread_id = pane.thread_id();
+                    let client = pane.client();
+                    let thread_status = client.thread_state_by_id(thread_id).status;
 
-                // only terminate thread if the thread has not yet ended
-                if thread_status != ThreadStatus::Ended && thread_status != ThreadStatus::Exited {
-                    let client = client.clone();
-                    cx.spawn(|_, _| async move {
-                        client.terminate_threads(Some(vec![thread_id; 1])).await
-                    })
-                    .detach_and_log_err(cx);
-                }
-            });
-        };
+                    // only terminate thread if the thread has not yet ended
+                    if thread_status != ThreadStatus::Ended && thread_status != ThreadStatus::Exited
+                    {
+                        let client = client.clone();
+                        cx.background_executor()
+                            .spawn(async move {
+                                client.terminate_threads(Some(vec![thread_id; 1])).await
+                            })
+                            .detach_and_log_err(cx);
+                    }
+                });
+            }
+            pane::Event::Remove => cx.emit(PanelEvent::Close),
+            pane::Event::ZoomIn => cx.emit(PanelEvent::ZoomIn),
+            pane::Event::ZoomOut => cx.emit(PanelEvent::ZoomOut),
+            _ => {}
+        }
     }
 
     fn handle_start_debugging_request(
@@ -500,7 +518,7 @@ impl DebugPanel {
 
                         this.workspace
                             .update(cx, |_, cx| {
-                                this.pane.update(cx, |this, cx| {
+                                this.pane.update(cx, |_, cx| {
                                     let tab = cx.new_view(|cx| {
                                         DebugPanelItem::new(
                                             debug_panel,
@@ -510,8 +528,10 @@ impl DebugPanel {
                                         )
                                     });
 
-                                    this.add_item(Box::new(tab), false, false, None, cx)
-                                })
+                                    cx.emit(pane::Event::AddItem {
+                                        item: Box::new(tab),
+                                    });
+                                });
                             })
                             .log_err();
                     }
@@ -675,32 +695,20 @@ impl Panel for DebugPanel {
     }
 
     fn icon(&self, _cx: &WindowContext) -> Option<IconName> {
-        None
+        Some(IconName::Debug)
     }
 
-    fn icon_tooltip(&self, _cx: &WindowContext) -> Option<&'static str> {
-        None
+    fn icon_tooltip(&self, cx: &WindowContext) -> Option<&'static str> {
+        if DebuggerSettings::get_global(cx).button {
+            Some("Debug Panel")
+        } else {
+            None
+        }
     }
 
     fn toggle_action(&self) -> Box<dyn Action> {
         Box::new(ToggleFocus)
     }
-
-    fn icon_label(&self, _: &WindowContext) -> Option<String> {
-        None
-    }
-
-    fn is_zoomed(&self, _cx: &WindowContext) -> bool {
-        false
-    }
-
-    fn starts_open(&self, _cx: &WindowContext) -> bool {
-        false
-    }
-
-    fn set_zoomed(&mut self, _zoomed: bool, _cx: &mut ViewContext<Self>) {}
-
-    fn set_active(&mut self, _active: bool, _cx: &mut ViewContext<Self>) {}
 }
 
 impl Render for DebugPanel {
