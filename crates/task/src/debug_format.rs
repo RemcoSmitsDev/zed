@@ -1,7 +1,10 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use util::ResultExt;
 
 use std::net::Ipv4Addr;
+
+use crate::{TaskTemplate, TaskTemplates};
 
 /// Represents the type of the debugger adapter connection
 #[derive(Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
@@ -78,10 +81,6 @@ pub struct DebugRequestArgs {
 enum DebugAdapter {
     #[default]
     Custom,
-    Python,
-    Php,
-    Rust,
-    JavaScript,
 }
 
 #[derive(Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
@@ -92,4 +91,29 @@ struct DebugTaskDefinition {
     adapter_path: String,
     session_type: DebugRequestType,
     adapter: DebugAdapter,
+}
+
+impl DebugTaskDefinition {
+    fn to_zed_format(self) -> anyhow::Result<TaskTemplate> {
+        todo!();
+    }
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct DebugTaskFile {
+    tasks: Vec<DebugTaskDefinition>,
+}
+
+impl TryFrom<DebugTaskFile> for TaskTemplates {
+    type Error = anyhow::Error;
+
+    fn try_from(value: DebugTaskFile) -> Result<Self, Self::Error> {
+        let templates = value
+            .tasks
+            .into_iter()
+            .filter_map(|debug_definition| debug_definition.to_zed_format().log_err())
+            .collect();
+
+        Ok(Self(templates))
+    }
 }
