@@ -10,18 +10,6 @@ pub struct DebuggerSettings {
     pub button: bool,
 }
 
-#[derive(Default, Serialize, Deserialize, JsonSchema, Clone)]
-pub struct DebuggerSettingsContent {
-    /// Whether the breakpoints should be reused across Zed sessions.
-    ///
-    /// Default: true
-    pub save_breakpoints: bool,
-    /// Whether to show the debug button in the status bar.
-    ///
-    /// Default: true
-    pub button: bool,
-}
-
 impl Default for DebuggerSettings {
     fn default() -> Self {
         Self {

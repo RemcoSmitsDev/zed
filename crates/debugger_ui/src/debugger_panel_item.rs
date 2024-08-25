@@ -315,15 +315,6 @@ impl DebugPanelItem {
                     .detach_and_log_err(cx);
 
                     cx.notify();
-
-                    // let client = this.client();
-                    // DebugPanel::go_to_stack_frame(&stack_frame, client, true, cx)
-                    //     .detach_and_log_err(cx);
-
-                    // TODO Debugger:
-                    // this.go_to_stack_frame(&stack_frame, this.client.clone(), false, cx)
-                    //     .detach_and_log_err(cx);
-                    // cx.notify();
                 }
             }))
             .hover(|s| s.bg(cx.theme().colors().element_hover).cursor_pointer())
