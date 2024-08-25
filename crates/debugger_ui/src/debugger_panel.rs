@@ -324,14 +324,24 @@ impl DebugPanel {
         cx: AsyncWindowContext,
     ) -> Result<()> {
         let mut tasks = Vec::new();
-        if let Some(thread_state) = client.thread_states().get(&thread_id) {
-            for stack_frame in thread_state.stack_frames.clone() {
-                tasks.push(Self::remove_editor_highlight(
-                    workspace.clone(),
-                    stack_frame.clone(),
-                    cx.clone(),
-                ));
+        let mut paths: Vec<String> = Vec::new();
+        let thread_state = client.thread_state_by_id(thread_id);
+
+        for stack_frame in thread_state.stack_frames.into_iter() {
+            let Some(path) = stack_frame.source.clone().and_then(|s| s.path.clone()) else {
+                continue;
+            };
+
+            if paths.contains(&path) {
+                continue;
             }
+
+            paths.push(path.clone());
+            tasks.push(Self::remove_editor_highlight(
+                workspace.clone(),
+                path,
+                cx.clone(),
+            ));
         }
 
         if !tasks.is_empty() {
@@ -343,11 +353,9 @@ impl DebugPanel {
 
     async fn remove_editor_highlight(
         workspace: WeakView<Workspace>,
-        stack_frame: StackFrame,
+        path: String,
         mut cx: AsyncWindowContext,
     ) -> Result<()> {
-        let path = stack_frame.clone().source.unwrap().path.unwrap().clone();
-
         let task = workspace.update(&mut cx, |workspace, cx| {
             let project_path = workspace.project().read_with(cx, |project, cx| {
                 project.project_path_for_absolute_path(&Path::new(&path), cx)
@@ -379,9 +387,7 @@ impl DebugPanel {
             let task = this.update(&mut cx, |this, cx| {
                 this.workspace.update(cx, |workspace, cx| {
                     workspace.project().update(cx, |project, cx| {
-                        let client = client.clone();
-
-                        project.send_breakpoints(client, cx)
+                        project.send_breakpoints(client.clone(), cx)
                     })
                 })
             })??;
