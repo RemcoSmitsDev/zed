@@ -484,7 +484,6 @@ impl DebugPanelItem {
 }
 
 impl EventEmitter<Event> for DebugPanelItem {}
-impl EventEmitter<ItemEvent> for DebugPanelItem {}
 impl EventEmitter<DebugPanelItemEvent> for DebugPanelItem {}
 
 impl FocusableView for DebugPanelItem {

@@ -6,7 +6,13 @@ use settings::{Settings, SettingsSources};
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Copy)]
 #[serde(default)]
 pub struct DebuggerSettings {
+    /// Whether the breakpoints should be reused across Zed sessions.
+    ///
+    /// Default: true
     pub save_breakpoints: bool,
+    /// Whether to show the debug button in the status bar.
+    ///
+    /// Default: true
     pub button: bool,
 }
 
