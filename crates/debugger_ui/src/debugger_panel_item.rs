@@ -18,6 +18,10 @@ use workspace::dock::Panel;
 use workspace::item::{Item, ItemEvent};
 use workspace::Workspace;
 
+pub enum Event {
+    Close,
+}
+
 #[derive(PartialEq, Eq)]
 enum ThreadItem {
     Variables,
@@ -45,6 +49,7 @@ pub struct DebugPanelItem {
     active_thread_item: ThreadItem,
     pub client: Arc<DebugAdapterClient>,
     _subscriptions: Vec<Subscription>,
+    workspace: WeakView<Workspace>,
 }
 
 pub enum DebugPanelItemEvent {}
@@ -77,6 +82,7 @@ enum DebugPanelItemActionKind {
 impl DebugPanelItem {
     pub fn new(
         debug_panel: View<DebugPanel>,
+        workspace: WeakView<Workspace>,
         client: Arc<DebugAdapterClient>,
         thread_id: u64,
         cx: &mut ViewContext<Self>,
@@ -134,6 +140,7 @@ impl DebugPanelItem {
         Self {
             client,
             thread_id,
+            workspace,
             focus_handle,
             variable_list,
             output_editor,
@@ -222,7 +229,7 @@ impl DebugPanelItem {
             return;
         }
 
-        cx.emit(ItemEvent::CloseItem);
+        cx.emit(Event::Close);
     }
 
     pub fn client(&self) -> Arc<DebugAdapterClient> {
@@ -296,8 +303,16 @@ impl DebugPanelItem {
             })
             .on_click(cx.listener({
                 let stack_frame_id = stack_frame.id;
+                let stack_frame = stack_frame.clone();
                 move |this, _, cx| {
                     this.update_stack_frame_id(stack_frame_id, cx);
+
+                    let workspace = this.workspace.clone();
+                    let stack_frame = stack_frame.clone();
+                    cx.spawn(|_, cx| async move {
+                        DebugPanel::go_to_stack_frame(workspace, stack_frame, true, cx).await
+                    })
+                    .detach_and_log_err(cx);
 
                     cx.notify();
 
@@ -477,6 +492,7 @@ impl DebugPanelItem {
     }
 }
 
+impl EventEmitter<Event> for DebugPanelItem {}
 impl EventEmitter<ItemEvent> for DebugPanelItem {}
 impl EventEmitter<DebugPanelItemEvent> for DebugPanelItem {}
 
@@ -487,7 +503,7 @@ impl FocusableView for DebugPanelItem {
 }
 
 impl Item for DebugPanelItem {
-    type Event = ItemEvent;
+    type Event = Event;
 
     fn tab_content(
         &self,
@@ -514,6 +530,12 @@ impl Item for DebugPanelItem {
             self.thread_id,
             self.current_thread_state().status
         )))
+    }
+
+    fn to_item_events(event: &Self::Event, mut f: impl FnMut(ItemEvent)) {
+        match event {
+            Event::Close => f(ItemEvent::CloseItem),
+        }
     }
 }
 

@@ -1544,6 +1544,8 @@ impl Project {
             return;
         };
 
+        cx.emit(Event::DebugClientStopped(client_id));
+
         if !should_terminate {
             return cx.emit(Event::DebugClientStopped(client_id));
         }
