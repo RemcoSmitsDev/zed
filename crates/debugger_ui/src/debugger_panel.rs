@@ -263,7 +263,6 @@ impl DebugPanel {
     pub async fn go_to_stack_frame(
         workspace: WeakView<Workspace>,
         stack_frame: StackFrame,
-        client: Arc<DebugAdapterClient>,
         clear_highlights: bool,
         mut cx: AsyncWindowContext,
     ) -> Result<()> {
@@ -272,7 +271,7 @@ impl DebugPanel {
         let column = (stack_frame.column.saturating_sub(1)) as u32;
 
         if clear_highlights {
-            Self::remove_highlights(workspace.clone(), client, cx.clone()).await?;
+            Self::remove_highlights(workspace.clone(), cx.clone())?;
         }
 
         let task = workspace.update(&mut cx, |workspace, cx| {
@@ -304,27 +303,18 @@ impl DebugPanel {
         })
     }
 
-    async fn remove_highlights(
-        workspace: WeakView<Workspace>,
-        client: Arc<DebugAdapterClient>,
-        cx: AsyncWindowContext,
-    ) -> Result<()> {
-        let mut tasks = Vec::new();
-        for thread_state in client.thread_states().values() {
-            for stack_frame in thread_state.stack_frames.clone() {
-                tasks.push(Self::remove_editor_highlight(
-                    workspace.clone(),
-                    stack_frame,
-                    cx.clone(),
-                ));
+    fn remove_highlights(workspace: WeakView<Workspace>, mut cx: AsyncWindowContext) -> Result<()> {
+        workspace.update(&mut cx, |workspace, cx| {
+            let editor_views = workspace
+                .items_of_type::<Editor>(cx)
+                .collect::<Vec<View<Editor>>>();
+
+            for editor_view in editor_views {
+                editor_view.update(cx, |editor, _| {
+                    editor.clear_row_highlights::<DebugCurrentRowHighlight>();
+                });
             }
-        }
-
-        if !tasks.is_empty() {
-            try_join_all(tasks).await?;
-        }
-
-        anyhow::Ok(())
+        })
     }
 
     async fn remove_highlights_for_thread(
@@ -540,12 +530,10 @@ impl DebugPanel {
                             let pane = pane.read(cx);
                             if pane.thread_id() == thread_id && pane.client().id() == client_id {
                                 let workspace = this.workspace.clone();
-                                let client = client.clone();
                                 return cx.spawn(|_, cx| async move {
                                     Self::go_to_stack_frame(
                                         workspace,
                                         current_stack_frame.clone(),
-                                        client,
                                         true,
                                         cx,
                                     )
@@ -621,7 +609,7 @@ impl DebugPanel {
         let workspace = this.workspace.clone();
 
         cx.spawn(|_, mut cx| async move {
-            Self::remove_highlights(workspace.clone(), client.clone(), cx.clone()).await?;
+            Self::remove_highlights(workspace.clone(), cx.clone())?;
 
             if restart_args.is_some() {
                 client.disconnect(Some(true), None, None).await?;
