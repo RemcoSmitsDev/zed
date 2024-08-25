@@ -41,13 +41,13 @@ pub enum ThreadEntry {
 }
 
 pub struct DebugPanelItem {
-    pub thread_id: u64,
+    thread_id: u64,
     variable_list: View<VariableList>,
     focus_handle: FocusHandle,
     stack_frame_list: ListState,
     output_editor: View<Editor>,
     active_thread_item: ThreadItem,
-    pub client: Arc<DebugAdapterClient>,
+    client: Arc<DebugAdapterClient>,
     _subscriptions: Vec<Subscription>,
     workspace: WeakView<Workspace>,
 }

@@ -207,7 +207,7 @@ impl VariableList {
 
                         if let ThreadEntry::Variable { scope, depth, .. } = entry {
                             let variable_id = variable_id.clone();
-                            let client = debug_item.client.clone();
+                            let client = debug_item.client();
                             let scope = scope.clone();
                             let depth = *depth;
 
@@ -218,7 +218,7 @@ impl VariableList {
                                     let client = client.clone();
                                     let mut thread_states = client.thread_states();
                                     let Some(thread_state) = thread_states
-                                        .get_mut(&this.debug_panel_item.read(cx).thread_id)
+                                        .get_mut(&this.debug_panel_item.read(cx).thread_id())
                                     else {
                                         return;
                                     };
