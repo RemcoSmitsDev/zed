@@ -208,35 +208,44 @@ impl DebugPanelItem {
             return;
         }
 
-        if event
+        // The default value of an event category is console
+        // so we assume that is the output type if it doesn't exist
+        let output_category = event
             .category
             .as_ref()
-            .map(|category| *category == OutputEventCategory::Console)
-            .unwrap_or(false)
-        {
-            this.console.update(cx, |console, cx| {
-                console.add_message(&event.output, cx);
-            });
-            return;
+            .unwrap_or(&OutputEventCategory::Console);
+
+        match output_category {
+            OutputEventCategory::Console => {
+                this.console.update(cx, |console, cx| {
+                    console.add_message(&event.output, cx);
+                });
+            }
+            // OutputEventCategory::Stderr => {}
+            OutputEventCategory::Stdout => {
+                this.output_editor.update(cx, |editor, cx| {
+                    editor.set_read_only(false);
+                    editor.move_to_end(&editor::actions::MoveToEnd, cx);
+                    editor.insert(format!("{}\n", &event.output.trim_end()).as_str(), cx);
+                    editor.set_read_only(true);
+
+                    cx.notify();
+                });
+            }
+            // OutputEventCategory::Unknown => {}
+            // OutputEventCategory::Important => {}
+            OutputEventCategory::Telemetry => {}
+            _ => {
+                this.output_editor.update(cx, |editor, cx| {
+                    editor.set_read_only(false);
+                    editor.move_to_end(&editor::actions::MoveToEnd, cx);
+                    editor.insert(format!("{}\n", &event.output.trim_end()).as_str(), cx);
+                    editor.set_read_only(true);
+
+                    cx.notify();
+                });
+            }
         }
-
-        if event
-            .category
-            .as_ref()
-            .map(|c| *c == OutputEventCategory::Telemetry)
-            .unwrap_or(false)
-        {
-            return;
-        }
-
-        this.output_editor.update(cx, |editor, cx| {
-            editor.set_read_only(false);
-            editor.move_to_end(&editor::actions::MoveToEnd, cx);
-            editor.insert(format!("{}\n", &event.output.trim_end()).as_str(), cx);
-            editor.set_read_only(true);
-
-            cx.notify();
-        });
     }
 
     fn handle_client_stopped_event(
