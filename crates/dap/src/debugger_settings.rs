@@ -6,12 +6,6 @@ use settings::{Settings, SettingsSources};
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Copy)]
 #[serde(default)]
 pub struct DebuggerSettings {
-    pub save_breakpoints: bool,
-    pub button: bool,
-}
-
-#[derive(Default, Serialize, Deserialize, JsonSchema, Clone)]
-pub struct DebuggerSettingsContent {
     /// Whether the breakpoints should be reused across Zed sessions.
     ///
     /// Default: true
