@@ -1,5 +1,9 @@
 use crate::debugger_panel::{DebugPanel, DebugPanelEvent};
+<<<<<<< HEAD
 use crate::variable_list::VariableList;
+=======
+use crate::elements::{Console, VariableList};
+>>>>>>> fe610c1a62 (Create debugger console)
 use anyhow::Result;
 use dap::client::{DebugAdapterClient, DebugAdapterClientId, ThreadState, ThreadStatus};
 use dap::{
@@ -43,6 +47,7 @@ pub enum ThreadEntry {
 pub struct DebugPanelItem {
     thread_id: u64,
     variable_list: View<VariableList>,
+    console: View<Console>,
     focus_handle: FocusHandle,
     stack_frame_list: ListState,
     output_editor: View<Editor>,
@@ -91,6 +96,7 @@ impl DebugPanelItem {
 
         let model = cx.model().clone();
         let variable_list = cx.new_view(|cx| VariableList::new(model, cx));
+        let console = cx.new_view(|cx| Console::new(cx));
 
         let weakview = cx.view().downgrade();
         let stack_frame_list =
@@ -143,6 +149,7 @@ impl DebugPanelItem {
             workspace,
             focus_handle,
             variable_list,
+            console,
             output_editor,
             _subscriptions,
             stack_frame_list,
@@ -715,6 +722,9 @@ impl Render for DebugPanelItem {
                     })
                     .when(*active_thread_item == ThreadItem::Output, |this| {
                         this.child(self.output_editor.clone())
+                    })
+                    .when(*active_thread_item == ThreadItem::Console, |this| {
+                        this.child(self.console.clone())
                     }),
             )
             .into_any()
