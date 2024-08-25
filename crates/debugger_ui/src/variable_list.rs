@@ -343,6 +343,17 @@ impl Console {
         }
     }
 
+    pub fn add_message(&mut self, message: &str, cx: &mut ViewContext<Self>) {
+        self.console.update(cx, |console, cx| {
+            console.set_read_only(false);
+            console.move_to_end(&editor::actions::MoveToEnd, cx);
+            console.insert(format!("{}\n", message).as_str(), cx);
+            console.set_read_only(true);
+        });
+
+        cx.notify();
+    }
+
     fn render_console(&self, cx: &ViewContext<Self>) -> impl IntoElement {
         let settings = ThemeSettings::get_global(cx);
         let text_style = TextStyle {

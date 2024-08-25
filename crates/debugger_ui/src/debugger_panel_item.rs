@@ -211,6 +211,18 @@ impl DebugPanelItem {
         if event
             .category
             .as_ref()
+            .map(|category| *category == OutputEventCategory::Console)
+            .unwrap_or(false)
+        {
+            this.console.update(cx, |console, cx| {
+                console.add_message(&event.output, cx);
+            });
+            return;
+        }
+
+        if event
+            .category
+            .as_ref()
             .map(|c| *c == OutputEventCategory::Telemetry)
             .unwrap_or(false)
         {
