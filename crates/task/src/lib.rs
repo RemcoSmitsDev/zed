@@ -1,6 +1,7 @@
 //! Baseline interface of Tasks in Zed: all tasks in Zed are intended to use those for implementing their own logic.
 #![deny(missing_docs)]
 
+mod debug_format;
 pub mod static_source;
 mod task_template;
 mod vscode_format;
@@ -13,10 +14,8 @@ use std::borrow::Cow;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-pub use task_template::{
-    DebugAdapterConfig, DebugConnectionType, DebugRequestType, HideStrategy, RevealStrategy,
-    TCPHost, TaskTemplate, TaskTemplates, TaskType,
-};
+pub use debug_format::{DebugAdapterConfig, DebugConnectionType, DebugRequestType, TCPHost};
+pub use task_template::{HideStrategy, RevealStrategy, TaskTemplate, TaskTemplates, TaskType};
 pub use vscode_format::VsCodeTaskFile;
 
 /// Task identifier, unique within the application.

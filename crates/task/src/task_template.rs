@@ -1,4 +1,4 @@
-use std::{net::Ipv4Addr, path::PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{bail, Context};
 use collections::{HashMap, HashSet};
@@ -8,8 +8,8 @@ use sha2::{Digest, Sha256};
 use util::{truncate_and_remove_front, ResultExt};
 
 use crate::{
-    ResolvedTask, Shell, SpawnInTerminal, TaskContext, TaskId, VariableName,
-    ZED_VARIABLE_NAME_PREFIX,
+    debug_format::DebugAdapterConfig, ResolvedTask, Shell, SpawnInTerminal, TaskContext, TaskId,
+    VariableName, ZED_VARIABLE_NAME_PREFIX,
 };
 
 /// A template definition of a Zed task to run.
@@ -76,69 +76,6 @@ pub enum TaskType {
     Script,
     /// This task starts the debugger for a language
     Debug,
-}
-
-/// Represents the type of the debugger adapter connection
-#[derive(Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
-#[serde(rename_all = "lowercase", tag = "connection")]
-pub enum DebugConnectionType {
-    /// Connect to the debug adapter via TCP
-    TCP(TCPHost),
-    /// Connect to the debug adapter via STDIO
-    STDIO,
-}
-
-impl Default for DebugConnectionType {
-    fn default() -> Self {
-        DebugConnectionType::TCP(TCPHost::default())
-    }
-}
-
-/// Represents the host information of the debug adapter
-#[derive(Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
-pub struct TCPHost {
-    /// The port that the debug adapter is listening on
-    pub port: Option<u16>,
-    /// The host that the debug adapter is listening too
-    pub host: Option<Ipv4Addr>,
-    /// The delay in ms between starting and connecting to the debug adapter
-    pub delay: Option<u64>,
-}
-
-/// Represents the type that will determine which request to call on the debug adapter
-#[derive(Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
-#[serde(rename_all = "snake_case")]
-pub enum DebugRequestType {
-    /// Call the `launch` request on the debug adapter
-    #[default]
-    Launch,
-    /// Call the `attach` request on the debug adapter
-    Attach,
-}
-
-/// Represents the configuration for the debug adapter
-#[derive(Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
-#[serde(rename_all = "snake_case")]
-pub struct DebugAdapterConfig {
-    /// Unique id of for the debug adapter,
-    /// that will be send with the `initialize` request
-    pub id: String,
-    /// The type of connection the adapter should use
-    #[serde(default, flatten)]
-    pub connection: DebugConnectionType,
-    /// The type of request that should be called on the debug adapter
-    #[serde(default)]
-    pub request: DebugRequestType,
-    /// The configuration options that are send with the `launch` or `attach` request
-    /// to the debug adapter
-    pub request_args: Option<DebugRequestArgs>,
-}
-
-/// Represents the configuration for the debug adapter that is send with the launch request
-#[derive(Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
-#[serde(transparent)]
-pub struct DebugRequestArgs {
-    pub args: serde_json::Value,
 }
 
 /// What to do with the terminal pane and tab, after the command was started.
