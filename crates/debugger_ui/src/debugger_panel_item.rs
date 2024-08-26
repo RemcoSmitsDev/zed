@@ -1,5 +1,5 @@
 use crate::debugger_panel::{DebugPanel, DebugPanelEvent};
-use crate::elements::VariableList;
+use crate::variable_list::VariableList;
 use anyhow::Result;
 use dap::client::{DebugAdapterClient, DebugAdapterClientId, ThreadState, ThreadStatus};
 use dap::{

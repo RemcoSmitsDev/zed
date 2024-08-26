@@ -8,7 +8,7 @@ use workspace::{StartDebugger, Workspace};
 
 pub mod debugger_panel;
 mod debugger_panel_item;
-mod elements;
+mod variable_list;
 
 pub fn init(cx: &mut AppContext) {
     DebuggerSettings::register(cx);
