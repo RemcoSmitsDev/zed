@@ -15,29 +15,29 @@ pub trait DebugAdapter {
 
     fn is_installed(&self) -> Option<DebugAdapterBinary>;
 
-    fn download_adapter(&mut self) -> DebugAdapterBinary;
+    fn download_adapter(&mut self) -> Result<DebugAdapterBinary, ()>;
 }
 
-struct PythonDebugAdapter {}
+struct _PythonDebugAdapter {}
 
-impl PythonDebugAdapter {
-    const ADAPTER_NAME: &'static str = "debugpy";
+impl _PythonDebugAdapter {
+    const _ADAPTER_NAME: &'static str = "debugpy";
 }
 
-impl DebugAdapter for PythonDebugAdapter {
+impl DebugAdapter for _PythonDebugAdapter {
     fn name(&self) -> DebugAdapterName {
-        DebugAdapterName(Self::ADAPTER_NAME.into())
+        DebugAdapterName(Self::_ADAPTER_NAME.into())
     }
 
     fn get_debug_adapter_start_command(&self) -> String {
-        todo!()
+        "fail".to_string()
     }
 
     fn is_installed(&self) -> Option<DebugAdapterBinary> {
-        todo!()
+        None
     }
 
-    fn download_adapter(&mut self) -> DebugAdapterBinary {
-        todo!()
+    fn download_adapter(&mut self) -> Result<DebugAdapterBinary, ()> {
+        Err(())
     }
 }

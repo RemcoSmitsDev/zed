@@ -1,8 +1,7 @@
-use schemars::JsonSchema;
+use schemars::{gen::SchemaSettings, JsonSchema};
 use serde::{Deserialize, Serialize};
-use util::ResultExt;
-
 use std::net::Ipv4Addr;
+use util::ResultExt;
 
 use crate::{TaskTemplate, TaskTemplates};
 
@@ -85,23 +84,39 @@ enum DebugAdapter {
 
 #[derive(Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
-struct DebugTaskDefinition {
+pub struct DebugTaskDefinition {
+    /// Name of the debug tasks
     label: String,
+    /// Program to run the debugger on
     program: String,
+    /// Path to the debug adapter being used (Will be removed in the future)
     adapter_path: String,
+    /// Launch | Requst depending on the session the adapter should be ran as
     session_type: DebugRequestType,
+    /// The adapter to run
     adapter: DebugAdapter,
 }
 
 impl DebugTaskDefinition {
     fn to_zed_format(self) -> anyhow::Result<TaskTemplate> {
-        todo!();
+        Err(anyhow::format_err!("Not yet implemeted"))
     }
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
-pub struct DebugTaskFile {
-    tasks: Vec<DebugTaskDefinition>,
+/// A group of Debug Tasks defined in a JSON file.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DebugTaskFile(pub Vec<DebugTaskDefinition>);
+
+impl DebugTaskFile {
+    /// Generates JSON schema of Tasks JSON template format.
+    pub fn generate_json_schema() -> serde_json_lenient::Value {
+        let schema = SchemaSettings::draft07()
+            .with(|settings| settings.option_add_null_type = false)
+            .into_generator()
+            .into_root_schema_for::<Self>();
+
+        serde_json_lenient::to_value(schema).unwrap()
+    }
 }
 
 impl TryFrom<DebugTaskFile> for TaskTemplates {
@@ -109,7 +124,7 @@ impl TryFrom<DebugTaskFile> for TaskTemplates {
 
     fn try_from(value: DebugTaskFile) -> Result<Self, Self::Error> {
         let templates = value
-            .tasks
+            .0
             .into_iter()
             .filter_map(|debug_definition| debug_definition.to_zed_format().log_err())
             .collect();

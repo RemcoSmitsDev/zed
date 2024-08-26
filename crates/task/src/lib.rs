@@ -14,7 +14,9 @@ use std::borrow::Cow;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-pub use debug_format::{DebugAdapterConfig, DebugConnectionType, DebugRequestType, TCPHost};
+pub use debug_format::{
+    DebugAdapterConfig, DebugConnectionType, DebugRequestType, DebugTaskFile, TCPHost,
+};
 pub use task_template::{HideStrategy, RevealStrategy, TaskTemplate, TaskTemplates, TaskType};
 pub use vscode_format::VsCodeTaskFile;
 
