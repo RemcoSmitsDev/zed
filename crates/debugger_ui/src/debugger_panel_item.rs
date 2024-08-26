@@ -1,9 +1,7 @@
+use crate::console::Console;
 use crate::debugger_panel::{DebugPanel, DebugPanelEvent};
-<<<<<<< HEAD
 use crate::variable_list::VariableList;
-=======
-use crate::elements::{Console, VariableList};
->>>>>>> fe610c1a62 (Create debugger console)
+
 use anyhow::Result;
 use dap::client::{DebugAdapterClient, DebugAdapterClientId, ThreadState, ThreadStatus};
 use dap::{
