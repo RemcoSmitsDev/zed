@@ -13,8 +13,8 @@ use dap::{
 use editor::Editor;
 use futures::future::try_join_all;
 use gpui::{
-    actions, Action, AppContext, AsyncWindowContext, EventEmitter, FocusHandle, FocusableView,
-    FontWeight, Subscription, Task, View, ViewContext, WeakView,
+    actions, impl_actions, Action, AppContext, AsyncWindowContext, EventEmitter, FocusHandle,
+    FocusableView, FontWeight, Subscription, Task, View, ViewContext, WeakView,
 };
 use serde_json::json;
 use settings::Settings;
@@ -667,6 +667,48 @@ impl DebugPanel {
     ) {
         cx.emit(DebugPanelEvent::Output((client.id(), event.clone())));
     }
+
+    fn render_did_not_stop_warning(&self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+        const TITLE: &str = "Debug session exited without hitting any breakpoints";
+        const DESCRIPTION: &str =
+            "Try adding a breakpoint, or define the correct path mapping for your debugger.";
+
+        div()
+            .absolute()
+            .right_3()
+            .bottom_12()
+            .max_w_96()
+            .py_2()
+            .px_3()
+            .elevation_2(cx)
+            .occlude()
+            .child(
+                v_flex()
+                    .gap_0p5()
+                    .child(
+                        h_flex()
+                            .gap_1p5()
+                            .items_center()
+                            .child(Icon::new(IconName::ExclamationTriangle).color(Color::Conflict))
+                            .child(Label::new(TITLE).weight(FontWeight::MEDIUM)),
+                    )
+                    .child(
+                        Label::new(DESCRIPTION)
+                            .size(LabelSize::Small)
+                            .color(Color::Muted),
+                    )
+                    .child(
+                        h_flex().justify_end().mt_1().child(
+                            Button::new("dismiss", "Dismiss")
+                                .color(Color::Muted)
+                                .on_click(cx.listener(|this, _, cx| {
+                                    this.show_did_not_stop_warning = false;
+                                    cx.notify();
+                                })),
+                        ),
+                    ),
+            )
+    }
 }
 
 impl EventEmitter<PanelEvent> for DebugPanel {}
@@ -730,45 +772,7 @@ impl Render for DebugPanel {
             .track_focus(&self.focus_handle)
             .size_full()
             .when(self.show_did_not_stop_warning, |this| {
-              this.child(
-                  div()
-                      .absolute()
-                      .right_3()
-                      .bottom_12()
-                      .max_w_96()
-                      .py_2()
-                      .px_3()
-                      .elevation_2(cx)
-                      .occlude()
-                      .child(
-                          v_flex()
-                              .gap_0p5()
-                              .child(
-                                  h_flex()
-                                      .gap_1p5()
-                                      .items_center()
-                                      .child(Icon::new(IconName::ExclamationTriangle).color(Color::Conflict))
-                                      .child(
-                                          Label::new("Debug session exited without hitting any breakpoints")
-                                              .weight(FontWeight::MEDIUM),
-                                      ),
-                              )
-                              .child(
-                                  Label::new("Try adding a breakpoint, or define the correct path mapping for your debugger.")
-                                      .size(LabelSize::Small)
-                                      .color(Color::Muted)
-                              )
-                              .child(h_flex().justify_end().mt_1().child(
-                                  Button::new("dismiss", "Dismiss")
-                                      .color(Color::Muted)
-                                      .on_click(cx.listener(
-                                      |this, _, cx| {
-                                          this.show_did_not_stop_warning = false;
-                                          cx.notify();
-                                      },
-                                  )),
-                              )))
-              )
+              this.child(self.render_did_not_stop_warning(cx))
             })
             .map(|this| {
                 if self.pane.read(cx).items_len() == 0 {
