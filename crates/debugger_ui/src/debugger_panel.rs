@@ -13,8 +13,8 @@ use dap::{
 use editor::Editor;
 use futures::future::try_join_all;
 use gpui::{
-    actions, impl_actions, Action, AppContext, AsyncWindowContext, EventEmitter, FocusHandle,
-    FocusableView, FontWeight, Subscription, Task, View, ViewContext, WeakView,
+    actions, Action, AppContext, AsyncWindowContext, EventEmitter, FocusHandle, FocusableView,
+    FontWeight, Subscription, Task, View, ViewContext, WeakView,
 };
 use serde_json::json;
 use settings::Settings;
