@@ -1,7 +1,7 @@
 use crate::debugger_panel_item::DebugPanelItem;
 use dap::{client::ThreadState, requests::SetVariable, Scope, SetVariableArguments, Variable};
 
-use editor::Editor;
+use editor::{actions::SelectAll, Editor};
 use gpui::{
     anchored, deferred, list, AnyElement, ClipboardItem, DismissEvent, FocusHandle, FocusableView,
     ListState, Model, MouseDownEvent, Point, Subscription, View,
@@ -264,27 +264,18 @@ impl VariableList {
                             value: variable.value.clone(),
                         });
 
+                        this.set_variable_editor.update(cx, |editor, cx| {
+                            editor.set_text(variable.value.clone(), cx);
+                            editor.select_all(&SelectAll, cx);
+                            editor.focus(cx);
+                        });
+
                         let thread_state = this
                             .debug_panel_item
                             .read_with(cx, |panel, _| panel.current_thread_state());
-
                         this.build_entries(thread_state, false);
-                        cx.notify();
 
-                        // cx.spawn({
-                        //     let client = client.clone();
-                        //     |_, _| async move {
-                        //         client
-                        //             .request::<SetVariable>(SetVariableArguments {
-                        //                 variables_reference,
-                        //                 name,
-                        //                 value: String::from("false"),
-                        //                 format: None,
-                        //             })
-                        //             .await
-                        //     }
-                        // })
-                        // .detach_and_log_err(cx);
+                        cx.notify();
                     }),
                 )
             })
