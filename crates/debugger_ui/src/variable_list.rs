@@ -71,9 +71,7 @@ impl VariableList {
                     this.build_entries(thread_state, false);
                     cx.notify();
                 }
-                e => {
-                    dbg!(e);
-                }
+                _ => {}
             };
         })
         .detach();
@@ -189,6 +187,8 @@ impl VariableList {
                     }
                 }
 
+                // TODO: allow setting variable value for non top level variables
+                // right now its pinned to the `scope.variables_reference`
                 if let Some(state) = self.set_variable_state.as_ref() {
                     if state.parent_variables_reference == scope.variables_reference
                         && state.name == variable.name
@@ -296,7 +296,7 @@ impl VariableList {
         self.open_context_menu = Some((context_menu, position, subscription));
     }
 
-    fn send(&mut self, _: &Confirm, cx: &mut ViewContext<Self>) {
+    fn set_variable_value(&mut self, _: &Confirm, cx: &mut ViewContext<Self>) {
         let new_variable_value = self.set_variable_editor.update(cx, |editor, cx| {
             let new_variable_value = editor.text(cx);
 
@@ -313,7 +313,25 @@ impl VariableList {
             return;
         }
 
-        // send request & refetch variables
+        let client = self.debug_panel_item.read_with(cx, |p, _| p.client());
+        let variables_reference = state.parent_variables_reference;
+        let name = state.name;
+
+        cx.spawn(|_, _| async move {
+            client
+                .request::<SetVariable>(SetVariableArguments {
+                    variables_reference,
+                    name,
+                    value: new_variable_value,
+                    format: None,
+                })
+                .await?;
+
+            // TODO: refetch variables for reference
+
+            anyhow::Ok(())
+        })
+        .detach_and_log_err(cx);
 
         let thread_state = self
             .debug_panel_item
@@ -332,7 +350,7 @@ impl VariableList {
         div()
             .h_4()
             .size_full()
-            .on_action(cx.listener(Self::send))
+            .on_action(cx.listener(Self::set_variable_value))
             .child(
                 ListItem::new(SharedString::from(state.name.clone()))
                     .indent_level(depth + 1)
