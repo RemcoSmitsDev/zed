@@ -1,4 +1,4 @@
-use crate::debugger_panel_item::{DebugPanelItem, DebugPanelItemEvent};
+use crate::debugger_panel_item::DebugPanelItem;
 use dap::{client::ThreadState, requests::SetVariable, Scope, SetVariableArguments, Variable};
 
 use editor::Editor;
@@ -39,7 +39,6 @@ pub struct VariableList {
     focus_handle: FocusHandle,
     open_entries: Vec<SharedString>,
     set_variable_editor: View<Editor>,
-    _subscriptions: Vec<Subscription>,
     debug_panel_item: Model<DebugPanelItem>,
     set_variable_state: Option<SetVariableState>,
     stack_frame_entries: HashMap<u64, Vec<ThreadEntry>>,
@@ -57,8 +56,6 @@ impl VariableList {
                 .map(|view| view.update(cx, |this, cx| this.render_entry(ix, cx)))
                 .unwrap_or(div().into_any())
         });
-
-        let _subscriptions = vec![cx.subscribe(&debug_panel_item, Self::handle_events)];
 
         let set_variable_editor = cx.new_view(|cx| Editor::single_line(cx));
 
@@ -84,7 +81,6 @@ impl VariableList {
         Self {
             list,
             focus_handle,
-            _subscriptions,
             debug_panel_item,
             set_variable_editor,
             open_context_menu: None,
@@ -124,14 +120,6 @@ impl VariableList {
                 cx,
             ),
         }
-    }
-
-    fn handle_events(
-        &mut self,
-        _debug_panel_item: Model<DebugPanelItem>,
-        _event: &DebugPanelItemEvent,
-        _cx: &mut ViewContext<Self>,
-    ) {
     }
 
     pub fn toggle_entry_collapsed(&mut self, entry_id: &SharedString, cx: &mut ViewContext<Self>) {

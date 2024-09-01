@@ -44,8 +44,6 @@ pub struct DebugPanelItem {
     workspace: WeakView<Workspace>,
 }
 
-pub enum DebugPanelItemEvent {}
-
 impl_actions!(debug_panel_item, [DebugItemAction]);
 
 /// This struct is for actions that should be triggered even when
@@ -503,7 +501,6 @@ impl DebugPanelItem {
 }
 
 impl EventEmitter<Event> for DebugPanelItem {}
-impl EventEmitter<DebugPanelItemEvent> for DebugPanelItem {}
 
 impl FocusableView for DebugPanelItem {
     fn focus_handle(&self, _: &AppContext) -> FocusHandle {
