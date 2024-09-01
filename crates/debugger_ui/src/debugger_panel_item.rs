@@ -5,9 +5,7 @@ use crate::variable_list::VariableList;
 use anyhow::Result;
 use dap::client::{DebugAdapterClient, DebugAdapterClientId, ThreadState, ThreadStatus};
 use dap::debugger_settings::DebuggerSettings;
-use dap::{
-    OutputEvent, OutputEventCategory, Scope, StackFrame, StoppedEvent, ThreadEvent, Variable,
-};
+use dap::{OutputEvent, OutputEventCategory, StackFrame, StoppedEvent, ThreadEvent};
 use editor::Editor;
 use gpui::{
     impl_actions, list, AnyElement, AppContext, AsyncWindowContext, EventEmitter, FocusHandle,
@@ -31,17 +29,6 @@ enum ThreadItem {
     Variables,
     Console,
     Output,
-}
-
-#[derive(Debug, Clone)]
-pub enum ThreadEntry {
-    Scope(Scope),
-    Variable {
-        depth: usize,
-        scope: Scope,
-        variable: Arc<Variable>,
-        has_children: bool,
-    },
 }
 
 pub struct DebugPanelItem {
@@ -292,7 +279,8 @@ impl DebugPanelItem {
         let thread_state = self.current_thread_state();
 
         self.variable_list.update(cx, |variable_list, cx| {
-            variable_list.build_entries(thread_state, true, cx)
+            variable_list.build_entries(thread_state, true);
+            cx.notify();
         });
     }
 

@@ -1,20 +1,47 @@
-use crate::debugger_panel_item::{DebugPanelItem, DebugPanelItemEvent, ThreadEntry};
-use dap::{client::ThreadState, Scope, Variable};
+use crate::debugger_panel_item::{DebugPanelItem, DebugPanelItemEvent};
+use dap::{client::ThreadState, requests::SetVariable, Scope, SetVariableArguments, Variable};
 
+use editor::Editor;
 use gpui::{
     anchored, deferred, list, AnyElement, ClipboardItem, DismissEvent, FocusHandle, FocusableView,
     ListState, Model, MouseDownEvent, Point, Subscription, View,
 };
+use menu::Confirm;
 use ui::{prelude::*, ContextMenu, ListItem};
 
 use std::{collections::HashMap, sync::Arc};
 
+#[derive(Debug, Clone)]
+struct SetVariableState {
+    parent_variables_reference: u64,
+    name: String,
+    value: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum ThreadEntry {
+    Scope(Scope),
+    SetVariableEditor {
+        depth: usize,
+        state: SetVariableState,
+    },
+    Variable {
+        depth: usize,
+        scope: Scope,
+        variable: Arc<Variable>,
+        has_children: bool,
+        parent_variables_reference: u64,
+    },
+}
+
 pub struct VariableList {
-    pub list: ListState,
+    list: ListState,
     focus_handle: FocusHandle,
     open_entries: Vec<SharedString>,
+    set_variable_editor: View<Editor>,
     _subscriptions: Vec<Subscription>,
     debug_panel_item: Model<DebugPanelItem>,
+    set_variable_state: Option<SetVariableState>,
     stack_frame_entries: HashMap<u64, Vec<ThreadEntry>>,
     open_context_menu: Option<(View<ContextMenu>, Point<Pixels>, Subscription)>,
 }
@@ -33,12 +60,35 @@ impl VariableList {
 
         let _subscriptions = vec![cx.subscribe(&debug_panel_item, Self::handle_events)];
 
+        let set_variable_editor = cx.new_view(|cx| Editor::single_line(cx));
+
+        cx.subscribe(&set_variable_editor, |this: &mut Self, _, event, cx| {
+            match event {
+                editor::EditorEvent::Blurred => {
+                    this.set_variable_state.take();
+
+                    let thread_state = this
+                        .debug_panel_item
+                        .read_with(cx, |panel, _| panel.current_thread_state());
+
+                    this.build_entries(thread_state, false);
+                    cx.notify();
+                }
+                e => {
+                    dbg!(e);
+                }
+            };
+        })
+        .detach();
+
         Self {
             list,
             focus_handle,
             _subscriptions,
             debug_panel_item,
+            set_variable_editor,
             open_context_menu: None,
+            set_variable_state: None,
             open_entries: Default::default(),
             stack_frame_entries: Default::default(),
         }
@@ -55,13 +105,24 @@ impl VariableList {
 
         match &entries[ix] {
             ThreadEntry::Scope(scope) => self.render_scope(scope, cx),
+            ThreadEntry::SetVariableEditor { depth, state } => {
+                self.render_set_variable_editor(*depth, state, cx)
+            }
             ThreadEntry::Variable {
                 depth,
                 scope,
                 variable,
                 has_children,
-                ..
-            } => self.render_variable(ix, variable, scope, *depth, *has_children, cx),
+                parent_variables_reference,
+            } => self.render_variable(
+                ix,
+                *parent_variables_reference,
+                variable,
+                scope,
+                *depth,
+                *has_children,
+                cx,
+            ),
         }
     }
 
@@ -87,16 +148,11 @@ impl VariableList {
             .debug_panel_item
             .read_with(cx, |panel, _cx| panel.current_thread_state());
 
-        self.build_entries(thread_state, false, cx);
+        self.build_entries(thread_state, false);
         cx.notify();
     }
 
-    pub fn build_entries(
-        &mut self,
-        thread_state: ThreadState,
-        open_first_scope: bool,
-        _cx: &mut ViewContext<Self>,
-    ) {
+    pub fn build_entries(&mut self, thread_state: ThreadState, open_first_scope: bool) {
         let stack_frame_id = thread_state.current_stack_frame_id;
         let Some(scopes_and_vars) = thread_state.variables.get(&stack_frame_id) else {
             return;
@@ -145,11 +201,23 @@ impl VariableList {
                     }
                 }
 
+                if let Some(state) = self.set_variable_state.as_ref() {
+                    if state.parent_variables_reference == scope.variables_reference
+                        && state.name == variable.name
+                    {
+                        entries.push(ThreadEntry::SetVariableEditor {
+                            depth: *depth,
+                            state: state.clone(),
+                        });
+                    }
+                }
+
                 entries.push(ThreadEntry::Variable {
                     has_children,
                     depth: *depth,
                     scope: scope.clone(),
                     variable: Arc::new(variable.clone()),
+                    parent_variables_reference: scope.variables_reference,
                 });
             }
         }
@@ -161,27 +229,77 @@ impl VariableList {
 
     fn deploy_variable_context_menu(
         &mut self,
-        variable: Variable,
+        parent_variables_reference: u64,
+        variable: &Variable,
         position: Point<Pixels>,
         cx: &mut ViewContext<Self>,
     ) {
         let this = cx.view().clone();
 
+        let client = self.debug_panel_item.read_with(cx, |p, _| p.client());
+        let support_set_variable = client
+            .capabilities()
+            .supports_set_variable
+            .unwrap_or_default();
+
         let context_menu = ContextMenu::build(cx, |menu, cx| {
             menu.entry(
                 "Copy name",
                 None,
-                cx.handler_for(&this, move |_, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(variable.name.clone()))
+                cx.handler_for(&this, {
+                    let variable = variable.clone();
+                    move |_, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(variable.name.clone()))
+                    }
                 }),
             )
             .entry(
                 "Copy value",
                 None,
-                cx.handler_for(&this, move |_, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(variable.value.clone()))
+                cx.handler_for(&this, {
+                    let variable = variable.clone();
+                    move |_, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(variable.value.clone()))
+                    }
                 }),
             )
+            .when(support_set_variable, move |menu| {
+                let variable = variable.clone();
+
+                menu.entry(
+                    "Set value",
+                    None,
+                    cx.handler_for(&this, move |this, cx| {
+                        this.set_variable_state = Some(SetVariableState {
+                            parent_variables_reference,
+                            name: variable.name.clone(),
+                            value: variable.value.clone(),
+                        });
+
+                        let thread_state = this
+                            .debug_panel_item
+                            .read_with(cx, |panel, _| panel.current_thread_state());
+
+                        this.build_entries(thread_state, false);
+                        cx.notify();
+
+                        // cx.spawn({
+                        //     let client = client.clone();
+                        //     |_, _| async move {
+                        //         client
+                        //             .request::<SetVariable>(SetVariableArguments {
+                        //                 variables_reference,
+                        //                 name,
+                        //                 value: String::from("false"),
+                        //                 format: None,
+                        //             })
+                        //             .await
+                        //     }
+                        // })
+                        // .detach_and_log_err(cx);
+                    }),
+                )
+            })
         });
 
         cx.focus_view(&context_menu);
@@ -199,9 +317,56 @@ impl VariableList {
         self.open_context_menu = Some((context_menu, position, subscription));
     }
 
-    pub fn render_variable(
+    fn send(&mut self, _: &Confirm, cx: &mut ViewContext<Self>) {
+        let new_variable_value = self.set_variable_editor.update(cx, |editor, cx| {
+            let new_variable_value = editor.text(cx);
+
+            editor.set_text("", cx);
+
+            new_variable_value
+        });
+
+        let Some(state) = self.set_variable_state.take() else {
+            return;
+        };
+
+        if new_variable_value == state.value {
+            return;
+        }
+
+        // send request & refetch variables
+
+        let thread_state = self
+            .debug_panel_item
+            .read_with(cx, |panel, _| panel.current_thread_state());
+
+        self.build_entries(thread_state, false);
+        cx.notify();
+    }
+
+    fn render_set_variable_editor(
+        &self,
+        depth: usize,
+        state: &SetVariableState,
+        cx: &mut ViewContext<Self>,
+    ) -> AnyElement {
+        div()
+            .h_4()
+            .size_full()
+            .on_action(cx.listener(Self::send))
+            .child(
+                ListItem::new(SharedString::from(state.name.clone()))
+                    .indent_level(depth + 1)
+                    .indent_step_size(px(20.))
+                    .child(self.set_variable_editor.clone()),
+            )
+            .into_any_element()
+    }
+
+    fn render_variable(
         &self,
         ix: usize,
+        parent_variables_reference: u64,
         variable: &Variable,
         scope: &Scope,
         depth: usize,
@@ -303,7 +468,12 @@ impl VariableList {
                     .on_secondary_mouse_down(cx.listener({
                         let variable = variable.clone();
                         move |this, event: &MouseDownEvent, cx| {
-                            this.deploy_variable_context_menu(variable.clone(), event.position, cx)
+                            this.deploy_variable_context_menu(
+                                parent_variables_reference,
+                                &variable,
+                                event.position,
+                                cx,
+                            )
                         }
                     }))
                     .child(
