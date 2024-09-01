@@ -7,19 +7,18 @@ use gpui::{
     ListState, Model, MouseDownEvent, Point, Subscription, View,
 };
 use menu::Confirm;
+use std::{collections::HashMap, sync::Arc};
 use ui::{prelude::*, ContextMenu, ListItem};
 
-use std::{collections::HashMap, sync::Arc};
-
 #[derive(Debug, Clone)]
-struct SetVariableState {
+pub struct SetVariableState {
     parent_variables_reference: u64,
     name: String,
     value: String,
 }
 
 #[derive(Debug, Clone)]
-pub enum ThreadEntry {
+pub enum VariableListEntry {
     Scope(Scope),
     SetVariableEditor {
         depth: usize,
@@ -41,7 +40,7 @@ pub struct VariableList {
     set_variable_editor: View<Editor>,
     debug_panel_item: Model<DebugPanelItem>,
     set_variable_state: Option<SetVariableState>,
-    stack_frame_entries: HashMap<u64, Vec<ThreadEntry>>,
+    stack_frame_entries: HashMap<u64, Vec<VariableListEntry>>,
     open_context_menu: Option<(View<ContextMenu>, Point<Pixels>, Subscription)>,
 }
 
@@ -98,11 +97,11 @@ impl VariableList {
         };
 
         match &entries[ix] {
-            ThreadEntry::Scope(scope) => self.render_scope(scope, cx),
-            ThreadEntry::SetVariableEditor { depth, state } => {
+            VariableListEntry::Scope(scope) => self.render_scope(scope, cx),
+            VariableListEntry::SetVariableEditor { depth, state } => {
                 self.render_set_variable_editor(*depth, state, cx)
             }
-            ThreadEntry::Variable {
+            VariableListEntry::Variable {
                 depth,
                 scope,
                 variable,
@@ -144,7 +143,7 @@ impl VariableList {
             return;
         };
 
-        let mut entries: Vec<ThreadEntry> = Vec::default();
+        let mut entries: Vec<VariableListEntry> = Vec::default();
         for (scope, variables) in scopes_and_vars {
             if variables.is_empty() {
                 continue;
@@ -154,7 +153,7 @@ impl VariableList {
                 self.open_entries.push(scope_entry_id(scope));
             }
 
-            entries.push(ThreadEntry::Scope(scope.clone()));
+            entries.push(VariableListEntry::Scope(scope.clone()));
 
             if self
                 .open_entries
@@ -193,14 +192,14 @@ impl VariableList {
                     if state.parent_variables_reference == scope.variables_reference
                         && state.name == variable.name
                     {
-                        entries.push(ThreadEntry::SetVariableEditor {
+                        entries.push(VariableListEntry::SetVariableEditor {
                             depth: *depth,
                             state: state.clone(),
                         });
                     }
                 }
 
-                entries.push(ThreadEntry::Variable {
+                entries.push(VariableListEntry::Variable {
                     has_children,
                     depth: *depth,
                     scope: scope.clone(),
@@ -415,7 +414,7 @@ impl VariableList {
                             return;
                         };
 
-                        if let ThreadEntry::Variable { scope, depth, .. } = entry {
+                        if let VariableListEntry::Variable { scope, depth, .. } = entry {
                             let variable_id = variable_id.clone();
                             let client = debug_item.client();
                             let scope = scope.clone();
