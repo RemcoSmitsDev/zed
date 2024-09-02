@@ -51,14 +51,21 @@ pub enum ThreadStatus {
 #[repr(transparent)]
 pub struct DebugAdapterClientId(pub usize);
 
+#[derive(Debug, Clone)]
+pub struct VariableContainer {
+    pub container_reference: u64,
+    pub variable: Variable,
+    pub depth: usize,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct ThreadState {
     pub status: ThreadStatus,
     pub stack_frames: Vec<StackFrame>,
     // HashMap<variable_reference_id, Vec<Variable>>
     pub vars: HashMap<u64, Vec<Variable>>,
-    // HashMap<stack_frame_id, BTreeMap<scope, Vec<(depth, Variable)>>>
-    pub variables: HashMap<u64, BTreeMap<Scope, Vec<(usize, Variable)>>>,
+    // HashMap<stack_frame_id, BTreeMap<scope, Vec<VariableContainer>>>
+    pub variables: HashMap<u64, BTreeMap<Scope, Vec<VariableContainer>>>,
     pub current_stack_frame_id: u64,
 }
 

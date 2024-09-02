@@ -1,7 +1,11 @@
 use crate::debugger_panel_item::DebugPanelItem;
-use dap::{client::ThreadState, requests::SetVariable, Scope, SetVariableArguments, Variable};
+use dap::{
+    client::{ThreadState, VariableContainer},
+    requests::SetVariable,
+    Scope, SetVariableArguments, Variable,
+};
 
-use editor::{actions::SelectAll, Editor};
+use editor::{actions::SelectAll, Editor, EditorEvent};
 use gpui::{
     anchored, deferred, list, AnyElement, ClipboardItem, DismissEvent, FocusHandle, FocusableView,
     ListState, Model, MouseDownEvent, Point, Subscription, View,
@@ -29,7 +33,7 @@ pub enum VariableListEntry {
         scope: Scope,
         variable: Arc<Variable>,
         has_children: bool,
-        parent_variables_reference: u64,
+        container_reference: u64,
     },
 }
 
@@ -58,9 +62,10 @@ impl VariableList {
 
         let set_variable_editor = cx.new_view(|cx| Editor::single_line(cx));
 
-        cx.subscribe(&set_variable_editor, |this: &mut Self, _, event, cx| {
-            match event {
-                editor::EditorEvent::Blurred => {
+        cx.subscribe(
+            &set_variable_editor,
+            |this: &mut Self, _, event: &EditorEvent, cx| {
+                if *event == EditorEvent::Blurred {
                     this.set_variable_state.take();
 
                     let thread_state = this
@@ -70,9 +75,8 @@ impl VariableList {
                     this.build_entries(thread_state, false);
                     cx.notify();
                 }
-                _ => {}
-            };
-        })
+            },
+        )
         .detach();
 
         Self {
@@ -106,7 +110,7 @@ impl VariableList {
                 scope,
                 variable,
                 has_children,
-                parent_variables_reference,
+                container_reference: parent_variables_reference,
             } => self.render_variable(
                 ix,
                 *parent_variables_reference,
@@ -165,46 +169,46 @@ impl VariableList {
 
             let mut depth_check: Option<usize> = None;
 
-            for (depth, variable) in variables {
-                if depth_check.is_some_and(|d| *depth > d) {
+            for variable_container in variables {
+                let depth = variable_container.depth;
+                let variable = &variable_container.variable;
+                let container_reference = variable_container.container_reference;
+
+                if depth_check.is_some_and(|d| depth > d) {
                     continue;
                 }
 
-                if depth_check.is_some_and(|d| d >= *depth) {
+                if depth_check.is_some_and(|d| d >= depth) {
                     depth_check = None;
                 }
 
-                let has_children = variable.variables_reference > 0;
-
                 if self
                     .open_entries
-                    .binary_search(&variable_entry_id(&variable, &scope, *depth))
+                    .binary_search(&variable_entry_id(&variable, &scope, depth))
                     .is_err()
                 {
-                    if depth_check.is_none() || depth_check.is_some_and(|d| d > *depth) {
-                        depth_check = Some(*depth);
+                    if depth_check.is_none() || depth_check.is_some_and(|d| d > depth) {
+                        depth_check = Some(depth);
                     }
                 }
 
-                // TODO: allow setting variable value for non top level variables
-                // right now its pinned to the `scope.variables_reference`
                 if let Some(state) = self.set_variable_state.as_ref() {
-                    if state.parent_variables_reference == scope.variables_reference
+                    if state.parent_variables_reference == container_reference
                         && state.name == variable.name
                     {
                         entries.push(VariableListEntry::SetVariableEditor {
-                            depth: *depth,
+                            depth,
                             state: state.clone(),
                         });
                     }
                 }
 
                 entries.push(VariableListEntry::Variable {
-                    has_children,
-                    depth: *depth,
+                    depth,
                     scope: scope.clone(),
                     variable: Arc::new(variable.clone()),
-                    parent_variables_reference: scope.variables_reference,
+                    has_children: variable.variables_reference > 0,
+                    container_reference,
                 });
             }
         }
@@ -437,17 +441,21 @@ impl VariableList {
                                         .get_mut(&thread_state.current_stack_frame_id)
                                         .and_then(|s| s.get_mut(&scope))
                                     {
-                                        let position = state.iter().position(|(d, v)| {
-                                            variable_entry_id(v, &scope, *d) == variable_id
+                                        let position = state.iter().position(|v| {
+                                            variable_entry_id(&v.variable, &scope, v.depth)
+                                                == variable_id
                                         });
 
                                         if let Some(position) = position {
                                             state.splice(
                                                 position + 1..position + 1,
-                                                variables
-                                                    .clone()
-                                                    .into_iter()
-                                                    .map(|v| (depth + 1, v)),
+                                                variables.clone().into_iter().map(|v| {
+                                                    VariableContainer {
+                                                        container_reference: variable_reference,
+                                                        variable: v,
+                                                        depth: depth + 1,
+                                                    }
+                                                }),
                                             );
                                         }
 

@@ -1,6 +1,6 @@
 use crate::debugger_panel_item::DebugPanelItem;
 use anyhow::Result;
-use dap::client::{DebugAdapterClientId, ThreadState, ThreadStatus};
+use dap::client::{DebugAdapterClientId, ThreadState, ThreadStatus, VariableContainer};
 use dap::debugger_settings::DebuggerSettings;
 use dap::requests::{Request, Scopes, StackTrace, StartDebugging};
 use dap::transport::Payload;
@@ -8,7 +8,7 @@ use dap::{client::DebugAdapterClient, transport::Events};
 use dap::{
     Capabilities, ContinuedEvent, ExitedEvent, OutputEvent, ScopesArguments, StackFrame,
     StackTraceArguments, StartDebuggingRequestArguments, StoppedEvent, TerminatedEvent,
-    ThreadEvent, ThreadEventReason, Variable,
+    ThreadEvent, ThreadEventReason,
 };
 use editor::Editor;
 use futures::future::try_join_all;
@@ -490,16 +490,19 @@ impl DebugPanel {
                         .or_insert_with(BTreeMap::default);
 
                     for (scope, variables) in scopes {
-                        thread_state
-                            .vars
-                            .insert(scope.variables_reference, variables.clone());
+                        let scope_reference = scope.variables_reference;
+                        thread_state.vars.insert(scope_reference, variables.clone());
 
                         stack_frame_state.insert(
                             scope,
                             variables
                                 .into_iter()
-                                .map(|v| (1, v))
-                                .collect::<Vec<(usize, Variable)>>(),
+                                .map(|v| VariableContainer {
+                                    container_reference: scope_reference.clone(),
+                                    variable: v,
+                                    depth: 1,
+                                })
+                                .collect::<Vec<VariableContainer>>(),
                         );
                     }
                 }
