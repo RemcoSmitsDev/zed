@@ -276,10 +276,11 @@ impl DebugPanelItem {
 
         let thread_state = self.current_thread_state();
 
-        self.variable_list.update(cx, |variable_list, cx| {
+        self.variable_list.update(cx, |variable_list, _| {
             variable_list.build_entries(thread_state, true);
-            cx.notify();
         });
+
+        cx.notify();
     }
 
     fn render_stack_frames(&self, _cx: &mut ViewContext<Self>) -> impl IntoElement {
