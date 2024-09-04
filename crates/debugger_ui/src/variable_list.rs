@@ -1,8 +1,8 @@
 use crate::debugger_panel_item::DebugPanelItem;
 use dap::{
     client::{ThreadState, VariableContainer},
-    requests::SetVariable,
-    Scope, SetVariableArguments, Variable,
+    requests::{SetExpression, SetVariable, Variables},
+    Scope, SetExpressionArguments, SetVariableArguments, Variable, VariablesArguments,
 };
 
 use editor::{actions::SelectAll, Editor, EditorEvent};
@@ -18,7 +18,9 @@ use ui::{prelude::*, ContextMenu, ListItem};
 pub struct SetVariableState {
     parent_variables_reference: u64,
     name: String,
+    evaluate_name: Option<String>,
     value: String,
+    stack_frame_id: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -236,7 +238,9 @@ impl VariableList {
     ) {
         let this = cx.view().clone();
 
-        let client = self.debug_panel_item.read_with(cx, |p, _| p.client());
+        let (stack_frame_id, client) = self.debug_panel_item.read_with(cx, |p, _| {
+            (p.current_thread_state().current_stack_frame_id, p.client())
+        });
         let support_set_variable = client
             .capabilities()
             .supports_set_variable
@@ -273,7 +277,9 @@ impl VariableList {
                         this.set_variable_state = Some(SetVariableState {
                             parent_variables_reference,
                             name: variable.name.clone(),
+                            evaluate_name: variable.evaluate_name.clone(),
                             value: variable.value.clone(),
+                            stack_frame_id,
                         });
 
                         this.set_variable_editor.update(cx, |editor, cx| {
@@ -328,18 +334,33 @@ impl VariableList {
         let client = self.debug_panel_item.read_with(cx, |p, _| p.client());
         let variables_reference = state.parent_variables_reference;
         let name = state.name;
+        let evaluate_name = state.evaluate_name;
+        let stack_frame_id = state.stack_frame_id;
+        let supports_set_expression = client
+            .capabilities()
+            .supports_set_expression
+            .unwrap_or_default();
 
         cx.spawn(|_, _| async move {
-            client
-                .request::<SetVariable>(SetVariableArguments {
-                    variables_reference,
-                    name,
-                    value: new_variable_value,
-                    format: None,
-                })
-                .await?;
-
-            // TODO: refetch variables for reference
+            if let Some(evaluate_name) = supports_set_expression.then(|| evaluate_name).flatten() {
+                client
+                    .request::<SetExpression>(SetExpressionArguments {
+                        expression: evaluate_name,
+                        value: new_variable_value,
+                        frame_id: Some(stack_frame_id),
+                        format: None,
+                    })
+                    .await?;
+            } else {
+                client
+                    .request::<SetVariable>(SetVariableArguments {
+                        variables_reference,
+                        name,
+                        value: new_variable_value,
+                        format: None,
+                    })
+                    .await?;
+            }
 
             anyhow::Ok(())
         })
