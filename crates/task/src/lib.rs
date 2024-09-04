@@ -94,8 +94,10 @@ impl ResolvedTask {
 
     /// Get the configuration for the debug adapter that should be used for this task.
     pub fn debug_adapter_config(&self) -> Option<DebugAdapterConfig> {
-        // self.original_task.debug_adapter.clone()
-        None
+        match self.original_task.task_type.clone() {
+            TaskType::Script => None,
+            TaskType::Debug(adapter_config) => Some(adapter_config),
+        }
     }
 
     /// Variables that were substituted during the task template resolution.

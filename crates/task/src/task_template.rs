@@ -64,13 +64,54 @@ pub struct TaskTemplate {
 
 /// Represents the type of task that is being ran
 #[derive(Default, Deserialize, Serialize, Eq, PartialEq, JsonSchema, Clone, Debug)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum TaskType {
     /// Act like a typically task that runs commands
     #[default]
     Script,
     /// This task starts the debugger for a language
     Debug(DebugAdapterConfig),
+}
+
+#[cfg(test)]
+mod deserialization_tests {
+    use crate::DebugAdapterKind;
+
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn deserialize_task_type_script() {
+        let json = json!({"type": "script"});
+
+        let task_type: TaskType =
+            serde_json::from_value(json).expect("Failed to deserialize TaskType::Script");
+        assert_eq!(task_type, TaskType::Script);
+    }
+
+    #[test]
+    fn deserialize_task_type_debug() {
+        let adapter_config = DebugAdapterConfig {
+            kind: DebugAdapterKind::Python,
+            request: crate::DebugRequestType::Launch,
+            program: "main".to_string(),
+        };
+        let json = json!({
+                "type": "debug",
+                "kind": "python",
+                "request": "launch",
+                "program": "main"
+
+        });
+
+        let task_type: TaskType =
+            serde_json::from_value(json).expect("Failed to deserialize TaskType::Debug");
+        if let TaskType::Debug(config) = task_type {
+            assert_eq!(config, adapter_config);
+        } else {
+            panic!("Expected TaskType::Debug");
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

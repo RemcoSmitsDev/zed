@@ -24,7 +24,7 @@ pub struct TCPHost {
 
 /// Represents the type that will determine which request to call on the debug adapter
 #[derive(Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "lowercase")]
 pub enum DebugRequestType {
     /// Call the `launch` request on the debug adapter
     #[default]
@@ -35,6 +35,7 @@ pub enum DebugRequestType {
 
 /// The Debug adapter to use
 #[derive(Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
+#[serde(rename_all = "lowercase")]
 pub enum DebugAdapterKind {
     /// Manually setup starting a debug adapter
     #[default]
@@ -58,6 +59,8 @@ pub struct DebugAdapterConfig {
     /// to the debug adapter
     // pub request_args: Option<DebugRequestArgs>,
     pub program: String,
+    /// The path to the adapter
+    pub adapter_path: Option<String>,
 }
 
 /// Represents the configuration for the debug adapter that is send with the launch request
@@ -93,9 +96,8 @@ pub struct DebugTaskDefinition {
     label: String,
     /// Program to run the debugger on
     program: String,
-    /// Path to the debug adapter being used (Will be removed in the future)
-    adapter_path: String,
     /// Launch | Requst depending on the session the adapter should be ran as
+    #[serde(default)]
     session_type: DebugRequestType,
     /// The adapter to run
     adapter: DebugAdapterKind,
@@ -108,6 +110,7 @@ impl DebugTaskDefinition {
             kind: self.adapter,
             request: self.session_type,
             program: self.program,
+            adapter_path: None,
         });
 
         let args: Vec<String> = Vec::new();
@@ -142,11 +145,17 @@ impl TryFrom<DebugTaskFile> for TaskTemplates {
     type Error = anyhow::Error;
 
     fn try_from(value: DebugTaskFile) -> Result<Self, Self::Error> {
+        dbg!("Try_from for DebugTaskFile hit");
+
         let templates = value
             .0
             .into_iter()
             .filter_map(|debug_definition| debug_definition.to_zed_format().log_err())
             .collect();
+
+        for template in &templates {
+            dbg!("{:?}", template);
+        }
 
         Ok(Self(templates))
     }

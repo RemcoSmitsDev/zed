@@ -8,7 +8,7 @@ use parking_lot::RwLock;
 use serde::Deserialize;
 use util::ResultExt;
 
-use crate::TaskTemplates;
+use crate::{DebugTaskFile, TaskTemplates};
 use futures::channel::mpsc::UnboundedReceiver;
 
 /// The source of tasks defined in a tasks config file.
@@ -77,6 +77,7 @@ impl<T: PartialEq + 'static + Sync> TrackedFile<T> {
         let parsed_contents: Arc<RwLock<T>> = Arc::default();
         cx.background_executor()
             .spawn({
+                dbg!("New convertible hit");
                 let parsed_contents = parsed_contents.clone();
                 async move {
                     while let Some(new_contents) = tracker.next().await {
@@ -86,14 +87,18 @@ impl<T: PartialEq + 'static + Sync> TrackedFile<T> {
                         }
 
                         if !new_contents.trim().is_empty() {
+                            dbg!("new content is not empty");
                             let Some(new_contents) =
                                 serde_json_lenient::from_str::<U>(&new_contents).log_err()
                             else {
+                                dbg!("failed to call serde_json_lenient::from string");
                                 continue;
                             };
                             let Some(new_contents) = new_contents.try_into().log_err() else {
+                                dbg!("Error with try_into hit from new convertible");
                                 continue;
                             };
+
                             let mut contents = parsed_contents.write();
                             if *contents != new_contents {
                                 *contents = new_contents;

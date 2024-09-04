@@ -121,8 +121,8 @@ use std::{
 };
 use task::{
     static_source::{StaticSource, TrackedFile},
-    DebugAdapterConfig, HideStrategy, RevealStrategy, Shell, TaskContext, TaskTemplate,
-    TaskVariables, VariableName,
+    DebugAdapterConfig, DebugTaskFile, HideStrategy, RevealStrategy, Shell, TaskContext,
+    TaskTemplate, TaskVariables, VariableName,
 };
 use terminals::Terminals;
 use text::{Anchor, BufferId, LineEnding, Point};
@@ -1317,8 +1317,6 @@ impl Project {
             .expect("Debug tasks need to specify adapter configuration");
 
         let debug_template = debug_template.clone();
-        let command = debug_template.command.clone();
-        let args = debug_template.args.clone();
 
         self.start_debug_adapter_client(adapter_config, cx);
     }
@@ -8613,12 +8611,20 @@ impl Project {
                                 abs_path,
                                 id_base: "local_vscode_tasks_for_worktree".into(),
                             },
-                            |tx, cx| StaticSource::new(TrackedFile::new(tasks_file_rx, tx, cx)),
+                            |tx, cx| {
+                                StaticSource::new(TrackedFile::new_convertible::<
+                                    task::VsCodeTaskFile,
+                                >(
+                                    tasks_file_rx, tx, cx
+                                ))
+                            },
                             cx,
                         );
                     }
                 })
             } else if path.ends_with(local_debug_file_relative_path()) {
+                continue;
+
                 self.task_inventory().update(cx, |task_inventory, cx| {
                     if removed {
                         task_inventory.remove_local_static_source(&abs_path);
@@ -8634,14 +8640,18 @@ impl Project {
                                 id_base: "local_debug_file_for_worktree".into(),
                             },
                             |tx, cx| {
-                                StaticSource::new(TrackedFile::new(debug_task_file_rx, tx, cx))
+                                StaticSource::new(TrackedFile::new_convertible::<DebugTaskFile>(
+                                    debug_task_file_rx,
+                                    tx,
+                                    cx,
+                                ))
                             },
                             cx,
                         );
                     }
                 });
             } else if path.ends_with(local_vscode_launch_file_relative_path()) {
-                // TODO: handle vscode launch file (.vscode/launch.json)
+                // TODO Debugger: handle vscode launch file (.vscode/launch.json)
             }
         }
 

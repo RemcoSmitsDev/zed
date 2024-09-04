@@ -81,6 +81,22 @@ pub struct TransportParams {
     process: Option<Child>,
 }
 
+impl TransportParams {
+    pub fn new(
+        rx: Box<dyn AsyncBufRead + Unpin + Send>,
+        tx: Box<dyn AsyncWrite + Unpin + Send>,
+        err: Option<Box<dyn AsyncBufRead + Unpin + Send>>,
+        process: Option<Child>,
+    ) -> Self {
+        TransportParams {
+            rx,
+            tx,
+            err,
+            process,
+        }
+    }
+}
+
 impl DebugAdapterClient {
     /// Creates & returns a new debug adapter client
     ///
@@ -192,51 +208,6 @@ impl DebugAdapterClient {
                 .ok()?
                 .port(),
         )
-    }
-
-    /// Creates a debug client that connects to an adapter through std input/output
-    ///
-    /// # Parameters
-    /// - `command`: The command that starts the debugger
-    /// - `args`: Arguments of the command that starts the debugger
-    /// - `cwd`: The absolute path of the project that is being debugged
-    async fn create_stdio_client(
-        command: &String,
-        args: &Vec<String>,
-        cwd: &PathBuf,
-    ) -> Result<TransportParams> {
-        let mut command = process::Command::new(command);
-        command
-            .current_dir(cwd)
-            .args(args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-
-        let mut process = command
-            .spawn()
-            .with_context(|| "failed to spawn command.")?;
-
-        let stdin = process
-            .stdin
-            .take()
-            .ok_or_else(|| anyhow!("Failed to open stdin"))?;
-        let stdout = process
-            .stdout
-            .take()
-            .ok_or_else(|| anyhow!("Failed to open stdout"))?;
-        let stderr = process
-            .stderr
-            .take()
-            .ok_or_else(|| anyhow!("Failed to open stderr"))?;
-
-        Ok(TransportParams {
-            rx: Box::new(BufReader::new(stdout)),
-            tx: Box::new(stdin),
-            err: Some(Box::new(BufReader::new(stderr))),
-            process: Some(process),
-        })
     }
 
     pub fn handle_transport<F>(
@@ -358,9 +329,12 @@ impl DebugAdapterClient {
             arguments: Some(serialized_arguments),
         };
 
+        dbg!("Sending a request now");
         self.server_tx.send(Payload::Request(request)).await?;
+        dbg!("Sending has been sent and waiting for response");
 
         let response = callback_rx.recv().await??;
+        dbg!("Got response");
 
         match response.success {
             true => Ok(serde_json::from_value(response.body.unwrap_or_default())?),
@@ -378,7 +352,7 @@ impl DebugAdapterClient {
 
     pub fn request_args(&self) -> Option<Value> {
         // TODO Debugger: Get request args from adapter
-        None
+        Some(self.adapter.request_args())
     }
 
     pub fn request_type(&self) -> DebugRequestType {

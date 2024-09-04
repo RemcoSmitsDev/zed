@@ -102,9 +102,12 @@ impl DebugPanel {
 
                             cx.background_executor()
                                 .spawn(async move {
+                                    dbg!("About to intialize client");
                                     client.initialize().await?;
 
+                                    dbg!("client has been intialize");
                                     // send correct request based on adapter config
+
                                     match client.config().request {
                                         DebugRequestType::Launch => {
                                             client.launch(client.request_args()).await
