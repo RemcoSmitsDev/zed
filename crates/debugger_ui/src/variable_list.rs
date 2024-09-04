@@ -72,7 +72,7 @@ impl VariableList {
                         .debug_panel_item
                         .read_with(cx, |panel, _| panel.current_thread_state());
 
-                    this.build_entries(thread_state, false);
+                    this.build_entries(thread_state, false, true);
                     cx.notify();
                 }
             },
@@ -137,15 +137,24 @@ impl VariableList {
             .debug_panel_item
             .read_with(cx, |panel, _cx| panel.current_thread_state());
 
-        self.build_entries(thread_state, false);
+        self.build_entries(thread_state, false, true);
         cx.notify();
     }
 
-    pub fn build_entries(&mut self, thread_state: ThreadState, open_first_scope: bool) {
+    pub fn build_entries(
+        &mut self,
+        thread_state: ThreadState,
+        open_first_scope: bool,
+        keep_open_entries: bool,
+    ) {
         let stack_frame_id = thread_state.current_stack_frame_id;
         let Some(scopes_and_vars) = thread_state.variables.get(&stack_frame_id) else {
             return;
         };
+
+        if !keep_open_entries {
+            self.open_entries.clear();
+        }
 
         let mut entries: Vec<VariableListEntry> = Vec::default();
         for (scope, variables) in scopes_and_vars {
@@ -276,7 +285,7 @@ impl VariableList {
                         let thread_state = this
                             .debug_panel_item
                             .read_with(cx, |panel, _| panel.current_thread_state());
-                        this.build_entries(thread_state, false);
+                        this.build_entries(thread_state, false, true);
 
                         cx.notify();
                     }),
@@ -340,7 +349,7 @@ impl VariableList {
             .debug_panel_item
             .read_with(cx, |panel, _| panel.current_thread_state());
 
-        self.build_entries(thread_state, false);
+        self.build_entries(thread_state, false, true);
         cx.notify();
     }
 
