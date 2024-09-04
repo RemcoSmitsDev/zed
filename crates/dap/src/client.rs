@@ -25,7 +25,7 @@ use smol::{
     process::{self, Child},
 };
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     net::{Ipv4Addr, SocketAddrV4},
     path::{Path, PathBuf},
     process::Stdio,
@@ -62,8 +62,8 @@ pub struct VariableContainer {
 pub struct ThreadState {
     pub status: ThreadStatus,
     pub stack_frames: Vec<StackFrame>,
-    // HashMap<variable_reference_id, Vec<Variable>>
-    pub vars: HashMap<u64, Vec<Variable>>,
+    // HashMap<variables_reference_id>
+    pub variable_ids: HashSet<u64>,
     // HashMap<stack_frame_id, BTreeMap<scope, Vec<VariableContainer>>>
     pub variables: HashMap<u64, BTreeMap<Scope, Vec<VariableContainer>>>,
     pub current_stack_frame_id: u64,

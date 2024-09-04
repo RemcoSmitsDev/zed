@@ -401,8 +401,8 @@ impl VariableList {
                         if disclosed.unwrap_or(true)
                             || debug_item
                                 .current_thread_state()
-                                .vars
-                                .contains_key(&variable_reference)
+                                .variable_ids
+                                .contains(&variable_reference)
                         {
                             return this.toggle_entry_collapsed(&variable_id, cx);
                         }
@@ -459,7 +459,7 @@ impl VariableList {
                                             );
                                         }
 
-                                        thread_state.vars.insert(variable_reference, variables);
+                                        thread_state.variable_ids.insert(variable_reference);
                                     }
 
                                     drop(thread_states);

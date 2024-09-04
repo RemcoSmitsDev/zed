@@ -491,7 +491,7 @@ impl DebugPanel {
 
                     for (scope, variables) in scopes {
                         let scope_reference = scope.variables_reference;
-                        thread_state.vars.insert(scope_reference, variables.clone());
+                        thread_state.variable_ids.insert(scope_reference);
 
                         stack_frame_state.insert(
                             scope,
