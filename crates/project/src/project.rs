@@ -26,6 +26,7 @@ use client::{
 use clock::ReplicaId;
 
 use dap::{
+    adapters::DebugAdapter,
     client::{Breakpoint, DebugAdapterClient, DebugAdapterClientId, SerializedBreakpoint},
     debugger_settings::DebuggerSettings,
     transport::Payload,
@@ -1318,37 +1319,22 @@ impl Project {
         let debug_template = debug_template.clone();
         let command = debug_template.command.clone();
         let args = debug_template.args.clone();
-        let request_args = adapter_config.request_args.as_ref().map(|a| a.args.clone());
 
-        self.start_debug_adapter_client(
-            adapter_config,
-            command,
-            args,
-            cwd.into(),
-            request_args,
-            cx,
-        );
+        self.start_debug_adapter_client(adapter_config, cx);
     }
 
     pub fn start_debug_adapter_client(
         &mut self,
         config: DebugAdapterConfig,
-        command: String,
-        args: Vec<String>,
-        cwd: PathBuf,
-        request_args: Option<serde_json::Value>,
         cx: &mut ModelContext<Self>,
     ) {
         let id = DebugAdapterClientId(self.next_debugger_id());
         let task = cx.spawn(|this, mut cx| async move {
             let project = this.clone();
+
             let client = DebugAdapterClient::new(
                 id,
                 config,
-                &command,
-                &args,
-                &cwd,
-                request_args,
                 move |event, cx| {
                     project
                         .update(cx, |_, cx| {

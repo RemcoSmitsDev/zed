@@ -1,6 +1,7 @@
 use crate::transport::{Payload, Response, Transport};
 use anyhow::{anyhow, Context, Result};
 
+use crate::adapters::{build_adapter, DebugAdapter};
 use dap_types::{
     requests::{
         Attach, ConfigurationDone, Continue, Disconnect, Initialize, Launch, Next, Pause, Request,
@@ -35,7 +36,7 @@ use std::{
     },
     time::Duration,
 };
-use task::{DebugAdapterConfig, DebugConnectionType, DebugRequestType, TCPHost};
+use task::{DebugAdapterConfig, DebugRequestType, TCPHost};
 use text::Point;
 
 #[derive(Copy, Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -64,10 +65,7 @@ pub struct ThreadState {
 
 pub struct DebugAdapterClient {
     id: DebugAdapterClientId,
-    pub args: Vec<String>,
-    pub command: String,
-    pub cwd: PathBuf,
-    pub request_args: Option<Value>,
+    adapter: Arc<Box<dyn DebugAdapter>>,
     _process: Option<Child>,
     server_tx: Sender<Payload>,
     sequence_count: AtomicU64,
@@ -93,26 +91,17 @@ impl DebugAdapterClient {
     /// - `args`: Arguments of the command that starts the debugger
     /// - `cwd`: The absolute path of the project that is being debugged
     /// - `cx`: The context that the new client belongs too
-    #[allow(clippy::too_many_arguments)]
     pub async fn new<F>(
         id: DebugAdapterClientId,
         config: DebugAdapterConfig,
-        command: &String,
-        args: &Vec<String>,
-        cwd: &PathBuf,
-        request_args: Option<Value>,
         event_handler: F,
         cx: &mut AsyncAppContext,
     ) -> Result<Arc<Self>>
     where
         F: FnMut(Payload, &mut AppContext) + 'static + Send + Sync + Clone,
     {
-        let transport_params = match config.connection.clone() {
-            DebugConnectionType::TCP(host) => {
-                Self::create_tcp_client(host, command, args, cwd, cx).await?
-            }
-            DebugConnectionType::STDIO => Self::create_stdio_client(command, args, cwd).await?,
-        };
+        let adapter = Arc::new(build_adapter(&config).context("Creating debug adapter")?);
+        let transport_params = adapter.connect()?;
 
         let server_tx = Self::handle_transport(
             transport_params.rx,
@@ -126,10 +115,7 @@ impl DebugAdapterClient {
             id,
             config,
             server_tx,
-            request_args,
-            cwd: cwd.clone(),
-            args: args.clone(),
-            command: command.clone(),
+            adapter,
             capabilities: Default::default(),
             thread_states: Default::default(),
             sequence_count: AtomicU64::new(1),
@@ -391,7 +377,8 @@ impl DebugAdapterClient {
     }
 
     pub fn request_args(&self) -> Option<Value> {
-        self.request_args.clone()
+        // TODO Debugger: Get request args from adapter
+        None
     }
 
     pub fn request_type(&self) -> DebugRequestType {
@@ -431,7 +418,7 @@ impl DebugAdapterClient {
         let args = dap_types::InitializeRequestArguments {
             client_id: Some("zed".to_owned()),
             client_name: Some("Zed".to_owned()),
-            adapter_id: self.config.id.clone(),
+            adapter_id: self.adapter.id(),
             locale: Some("en-us".to_owned()),
             path_format: Some(InitializeRequestArgumentsPathFormat::Path),
             supports_variable_type: Some(true),
@@ -591,15 +578,16 @@ impl DebugAdapterClient {
     }
 
     pub async fn restart(&self) -> Result<()> {
-        self.request::<Restart>(RestartArguments {
-            raw: self
-                .config
-                .request_args
-                .as_ref()
-                .map(|v| v.args.clone())
-                .unwrap_or(Value::Null),
-        })
-        .await
+        // self.request::<Restart>(RestartArguments {
+        //     raw: self
+        //         .config
+        //         .request_args
+        //         .as_ref()
+        //         .map(|v| v.args.clone())
+        //         .unwrap_or(Value::Null),
+        // })
+        // .await
+        Err(anyhow::format_err!("Not implemented"))
     }
 
     pub async fn pause(&self, thread_id: u64) -> Result<()> {
@@ -643,8 +631,6 @@ impl DebugAdapterClient {
         absolute_file_path: Arc<Path>,
         breakpoints: Vec<SourceBreakpoint>,
     ) -> Result<SetBreakpointsResponse> {
-        let adapter_data = self.request_args.clone();
-
         self.request::<SetBreakpoints>(SetBreakpointsArguments {
             source: Source {
                 path: Some(String::from(absolute_file_path.to_string_lossy())),
@@ -653,7 +639,7 @@ impl DebugAdapterClient {
                 presentation_hint: None,
                 origin: None,
                 sources: None,
-                adapter_data,
+                adapter_data: None,
                 checksums: None,
             },
             breakpoints: Some(breakpoints),

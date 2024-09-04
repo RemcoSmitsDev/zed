@@ -15,9 +15,12 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 pub use debug_format::{
-    DebugAdapterConfig, DebugConnectionType, DebugRequestType, DebugTaskFile, TCPHost,
+    DebugAdapterConfig, DebugAdapterKind, DebugConnectionType, DebugRequestType, DebugTaskFile,
+    TCPHost,
 };
-pub use task_template::{HideStrategy, RevealStrategy, TaskTemplate, TaskTemplates, TaskType};
+pub use task_template::{
+    HideStrategy, RevealStrategy, TaskModal, TaskTemplate, TaskTemplates, TaskType,
+};
 pub use vscode_format::VsCodeTaskFile;
 
 /// Task identifier, unique within the application.
@@ -91,7 +94,8 @@ impl ResolvedTask {
 
     /// Get the configuration for the debug adapter that should be used for this task.
     pub fn debug_adapter_config(&self) -> Option<DebugAdapterConfig> {
-        self.original_task.debug_adapter.clone()
+        // self.original_task.debug_adapter.clone()
+        None
     }
 
     /// Variables that were substituted during the task template resolution.

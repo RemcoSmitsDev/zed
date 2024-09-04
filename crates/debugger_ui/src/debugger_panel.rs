@@ -88,10 +88,8 @@ impl DebugPanel {
                                 }
                                 Payload::Request(request) => {
                                     if StartDebugging::COMMAND == request.command {
-                                        Self::handle_start_debugging_request(
-                                            this, client, request, cx,
-                                        )
-                                        .log_err();
+                                        Self::handle_start_debugging_request(this, client, cx)
+                                            .log_err();
                                     }
                                 }
                                 _ => unreachable!(),
@@ -202,33 +200,11 @@ impl DebugPanel {
     fn handle_start_debugging_request(
         this: &mut Self,
         client: Arc<DebugAdapterClient>,
-        request: &dap::transport::Request,
         cx: &mut ViewContext<Self>,
     ) -> Result<()> {
-        let arguments: StartDebuggingRequestArguments =
-            serde_json::from_value(request.arguments.clone().unwrap_or_default())?;
-
-        let mut json = json!({});
-        if let Some(args) = client
-            .config()
-            .request_args
-            .as_ref()
-            .map(|a| a.args.clone())
-        {
-            merge_json_value_into(args, &mut json);
-        }
-        merge_json_value_into(arguments.configuration, &mut json);
-
         this.workspace.update(cx, |workspace, cx| {
             workspace.project().update(cx, |project, cx| {
-                project.start_debug_adapter_client(
-                    client.config(),
-                    client.command.clone(),
-                    client.args.clone(),
-                    client.cwd.clone(),
-                    Some(json),
-                    cx,
-                );
+                project.start_debug_adapter_client(client.config(), cx);
             })
         })
     }

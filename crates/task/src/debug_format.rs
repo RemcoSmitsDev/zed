@@ -3,17 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 use util::ResultExt;
 
-use crate::{TaskTemplate, TaskTemplates};
-
-/// Represents the type of the debugger adapter connection
-#[derive(Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
-#[serde(rename_all = "lowercase", tag = "connection")]
-pub enum DebugConnectionType {
-    /// Connect to the debug adapter via TCP
-    TCP(TCPHost),
-    /// Connect to the debug adapter via STDIO
-    STDIO,
-}
+use crate::{TaskTemplate, TaskTemplates, TaskType};
 
 impl Default for DebugConnectionType {
     fn default() -> Self {
@@ -43,22 +33,31 @@ pub enum DebugRequestType {
     Attach,
 }
 
+/// The Debug adapter to use
+#[derive(Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
+pub enum DebugAdapterKind {
+    /// Manually setup starting a debug adapter
+    #[default]
+    Custom,
+    /// Use debugpy
+    Python,
+}
+
 /// Represents the configuration for the debug adapter
 #[derive(Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct DebugAdapterConfig {
     /// Unique id of for the debug adapter,
     /// that will be send with the `initialize` request
-    pub id: String,
+    pub kind: DebugAdapterKind,
     /// The type of connection the adapter should use
-    #[serde(default, flatten)]
-    pub connection: DebugConnectionType,
     /// The type of request that should be called on the debug adapter
     #[serde(default)]
     pub request: DebugRequestType,
     /// The configuration options that are send with the `launch` or `attach` request
     /// to the debug adapter
-    pub request_args: Option<DebugRequestArgs>,
+    // pub request_args: Option<DebugRequestArgs>,
+    pub program: String,
 }
 
 /// Represents the configuration for the debug adapter that is send with the launch request
@@ -66,6 +65,16 @@ pub struct DebugAdapterConfig {
 #[serde(transparent)]
 pub struct DebugRequestArgs {
     pub args: serde_json::Value,
+}
+
+/// Represents the type of the debugger adapter connection
+#[derive(Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
+#[serde(rename_all = "lowercase", tag = "connection")]
+pub enum DebugConnectionType {
+    /// Connect to the debug adapter via TCP
+    TCP(TCPHost),
+    /// Connect to the debug adapter via STDIO
+    STDIO,
 }
 
 // "label" : "Name of debug task",
@@ -76,11 +85,6 @@ pub struct DebugRequestArgs {
 // "session_type": "launch|attach",
 // "program": "Program to debug (main.out)"
 //
-#[derive(Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
-enum DebugAdapter {
-    #[default]
-    Custom,
-}
 
 #[derive(Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -94,12 +98,27 @@ pub struct DebugTaskDefinition {
     /// Launch | Requst depending on the session the adapter should be ran as
     session_type: DebugRequestType,
     /// The adapter to run
-    adapter: DebugAdapter,
+    adapter: DebugAdapterKind,
 }
 
 impl DebugTaskDefinition {
     fn to_zed_format(self) -> anyhow::Result<TaskTemplate> {
-        Err(anyhow::format_err!("Not yet implemeted"))
+        let command = "".to_string();
+        let task_type = TaskType::Debug(DebugAdapterConfig {
+            kind: self.adapter,
+            request: self.session_type,
+            program: self.program,
+        });
+
+        let args: Vec<String> = Vec::new();
+
+        Ok(TaskTemplate {
+            label: self.label,
+            command,
+            args,
+            task_type,
+            ..Default::default()
+        })
     }
 }
 

@@ -54,11 +54,6 @@ pub struct TaskTemplate {
     /// If this task should start a debugger or not
     #[serde(default)]
     pub task_type: TaskType,
-    /// Specific configuration for the debug adapter
-    /// This is only used if `task_type` is `Debug`
-    #[serde(default)]
-    pub debug_adapter: Option<DebugAdapterConfig>,
-
     /// Represents the tags which this template attaches to. Adding this removes this task from other UI.
     #[serde(default)]
     pub tags: Vec<String>,
@@ -68,14 +63,23 @@ pub struct TaskTemplate {
 }
 
 /// Represents the type of task that is being ran
-#[derive(Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
+#[derive(Default, Deserialize, Serialize, Eq, PartialEq, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskType {
     /// Act like a typically task that runs commands
     #[default]
     Script,
     /// This task starts the debugger for a language
-    Debug,
+    Debug(DebugAdapterConfig),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+/// The type of task modal to spawn
+pub enum TaskModal {
+    /// Show regular tasks
+    ScriptModal,
+    /// Show debug tasks
+    DebugModal,
 }
 
 /// What to do with the terminal pane and tab, after the command was started.

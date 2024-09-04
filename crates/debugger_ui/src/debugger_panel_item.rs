@@ -528,7 +528,7 @@ impl Item for DebugPanelItem {
     ) -> AnyElement {
         Label::new(format!(
             "{} - Thread {}",
-            self.client.config().id,
+            self.client.id().0,
             self.thread_id
         ))
         .color(if params.selected {
@@ -542,7 +542,8 @@ impl Item for DebugPanelItem {
     fn tab_tooltip_text(&self, _: &AppContext) -> Option<SharedString> {
         Some(SharedString::from(format!(
             "{} Thread {} - {:?}",
-            self.client.config().id,
+            "python".to_string(),
+            // TODO Debugger: fix this -> self.client.config().kind,
             self.thread_id,
             self.current_thread_state().status
         )))
