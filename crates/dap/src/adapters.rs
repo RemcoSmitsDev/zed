@@ -1,19 +1,100 @@
 use crate::client::TransportParams;
 use anyhow::{anyhow, Context, Result};
-use gpui::Task;
+use futures::AsyncReadExt;
+use gpui::AsyncAppContext;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use smol::{self, io::BufReader, process};
-use std::fmt::{format, Debug};
-use std::future::Future;
-use std::{path::PathBuf, process::Stdio, sync::Arc};
-use task::{DebugAdapterConfig, DebugAdapterKind};
+use smol::{
+    self, block_on,
+    io::BufReader,
+    net::{TcpListener, TcpStream},
+    process,
+};
+use std::{
+    fmt::Debug,
+    net::{Ipv4Addr, SocketAddrV4},
+    path::PathBuf,
+    process::Stdio,
+    sync::Arc,
+    time::Duration,
+};
+use task::{DebugAdapterConfig, DebugAdapterKind, TCPHost};
 
 pub fn build_adapter(adapter_config: &DebugAdapterConfig) -> Result<Box<dyn DebugAdapter>> {
     match adapter_config.kind {
         DebugAdapterKind::Custom => Err(anyhow!("Custom is not implemented")),
         DebugAdapterKind::Python => Ok(Box::new(PythonDebugAdapter::new(adapter_config))),
+        DebugAdapterKind::Php => Ok(Box::new(PhpDebugAdapter::new(adapter_config))),
     }
+}
+
+/// Get an open port to use with the tcp client when not supplied by debug config
+async fn get_port(host: Ipv4Addr) -> Option<u16> {
+    Some(
+        TcpListener::bind(SocketAddrV4::new(host, 0))
+            .await
+            .ok()?
+            .local_addr()
+            .ok()?
+            .port(),
+    )
+}
+
+/// Creates a debug client that connects to an adapter through tcp
+///
+/// TCP clients don't have an error communication stream with an adapter
+///
+/// # Parameters
+/// - `command`: The command that starts the debugger
+/// - `args`: Arguments of the command that starts the debugger
+/// - `cwd`: The absolute path of the project that is being debugged
+/// - `cx`: The context that the new client belongs too
+async fn create_tcp_client(
+    host: TCPHost,
+    command: &String,
+    args: &Vec<String>,
+    cx: &mut AsyncAppContext,
+) -> Result<TransportParams> {
+    let host_address = host.host.unwrap_or_else(|| Ipv4Addr::new(127, 0, 0, 1));
+
+    let mut port = host.port;
+    if port.is_none() {
+        port = get_port(host_address).await;
+    }
+
+    let mut command = process::Command::new(command);
+    command
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+
+    let process = command
+        .spawn()
+        .with_context(|| "failed to start debug adapter.")?;
+
+    if let Some(delay) = host.delay {
+        // some debug adapters need some time to start the TCP server
+        // so we have to wait few milliseconds before we can connect to it
+        cx.background_executor()
+            .timer(Duration::from_millis(delay))
+            .await;
+    }
+
+    let address = SocketAddrV4::new(
+        host_address,
+        port.ok_or(anyhow!("Port is required to connect to TCP server"))?,
+    );
+
+    let (rx, tx) = TcpStream::connect(address).await?.split();
+
+    Ok(TransportParams::new(
+        Box::new(BufReader::new(rx)),
+        Box::new(tx),
+        None,
+        Some(process),
+    ))
 }
 
 /// Creates a debug client that connects to an adapter through std input/output
@@ -21,15 +102,9 @@ pub fn build_adapter(adapter_config: &DebugAdapterConfig) -> Result<Box<dyn Debu
 /// # Parameters
 /// - `command`: The command that starts the debugger
 /// - `args`: Arguments of the command that starts the debugger
-/// - `cwd`: The absolute path of the project that is being debugged
-fn create_stdio_client(
-    command: &String,
-    args: &Vec<String>,
-    cwd: &PathBuf,
-) -> Result<TransportParams> {
+fn create_stdio_client(command: &String, args: &Vec<String>) -> Result<TransportParams> {
     let mut command = process::Command::new(command);
     command
-        // .current_dir(cwd)
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -75,7 +150,7 @@ pub trait DebugAdapter: Debug + Send + Sync + 'static {
 
     fn name(self: &Self) -> DebugAdapterName;
 
-    fn connect(&self) -> anyhow::Result<TransportParams>;
+    fn connect(&self, cx: &mut AsyncAppContext) -> anyhow::Result<TransportParams>;
 
     fn get_debug_adapter_start_command(self: &Self) -> String;
 
@@ -108,14 +183,69 @@ impl DebugAdapter for PythonDebugAdapter {
         DebugAdapterName(Self::_ADAPTER_NAME.into())
     }
 
-    fn connect(&self) -> Result<TransportParams> {
+    fn connect(&self, _cx: &mut AsyncAppContext) -> Result<TransportParams> {
         let command = "python3".to_string();
         let args = vec![self
             .adapter_path
             .clone()
             .unwrap_or("/Users/eid/Developer/zed_debugger/".to_string())];
 
-        create_stdio_client(&command, &args, &PathBuf::new())
+        create_stdio_client(&command, &args)
+    }
+
+    fn get_debug_adapter_start_command(&self) -> String {
+        "fail".to_string()
+    }
+
+    fn is_installed(&self) -> Option<DebugAdapterBinary> {
+        None
+    }
+
+    fn download_adapter(&self) -> anyhow::Result<DebugAdapterBinary> {
+        Err(anyhow::format_err!("Not implemented"))
+    }
+
+    fn request_args(&self) -> Value {
+        json!({"program": format!("{}", &self.program)})
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Clone)]
+struct PhpDebugAdapter {
+    program: String,
+    adapter_path: Option<String>,
+}
+
+impl PhpDebugAdapter {
+    const _ADAPTER_NAME: &'static str = "vscode-php-debug";
+
+    fn new(adapter_config: &DebugAdapterConfig) -> Self {
+        PhpDebugAdapter {
+            program: adapter_config.program.clone(),
+            adapter_path: adapter_config.adapter_path.clone(),
+        }
+    }
+}
+
+impl DebugAdapter for PhpDebugAdapter {
+    fn name(&self) -> DebugAdapterName {
+        DebugAdapterName(Self::_ADAPTER_NAME.into())
+    }
+
+    fn connect(&self, cx: &mut AsyncAppContext) -> Result<TransportParams> {
+        let command = "bun".to_string();
+        let args = vec![self
+            .adapter_path
+            .clone()
+            .unwrap_or("/Users/eid/Developer/zed_debugger/".to_string())];
+
+        let host = TCPHost {
+            port: None,
+            host: None,
+            delay: None,
+        };
+
+        block_on(create_tcp_client(host, &command, &args, cx))
     }
 
     fn get_debug_adapter_start_command(&self) -> String {
