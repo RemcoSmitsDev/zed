@@ -14,27 +14,22 @@ use dap_types::{
     StepInArguments, StepOutArguments, SteppingGranularity, TerminateArguments,
     TerminateThreadsArguments, Variable, VariablesArguments,
 };
-use futures::{AsyncBufRead, AsyncReadExt, AsyncWrite};
+use futures::{AsyncBufRead, AsyncWrite};
 use gpui::{AppContext, AsyncAppContext};
 use language::{Buffer, BufferSnapshot};
 use parking_lot::{Mutex, MutexGuard};
 use serde_json::Value;
 use smol::{
     channel::{bounded, unbounded, Receiver, Sender},
-    io::BufReader,
-    net::{TcpListener, TcpStream},
-    process::{self, Child},
+    process::Child,
 };
 use std::{
     collections::{BTreeMap, HashMap},
-    net::{Ipv4Addr, SocketAddrV4},
-    path::{Path, PathBuf},
-    process::Stdio,
+    path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
     },
-    time::Duration,
 };
 use task::{DebugAdapterConfig, DebugRequestType};
 use text::Point;
@@ -117,7 +112,7 @@ impl DebugAdapterClient {
         F: FnMut(Payload, &mut AppContext) + 'static + Send + Sync + Clone,
     {
         let adapter = Arc::new(build_adapter(&config).context("Creating debug adapter")?);
-        let transport_params = adapter.connect(cx)?;
+        let transport_params = adapter.connect(cx).await?;
 
         let server_tx = Self::handle_transport(
             transport_params.rx,

@@ -26,7 +26,6 @@ use client::{
 use clock::ReplicaId;
 
 use dap::{
-    adapters::DebugAdapter,
     client::{Breakpoint, DebugAdapterClient, DebugAdapterClientId, SerializedBreakpoint},
     debugger_settings::DebuggerSettings,
     transport::Payload,
@@ -1307,16 +1306,9 @@ impl Project {
         debug_task: task::ResolvedTask,
         cx: &mut ModelContext<Self>,
     ) {
-        let debug_template = debug_task.original_task();
-        let cwd = debug_template
-            .cwd
-            .clone()
-            .expect("Debug tasks need to know what directory to open");
         let adapter_config = debug_task
             .debug_adapter_config()
             .expect("Debug tasks need to specify adapter configuration");
-
-        let debug_template = debug_template.clone();
 
         self.start_debug_adapter_client(adapter_config, cx);
     }
@@ -8623,8 +8615,6 @@ impl Project {
                     }
                 })
             } else if path.ends_with(local_debug_file_relative_path()) {
-                continue;
-
                 self.task_inventory().update(cx, |task_inventory, cx| {
                     if removed {
                         task_inventory.remove_local_static_source(&abs_path);

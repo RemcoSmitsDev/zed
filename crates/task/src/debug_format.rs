@@ -98,7 +98,7 @@ pub struct DebugTaskDefinition {
     label: String,
     /// Program to run the debugger on
     program: String,
-    /// Launch | Requst depending on the session the adapter should be ran as
+    /// Launch | Request depending on the session the adapter should be ran as
     #[serde(default)]
     session_type: DebugRequestType,
     /// The adapter to run

@@ -1,11 +1,12 @@
 use crate::client::TransportParams;
 use anyhow::{anyhow, Context, Result};
+use async_trait::async_trait;
 use futures::AsyncReadExt;
 use gpui::AsyncAppContext;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use smol::{
-    self, block_on,
+    self,
     io::BufReader,
     net::{TcpListener, TcpStream},
     process,
@@ -143,6 +144,7 @@ pub struct DebugAdapterBinary {
     pub path: PathBuf,
 }
 
+#[async_trait(?Send)]
 pub trait DebugAdapter: Debug + Send + Sync + 'static {
     fn id(&self) -> String {
         "".to_string()
@@ -150,7 +152,7 @@ pub trait DebugAdapter: Debug + Send + Sync + 'static {
 
     fn name(self: &Self) -> DebugAdapterName;
 
-    fn connect(&self, cx: &mut AsyncAppContext) -> anyhow::Result<TransportParams>;
+    async fn connect(&self, cx: &mut AsyncAppContext) -> anyhow::Result<TransportParams>;
 
     fn get_debug_adapter_start_command(self: &Self) -> String;
 
@@ -178,12 +180,13 @@ impl PythonDebugAdapter {
     }
 }
 
+#[async_trait(?Send)]
 impl DebugAdapter for PythonDebugAdapter {
     fn name(&self) -> DebugAdapterName {
         DebugAdapterName(Self::_ADAPTER_NAME.into())
     }
 
-    fn connect(&self, _cx: &mut AsyncAppContext) -> Result<TransportParams> {
+    async fn connect(&self, _cx: &mut AsyncAppContext) -> Result<TransportParams> {
         let command = "python3".to_string();
         let args = vec![self
             .adapter_path
@@ -227,12 +230,13 @@ impl PhpDebugAdapter {
     }
 }
 
+#[async_trait(?Send)]
 impl DebugAdapter for PhpDebugAdapter {
     fn name(&self) -> DebugAdapterName {
         DebugAdapterName(Self::_ADAPTER_NAME.into())
     }
 
-    fn connect(&self, cx: &mut AsyncAppContext) -> Result<TransportParams> {
+    async fn connect(&self, cx: &mut AsyncAppContext) -> Result<TransportParams> {
         let command = "bun".to_string();
         let args = vec![self
             .adapter_path
@@ -245,7 +249,7 @@ impl DebugAdapter for PhpDebugAdapter {
             delay: None,
         };
 
-        block_on(create_tcp_client(host, &command, &args, cx))
+        create_tcp_client(host, &command, &args, cx).await
     }
 
     fn get_debug_adapter_start_command(&self) -> String {

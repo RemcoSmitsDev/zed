@@ -8,7 +8,7 @@ use parking_lot::RwLock;
 use serde::Deserialize;
 use util::ResultExt;
 
-use crate::{DebugTaskFile, TaskTemplates};
+use crate::TaskTemplates;
 use futures::channel::mpsc::UnboundedReceiver;
 
 /// The source of tasks defined in a tasks config file.

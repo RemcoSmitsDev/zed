@@ -7,8 +7,7 @@ use dap::transport::Payload;
 use dap::{client::DebugAdapterClient, transport::Events};
 use dap::{
     Capabilities, ContinuedEvent, ExitedEvent, OutputEvent, ScopesArguments, StackFrame,
-    StackTraceArguments, StartDebuggingRequestArguments, StoppedEvent, TerminatedEvent,
-    ThreadEvent, ThreadEventReason, Variable,
+    StackTraceArguments, StoppedEvent, TerminatedEvent, ThreadEvent, ThreadEventReason, Variable,
 };
 use editor::Editor;
 use futures::future::try_join_all;
@@ -16,14 +15,13 @@ use gpui::{
     actions, Action, AppContext, AsyncWindowContext, EventEmitter, FocusHandle, FocusableView,
     Subscription, Task, View, ViewContext, WeakView,
 };
-use serde_json::json;
 use settings::Settings;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 use task::DebugRequestType;
 use ui::prelude::*;
-use util::{merge_json_value_into, ResultExt};
+use util::ResultExt;
 use workspace::{
     dock::{DockPosition, Panel, PanelEvent},
     Workspace,
@@ -102,10 +100,10 @@ impl DebugPanel {
 
                             cx.background_executor()
                                 .spawn(async move {
-                                    dbg!("About to intialize client");
+                                    dbg!("About to initialize client");
                                     client.initialize().await?;
 
-                                    dbg!("client has been intialize");
+                                    dbg!("client has been initialize");
                                     // send correct request based on adapter config
 
                                     match client.config().request {
