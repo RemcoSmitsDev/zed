@@ -18,7 +18,7 @@ use gpui::{
 };
 use serde_json::json;
 use settings::Settings;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 use task::DebugRequestType;
@@ -484,21 +484,21 @@ impl DebugPanel {
                 }
 
                 for (stack_frame_id, scopes) in try_join_all(stack_frame_tasks).await? {
-                    let stack_frame_state = thread_state
-                        .variables
-                        .entry(stack_frame_id)
-                        .or_insert_with(BTreeMap::default);
+                    thread_state
+                        .scopes
+                        .insert(stack_frame_id, scopes.iter().map(|s| s.0.clone()).collect());
 
                     for (scope, variables) in scopes {
-                        let scope_reference = scope.variables_reference;
-                        thread_state.variable_ids.insert(scope_reference);
+                        thread_state
+                            .fetched_variable_ids
+                            .insert(scope.variables_reference);
 
-                        stack_frame_state.insert(
-                            scope,
+                        thread_state.variables.insert(
+                            scope.variables_reference,
                             variables
                                 .into_iter()
                                 .map(|v| VariableContainer {
-                                    container_reference: scope_reference.clone(),
+                                    container_reference: scope.variables_reference,
                                     variable: v,
                                     depth: 1,
                                 })

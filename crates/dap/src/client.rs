@@ -62,10 +62,11 @@ pub struct VariableContainer {
 pub struct ThreadState {
     pub status: ThreadStatus,
     pub stack_frames: Vec<StackFrame>,
-    // HashMap<variables_reference_id>
-    pub variable_ids: HashSet<u64>,
-    // HashMap<stack_frame_id, BTreeMap<scope, Vec<VariableContainer>>>
-    pub variables: HashMap<u64, BTreeMap<Scope, Vec<VariableContainer>>>,
+    /// HashMap<stack_frame_id, Vec<Scope>>
+    pub scopes: HashMap<u64, Vec<Scope>>,
+    /// BTreeMap<scope.variables_reference, Vec<VariableContainer>>
+    pub variables: BTreeMap<u64, Vec<VariableContainer>>,
+    pub fetched_variable_ids: HashSet<u64>,
     pub current_stack_frame_id: u64,
 }
 
@@ -79,7 +80,8 @@ pub struct DebugAdapterClient {
     server_tx: Sender<Payload>,
     sequence_count: AtomicU64,
     config: DebugAdapterConfig,
-    thread_states: Arc<Mutex<HashMap<u64, ThreadState>>>, // thread_id -> thread_state
+    /// thread_id -> thread_state
+    thread_states: Arc<Mutex<HashMap<u64, ThreadState>>>,
     capabilities: Arc<Mutex<Option<dap_types::Capabilities>>>,
 }
 
