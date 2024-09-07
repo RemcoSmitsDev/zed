@@ -424,10 +424,10 @@ impl VariableList {
                     return;
                 };
 
-                for vars in updated_variables {
+                for variables in updated_variables {
                     thread_state
                         .variables
-                        .insert(scope.variables_reference, vars.collect::<_>());
+                        .insert(scope.variables_reference, variables.collect::<_>());
                 }
 
                 this.build_entries(thread_state.clone(), false, true);
