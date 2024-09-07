@@ -456,6 +456,7 @@ impl VariableList {
             .into_any_element()
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_variable(
         &self,
         ix: usize,
@@ -621,10 +622,9 @@ impl VariableList {
                     .indent_step_size(px(20.))
                     .always_show_disclosure_icon(true)
                     .toggle(disclosed)
-                    .on_toggle(cx.listener({
-                        let scope_id = scope_id;
-                        move |this, _, cx| this.toggle_entry_collapsed(&scope_id, cx)
-                    }))
+                    .on_toggle(
+                        cx.listener(move |this, _, cx| this.toggle_entry_collapsed(&scope_id, cx)),
+                    )
                     .child(div().text_ui(cx).w_full().child(scope.name.clone())),
             )
             .into_any()
