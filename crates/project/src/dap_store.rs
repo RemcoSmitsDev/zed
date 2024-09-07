@@ -4,11 +4,12 @@ use dap::{
     client::{Breakpoint, DebugAdapterClient, DebugAdapterClientId, SerializedBreakpoint},
     transport::Payload,
 };
-use gpui::{EventEmitter, ModelContext, Task};
+use gpui::{EventEmitter, ModelContext, Subscription, Task};
 use language::BufferSnapshot;
 use multi_buffer::MultiBufferSnapshot;
 use std::{
     collections::BTreeMap,
+    future::Future,
     path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering::SeqCst},
@@ -41,17 +42,19 @@ pub struct DapStore {
     open_breakpoints: BTreeMap<BufferId, HashSet<Breakpoint>>,
     /// All breakpoints that belong to this project but are in closed files
     pub closed_breakpoints: BTreeMap<ProjectPath, Vec<SerializedBreakpoint>>,
+    _subscription: Vec<Subscription>,
 }
 
 impl EventEmitter<DapStoreEvent> for DapStore {}
 
 impl DapStore {
-    pub fn new() -> Self {
+    pub fn new(cx: &mut ModelContext<Self>) -> Self {
         Self {
             next_client_id: Default::default(),
             clients: Default::default(),
             open_breakpoints: Default::default(),
             closed_breakpoints: Default::default(),
+            _subscription: vec![cx.on_app_quit(Self::terminate_clients)],
         }
     }
 
@@ -158,6 +161,23 @@ impl DapStore {
             client_id,
             DebugAdapterClientState::Starting(start_client_task),
         );
+    }
+
+    fn terminate_clients(&mut self, _: &mut ModelContext<Self>) -> impl Future<Output = ()> {
+        let shutdown_futures = self
+            .clients
+            .drain()
+            .map(|(_, client_state)| async {
+                match client_state {
+                    DebugAdapterClientState::Starting(task) => task.await?.terminate().await.ok(),
+                    DebugAdapterClientState::Running(client) => client.terminate().await.ok(),
+                }
+            })
+            .collect::<Vec<_>>();
+
+        async move {
+            futures::future::join_all(shutdown_futures).await;
+        }
     }
 
     pub fn stop_client(

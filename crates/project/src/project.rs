@@ -684,7 +684,7 @@ impl Project {
             });
             cx.subscribe(&lsp_store, Self::on_lsp_store_event).detach();
 
-            let dap_store = cx.new_model(|_| DapStore::new());
+            let dap_store = cx.new_model(DapStore::new);
             cx.subscribe(&dap_store, Self::on_dap_store_event).detach();
 
             Self {
@@ -891,7 +891,7 @@ impl Project {
                 .detach();
             cx.subscribe(&lsp_store, Self::on_lsp_store_event).detach();
 
-            let dap_store = cx.new_model(|_| DapStore::new());
+            let dap_store = cx.new_model(DapStore::new);
             cx.subscribe(&dap_store, Self::on_dap_store_event).detach();
 
             let mut this = Self {
