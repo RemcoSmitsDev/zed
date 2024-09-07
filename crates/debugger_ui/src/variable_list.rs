@@ -5,7 +5,10 @@ use dap::{
     Scope, SetExpressionArguments, SetVariableArguments, Variable, VariablesArguments,
 };
 
-use editor::{actions::SelectAll, Editor, EditorEvent};
+use editor::{
+    actions::{self, SelectAll},
+    Editor, EditorEvent,
+};
 use futures::future::try_join_all;
 use gpui::{
     anchored, deferred, list, AnyElement, ClipboardItem, DismissEvent, FocusHandle, FocusableView,
@@ -70,14 +73,7 @@ impl VariableList {
             &set_variable_editor,
             |this: &mut Self, _, event: &EditorEvent, cx| {
                 if *event == EditorEvent::Blurred {
-                    this.set_variable_state.take();
-
-                    let thread_state = this
-                        .debug_panel_item
-                        .read_with(cx, |panel, _| panel.current_thread_state());
-
-                    this.build_entries(thread_state, false, true);
-                    cx.notify();
+                    this.cancel_set_variable_value(cx);
                 }
             },
         )
@@ -320,6 +316,19 @@ impl VariableList {
             });
 
         self.open_context_menu = Some((context_menu, position, subscription));
+    }
+
+    fn cancel_set_variable_value(&mut self, cx: &mut ViewContext<Self>) {
+        if self.set_variable_state.take().is_none() {
+            return;
+        };
+
+        let thread_state = self
+            .debug_panel_item
+            .read_with(cx, |panel, _| panel.current_thread_state());
+
+        self.build_entries(thread_state, false, true);
+        cx.notify();
     }
 
     fn set_variable_value(&mut self, _: &Confirm, cx: &mut ViewContext<Self>) {
@@ -638,9 +647,12 @@ impl FocusableView for VariableList {
 }
 
 impl Render for VariableList {
-    fn render(&mut self, _: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         div()
             .size_full()
+            .on_action(
+                cx.listener(|this, _: &actions::Cancel, cx| this.cancel_set_variable_value(cx)),
+            )
             .child(list(self.list.clone()).gap_1_5().size_full())
             .children(self.open_context_menu.as_ref().map(|(menu, position, _)| {
                 deferred(
