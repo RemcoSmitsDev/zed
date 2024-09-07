@@ -503,7 +503,6 @@ impl VariableList {
                                     .fetched_variable_ids
                                     .contains(&variable_reference)
                             {
-                                dbg!("collap");
                                 return this.toggle_entry_collapsed(&variable_id, cx);
                             }
 
@@ -564,8 +563,6 @@ impl VariableList {
                                             thread_state
                                                 .fetched_variable_ids
                                                 .insert(variable_reference);
-                                        } else {
-                                            dbg!("jerkjslkdjflk");
                                         }
 
                                         drop(thread_states);
