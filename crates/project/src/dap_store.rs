@@ -73,12 +73,6 @@ impl DapStore {
         })
     }
 
-    pub fn has_running_client(&self) -> bool {
-        self.clients
-            .values()
-            .any(|c| matches!(c, DebugAdapterClientState::Running(_)))
-    }
-
     pub fn open_breakpoints(&self) -> &BTreeMap<BufferId, HashSet<Breakpoint>> {
         &self.open_breakpoints
     }
