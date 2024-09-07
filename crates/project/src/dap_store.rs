@@ -124,7 +124,6 @@ impl DapStore {
 
         let start_client_task = cx.spawn(|this, mut cx| async move {
             let dap_store = this.clone();
-            dbg!("starting client");
             let client = DebugAdapterClient::new(
                 client_id,
                 config,
@@ -143,8 +142,6 @@ impl DapStore {
             )
             .await
             .log_err()?;
-
-            dbg!("started the client");
 
             this.update(&mut cx, |store, cx| {
                 let handle = store
