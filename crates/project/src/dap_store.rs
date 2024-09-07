@@ -217,20 +217,24 @@ impl DapStore {
             return;
         };
 
+        let source_breakpoints = breakpoints
+            .iter()
+            .map(|bp| bp.source_for_snapshot(&buffer_snapshot))
+            .collect::<Vec<_>>();
+
+        let mut tasks = Vec::new();
         for client in clients {
             let buffer_path = buffer_path.clone();
-            let source_breakpoints = breakpoints
-                .iter()
-                .map(|bp| bp.source_for_snapshot(&buffer_snapshot))
-                .collect::<Vec<_>>();
-
-            cx.background_executor()
-                .spawn(async move {
-                    client
-                        .set_breakpoints(Arc::from(buffer_path), source_breakpoints)
-                        .await
-                })
-                .detach_and_log_err(cx)
+            let source_breakpoints = source_breakpoints.clone();
+            tasks.push(async move {
+                client
+                    .set_breakpoints(Arc::from(buffer_path), source_breakpoints)
+                    .await
+            });
         }
+
+        cx.background_executor()
+            .spawn(async move { futures::future::join_all(tasks).await })
+            .detach()
     }
 }
