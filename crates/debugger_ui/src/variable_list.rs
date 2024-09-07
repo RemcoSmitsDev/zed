@@ -200,7 +200,7 @@ impl VariableList {
 
                 if self
                     .open_entries
-                    .binary_search(&variable_entry_id(variable, scope, depth))
+                    .binary_search(&variable_entry_id(scope, variable, depth))
                     .is_err()
                 {
                     if depth_check.is_none() || depth_check.is_some_and(|d| d > depth) {
@@ -468,11 +468,11 @@ impl VariableList {
         cx: &mut ViewContext<Self>,
     ) -> AnyElement {
         let variable_reference = variable.variables_reference;
-        let variable_id = variable_entry_id(variable, scope, depth);
+        let variable_id = variable_entry_id(scope, variable, depth);
 
         let disclosed = has_children.then(|| {
             self.open_entries
-                .binary_search(&variable_entry_id(variable, scope, depth))
+                .binary_search(&variable_entry_id(scope, variable, depth))
                 .is_ok()
         });
 
@@ -545,7 +545,7 @@ impl VariableList {
                                         };
 
                                         let position = variables.iter().position(|v| {
-                                            variable_entry_id(&v.variable, &scope, v.depth)
+                                            variable_entry_id(&scope, &v.variable, v.depth)
                                                 == variable_id
                                         });
 
@@ -654,10 +654,10 @@ impl Render for VariableList {
     }
 }
 
-pub fn variable_entry_id(variable: &Variable, scope: &Scope, depth: usize) -> SharedString {
+pub fn variable_entry_id(scope: &Scope, variable: &Variable, depth: usize) -> SharedString {
     SharedString::from(format!(
         "variable-{}-{}-{}",
-        depth, scope.variables_reference, variable.name
+        scope.variables_reference, variable.name, depth
     ))
 }
 
