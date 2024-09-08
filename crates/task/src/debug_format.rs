@@ -147,17 +147,11 @@ impl TryFrom<DebugTaskFile> for TaskTemplates {
     type Error = anyhow::Error;
 
     fn try_from(value: DebugTaskFile) -> Result<Self, Self::Error> {
-        dbg!("Try_from for DebugTaskFile hit");
-
         let templates = value
             .0
             .into_iter()
             .filter_map(|debug_definition| debug_definition.to_zed_format().log_err())
             .collect();
-
-        for template in &templates {
-            dbg!("{:?}", template);
-        }
 
         Ok(Self(templates))
     }

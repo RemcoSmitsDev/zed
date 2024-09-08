@@ -24,7 +24,7 @@ use smol::{
     process::Child,
 };
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -47,15 +47,26 @@ pub enum ThreadStatus {
 #[repr(transparent)]
 pub struct DebugAdapterClientId(pub usize);
 
+#[derive(Debug, Clone)]
+pub struct VariableContainer {
+    pub container_reference: u64,
+    pub variable: Variable,
+    pub depth: usize,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct ThreadState {
     pub status: ThreadStatus,
     pub stack_frames: Vec<StackFrame>,
-    // HashMap<variable_reference_id, Vec<Variable>>
-    pub vars: HashMap<u64, Vec<Variable>>,
-    // HashMap<stack_frame_id, <scope, Vec<(depth, Variable)>>>
-    pub variables: HashMap<u64, BTreeMap<Scope, Vec<(usize, Variable)>>>,
+    /// HashMap<stack_frame_id, Vec<Scope>>
+    pub scopes: HashMap<u64, Vec<Scope>>,
+    /// BTreeMap<scope.variables_reference, Vec<VariableContainer>>
+    pub variables: BTreeMap<u64, Vec<VariableContainer>>,
+    pub fetched_variable_ids: HashSet<u64>,
     pub current_stack_frame_id: u64,
+    // we update this value only once we stopped,
+    // we will use this to indicated if we should show a warning when debugger thread was exited
+    pub stopped: bool,
 }
 
 pub struct DebugAdapterClient {
@@ -65,7 +76,8 @@ pub struct DebugAdapterClient {
     server_tx: Sender<Payload>,
     sequence_count: AtomicU64,
     config: DebugAdapterConfig,
-    thread_states: Arc<Mutex<HashMap<u64, ThreadState>>>, // thread_id -> thread_state
+    /// thread_id -> thread_state
+    thread_states: Arc<Mutex<HashMap<u64, ThreadState>>>,
     capabilities: Arc<Mutex<Option<dap_types::Capabilities>>>,
 }
 
@@ -361,16 +373,12 @@ impl DebugAdapterClient {
 
         self.request::<Continue>(ContinueArguments {
             thread_id,
-            single_thread: if supports_single_thread_execution_requests {
-                Some(true)
-            } else {
-                None
-            },
+            single_thread: supports_single_thread_execution_requests.then(|| true),
         })
         .await
     }
 
-    pub async fn step_over(&self, thread_id: u64) -> Result<()> {
+    pub async fn step_over(&self, thread_id: u64, granularity: SteppingGranularity) -> Result<()> {
         let capabilities = self.capabilities();
 
         let supports_single_thread_execution_requests = capabilities
@@ -382,21 +390,13 @@ impl DebugAdapterClient {
 
         self.request::<Next>(NextArguments {
             thread_id,
-            granularity: if supports_stepping_granularity {
-                Some(SteppingGranularity::Statement)
-            } else {
-                None
-            },
-            single_thread: if supports_single_thread_execution_requests {
-                Some(true)
-            } else {
-                None
-            },
+            granularity: supports_stepping_granularity.then(|| granularity),
+            single_thread: supports_single_thread_execution_requests.then(|| true),
         })
         .await
     }
 
-    pub async fn step_in(&self, thread_id: u64) -> Result<()> {
+    pub async fn step_in(&self, thread_id: u64, granularity: SteppingGranularity) -> Result<()> {
         let capabilities = self.capabilities();
 
         let supports_single_thread_execution_requests = capabilities
@@ -409,21 +409,13 @@ impl DebugAdapterClient {
         self.request::<StepIn>(StepInArguments {
             thread_id,
             target_id: None,
-            granularity: if supports_stepping_granularity {
-                Some(SteppingGranularity::Statement)
-            } else {
-                None
-            },
-            single_thread: if supports_single_thread_execution_requests {
-                Some(true)
-            } else {
-                None
-            },
+            granularity: supports_stepping_granularity.then(|| granularity),
+            single_thread: supports_single_thread_execution_requests.then(|| true),
         })
         .await
     }
 
-    pub async fn step_out(&self, thread_id: u64) -> Result<()> {
+    pub async fn step_out(&self, thread_id: u64, granularity: SteppingGranularity) -> Result<()> {
         let capabilities = self.capabilities();
 
         let supports_single_thread_execution_requests = capabilities
@@ -435,21 +427,13 @@ impl DebugAdapterClient {
 
         self.request::<StepOut>(StepOutArguments {
             thread_id,
-            granularity: if supports_stepping_granularity {
-                Some(SteppingGranularity::Statement)
-            } else {
-                None
-            },
-            single_thread: if supports_single_thread_execution_requests {
-                Some(true)
-            } else {
-                None
-            },
+            granularity: supports_stepping_granularity.then(|| granularity),
+            single_thread: supports_single_thread_execution_requests.then(|| true),
         })
         .await
     }
 
-    pub async fn step_back(&self, thread_id: u64) -> Result<()> {
+    pub async fn step_back(&self, thread_id: u64, granularity: SteppingGranularity) -> Result<()> {
         let capabilities = self.capabilities();
 
         let supports_single_thread_execution_requests = capabilities
@@ -461,16 +445,8 @@ impl DebugAdapterClient {
 
         self.request::<StepBack>(StepBackArguments {
             thread_id,
-            granularity: if supports_stepping_granularity {
-                Some(SteppingGranularity::Statement)
-            } else {
-                None
-            },
-            single_thread: if supports_single_thread_execution_requests {
-                Some(true)
-            } else {
-                None
-            },
+            granularity: supports_stepping_granularity.then(|| granularity),
+            single_thread: supports_single_thread_execution_requests.then(|| true),
         })
         .await
     }
@@ -553,6 +529,16 @@ impl DebugAdapterClient {
         } else {
             Ok(())
         }
+    }
+
+    pub async fn shutdown(&self, should_terminate: bool) -> Result<()> {
+        if should_terminate {
+            let _ = self.terminate().await;
+        }
+
+        // TODO debugger: close channels & kill process
+
+        anyhow::Ok(())
     }
 
     pub async fn terminate(&self) -> Result<()> {

@@ -1,22 +1,22 @@
 use crate::debugger_panel_item::DebugPanelItem;
 use anyhow::Result;
-use dap::client::{DebugAdapterClientId, ThreadState, ThreadStatus};
+use dap::client::{DebugAdapterClientId, ThreadState, ThreadStatus, VariableContainer};
 use dap::debugger_settings::DebuggerSettings;
 use dap::requests::{Request, Scopes, StackTrace, StartDebugging};
 use dap::transport::Payload;
 use dap::{client::DebugAdapterClient, transport::Events};
 use dap::{
     Capabilities, ContinuedEvent, ExitedEvent, OutputEvent, ScopesArguments, StackFrame,
-    StackTraceArguments, StoppedEvent, TerminatedEvent, ThreadEvent, ThreadEventReason, Variable,
+    StackTraceArguments, StoppedEvent, TerminatedEvent, ThreadEvent, ThreadEventReason,
 };
 use editor::Editor;
 use futures::future::try_join_all;
 use gpui::{
     actions, Action, AppContext, AsyncWindowContext, EventEmitter, FocusHandle, FocusableView,
-    Subscription, Task, View, ViewContext, WeakView,
+    FontWeight, Subscription, Task, View, ViewContext, WeakView,
 };
 use settings::Settings;
-use std::collections::BTreeMap;
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 use task::DebugRequestType;
@@ -45,6 +45,7 @@ pub struct DebugPanel {
     focus_handle: FocusHandle,
     workspace: WeakView<Workspace>,
     _subscriptions: Vec<Subscription>,
+    show_did_not_stop_warning: bool,
 }
 
 impl DebugPanel {
@@ -130,6 +131,7 @@ impl DebugPanel {
                 size: px(300.),
                 _subscriptions,
                 focus_handle: cx.focus_handle(),
+                show_did_not_stop_warning: false,
                 workspace: workspace.weak_handle(),
             }
         })
@@ -151,7 +153,11 @@ impl DebugPanel {
     ) -> Option<Arc<DebugAdapterClient>> {
         self.workspace
             .update(cx, |this, cx| {
-                this.project().read(cx).debug_adapter_by_id(client_id)
+                this.project()
+                    .read(cx)
+                    .dap_store()
+                    .read(cx)
+                    .client_by_id(client_id)
             })
             .ok()
             .flatten()
@@ -184,7 +190,7 @@ impl DebugPanel {
                     }
                 });
             }
-            pane::Event::Remove => cx.emit(PanelEvent::Close),
+            pane::Event::Remove { .. } => cx.emit(PanelEvent::Close),
             pane::Event::ZoomIn => cx.emit(PanelEvent::ZoomIn),
             pane::Event::ZoomOut => cx.emit(PanelEvent::ZoomOut),
             pane::Event::AddItem { item } => {
@@ -222,7 +228,7 @@ impl DebugPanel {
             Events::Continued(event) => Self::handle_continued_event(client, event, cx),
             Events::Exited(event) => Self::handle_exited_event(client, event, cx),
             Events::Terminated(event) => Self::handle_terminated_event(this, client, event, cx),
-            Events::Thread(event) => Self::handle_thread_event(client, event, cx),
+            Events::Thread(event) => Self::handle_thread_event(this, client, event, cx),
             Events::Output(event) => Self::handle_output_event(client, event, cx),
             Events::Breakpoint(_) => {}
             Events::Module(_) => {}
@@ -307,7 +313,7 @@ impl DebugPanel {
         cx: AsyncWindowContext,
     ) -> Result<()> {
         let mut tasks = Vec::new();
-        let mut paths: Vec<String> = Vec::new();
+        let mut paths: HashSet<String> = HashSet::new();
         let thread_state = client.thread_state_by_id(thread_id);
 
         for stack_frame in thread_state.stack_frames.into_iter() {
@@ -319,7 +325,7 @@ impl DebugPanel {
                 continue;
             }
 
-            paths.push(path.clone());
+            paths.insert(path.clone());
             tasks.push(Self::remove_editor_highlight(
                 workspace.clone(),
                 path,
@@ -461,22 +467,25 @@ impl DebugPanel {
                 }
 
                 for (stack_frame_id, scopes) in try_join_all(stack_frame_tasks).await? {
-                    let stack_frame_state = thread_state
-                        .variables
-                        .entry(stack_frame_id)
-                        .or_insert_with(BTreeMap::default);
+                    thread_state
+                        .scopes
+                        .insert(stack_frame_id, scopes.iter().map(|s| s.0.clone()).collect());
 
                     for (scope, variables) in scopes {
                         thread_state
-                            .vars
-                            .insert(scope.variables_reference, variables.clone());
+                            .fetched_variable_ids
+                            .insert(scope.variables_reference);
 
-                        stack_frame_state.insert(
-                            scope,
+                        thread_state.variables.insert(
+                            scope.variables_reference,
                             variables
                                 .into_iter()
-                                .map(|v| (1, v))
-                                .collect::<Vec<(usize, Variable)>>(),
+                                .map(|v| VariableContainer {
+                                    container_reference: scope.variables_reference,
+                                    variable: v,
+                                    depth: 1,
+                                })
+                                .collect::<Vec<VariableContainer>>(),
                         );
                     }
                 }
@@ -485,6 +494,7 @@ impl DebugPanel {
                     thread_state.current_stack_frame_id = current_stack_frame.clone().id;
                     thread_state.stack_frames = stack_trace_response.stack_frames;
                     thread_state.status = ThreadStatus::Stopped;
+                    thread_state.stopped = true;
 
                     client.thread_states().insert(thread_id, thread_state);
 
@@ -547,11 +557,19 @@ impl DebugPanel {
     }
 
     fn handle_thread_event(
+        this: &mut Self,
         client: Arc<DebugAdapterClient>,
         event: &ThreadEvent,
         cx: &mut ViewContext<Self>,
     ) {
         let thread_id = event.thread_id;
+
+        if let Some(thread_state) = client.thread_states().get(&thread_id) {
+            if !thread_state.stopped && event.reason == ThreadEventReason::Exited {
+                this.show_did_not_stop_warning = true;
+                cx.notify();
+            };
+        }
 
         if event.reason == ThreadEventReason::Started {
             client
@@ -617,7 +635,9 @@ impl DebugPanel {
                 cx.update(|cx| {
                     workspace.update(cx, |workspace, cx| {
                         workspace.project().update(cx, |project, cx| {
-                            project.stop_debug_adapter_client(client.id(), false, cx)
+                            project.dap_store().update(cx, |store, cx| {
+                                store.shutdown_client(client.id(), false, cx)
+                            })
                         })
                     })
                 })?
@@ -632,6 +652,48 @@ impl DebugPanel {
         cx: &mut ViewContext<Self>,
     ) {
         cx.emit(DebugPanelEvent::Output((client.id(), event.clone())));
+    }
+
+    fn render_did_not_stop_warning(&self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+        const TITLE: &str = "Debug session exited without hitting any breakpoints";
+        const DESCRIPTION: &str =
+            "Try adding a breakpoint, or define the correct path mapping for your debugger.";
+
+        div()
+            .absolute()
+            .right_3()
+            .bottom_12()
+            .max_w_96()
+            .py_2()
+            .px_3()
+            .elevation_2(cx)
+            .occlude()
+            .child(
+                v_flex()
+                    .gap_0p5()
+                    .child(
+                        h_flex()
+                            .gap_1p5()
+                            .items_center()
+                            .child(Icon::new(IconName::ExclamationTriangle).color(Color::Conflict))
+                            .child(Label::new(TITLE).weight(FontWeight::MEDIUM)),
+                    )
+                    .child(
+                        Label::new(DESCRIPTION)
+                            .size(LabelSize::Small)
+                            .color(Color::Muted),
+                    )
+                    .child(
+                        h_flex().justify_end().mt_1().child(
+                            Button::new("dismiss", "Dismiss")
+                                .color(Color::Muted)
+                                .on_click(cx.listener(|this, _, cx| {
+                                    this.show_did_not_stop_warning = false;
+                                    cx.notify();
+                                })),
+                        ),
+                    ),
+            )
     }
 }
 
@@ -695,6 +757,9 @@ impl Render for DebugPanel {
             .key_context("DebugPanel")
             .track_focus(&self.focus_handle)
             .size_full()
+            .when(self.show_did_not_stop_warning, |this| {
+              this.child(self.render_did_not_stop_warning(cx))
+            })
             .map(|this| {
                 if self.pane.read(cx).items_len() == 0 {
                     this.child(

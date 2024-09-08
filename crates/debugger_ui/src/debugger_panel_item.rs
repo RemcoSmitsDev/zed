@@ -4,15 +4,15 @@ use crate::variable_list::VariableList;
 
 use anyhow::Result;
 use dap::client::{DebugAdapterClient, DebugAdapterClientId, ThreadState, ThreadStatus};
-use dap::{
-    OutputEvent, OutputEventCategory, Scope, StackFrame, StoppedEvent, ThreadEvent, Variable,
-};
+use dap::debugger_settings::DebuggerSettings;
+use dap::{OutputEvent, OutputEventCategory, StackFrame, StoppedEvent, ThreadEvent};
 use editor::Editor;
 use gpui::{
     impl_actions, list, AnyElement, AppContext, AsyncWindowContext, EventEmitter, FocusHandle,
     FocusableView, ListState, Subscription, View, WeakView,
 };
 use serde::Deserialize;
+use settings::Settings;
 use std::sync::Arc;
 use ui::WindowContext;
 use ui::{prelude::*, Tooltip};
@@ -31,17 +31,6 @@ enum ThreadItem {
     Output,
 }
 
-#[derive(Debug, Clone)]
-pub enum ThreadEntry {
-    Scope(Scope),
-    Variable {
-        depth: usize,
-        scope: Scope,
-        variable: Arc<Variable>,
-        has_children: bool,
-    },
-}
-
 pub struct DebugPanelItem {
     thread_id: u64,
     variable_list: View<VariableList>,
@@ -54,8 +43,6 @@ pub struct DebugPanelItem {
     _subscriptions: Vec<Subscription>,
     workspace: WeakView<Workspace>,
 }
-
-pub enum DebugPanelItemEvent {}
 
 impl_actions!(debug_panel_item, [DebugItemAction]);
 
@@ -94,7 +81,7 @@ impl DebugPanelItem {
 
         let model = cx.model().clone();
         let variable_list = cx.new_view(|cx| VariableList::new(model, cx));
-        let console = cx.new_view(|cx| Console::new(cx));
+        let console = cx.new_view(Console::new);
 
         let weakview = cx.view().downgrade();
         let stack_frame_list =
@@ -131,7 +118,7 @@ impl DebugPanelItem {
             let mut editor = Editor::multi_line(cx);
             editor.set_placeholder_text("Debug adapter and script output", cx);
             editor.set_read_only(true);
-            editor.set_show_inline_completions(false);
+            editor.set_show_inline_completions(Some(false), cx);
             editor.set_searchable(false);
             editor.set_auto_replace_emoji_shortcode(false);
             editor.set_show_indent_guides(false, cx);
@@ -289,8 +276,8 @@ impl DebugPanelItem {
 
         let thread_state = self.current_thread_state();
 
-        self.variable_list.update(cx, |variable_list, cx| {
-            variable_list.build_entries(thread_state, true, cx)
+        self.variable_list.update(cx, |variable_list, _| {
+            variable_list.build_entries(thread_state, true, false);
         });
     }
 
@@ -441,9 +428,10 @@ impl DebugPanelItem {
         let client = self.client.clone();
         let thread_id = self.thread_id;
         let previous_status = self.current_thread_state().status;
+        let granularity = DebuggerSettings::get_global(cx).stepping_granularity();
 
         cx.spawn(|this, cx| async move {
-            client.step_over(thread_id).await?;
+            client.step_over(thread_id, granularity).await?;
 
             Self::update_thread_state(this, previous_status, None, cx)
         })
@@ -454,9 +442,10 @@ impl DebugPanelItem {
         let client = self.client.clone();
         let thread_id = self.thread_id;
         let previous_status = self.current_thread_state().status;
+        let granularity = DebuggerSettings::get_global(cx).stepping_granularity();
 
         cx.spawn(|this, cx| async move {
-            client.step_in(thread_id).await?;
+            client.step_in(thread_id, granularity).await?;
 
             Self::update_thread_state(this, previous_status, None, cx)
         })
@@ -467,9 +456,10 @@ impl DebugPanelItem {
         let client = self.client.clone();
         let thread_id = self.thread_id;
         let previous_status = self.current_thread_state().status;
+        let granularity = DebuggerSettings::get_global(cx).stepping_granularity();
 
         cx.spawn(|this, cx| async move {
-            client.step_out(thread_id).await?;
+            client.step_out(thread_id, granularity).await?;
 
             Self::update_thread_state(this, previous_status, None, cx)
         })
@@ -510,7 +500,6 @@ impl DebugPanelItem {
 }
 
 impl EventEmitter<Event> for DebugPanelItem {}
-impl EventEmitter<DebugPanelItemEvent> for DebugPanelItem {}
 
 impl FocusableView for DebugPanelItem {
     fn focus_handle(&self, _: &AppContext) -> FocusHandle {
