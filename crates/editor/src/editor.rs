@@ -5290,7 +5290,7 @@ impl Editor {
     ///
     /// This function is used to handle overlaps between breakpoints and Code action/runner symbol.
     /// It's also used to set the color of line numbers with breakpoints to the breakpoint color.
-    /// TODO Debugger: Use this function to color toggle symbols that house nested breakpoints
+    /// TODO debugger: Use this function to color toggle symbols that house nested breakpoints
     fn active_breakpoint_points(&mut self, cx: &mut ViewContext<Self>) -> HashSet<DisplayPoint> {
         let mut breakpoint_display_points = HashSet::default();
 
@@ -5309,7 +5309,7 @@ impl Editor {
                 for breakpoint in breakpoints {
                     breakpoint_display_points
                         .insert(breakpoint.position.to_display_point(&snapshot));
-                    // Breakpoints TODO: Multibuffer bp toggle failing here
+                    // Breakpoints TODO debugger: Multibuffer bp toggle failing here
                     // dued to invalid excerpt id. Multibuffer excerpt id isn't the same as a singular buffer id
                 }
             };

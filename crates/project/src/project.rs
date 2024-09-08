@@ -667,11 +667,15 @@ impl Project {
                 SettingsObserver::new_local(fs.clone(), worktree_store.clone(), cx)
             });
 
+            let dap_store = cx.new_model(DapStore::new);
+            cx.subscribe(&dap_store, Self::on_dap_store_event).detach();
+
             let environment = ProjectEnvironment::new(&worktree_store, env, cx);
             let lsp_store = cx.new_model(|cx| {
                 LspStore::new(
                     buffer_store.clone(),
                     worktree_store.clone(),
+                    dap_store.clone(),
                     Some(environment.clone()),
                     languages.clone(),
                     Some(client.http_client()),
@@ -683,9 +687,6 @@ impl Project {
                 )
             });
             cx.subscribe(&lsp_store, Self::on_lsp_store_event).detach();
-
-            let dap_store = cx.new_model(DapStore::new);
-            cx.subscribe(&dap_store, Self::on_dap_store_event).detach();
 
             Self {
                 buffer_ordered_messages_tx: tx,
@@ -849,10 +850,13 @@ impl Project {
         let buffer_store =
             cx.new_model(|cx| BufferStore::new(worktree_store.clone(), Some(remote_id), cx))?;
 
+        let dap_store = cx.new_model(DapStore::new)?;
+
         let lsp_store = cx.new_model(|cx| {
             let mut lsp_store = LspStore::new(
                 buffer_store.clone(),
                 worktree_store.clone(),
+                dap_store.clone(),
                 None,
                 languages.clone(),
                 Some(client.http_client()),
@@ -891,7 +895,6 @@ impl Project {
                 .detach();
             cx.subscribe(&lsp_store, Self::on_lsp_store_event).detach();
 
-            let dap_store = cx.new_model(DapStore::new);
             cx.subscribe(&dap_store, Self::on_dap_store_event).detach();
 
             let mut this = Self {

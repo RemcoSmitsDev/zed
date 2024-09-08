@@ -5,7 +5,7 @@ use dap::{
     transport::Payload,
 };
 use gpui::{EventEmitter, ModelContext, Subscription, Task};
-use language::BufferSnapshot;
+use language::{Buffer, BufferSnapshot};
 use multi_buffer::MultiBufferSnapshot;
 use std::{
     collections::BTreeMap,
@@ -20,7 +20,7 @@ use task::DebugAdapterConfig;
 use text::{Bias, BufferId, Point};
 use util::ResultExt as _;
 
-use crate::ProjectPath;
+use crate::{Item, ProjectPath};
 
 pub enum DapStoreEvent {
     DebugClientStarted(DebugAdapterClientId),
@@ -82,6 +82,28 @@ impl DapStore {
 
     pub fn closed_breakpoints(&self) -> &BTreeMap<ProjectPath, Vec<SerializedBreakpoint>> {
         &self.closed_breakpoints
+    }
+
+    pub fn sync_open_breakpoints_to_closed_breakpoints(
+        &mut self,
+        buffer_id: &BufferId,
+        buffer: &mut Buffer,
+        cx: &mut ModelContext<Self>,
+    ) {
+        let Some(breakpoints) = self.open_breakpoints.remove(&buffer_id) else {
+            return;
+        };
+
+        if let Some(project_path) = buffer.project_path(cx) {
+            self.closed_breakpoints
+                .entry(project_path.clone())
+                .or_default()
+                .extend(
+                    breakpoints
+                        .into_iter()
+                        .map(|bp| bp.to_serialized(buffer, project_path.path.clone())),
+                );
+        }
     }
 
     pub fn sync_closed_breakpoint_to_open_breakpoint(
