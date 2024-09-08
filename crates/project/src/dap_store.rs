@@ -54,7 +54,7 @@ impl DapStore {
             clients: Default::default(),
             open_breakpoints: Default::default(),
             closed_breakpoints: Default::default(),
-            _subscription: vec![cx.on_app_quit(Self::terminate_clients)],
+            _subscription: vec![cx.on_app_quit(Self::shutdown_clients)],
         }
     }
 
@@ -185,14 +185,16 @@ impl DapStore {
         );
     }
 
-    fn terminate_clients(&mut self, _: &mut ModelContext<Self>) -> impl Future<Output = ()> {
+    fn shutdown_clients(&mut self, _: &mut ModelContext<Self>) -> impl Future<Output = ()> {
         let shutdown_futures = self
             .clients
             .drain()
             .map(|(_, client_state)| async {
                 match client_state {
-                    DebugAdapterClientState::Starting(task) => task.await?.terminate().await.ok(),
-                    DebugAdapterClientState::Running(client) => client.terminate().await.ok(),
+                    DebugAdapterClientState::Starting(task) => {
+                        task.await?.shutdown(true).await.ok()
+                    }
+                    DebugAdapterClientState::Running(client) => client.shutdown(true).await.ok(),
                 }
             })
             .collect::<Vec<_>>();
@@ -202,7 +204,7 @@ impl DapStore {
         }
     }
 
-    pub fn stop_client(
+    pub fn shutdown_client(
         &mut self,
         client_id: DebugAdapterClientId,
         should_terminate: bool,
@@ -214,15 +216,18 @@ impl DapStore {
 
         cx.emit(DapStoreEvent::DebugClientStopped(client_id));
 
-        if !should_terminate {
-            return;
-        }
-
-        if let DebugAdapterClientState::Running(client) = debug_client {
-            cx.background_executor()
-                .spawn(async move { client.terminate().await })
-                .detach_and_log_err(cx);
-        }
+        cx.background_executor()
+            .spawn(async move {
+                match debug_client {
+                    DebugAdapterClientState::Starting(task) => {
+                        task.await?.shutdown(should_terminate).await.ok()
+                    }
+                    DebugAdapterClientState::Running(client) => {
+                        client.shutdown(should_terminate).await.ok()
+                    }
+                }
+            })
+            .detach();
     }
 
     pub fn toggle_breakpoint_for_buffer(

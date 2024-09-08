@@ -657,9 +657,9 @@ impl DebugPanel {
                 cx.update(|cx| {
                     workspace.update(cx, |workspace, cx| {
                         workspace.project().update(cx, |project, cx| {
-                            project
-                                .dap_store()
-                                .update(cx, |store, cx| store.stop_client(client.id(), false, cx))
+                            project.dap_store().update(cx, |store, cx| {
+                                store.shutdown_client(client.id(), false, cx)
+                            })
                         })
                     })
                 })?
