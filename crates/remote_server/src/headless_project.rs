@@ -3,8 +3,9 @@ use fs::Fs;
 use gpui::{AppContext, AsyncAppContext, Context, Model, ModelContext, Task};
 use language::LanguageRegistry;
 use project::{
-    buffer_store::BufferStore, project_settings::SettingsObserver, search::SearchQuery,
-    worktree_store::WorktreeStore, LspStore, ProjectPath, WorktreeId, WorktreeSettings,
+    buffer_store::BufferStore, dap_store::DapStore, project_settings::SettingsObserver,
+    search::SearchQuery, worktree_store::WorktreeStore, LspStore, ProjectPath, WorktreeId,
+    WorktreeSettings,
 };
 use remote::SshSession;
 use rpc::{
