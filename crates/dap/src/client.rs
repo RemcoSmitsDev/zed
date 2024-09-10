@@ -72,7 +72,7 @@ pub struct ThreadState {
 pub struct DebugAdapterClient {
     id: DebugAdapterClientId,
     adapter: Arc<Box<dyn DebugAdapter>>,
-    _process: Option<Child>,
+    _process: Arc<Mutex<Option<Child>>>,
     server_tx: Sender<Payload>,
     sequence_count: AtomicU64,
     config: DebugAdapterConfig,
@@ -142,7 +142,7 @@ impl DebugAdapterClient {
             capabilities: Default::default(),
             thread_states: Default::default(),
             sequence_count: AtomicU64::new(1),
-            _process: transport_params.process,
+            _process: Arc::new(Mutex::new(transport_params.process)),
         }))
     }
 
@@ -533,7 +533,14 @@ impl DebugAdapterClient {
             let _ = self.terminate().await;
         }
 
-        // TODO debugger: close channels & kill process
+        let mut adapter = self._process.lock();
+        let sender = self.server_tx.clone();
+
+        sender.close();
+
+        if let Some(mut adapter) = adapter.take() {
+            adapter.kill()?;
+        }
 
         anyhow::Ok(())
     }
