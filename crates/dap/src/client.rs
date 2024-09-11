@@ -15,7 +15,7 @@ use dap_types::{
     TerminateThreadsArguments, Variable, VariablesArguments,
 };
 use futures::{AsyncBufRead, AsyncWrite};
-use gpui::{AppContext, AsyncAppContext};
+use gpui::{AppContext, AsyncAppContext, Task};
 use language::{Buffer, BufferSnapshot};
 use parking_lot::{Mutex, MutexGuard};
 use serde_json::Value;
@@ -72,6 +72,7 @@ pub struct ThreadState {
 pub struct DebugAdapterClient {
     id: DebugAdapterClientId,
     adapter: Arc<Box<dyn DebugAdapter>>,
+    io_tasks: Mutex<Option<(Task<Result<()>>, Task<Result<()>>)>>,
     _process: Arc<Mutex<Option<Child>>>,
     server_tx: Sender<Payload>,
     sequence_count: AtomicU64,
@@ -126,7 +127,7 @@ impl DebugAdapterClient {
         let adapter = Arc::new(build_adapter(&config).context("Creating debug adapter")?);
         let transport_params = adapter.connect(cx).await?;
 
-        let server_tx = Self::handle_transport(
+        let (server_tx, input, output) = Self::handle_transport(
             transport_params.rx,
             transport_params.tx,
             transport_params.err,
@@ -139,6 +140,7 @@ impl DebugAdapterClient {
             config,
             server_tx,
             adapter,
+            io_tasks: Mutex::new(Some((input, output))),
             capabilities: Default::default(),
             thread_states: Default::default(),
             sequence_count: AtomicU64::new(1),
@@ -152,11 +154,11 @@ impl DebugAdapterClient {
         err: Option<Box<dyn AsyncBufRead + Unpin + Send>>,
         event_handler: F,
         cx: &mut AsyncAppContext,
-    ) -> Result<Sender<Payload>>
+    ) -> Result<(Sender<Payload>, Task<Result<()>>, Task<Result<()>>)>
     where
         F: FnMut(Payload, &mut AppContext) + 'static + Send + Sync + Clone,
     {
-        let (server_rx, server_tx) = Transport::start(rx, tx, err, cx);
+        let (server_rx, server_tx, input, output) = Transport::start(rx, tx, err, cx);
         let (client_tx, client_rx) = unbounded::<Payload>();
 
         cx.update(|cx| {
@@ -169,7 +171,7 @@ impl DebugAdapterClient {
             })
             .detach_and_log_err(cx);
 
-            server_tx
+            (server_tx, input, output)
         })
     }
 
@@ -531,6 +533,7 @@ impl DebugAdapterClient {
     pub async fn shutdown(&self) -> Result<()> {
         let _ = self.terminate().await;
 
+        let tasks = self.io_tasks.lock().take();
         let mut adapter = self._process.lock();
         let sender = self.server_tx.clone();
 
@@ -539,6 +542,8 @@ impl DebugAdapterClient {
         if let Some(mut adapter) = adapter.take() {
             adapter.kill()?;
         }
+
+        drop(tasks);
 
         anyhow::Ok(())
     }

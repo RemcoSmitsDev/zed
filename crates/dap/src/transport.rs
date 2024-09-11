@@ -6,7 +6,7 @@ use dap_types::{
     ThreadEvent,
 };
 use futures::{AsyncBufRead, AsyncWrite};
-use gpui::AsyncAppContext;
+use gpui::{AsyncAppContext, Task};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use smol::{
@@ -97,7 +97,12 @@ impl Transport {
         server_stdin: Box<dyn AsyncWrite + Unpin + Send>,
         server_stderr: Option<Box<dyn AsyncBufRead + Unpin + Send>>,
         cx: &mut AsyncAppContext,
-    ) -> (Receiver<Payload>, Sender<Payload>) {
+    ) -> (
+        Receiver<Payload>,
+        Sender<Payload>,
+        Task<Result<()>>,
+        Task<Result<()>>,
+    ) {
         let (client_tx, server_rx) = unbounded::<Payload>();
         let (server_tx, client_rx) = unbounded::<Payload>();
 
@@ -105,25 +110,23 @@ impl Transport {
             pending_requests: Mutex::new(HashMap::default()),
         });
 
-        let _ = cx.update(|cx| {
-            let transport = transport.clone();
+        let stdout_input_task =
+            cx.spawn(|_| Self::receive(transport.clone(), server_stdout, client_tx));
 
-            cx.background_executor()
-                .spawn(Self::receive(transport.clone(), server_stdout, client_tx))
-                .detach_and_log_err(cx);
+        let stderr_input_task = server_stderr
+            .map(|stderr| cx.spawn(|_| Self::err(stderr)))
+            .unwrap_or_else(|| Task::Ready(Some(Ok(()))));
 
-            cx.background_executor()
-                .spawn(Self::send(transport.clone(), server_stdin, client_rx))
-                .detach_and_log_err(cx);
-
-            if let Some(stderr) = server_stderr {
-                cx.background_executor()
-                    .spawn(Self::err(stderr))
-                    .detach_and_log_err(cx);
-            }
+        let input_task = cx.spawn(|_| async move {
+            let (stdout, stderr) = futures::join!(stdout_input_task, stderr_input_task);
+            stdout.or(stderr)
         });
 
-        (server_rx, server_tx)
+        let output_task =
+            cx.background_executor()
+                .spawn(Self::send(transport.clone(), server_stdin, client_rx));
+
+        (server_rx, server_tx, input_task, output_task)
     }
 
     async fn recv_server_message(

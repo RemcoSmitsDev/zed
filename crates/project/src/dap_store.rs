@@ -4,7 +4,7 @@ use dap::{
     client::{Breakpoint, DebugAdapterClient, DebugAdapterClientId, SerializedBreakpoint},
     transport::Payload,
 };
-use gpui::{EventEmitter, ModelContext, Subscription, Task};
+use gpui::{EventEmitter, ModelContext, Task};
 use language::{Buffer, BufferSnapshot};
 use multi_buffer::MultiBufferSnapshot;
 use std::{
@@ -42,19 +42,19 @@ pub struct DapStore {
     open_breakpoints: BTreeMap<BufferId, HashSet<Breakpoint>>,
     /// All breakpoints that belong to this project but are in closed files
     pub closed_breakpoints: BTreeMap<ProjectPath, Vec<SerializedBreakpoint>>,
-    _subscription: Vec<Subscription>,
 }
 
 impl EventEmitter<DapStoreEvent> for DapStore {}
 
 impl DapStore {
     pub fn new(cx: &mut ModelContext<Self>) -> Self {
+        cx.on_app_quit(Self::shutdown_clients).detach();
+
         Self {
             next_client_id: Default::default(),
             clients: Default::default(),
             open_breakpoints: Default::default(),
             closed_breakpoints: Default::default(),
-            _subscription: vec![cx.on_app_quit(Self::shutdown_clients)],
         }
     }
 
