@@ -528,10 +528,8 @@ impl DebugAdapterClient {
         }
     }
 
-    pub async fn shutdown(&self, should_terminate: bool) -> Result<()> {
-        if should_terminate {
-            let _ = self.terminate().await;
-        }
+    pub async fn shutdown(&self) -> Result<()> {
+        let _ = self.terminate().await;
 
         let mut adapter = self._process.lock();
         let sender = self.server_tx.clone();

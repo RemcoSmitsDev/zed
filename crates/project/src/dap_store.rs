@@ -179,10 +179,8 @@ impl DapStore {
             .drain()
             .map(|(_, client_state)| async {
                 match client_state {
-                    DebugAdapterClientState::Starting(task) => {
-                        task.await?.shutdown(true).await.ok()
-                    }
-                    DebugAdapterClientState::Running(client) => client.shutdown(true).await.ok(),
+                    DebugAdapterClientState::Starting(task) => task.await?.shutdown().await.ok(),
+                    DebugAdapterClientState::Running(client) => client.shutdown().await.ok(),
                 }
             })
             .collect::<Vec<_>>();
@@ -195,7 +193,6 @@ impl DapStore {
     pub fn shutdown_client(
         &mut self,
         client_id: DebugAdapterClientId,
-        should_terminate: bool,
         cx: &mut ModelContext<Self>,
     ) {
         let Some(debug_client) = self.clients.remove(&client_id) else {
@@ -207,12 +204,8 @@ impl DapStore {
         cx.background_executor()
             .spawn(async move {
                 match debug_client {
-                    DebugAdapterClientState::Starting(task) => {
-                        task.await?.shutdown(should_terminate).await.ok()
-                    }
-                    DebugAdapterClientState::Running(client) => {
-                        client.shutdown(should_terminate).await.ok()
-                    }
+                    DebugAdapterClientState::Starting(task) => task.await?.shutdown().await.ok(),
+                    DebugAdapterClientState::Running(client) => client.shutdown().await.ok(),
                 }
             })
             .detach();
