@@ -224,14 +224,7 @@ impl Transport {
         match payload {
             Payload::Response(res) => {
                 if let Some(tx) = self.pending_requests.lock().await.remove(&res.request_seq) {
-                    if !tx.is_closed() {
-                        tx.send(Self::process_response(res)).await?;
-                    } else {
-                        log::warn!(
-                            "Response stream associated with request seq: {} is closed",
-                            &res.request_seq
-                        ); // TODO: Fix this case so it never happens
-                    }
+                    tx.send(Self::process_response(res)).await?;
                 } else {
                     client_tx.send(Payload::Response(res)).await?;
                 };
