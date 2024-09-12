@@ -28,13 +28,13 @@ use client::{
 use clock::ReplicaId;
 
 use dap::{
-    client::{Breakpoint, DebugAdapterClient, DebugAdapterClientId, SerializedBreakpoint},
+    client::{DebugAdapterClient, DebugAdapterClientId},
     debugger_settings::DebuggerSettings,
     transport::Payload,
 };
 
 use collections::{BTreeSet, HashMap, HashSet};
-use dap_store::{DapStore, DapStoreEvent};
+use dap_store::{Breakpoint, DapStore, DapStoreEvent, SerializedBreakpoint};
 use debounced_delay::DebouncedDelay;
 pub use environment::ProjectEnvironment;
 use futures::{
@@ -65,7 +65,6 @@ use language::{
 };
 use lsp::{CompletionContext, DocumentHighlightKind, LanguageServer, LanguageServerId};
 use lsp_command::*;
-use multi_buffer::MultiBuffer;
 use node_runtime::NodeRuntime;
 use parking_lot::{Mutex, RwLock};
 use paths::{
@@ -658,8 +657,11 @@ impl Project {
             cx.subscribe(&worktree_store, Self::on_worktree_store_event)
                 .detach();
 
-            let buffer_store =
-                cx.new_model(|cx| BufferStore::new(worktree_store.clone(), None, cx));
+            let dap_store = cx.new_model(DapStore::new);
+
+            let buffer_store = cx.new_model(|cx| {
+                BufferStore::new(worktree_store.clone(), None, dap_store.clone(), cx)
+            });
             cx.subscribe(&buffer_store, Self::on_buffer_store_event)
                 .detach();
 
@@ -667,7 +669,6 @@ impl Project {
                 SettingsObserver::new_local(fs.clone(), worktree_store.clone(), cx)
             });
 
-            let dap_store = cx.new_model(DapStore::new);
             cx.subscribe(&dap_store, Self::on_dap_store_event).detach();
 
             let environment = ProjectEnvironment::new(&worktree_store, env, cx);
@@ -847,10 +848,17 @@ impl Project {
             }
             store
         })?;
-        let buffer_store =
-            cx.new_model(|cx| BufferStore::new(worktree_store.clone(), Some(remote_id), cx))?;
 
         let dap_store = cx.new_model(DapStore::new)?;
+
+        let buffer_store = cx.new_model(|cx| {
+            BufferStore::new(
+                worktree_store.clone(),
+                Some(remote_id),
+                dap_store.clone(),
+                cx,
+            )
+        })?;
 
         let lsp_store = cx.new_model(|cx| {
             let mut lsp_store = LspStore::new(
@@ -1060,18 +1068,16 @@ impl Project {
     ) -> HashMap<Arc<Path>, Vec<SerializedBreakpoint>> {
         let mut all_breakpoints: HashMap<Arc<Path>, Vec<SerializedBreakpoint>> = Default::default();
 
-        let open_breakpoints = self.dap_store.read(cx).open_breakpoints();
-        for (buffer_id, breakpoints) in open_breakpoints.iter() {
-            let Some(buffer) = maybe!({
+        let open_breakpoints = self.dap_store.read(cx).breakpoints();
+        for (project_path, breakpoints) in open_breakpoints.iter() {
+            let buffer = maybe!({
+                let buffer_store = self.buffer_store.read(cx);
+                let buffer_id = buffer_store.buffer_id_for_project_path(project_path)?;
                 let buffer = self.buffer_for_id(*buffer_id, cx)?;
                 Some(buffer.read(cx))
-            }) else {
-                continue;
-            };
+            });
 
             let Some(path) = maybe!({
-                let project_path = buffer.project_path(cx)?;
-
                 if as_abs_path {
                     let worktree = self.worktree_for_id(project_path.worktree_id, cx)?;
                     Some(Arc::from(
@@ -1082,39 +1088,17 @@ impl Project {
                             .as_path(),
                     ))
                 } else {
-                    Some(project_path.path)
+                    Some(project_path.clone().path)
                 }
             }) else {
-                continue;
-            };
-
-            let Some(relative_path) = maybe!({ Some(buffer.project_path(cx)?.path) }) else {
                 continue;
             };
 
             all_breakpoints.entry(path).or_default().extend(
                 breakpoints
                     .into_iter()
-                    .map(|bp| bp.to_serialized(buffer, relative_path.clone())),
+                    .map(|bp| bp.to_serialized(buffer, project_path.clone().path)),
             );
-        }
-
-        let closed_breakpoints = self.dap_store.read(cx).closed_breakpoints();
-        for (project_path, serialized_breakpoints) in closed_breakpoints.iter() {
-            let file_path = maybe!({
-                if as_abs_path {
-                    Some(Arc::from(self.absolute_path(project_path, cx)?))
-                } else {
-                    Some(project_path.path.clone())
-                }
-            });
-
-            if let Some(file_path) = file_path {
-                all_breakpoints
-                    .entry(file_path)
-                    .or_default()
-                    .extend(serialized_breakpoints.iter().map(|bp| bp.clone()));
-            }
         }
 
         all_breakpoints
@@ -1181,23 +1165,30 @@ impl Project {
     ///
     /// `(Path, Vec<SerializedBreakpoint)`: Returns worktree path (used when saving workspace)
     ///     and a vector of the serialized breakpoints
-    pub fn serialize_breakpoints_for_buffer_id(
+    pub fn serialize_breakpoints_for_project_path(
         &self,
-        buffer_id: &BufferId,
+        project_path: &ProjectPath,
         cx: &ModelContext<Self>,
     ) -> Option<(Arc<Path>, Vec<SerializedBreakpoint>)> {
-        let buffer = self.buffer_for_id(*buffer_id, cx)?.read(cx);
-        let project_path = buffer.project_path(cx)?;
+        let buffer = maybe!({
+            let buffer_id = self
+                .buffer_store
+                .read(cx)
+                .buffer_id_for_project_path(project_path)?;
+            Some(self.buffer_for_id(*buffer_id, cx)?.read(cx))
+        });
+
         let worktree_path = self
             .worktree_for_id(project_path.worktree_id, cx)?
             .read(cx)
             .abs_path();
-        let open_breakpoints = self.dap_store.read(cx).open_breakpoints();
+
+        let breakpoints = self.dap_store.read(cx).breakpoints();
 
         Some((
             worktree_path,
-            open_breakpoints
-                .get(buffer_id)?
+            breakpoints
+                .get(&project_path)?
                 .iter()
                 .map(|bp| bp.to_serialized(buffer, project_path.path.clone()))
                 .collect(),
@@ -1220,30 +1211,16 @@ impl Project {
             return result;
         }
 
-        let open_breakpoints = self.dap_store.read(cx).open_breakpoints();
-        for buffer_id in open_breakpoints.keys() {
+        let breakpoints = self.dap_store.read(cx).breakpoints();
+        for project_path in breakpoints.keys() {
             if let Some((worktree_path, mut serialized_breakpoint)) =
-                self.serialize_breakpoints_for_buffer_id(&buffer_id, cx)
+                self.serialize_breakpoints_for_project_path(&project_path, cx)
             {
                 result
                     .entry(worktree_path.clone())
                     .or_default()
                     .append(&mut serialized_breakpoint)
             }
-        }
-
-        let closed_breakpoints = self.dap_store.read(cx).closed_breakpoints();
-        for (project_path, serialized_bp) in closed_breakpoints.iter() {
-            let Some(worktree) = self.worktree_for_id(project_path.worktree_id, cx) else {
-                continue;
-            };
-
-            let worktree_path = worktree.read(cx).abs_path();
-
-            result
-                .entry(worktree_path)
-                .or_default()
-                .extend(serialized_bp.iter().map(|bp| bp.clone()));
         }
 
         result
@@ -1264,19 +1241,20 @@ impl Project {
             return;
         };
 
-        let abs_file_path = maybe!({
+        let Some((project_path, buffer_path)) = maybe!({
             let project_path = buffer.read(cx).project_path(cx)?;
-            let worktree = self.worktree_for_id(project_path.worktree_id, cx)?;
-            worktree.read(cx).absolutize(&project_path.path).ok()
-        });
-
-        let Some(buffer_path) = abs_file_path else {
+            let worktree = self.worktree_for_id(project_path.clone().worktree_id, cx)?;
+            Some((
+                project_path.clone(),
+                worktree.read(cx).absolutize(&project_path.path).ok()?,
+            ))
+        }) else {
             return;
         };
 
         self.dap_store.update(cx, |store, cx| {
             store.toggle_breakpoint_for_buffer(
-                &buffer_id,
+                &project_path,
                 breakpoint,
                 buffer_path,
                 buffer.read(cx).snapshot(),
@@ -2070,24 +2048,10 @@ impl Project {
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<(Option<ProjectEntryId>, AnyModel)>> {
         let task = self.open_buffer(path.clone(), cx);
-        cx.spawn(move |project, mut cx| async move {
+        cx.spawn(move |_project, cx| async move {
             let buffer = task.await?;
-            let (project_entry_id, buffer_id) = buffer.read_with(&cx, |buffer, cx| {
-                (
-                    File::from_dyn(buffer.file()).and_then(|file| file.project_entry_id(cx)),
-                    buffer.remote_id(),
-                )
-            })?;
-
-            let multi_buffer = cx.new_model(|cx| MultiBuffer::singleton(buffer.clone(), cx))?;
-            project.update(&mut cx, |project, cx| {
-                project.dap_store.update(cx, |store, cx| {
-                    store.sync_closed_breakpoint_to_open_breakpoint(
-                        &buffer_id,
-                        &path,
-                        multi_buffer.read(cx).snapshot(cx),
-                    );
-                });
+            let project_entry_id = buffer.read_with(&cx, |buffer, cx| {
+                File::from_dyn(buffer.file()).and_then(|file| file.project_entry_id(cx))
             })?;
 
             let buffer: &AnyModel = &buffer;

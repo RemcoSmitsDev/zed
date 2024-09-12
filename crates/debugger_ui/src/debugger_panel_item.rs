@@ -49,16 +49,15 @@ impl_actions!(debug_panel_item, [DebugItemAction]);
 /// This struct is for actions that should be triggered even when
 /// the debug pane is not in focus. This is done by setting workspace
 /// as the action listener then having workspace call `handle_workspace_action`
-#[derive(Clone, Deserialize, PartialEq, Default)]
+#[derive(Clone, Deserialize, PartialEq)]
 pub struct DebugItemAction {
     kind: DebugPanelItemActionKind,
 }
 
 /// Actions that can be sent to workspace
 /// currently all of these are button toggles
-#[derive(Deserialize, PartialEq, Default, Clone, Debug)]
+#[derive(Deserialize, PartialEq, Clone, Debug)]
 enum DebugPanelItemActionKind {
-    #[default]
     Continue,
     StepOver,
     StepIn,
@@ -304,6 +303,7 @@ impl DebugPanelItem {
 
         v_flex()
             .rounded_md()
+            .w_full()
             .group("")
             .id(("stack-frame", stack_frame.id))
             .tooltip({
@@ -552,7 +552,6 @@ impl Render for DebugPanelItem {
         h_flex()
             .key_context("DebugPanelItem")
             .track_focus(&self.focus_handle)
-            .p_2()
             .size_full()
             .items_start()
             .child(
@@ -561,12 +560,16 @@ impl Render for DebugPanelItem {
                     .items_start()
                     .child(
                         h_flex()
-                            .py_1()
+                            .p_1()
+                            .border_b_1()
+                            .w_full()
+                            .border_color(cx.theme().colors().border_variant)
                             .gap_2()
                             .map(|this| {
                                 if thread_status == ThreadStatus::Running {
                                     this.child(
                                         IconButton::new("debug-pause", IconName::DebugPause)
+                                            .icon_size(IconSize::Small)
                                             .on_click(cx.listener(|_, _, cx| {
                                                 cx.dispatch_action(Box::new(DebugItemAction {
                                                     kind: DebugPanelItemActionKind::Pause,
@@ -577,6 +580,7 @@ impl Render for DebugPanelItem {
                                 } else {
                                     this.child(
                                         IconButton::new("debug-continue", IconName::DebugContinue)
+                                            .icon_size(IconSize::Small)
                                             .on_click(cx.listener(|_, _, cx| {
                                                 cx.dispatch_action(Box::new(DebugItemAction {
                                                     kind: DebugPanelItemActionKind::Continue,
@@ -591,6 +595,7 @@ impl Render for DebugPanelItem {
                             })
                             .child(
                                 IconButton::new("debug-step-over", IconName::DebugStepOver)
+                                    .icon_size(IconSize::Small)
                                     .on_click(cx.listener(|_, _, cx| {
                                         cx.dispatch_action(Box::new(DebugItemAction {
                                             kind: DebugPanelItemActionKind::StepOver,
@@ -601,6 +606,7 @@ impl Render for DebugPanelItem {
                             )
                             .child(
                                 IconButton::new("debug-step-in", IconName::DebugStepInto)
+                                    .icon_size(IconSize::Small)
                                     .on_click(cx.listener(|_, _, cx| {
                                         cx.dispatch_action(Box::new(DebugItemAction {
                                             kind: DebugPanelItemActionKind::StepIn,
@@ -611,6 +617,7 @@ impl Render for DebugPanelItem {
                             )
                             .child(
                                 IconButton::new("debug-step-out", IconName::DebugStepOut)
+                                    .icon_size(IconSize::Small)
                                     .on_click(cx.listener(|_, _, cx| {
                                         cx.dispatch_action(Box::new(DebugItemAction {
                                             kind: DebugPanelItemActionKind::StepOut,
@@ -621,6 +628,7 @@ impl Render for DebugPanelItem {
                             )
                             .child(
                                 IconButton::new("debug-restart", IconName::DebugRestart)
+                                    .icon_size(IconSize::Small)
                                     .on_click(cx.listener(|_, _, cx| {
                                         cx.dispatch_action(Box::new(DebugItemAction {
                                             kind: DebugPanelItemActionKind::Restart,
@@ -637,6 +645,7 @@ impl Render for DebugPanelItem {
                             )
                             .child(
                                 IconButton::new("debug-stop", IconName::DebugStop)
+                                    .icon_size(IconSize::Small)
                                     .on_click(cx.listener(|_, _, cx| {
                                         cx.dispatch_action(Box::new(DebugItemAction {
                                             kind: DebugPanelItemActionKind::Stop,
@@ -650,6 +659,7 @@ impl Render for DebugPanelItem {
                             )
                             .child(
                                 IconButton::new("debug-disconnect", IconName::DebugDisconnect)
+                                    .icon_size(IconSize::Small)
                                     .on_click(cx.listener(|_, _, cx| {
                                         cx.dispatch_action(Box::new(DebugItemAction {
                                             kind: DebugPanelItemActionKind::Disconnect,
@@ -673,10 +683,15 @@ impl Render for DebugPanelItem {
             )
             .child(
                 v_flex()
+                    .border_l_1()
+                    .border_color(cx.theme().colors().border_variant)
                     .size_full()
                     .items_start()
                     .child(
                         h_flex()
+                            .border_b_1()
+                            .w_full()
+                            .border_color(cx.theme().colors().border_variant)
                             .child(
                                 div()
                                     .id("variables")
@@ -687,7 +702,7 @@ impl Render for DebugPanelItem {
                                     .when(*active_thread_item == ThreadItem::Variables, |this| {
                                         this.border_color(cx.theme().colors().border)
                                     })
-                                    .child(Label::new("Variables"))
+                                    .child(Button::new("variables-button", "Variables"))
                                     .on_click(cx.listener(|this, _, _| {
                                         this.active_thread_item = ThreadItem::Variables;
                                     })),
@@ -702,7 +717,7 @@ impl Render for DebugPanelItem {
                                     .when(*active_thread_item == ThreadItem::Console, |this| {
                                         this.border_color(cx.theme().colors().border)
                                     })
-                                    .child(Label::new("Console"))
+                                    .child(Button::new("console-button", "Console"))
                                     .on_click(cx.listener(|this, _, _| {
                                         this.active_thread_item = ThreadItem::Console;
                                     })),
@@ -717,7 +732,7 @@ impl Render for DebugPanelItem {
                                     .when(*active_thread_item == ThreadItem::Output, |this| {
                                         this.border_color(cx.theme().colors().border)
                                     })
-                                    .child(Label::new("Output"))
+                                    .child(Button::new("output", "Output"))
                                     .on_click(cx.listener(|this, _, _| {
                                         this.active_thread_item = ThreadItem::Output;
                                     })),

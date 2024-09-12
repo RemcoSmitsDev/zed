@@ -80,6 +80,7 @@ use gpui::{
     VisualContext, WeakFocusHandle, WeakView, WindowContext,
 };
 use highlight_matching_bracket::refresh_matching_bracket_highlights;
+use hover_links::{find_file, HoverLink, HoveredLinkState, InlayHighlight};
 use hover_popover::{hide_hover, HoverState};
 use hunk_diff::ExpandedHunks;
 pub(crate) use hunk_diff::HoveredHunk;
@@ -96,11 +97,7 @@ use language::{
 };
 use language::{point_to_lsp, BufferRow, CharClassifier, Runnable, RunnableRange};
 use linked_editing_ranges::refresh_linked_ranges;
-use project::dap_store::DapStore;
 use task::{ResolvedTask, TaskTemplate, TaskVariables};
-
-use dap::client::Breakpoint;
-use hover_links::{find_file, HoverLink, HoveredLinkState, InlayHighlight};
 
 pub use lsp::CompletionContext;
 use lsp::{
@@ -118,6 +115,7 @@ use ordered_float::OrderedFloat;
 use parking_lot::{Mutex, RwLock};
 use project::project_settings::{GitGutterSetting, ProjectSettings};
 use project::{
+    dap_store::{Breakpoint, DapStore},
     CodeAction, Completion, CompletionIntent, FormatTrigger, Item, Location, Project, ProjectPath,
     ProjectTransaction, TaskSourceKind,
 };
@@ -1982,25 +1980,6 @@ impl Editor {
             if this.git_blame_inline_enabled {
                 this.git_blame_inline_enabled = true;
                 this.start_git_blame_inline(false, cx);
-            }
-
-            // Check if this buffer should have breakpoints added too it
-            if let Some((project_path, buffer_id, snapshot)) = buffer.read_with(cx, |buffer, cx| {
-                let snapshot = buffer.snapshot(cx);
-                let buffer = buffer.as_singleton()?.read(cx);
-                Some((buffer.project_path(cx)?, buffer.remote_id(), snapshot))
-            }) {
-                if let Some(project) = this.project.as_ref() {
-                    project.update(cx, |project, cx| {
-                        project.dap_store().update(cx, |store, _| {
-                            store.sync_closed_breakpoint_to_open_breakpoint(
-                                &buffer_id,
-                                &project_path,
-                                snapshot,
-                            );
-                        });
-                    });
-                }
             }
         }
 
@@ -5300,24 +5279,28 @@ impl Editor {
 
         let snapshot = self.snapshot(cx);
 
-        let opened_breakpoints = dap_store.read(cx).open_breakpoints();
+        let opened_breakpoints = dap_store.read(cx).breakpoints();
 
         if let Some(buffer) = self.buffer.read(cx).as_singleton() {
             let buffer = buffer.read(cx);
 
-            if let Some(breakpoints) = opened_breakpoints.get(&buffer.remote_id()) {
-                for breakpoint in breakpoints {
-                    breakpoint_display_points
-                        .insert(breakpoint.position.to_display_point(&snapshot));
-                    // Breakpoints TODO debugger: Multibuffer bp toggle failing here
-                    // dued to invalid excerpt id. Multibuffer excerpt id isn't the same as a singular buffer id
-                }
+            if let Some(project_path) = buffer.project_path(cx) {
+                if let Some(breakpoints) = opened_breakpoints.get(&project_path) {
+                    for breakpoint in breakpoints {
+                        let point = breakpoint.point_for_buffer(&buffer);
+
+                        breakpoint_display_points.insert(point.to_display_point(&snapshot));
+                    }
+                };
             };
 
             return breakpoint_display_points;
         }
 
         let multi_buffer_snapshot = &snapshot.display_snapshot.buffer_snapshot;
+        let Some(project) = self.project.as_ref() else {
+            return breakpoint_display_points;
+        };
 
         for excerpt_boundary in
             multi_buffer_snapshot.excerpt_boundaries_in_range(Point::new(0, 0)..)
@@ -5344,11 +5327,17 @@ impl Editor {
                         .buffer
                         .summary_for_anchor::<Point>(&info.range.context.end);
 
-                if let Some(breakpoints) = opened_breakpoints.get(&info.buffer_id) {
+                let Some(project_path) = project.read_with(cx, |this, cx| {
+                    this.buffer_for_id(info.buffer_id, cx)
+                        .and_then(|buffer| buffer.read_with(cx, |b, cx| b.project_path(cx)))
+                }) else {
+                    continue;
+                };
+
+                if let Some(breakpoints) = opened_breakpoints.get(&project_path) {
                     for breakpoint in breakpoints {
-                        let breakpoint_position = info // Breakpoint's position within the singular buffer
-                            .buffer
-                            .summary_for_anchor::<Point>(&breakpoint.position.text_anchor);
+                        let breakpoint_position =
+                            breakpoint.point_for_buffer_snapshot(&info.buffer);
 
                         if buffer_range.contains(&breakpoint_position) {
                             // Translated breakpoint position from singular buffer to multi buffer
@@ -5368,7 +5357,7 @@ impl Editor {
 
     fn render_breakpoint(
         &self,
-        position: Anchor,
+        anchor: text::Anchor,
         row: DisplayRow,
         cx: &mut ViewContext<Self>,
     ) -> IconButton {
@@ -5381,14 +5370,18 @@ impl Editor {
             Color::Debugger
         };
 
-        IconButton::new(("breakpoint_indicator", row.0 as usize), ui::IconName::Play)
-            .icon_size(IconSize::XSmall)
-            .size(ui::ButtonSize::None)
-            .icon_color(color)
-            .on_click(cx.listener(move |editor, _e, cx| {
-                editor.focus(cx);
-                editor.toggle_breakpoint_at_anchor(position, cx)
-            }))
+        IconButton::new(
+            ("breakpoint_indicator", row.0 as usize),
+            ui::IconName::DebugBreakpoint,
+        )
+        .icon_size(IconSize::XSmall)
+        .size(ui::ButtonSize::None)
+        .icon_color(color)
+        .style(ButtonStyle::Transparent)
+        .on_click(cx.listener(move |editor, _e, cx| {
+            editor.focus(cx);
+            editor.toggle_breakpoint_at_anchor(anchor, cx);
+        }))
     }
 
     fn render_run_indicator(
@@ -6243,14 +6236,15 @@ impl Editor {
             .snapshot(cx)
             .display_snapshot
             .buffer_snapshot
-            .anchor_before(Point::new(cursor_position.row, 0));
+            .anchor_before(Point::new(cursor_position.row, 0))
+            .text_anchor;
 
         self.toggle_breakpoint_at_anchor(breakpoint_position, cx);
     }
 
     pub fn toggle_breakpoint_at_anchor(
         &mut self,
-        breakpoint_position: Anchor,
+        breakpoint_position: text::Anchor,
         cx: &mut ViewContext<Self>,
     ) {
         let Some(project) = &self.project else {
@@ -6265,11 +6259,23 @@ impl Editor {
             return;
         };
 
+        let Some(cache_position) = self.buffer.read_with(cx, |buffer, cx| {
+            buffer.buffer(buffer_id).map(|buffer| {
+                buffer
+                    .read(cx)
+                    .summary_for_anchor::<Point>(&breakpoint_position)
+                    .row
+            })
+        }) else {
+            return;
+        };
+
         project.update(cx, |project, cx| {
             project.toggle_breakpoint(
                 buffer_id,
                 Breakpoint {
-                    position: breakpoint_position,
+                    cache_position,
+                    active_position: Some(breakpoint_position),
                 },
                 cx,
             );

@@ -16,7 +16,6 @@ use dap_types::{
 };
 use futures::{AsyncBufRead, AsyncWrite};
 use gpui::{AppContext, AsyncAppContext, Task};
-use language::{Buffer, BufferSnapshot};
 use parking_lot::{Mutex, MutexGuard};
 use serde_json::Value;
 use smol::{
@@ -25,6 +24,7 @@ use smol::{
 };
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    hash::Hash,
     path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -32,7 +32,6 @@ use std::{
     },
 };
 use task::{DebugAdapterConfig, DebugRequestType};
-use text::Point;
 
 #[derive(Copy, Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ThreadStatus {
@@ -590,73 +589,5 @@ impl DebugAdapterClient {
             .await?
             .variables,
         )
-    }
-}
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct Breakpoint {
-    pub position: multi_buffer::Anchor,
-}
-
-impl Breakpoint {
-    pub fn to_source_breakpoint(&self, buffer: &Buffer) -> SourceBreakpoint {
-        SourceBreakpoint {
-            line: (buffer
-                .summary_for_anchor::<Point>(&self.position.text_anchor)
-                .row
-                + 1) as u64,
-            condition: None,
-            hit_condition: None,
-            log_message: None,
-            column: None,
-            mode: None,
-        }
-    }
-
-    pub fn point_for_buffer(&self, buffer: &Buffer) -> Point {
-        buffer.summary_for_anchor::<Point>(&self.position.text_anchor)
-    }
-
-    pub fn source_for_snapshot(&self, snapshot: &BufferSnapshot) -> SourceBreakpoint {
-        SourceBreakpoint {
-            line: (snapshot
-                .summary_for_anchor::<Point>(&self.position.text_anchor)
-                .row
-                + 1) as u64,
-            condition: None,
-            hit_condition: None,
-            log_message: None,
-            column: None,
-            mode: None,
-        }
-    }
-
-    pub fn to_serialized(&self, buffer: &Buffer, path: Arc<Path>) -> SerializedBreakpoint {
-        SerializedBreakpoint {
-            position: buffer
-                .summary_for_anchor::<Point>(&self.position.text_anchor)
-                .row
-                + 1,
-            path,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct SerializedBreakpoint {
-    pub position: u32,
-    pub path: Arc<Path>,
-}
-
-impl SerializedBreakpoint {
-    pub fn to_source_breakpoint(&self) -> SourceBreakpoint {
-        SourceBreakpoint {
-            line: self.position as u64,
-            condition: None,
-            hit_condition: None,
-            log_message: None,
-            column: None,
-            mode: None,
-        }
     }
 }
