@@ -47,7 +47,7 @@ impl EventEmitter<DapStoreEvent> for DapStore {}
 
 impl DapStore {
     pub fn new(cx: &mut ModelContext<Self>) -> Self {
-        cx.on_app_quit(Self::shutdown_clients).detach();
+        // cx.on_app_quit(Self::shutdown_clients).detach();
 
         Self {
             next_client_id: Default::default(),
@@ -201,14 +201,13 @@ impl DapStore {
 
         cx.emit(DapStoreEvent::DebugClientStopped(client_id));
 
-        cx.background_executor()
-            .spawn(async move {
-                match debug_client {
-                    DebugAdapterClientState::Starting(task) => task.await?.shutdown().await.ok(),
-                    DebugAdapterClientState::Running(client) => client.shutdown().await.ok(),
-                }
-            })
-            .detach();
+        cx.spawn(|_, _| async move {
+            match debug_client {
+                DebugAdapterClientState::Starting(task) => task.await?.shutdown().await.ok(),
+                DebugAdapterClientState::Running(client) => client.shutdown().await.ok(),
+            }
+        })
+        .detach();
     }
 
     pub fn toggle_breakpoint_for_buffer(

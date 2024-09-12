@@ -88,7 +88,10 @@ where
 
 #[derive(Debug)]
 pub struct Transport {
-    pending_requests: Mutex<HashMap<u64, Sender<Result<Response>>>>,
+    pub server_tx: Sender<Payload>,
+    pub server_rx: Receiver<Payload>,
+    pub pending_requests: Arc<Mutex<HashMap<u64, Sender<Result<Response>>>>>,
+    pub input_output_task: Mutex<Option<(Task<Result<()>>, Task<Result<()>>)>>,
 }
 
 impl Transport {
@@ -97,36 +100,39 @@ impl Transport {
         server_stdin: Box<dyn AsyncWrite + Unpin + Send>,
         server_stderr: Option<Box<dyn AsyncBufRead + Unpin + Send>>,
         cx: &mut AsyncAppContext,
-    ) -> (
-        Receiver<Payload>,
-        Sender<Payload>,
-        Task<Result<()>>,
-        Task<Result<()>>,
-    ) {
+    ) -> Arc<Self> {
         let (client_tx, server_rx) = unbounded::<Payload>();
         let (server_tx, client_rx) = unbounded::<Payload>();
 
-        let transport = Arc::new(Self {
-            pending_requests: Mutex::new(HashMap::default()),
-        });
+        let pending_requests = Arc::new(Mutex::new(HashMap::default()));
 
-        let stdout_input_task =
-            cx.spawn(|_| Self::receive(transport.clone(), server_stdout, client_tx));
+        let stdout_input_task = cx.background_executor().spawn(Self::receive(
+            pending_requests.clone(),
+            server_stdout,
+            client_tx,
+        ));
 
         let stderr_input_task = server_stderr
-            .map(|stderr| cx.spawn(|_| Self::err(stderr)))
+            .map(|stderr| cx.background_executor().spawn(Self::err(stderr)))
             .unwrap_or_else(|| Task::Ready(Some(Ok(()))));
 
-        let input_task = cx.spawn(|_| async move {
+        let input_task = cx.background_executor().spawn(async move {
             let (stdout, stderr) = futures::join!(stdout_input_task, stderr_input_task);
             stdout.or(stderr)
         });
 
-        let output_task =
-            cx.background_executor()
-                .spawn(Self::send(transport.clone(), server_stdin, client_rx));
+        let output_task = cx.background_executor().spawn(Self::send(
+            pending_requests.clone(),
+            server_stdin,
+            client_rx,
+        ));
 
-        (server_rx, server_tx, input_task, output_task)
+        Arc::new(Self {
+            server_rx,
+            server_tx,
+            pending_requests,
+            input_output_task: Mutex::new(Some((input_task, output_task))),
+        })
     }
 
     async fn recv_server_message(
@@ -169,6 +175,7 @@ impl Transport {
             .with_context(|| "reading after a loop")?;
 
         let msg = std::str::from_utf8(&content).context("invalid utf8 from server")?;
+        dbg!(msg);
         Ok(serde_json::from_str::<Payload>(msg)?)
     }
 
@@ -185,21 +192,19 @@ impl Transport {
     }
 
     async fn send_payload_to_server(
-        &self,
+        pending_requests: &Mutex<HashMap<u64, Sender<Result<Response>>>>,
         server_stdin: &mut Box<dyn AsyncWrite + Unpin + Send>,
         mut payload: Payload,
     ) -> Result<()> {
         if let Payload::Request(request) = &mut payload {
             if let Some(back) = request.back_ch.take() {
-                self.pending_requests.lock().await.insert(request.seq, back);
+                pending_requests.lock().await.insert(request.seq, back);
             }
         }
-        self.send_string_to_server(server_stdin, serde_json::to_string(&payload)?)
-            .await
+        Self::send_string_to_server(server_stdin, serde_json::to_string(&payload)?).await
     }
 
     async fn send_string_to_server(
-        &self,
         server_stdin: &mut Box<dyn AsyncWrite + Unpin + Send>,
         request: String,
     ) -> Result<()> {
@@ -220,19 +225,19 @@ impl Transport {
     }
 
     async fn process_server_message(
-        &self,
+        pending_requests: &Arc<Mutex<HashMap<u64, Sender<Result<Response>>>>>,
         client_tx: &Sender<Payload>,
         payload: Payload,
     ) -> Result<()> {
         match payload {
             Payload::Response(res) => {
-                if let Some(tx) = self.pending_requests.lock().await.remove(&res.request_seq) {
+                if let Some(tx) = pending_requests.lock().await.remove(&res.request_seq) {
                     tx.send(Self::process_response(res)).await?;
                 } else {
+                    dbg!("jaksjdflk");
                     client_tx.send(Payload::Response(res)).await?;
                 };
             }
-
             Payload::Request(_) => {
                 client_tx.send(payload).await?;
             }
@@ -244,32 +249,33 @@ impl Transport {
     }
 
     async fn receive(
-        transport: Arc<Self>,
+        pending_requests: Arc<Mutex<HashMap<u64, Sender<Result<Response>>>>>,
         mut server_stdout: Box<dyn AsyncBufRead + Unpin + Send>,
         client_tx: Sender<Payload>,
     ) -> Result<()> {
         let mut recv_buffer = String::new();
-        loop {
-            transport
-                .process_server_message(
-                    &client_tx,
-                    Self::recv_server_message(&mut server_stdout, &mut recv_buffer).await?,
-                )
+
+        while let Ok(msg) = Self::recv_server_message(&mut server_stdout, &mut recv_buffer).await {
+            Self::process_server_message(&pending_requests, &client_tx, msg)
                 .await
                 .context("Process server message failed in transport::receive")?;
         }
+
+        dbg!("transport receive dropped");
+
+        anyhow::Ok(())
     }
 
     async fn send(
-        transport: Arc<Self>,
+        pending_requests: Arc<Mutex<HashMap<u64, Sender<Result<Response>>>>>,
         mut server_stdin: Box<dyn AsyncWrite + Unpin + Send>,
         client_rx: Receiver<Payload>,
     ) -> Result<()> {
         while let Ok(payload) = client_rx.recv().await {
-            transport
-                .send_payload_to_server(&mut server_stdin, payload)
-                .await?;
+            Self::send_payload_to_server(&pending_requests, &mut server_stdin, payload).await?;
         }
+
+        dbg!("transport send dropped");
 
         Ok(())
     }

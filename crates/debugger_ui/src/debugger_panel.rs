@@ -622,6 +622,8 @@ impl DebugPanel {
         let restart_args = event.clone().and_then(|e| e.restart);
         let workspace = self.workspace.clone();
 
+        dbg!("terminated event");
+
         cx.spawn(|_, mut cx| async move {
             Self::remove_highlights(workspace.clone(), cx.clone())?;
 
