@@ -75,8 +75,6 @@ pub struct DebugAdapterClient {
     _process: Arc<Mutex<Option<Child>>>,
     sequence_count: AtomicU64,
     config: DebugAdapterConfig,
-    // receiver: Mutex<Option<Receiver<Payload>>>,
-    // client_tasks: smol::lock::Mutex<Option<(Task<Result<()>>)>>,
     /// thread_id -> thread_state
     thread_states: Arc<Mutex<HashMap<u64, ThreadState>>>,
     capabilities: Arc<Mutex<Option<dap_types::Capabilities>>>,
@@ -178,8 +176,6 @@ impl DebugAdapterClient {
                 }
             };
         }
-
-        dbg!("client recv dropped");
 
         drop(client_tx);
 
@@ -470,27 +466,25 @@ impl DebugAdapterClient {
         let _ = self.terminate().await;
 
         self.transport.server_tx.close();
+        self.transport.server_rx.close();
 
-        let mut pending_requests = self.transport.pending_requests.lock().await;
-        let reader = self.transport.server_rx.clone();
-        let mut adapter = self._process.lock();
+        let mut adapter = self._process.lock().take();
 
-        pending_requests.clear();
+        async move {
+            let mut pending_requests = self.transport.pending_requests.lock().await;
 
-        reader.close();
+            pending_requests.clear();
+            drop(pending_requests);
 
-        let server_tasks = self.transport.input_output_task.lock().await.take();
+            if let Some(mut adapter) = adapter.take() {
+                adapter.kill()?;
+            }
 
-        if let Some(mut adapter) = adapter.take() {
-            adapter.kill()?;
+            drop(adapter);
+
+            anyhow::Ok(())
         }
-
-        drop(server_tasks);
-        drop(pending_requests);
-
-        dbg!("shutdown completed");
-
-        anyhow::Ok(())
+        .await
     }
 
     pub async fn terminate(&self) -> Result<()> {

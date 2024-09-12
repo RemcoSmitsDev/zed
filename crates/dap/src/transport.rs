@@ -6,7 +6,7 @@ use dap_types::{
     ThreadEvent,
 };
 use futures::{AsyncBufRead, AsyncWrite};
-use gpui::{AsyncAppContext, Task};
+use gpui::AsyncAppContext;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use smol::{
@@ -91,7 +91,6 @@ pub struct Transport {
     pub server_tx: Sender<Payload>,
     pub server_rx: Receiver<Payload>,
     pub pending_requests: Arc<Mutex<HashMap<u64, Sender<Result<Response>>>>>,
-    pub input_output_task: Mutex<Option<(Task<Result<()>>, Task<Result<()>>)>>,
 }
 
 impl Transport {
@@ -106,32 +105,30 @@ impl Transport {
 
         let pending_requests = Arc::new(Mutex::new(HashMap::default()));
 
-        let stdout_input_task = cx.background_executor().spawn(Self::receive(
-            pending_requests.clone(),
-            server_stdout,
-            client_tx,
-        ));
+        cx.background_executor()
+            .spawn(Self::receive(
+                pending_requests.clone(),
+                server_stdout,
+                client_tx,
+            ))
+            .detach();
 
-        let stderr_input_task = server_stderr
-            .map(|stderr| cx.background_executor().spawn(Self::err(stderr)))
-            .unwrap_or_else(|| Task::Ready(Some(Ok(()))));
+        if let Some(stderr) = server_stderr {
+            cx.background_executor().spawn(Self::err(stderr)).detach();
+        }
 
-        let input_task = cx.background_executor().spawn(async move {
-            let (stdout, stderr) = futures::join!(stdout_input_task, stderr_input_task);
-            stdout.or(stderr)
-        });
-
-        let output_task = cx.background_executor().spawn(Self::send(
-            pending_requests.clone(),
-            server_stdin,
-            client_rx,
-        ));
+        cx.background_executor()
+            .spawn(Self::send(
+                pending_requests.clone(),
+                server_stdin,
+                client_rx,
+            ))
+            .detach();
 
         Arc::new(Self {
             server_rx,
             server_tx,
             pending_requests,
-            input_output_task: Mutex::new(Some((input_task, output_task))),
         })
     }
 
@@ -175,7 +172,6 @@ impl Transport {
             .with_context(|| "reading after a loop")?;
 
         let msg = std::str::from_utf8(&content).context("invalid utf8 from server")?;
-        dbg!(msg);
         Ok(serde_json::from_str::<Payload>(msg)?)
     }
 
@@ -234,7 +230,6 @@ impl Transport {
                 if let Some(tx) = pending_requests.lock().await.remove(&res.request_seq) {
                     tx.send(Self::process_response(res)).await?;
                 } else {
-                    dbg!("jaksjdflk");
                     client_tx.send(Payload::Response(res)).await?;
                 };
             }
@@ -261,8 +256,6 @@ impl Transport {
                 .context("Process server message failed in transport::receive")?;
         }
 
-        dbg!("transport receive dropped");
-
         anyhow::Ok(())
     }
 
@@ -274,8 +267,6 @@ impl Transport {
         while let Ok(payload) = client_rx.recv().await {
             Self::send_payload_to_server(&pending_requests, &mut server_stdin, payload).await?;
         }
-
-        dbg!("transport send dropped");
 
         Ok(())
     }
