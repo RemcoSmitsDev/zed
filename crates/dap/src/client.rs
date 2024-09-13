@@ -474,12 +474,12 @@ impl DebugAdapterClient {
             let mut pending_requests = self.transport.pending_requests.lock().await;
 
             pending_requests.clear();
-            drop(pending_requests);
 
             if let Some(mut adapter) = adapter.take() {
                 adapter.kill()?;
             }
 
+            drop(pending_requests);
             drop(adapter);
 
             anyhow::Ok(())

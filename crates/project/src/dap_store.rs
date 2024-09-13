@@ -121,12 +121,10 @@ impl DapStore {
                 bp
             });
 
-            let mut hash_set = HashSet::default();
-            for bp in breakpoint_iter {
-                hash_set.insert(bp);
-            }
-
-            self.breakpoints.insert(project_path.clone(), hash_set);
+            self.breakpoints.insert(
+                project_path.clone(),
+                breakpoint_iter.collect::<HashSet<_>>(),
+            );
         }
     }
 
