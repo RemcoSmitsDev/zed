@@ -158,7 +158,7 @@ impl DebugPanelItem {
         event: &StoppedEvent,
         cx: &mut ViewContext<Self>,
     ) {
-        if Self::should_skip_event(this, client_id, event.thread_id.unwrap_or_default()) {
+        if Self::should_skip_event(this, client_id, event.thread_id.unwrap_or(this.thread_id)) {
             return;
         }
 
