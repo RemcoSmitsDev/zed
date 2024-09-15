@@ -644,6 +644,8 @@ impl Project {
         env: Option<HashMap<String, String>>,
         cx: &mut AppContext,
     ) -> Model<Self> {
+        let dap_store = DapStore::global(cx);
+
         cx.new_model(|cx: &mut ModelContext<Self>| {
             let (tx, rx) = mpsc::unbounded();
             cx.spawn(move |this, cx| Self::send_buffer_ordered_messages(this, rx, cx))
@@ -656,8 +658,6 @@ impl Project {
             let worktree_store = cx.new_model(|_| WorktreeStore::new(false, fs.clone()));
             cx.subscribe(&worktree_store, Self::on_worktree_store_event)
                 .detach();
-
-            let dap_store = cx.new_model(DapStore::new);
 
             let buffer_store = cx.new_model(|cx| {
                 BufferStore::new(worktree_store.clone(), None, dap_store.clone(), cx)
@@ -849,7 +849,7 @@ impl Project {
             store
         })?;
 
-        let dap_store = cx.new_model(DapStore::new)?;
+        let dap_store = cx.update(|cx| DapStore::global(cx))?;
 
         let buffer_store = cx.new_model(|cx| {
             BufferStore::new(

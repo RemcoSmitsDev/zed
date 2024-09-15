@@ -3,7 +3,7 @@ use collections::{HashMap, HashSet};
 use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 use dap::messages::Message;
 use dap::SourceBreakpoint;
-use gpui::{EventEmitter, ModelContext, Task};
+use gpui::{AppContext, Context, EventEmitter, Global, Model, ModelContext, Task};
 use language::{Buffer, BufferSnapshot};
 use settings::WorktreeId;
 use std::{
@@ -43,7 +43,20 @@ pub struct DapStore {
 
 impl EventEmitter<DapStoreEvent> for DapStore {}
 
+struct GlobalDapStore(Model<DapStore>);
+
+impl Global for GlobalDapStore {}
+
+pub fn init(cx: &mut AppContext) {
+    let store = GlobalDapStore(cx.new_model(DapStore::new));
+    cx.set_global(store);
+}
+
 impl DapStore {
+    pub fn global(cx: &AppContext) -> Model<Self> {
+        cx.global::<GlobalDapStore>().0.clone()
+    }
+
     pub fn new(cx: &mut ModelContext<Self>) -> Self {
         cx.on_app_quit(Self::shutdown_clients).detach();
 
