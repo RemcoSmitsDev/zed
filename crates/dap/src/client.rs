@@ -5,14 +5,13 @@ use crate::adapters::{build_adapter, DebugAdapter};
 use dap_types::{
     messages::{Message, Response},
     requests::{
-        Attach, ConfigurationDone, Continue, Disconnect, Initialize, Launch, Next, Pause, Request,
-        Restart, SetBreakpoints, StepBack, StepIn, StepOut, Terminate, TerminateThreads, Variables,
+        Attach, Continue, Disconnect, Launch, Next, Pause, Request, Restart, SetBreakpoints,
+        StepBack, StepIn, StepOut, Terminate, TerminateThreads, Variables,
     },
-    AttachRequestArguments, ConfigurationDoneArguments, ContinueArguments, ContinueResponse,
-    DisconnectArguments, InitializeRequestArgumentsPathFormat, LaunchRequestArguments,
-    NextArguments, PauseArguments, RestartArguments, Scope, SetBreakpointsArguments,
-    SetBreakpointsResponse, Source, SourceBreakpoint, StackFrame, StepBackArguments,
-    StepInArguments, StepOutArguments, SteppingGranularity, TerminateArguments,
+    AttachRequestArguments, ContinueArguments, ContinueResponse, DisconnectArguments,
+    LaunchRequestArguments, NextArguments, PauseArguments, RestartArguments, Scope,
+    SetBreakpointsArguments, SetBreakpointsResponse, Source, SourceBreakpoint, StackFrame,
+    StepBackArguments, StepInArguments, StepOutArguments, SteppingGranularity, TerminateArguments,
     TerminateThreadsArguments, Variable, VariablesArguments,
 };
 use futures::{AsyncBufRead, AsyncWrite};
@@ -226,9 +225,12 @@ impl DebugAdapterClient {
         self.config.clone()
     }
 
-    pub fn request_args(&self) -> Option<Value> {
-        // TODO Debugger: Get request args from adapter
-        Some(self.adapter.request_args())
+    pub fn adapter(&self) -> Arc<Box<dyn DebugAdapter>> {
+        self.adapter.clone()
+    }
+
+    pub fn request_args(&self) -> Value {
+        self.adapter.request_args()
     }
 
     pub fn request_type(&self) -> DebugRequestType {
@@ -256,33 +258,6 @@ impl DebugAdapterClient {
 
     pub fn thread_state_by_id(&self, thread_id: u64) -> ThreadState {
         self.thread_states.lock().get(&thread_id).cloned().unwrap()
-    }
-
-    pub async fn initialize(&self) -> Result<dap_types::Capabilities> {
-        let args = dap_types::InitializeRequestArguments {
-            client_id: Some("zed".to_owned()),
-            client_name: Some("Zed".to_owned()),
-            adapter_id: self.adapter.id(),
-            locale: Some("en-us".to_owned()),
-            path_format: Some(InitializeRequestArgumentsPathFormat::Path),
-            supports_variable_type: Some(true),
-            supports_variable_paging: Some(false),
-            supports_run_in_terminal_request: Some(true),
-            supports_memory_references: Some(true),
-            supports_progress_reporting: Some(true),
-            supports_invalidated_event: Some(true),
-            lines_start_at1: Some(true),
-            columns_start_at1: Some(true),
-            supports_memory_event: Some(true),
-            supports_args_can_be_interpreted_by_shell: Some(true),
-            supports_start_debugging_request: Some(true),
-        };
-
-        let capabilities = self.request::<Initialize>(args).await?;
-
-        *self.capabilities.lock() = Some(capabilities.clone());
-
-        Ok(capabilities)
     }
 
     pub async fn launch(&self, args: Option<Value>) -> Result<()> {
@@ -449,20 +424,6 @@ impl DebugAdapterClient {
             lines: None,
         })
         .await
-    }
-
-    pub async fn configuration_done(&self) -> Result<()> {
-        let support_configuration_done_request = self
-            .capabilities()
-            .supports_configuration_done_request
-            .unwrap_or_default();
-
-        if support_configuration_done_request {
-            self.request::<ConfigurationDone>(ConfigurationDoneArguments)
-                .await
-        } else {
-            Ok(())
-        }
     }
 
     pub async fn shutdown(&self) -> Result<()> {

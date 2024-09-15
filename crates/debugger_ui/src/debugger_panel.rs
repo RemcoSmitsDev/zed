@@ -13,8 +13,9 @@ use editor::Editor;
 use futures::future::try_join_all;
 use gpui::{
     actions, Action, AppContext, AsyncWindowContext, EventEmitter, FocusHandle, FocusableView,
-    FontWeight, Subscription, Task, View, ViewContext, WeakView,
+    FontWeight, Model, Subscription, Task, View, ViewContext, WeakView,
 };
+use project::dap_store::DapStore;
 use settings::Settings;
 use std::collections::HashSet;
 use std::path::Path;
@@ -43,9 +44,10 @@ pub struct DebugPanel {
     size: Pixels,
     pane: View<Pane>,
     focus_handle: FocusHandle,
+    dap_store: Model<DapStore>,
     workspace: WeakView<Workspace>,
-    _subscriptions: Vec<Subscription>,
     show_did_not_stop_warning: bool,
+    _subscriptions: Vec<Subscription>,
 }
 
 impl DebugPanel {
@@ -77,7 +79,7 @@ impl DebugPanel {
                 cx.subscribe(&project, {
                     move |this: &mut Self, _, event, cx| match event {
                         project::Event::DebugClientEvent { message, client_id } => {
-                            let Some(client) = this.debug_client_by_id(*client_id, cx) else {
+                            let Some(client) = this.debug_client_by_id(client_id, cx) else {
                                 return cx.emit(DebugPanelEvent::ClientStopped(*client_id));
                             };
 
@@ -92,27 +94,6 @@ impl DebugPanel {
                                 }
                                 _ => unreachable!(),
                             }
-                        }
-                        project::Event::DebugClientStarted(client_id) => {
-                            let Some(client) = this.debug_client_by_id(*client_id, cx) else {
-                                return cx.emit(DebugPanelEvent::ClientStopped(*client_id));
-                            };
-
-                            cx.background_executor()
-                                .spawn(async move {
-                                    client.initialize().await?;
-
-                                    // send correct request based on adapter config
-                                    match client.config().request {
-                                        DebugRequestType::Launch => {
-                                            client.launch(client.request_args()).await
-                                        }
-                                        DebugRequestType::Attach => {
-                                            client.attach(client.request_args()).await
-                                        }
-                                    }
-                                })
-                                .detach_and_log_err(cx);
                         }
                         project::Event::DebugClientStopped(client_id) => {
                             cx.emit(DebugPanelEvent::ClientStopped(*client_id));
@@ -129,6 +110,7 @@ impl DebugPanel {
                 focus_handle: cx.focus_handle(),
                 show_did_not_stop_warning: false,
                 workspace: workspace.weak_handle(),
+                dap_store: DapStore::global(cx),
             }
         })
     }
@@ -144,7 +126,7 @@ impl DebugPanel {
 
     fn debug_client_by_id(
         &self,
-        client_id: DebugAdapterClientId,
+        client_id: &DebugAdapterClientId,
         cx: &mut ViewContext<Self>,
     ) -> Option<Arc<DebugAdapterClient>> {
         self.workspace
@@ -368,21 +350,29 @@ impl DebugPanel {
     fn handle_initialized_event(
         &mut self,
         client: Arc<DebugAdapterClient>,
-        _: &Option<Capabilities>,
+        capabilities: &Option<Capabilities>,
         cx: &mut ViewContext<Self>,
     ) {
-        cx.spawn(|this, mut cx| async move {
-            let task = this.update(&mut cx, |this, cx| {
-                this.workspace.update(cx, |workspace, cx| {
-                    workspace.project().update(cx, |project, cx| {
-                        project.send_breakpoints(client.clone(), cx)
-                    })
-                })
-            })??;
+        if let Some(capabilities) = capabilities {
+            self.dap_store.update(cx, |store, _| {
+                store.merge_capabilities(&client.id(), capabilities);
+            });
+        }
 
-            task.await?;
+        let send_breakpoints_task = self.workspace.update(cx, |workspace, cx| {
+            workspace.project().update(cx, |project, cx| {
+                project.send_breakpoints(client.clone(), cx)
+            })
+        });
 
-            client.configuration_done().await
+        let configuration_done_task = self.dap_store.update(cx, |store, cx| {
+            store.send_configuration_done(&client.id(), cx)
+        });
+
+        cx.spawn(|_, _| async move {
+            send_breakpoints_task?.await?;
+
+            configuration_done_task.await
         })
         .detach_and_log_err(cx);
     }

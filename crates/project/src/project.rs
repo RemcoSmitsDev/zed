@@ -39,7 +39,7 @@ use debounced_delay::DebouncedDelay;
 pub use environment::ProjectEnvironment;
 use futures::{
     channel::mpsc::{self, UnboundedReceiver},
-    future::try_join_all,
+    future::{join_all, try_join_all},
     stream::FuturesUnordered,
     AsyncWriteExt, FutureExt, StreamExt,
 };
@@ -252,7 +252,6 @@ pub enum Event {
     Notification(String),
     LanguageServerPrompt(LanguageServerPromptRequest),
     LanguageNotFound(Model<Buffer>),
-    DebugClientStarted(DebugAdapterClientId),
     DebugClientStopped(DebugAdapterClientId),
     DebugClientEvent {
         client_id: DebugAdapterClientId,
@@ -1123,10 +1122,10 @@ impl Project {
                         .push(client.set_breakpoints(abs_path.clone(), source_breakpoints.clone()));
                 }
 
-                try_join_all(tasks)
+                join_all(tasks)
             })?;
 
-            task.await?;
+            task.await;
 
             Ok(())
         })
@@ -2314,7 +2313,9 @@ impl Project {
     ) {
         match event {
             DapStoreEvent::DebugClientStarted(client_id) => {
-                cx.emit(Event::DebugClientStarted(*client_id));
+                self.dap_store.update(cx, |store, cx| {
+                    store.initialize(client_id, cx).detach_and_log_err(cx)
+                });
             }
             DapStoreEvent::DebugClientStopped(client_id) => {
                 cx.emit(Event::DebugClientStopped(*client_id));

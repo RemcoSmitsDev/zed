@@ -182,7 +182,7 @@ impl DebugPanelItem {
             return;
         }
 
-        // TODO: handle thread event
+        // TODO debugger: handle thread event
     }
 
     fn handle_output_event(

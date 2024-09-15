@@ -1,8 +1,12 @@
-use anyhow::Context as _;
+use anyhow::{anyhow, Context as _, Result};
 use collections::{HashMap, HashSet};
 use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 use dap::messages::Message;
-use dap::SourceBreakpoint;
+use dap::requests::{Attach, ConfigurationDone, Initialize, Launch};
+use dap::{
+    AttachRequestArguments, Capabilities, ConfigurationDoneArguments, InitializeRequestArguments,
+    InitializeRequestArgumentsPathFormat, LaunchRequestArguments, SourceBreakpoint,
+};
 use gpui::{AppContext, Context, EventEmitter, Global, Model, ModelContext, Task};
 use language::{Buffer, BufferSnapshot};
 use settings::WorktreeId;
@@ -15,7 +19,7 @@ use std::{
         Arc,
     },
 };
-use task::DebugAdapterConfig;
+use task::{DebugAdapterConfig, DebugRequestType};
 use text::Point;
 use util::ResultExt as _;
 
@@ -39,6 +43,7 @@ pub struct DapStore {
     next_client_id: AtomicUsize,
     clients: HashMap<DebugAdapterClientId, DebugAdapterClientState>,
     breakpoints: BTreeMap<ProjectPath, HashSet<Breakpoint>>,
+    capabilities: HashMap<DebugAdapterClientId, Capabilities>,
 }
 
 impl EventEmitter<DapStoreEvent> for DapStore {}
@@ -61,9 +66,10 @@ impl DapStore {
         cx.on_app_quit(Self::shutdown_clients).detach();
 
         Self {
-            next_client_id: Default::default(),
             clients: Default::default(),
+            capabilities: HashMap::default(),
             breakpoints: Default::default(),
+            next_client_id: Default::default(),
         }
     }
 
@@ -78,15 +84,28 @@ impl DapStore {
         })
     }
 
-    pub fn client_by_id(&self, id: DebugAdapterClientId) -> Option<Arc<DebugAdapterClient>> {
-        self.clients.get(&id).and_then(|state| match state {
+    pub fn client_by_id(&self, id: &DebugAdapterClientId) -> Option<Arc<DebugAdapterClient>> {
+        self.clients.get(id).and_then(|state| match state {
             DebugAdapterClientState::Starting(_) => None,
             DebugAdapterClientState::Running(client) => Some(client.clone()),
         })
     }
 
+    pub fn capabilities_by_id(&self, client_id: &DebugAdapterClientId) -> Capabilities {
+        self.capabilities
+            .get(client_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
     pub fn breakpoints(&self) -> &BTreeMap<ProjectPath, HashSet<Breakpoint>> {
         &self.breakpoints
+    }
+
+    pub fn merge_capabilities(&mut self, client_id: &DebugAdapterClientId, other: &Capabilities) {
+        if let Some(capabilities) = self.capabilities.get_mut(client_id) {
+            *capabilities = capabilities.merge(other.clone());
+        }
     }
 
     pub fn set_active_breakpoints(&mut self, project_path: &ProjectPath, buffer: &Buffer) {
@@ -180,6 +199,89 @@ impl DapStore {
             client_id,
             DebugAdapterClientState::Starting(start_client_task),
         );
+    }
+
+    pub fn initialize(
+        &mut self,
+        client_id: &DebugAdapterClientId,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<()>> {
+        let Some(client) = self.client_by_id(client_id) else {
+            return Task::ready(Err(anyhow!("Could not found client")));
+        };
+
+        cx.spawn(|this, mut cx| async move {
+            let capabilities = client
+                .request::<Initialize>(InitializeRequestArguments {
+                    client_id: Some("zed".to_owned()),
+                    client_name: Some("Zed".to_owned()),
+                    adapter_id: client.adapter().id(),
+                    locale: Some("en-US".to_owned()),
+                    path_format: Some(InitializeRequestArgumentsPathFormat::Path),
+                    supports_variable_type: Some(true),
+                    supports_variable_paging: Some(false),
+                    supports_run_in_terminal_request: Some(false),
+                    supports_memory_references: Some(true),
+                    supports_progress_reporting: Some(false),
+                    supports_invalidated_event: Some(false),
+                    lines_start_at1: Some(true),
+                    columns_start_at1: Some(true),
+                    supports_memory_event: Some(false),
+                    supports_args_can_be_interpreted_by_shell: Some(true),
+                    supports_start_debugging_request: Some(true),
+                })
+                .await?;
+
+            this.update(&mut cx, |store, _| {
+                store.capabilities.insert(client.id(), capabilities);
+            })?;
+
+            // send correct request based on adapter config
+            match client.config().request {
+                DebugRequestType::Launch => {
+                    client
+                        .request::<Launch>(LaunchRequestArguments {
+                            raw: client.request_args(),
+                        })
+                        .await?
+                }
+                DebugRequestType::Attach => {
+                    client
+                        .request::<Attach>(AttachRequestArguments {
+                            raw: client.request_args(),
+                        })
+                        .await?
+                }
+            }
+
+            anyhow::Ok(())
+        })
+    }
+
+    pub fn send_configuration_done(
+        &self,
+        client_id: &DebugAdapterClientId,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<()>> {
+        let Some(client) = self.client_by_id(client_id) else {
+            return Task::ready(Err(anyhow!("Could not found client")));
+        };
+
+        let capabilities = self.capabilities_by_id(client_id);
+
+        cx.spawn(|_, _| async move {
+            let support_configuration_done_request = capabilities
+                .supports_configuration_done_request
+                .unwrap_or_default();
+
+            if support_configuration_done_request {
+                client
+                    .request::<ConfigurationDone>(ConfigurationDoneArguments)
+                    .await
+            } else {
+                Ok(())
+            }
+        })
     }
 
     fn shutdown_clients(&mut self, _: &mut ModelContext<Self>) -> impl Future<Output = ()> {
