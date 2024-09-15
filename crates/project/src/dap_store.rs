@@ -2,14 +2,15 @@ use anyhow::{anyhow, Context as _, Result};
 use collections::{HashMap, HashSet};
 use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 use dap::messages::Message;
-use dap::requests::{Attach, ConfigurationDone, Initialize, Launch, TerminateThreads};
+use dap::requests::{Attach, ConfigurationDone, Disconnect, Initialize, Launch, TerminateThreads};
 use dap::{
-    AttachRequestArguments, Capabilities, ConfigurationDoneArguments, InitializeRequestArguments,
-    InitializeRequestArgumentsPathFormat, LaunchRequestArguments, SourceBreakpoint,
-    TerminateThreadsArguments,
+    AttachRequestArguments, Capabilities, ConfigurationDoneArguments, DisconnectArguments,
+    InitializeRequestArguments, InitializeRequestArgumentsPathFormat, LaunchRequestArguments,
+    SourceBreakpoint, TerminateThreadsArguments,
 };
 use gpui::{AppContext, Context, EventEmitter, Global, Model, ModelContext, Task};
 use language::{Buffer, BufferSnapshot};
+use serde_json::Value;
 use settings::WorktreeId;
 use std::{
     collections::BTreeMap,
@@ -313,6 +314,64 @@ impl DapStore {
         } else {
             self.shutdown_client(client_id, cx)
         }
+    }
+
+    pub fn disconnect_client(
+        &mut self,
+        client_id: &DebugAdapterClientId,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<()>> {
+        let Some(client) = self.client_by_id(client_id) else {
+            return Task::ready(Err(anyhow!("Could not found client")));
+        };
+
+        cx.spawn(|_, _| async move {
+            client
+                .request::<Disconnect>(DisconnectArguments {
+                    restart: Some(false),
+                    terminate_debuggee: Some(true),
+                    suspend_debuggee: Some(false),
+                })
+                .await
+        })
+    }
+
+    pub fn restart(
+        &mut self,
+        client_id: &DebugAdapterClientId,
+        args: Option<Value>,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<()>> {
+        let Some(client) = self.client_by_id(client_id) else {
+            return Task::ready(Err(anyhow!("Could not found client")));
+        };
+
+        let restart_args = args.unwrap_or(Value::Null);
+
+        cx.spawn(|_, _| async move {
+            client
+                .request::<Disconnect>(DisconnectArguments {
+                    restart: Some(true),
+                    terminate_debuggee: Some(false),
+                    suspend_debuggee: Some(false),
+                })
+                .await?;
+
+            match client.request_type() {
+                DebugRequestType::Launch => {
+                    client
+                        .request::<Launch>(LaunchRequestArguments { raw: restart_args })
+                        .await?
+                }
+                DebugRequestType::Attach => {
+                    client
+                        .request::<Attach>(AttachRequestArguments { raw: restart_args })
+                        .await?
+                }
+            }
+
+            Ok(())
+        })
     }
 
     fn shutdown_clients(&mut self, cx: &mut ModelContext<Self>) -> impl Future<Output = ()> {

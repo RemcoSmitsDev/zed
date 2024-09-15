@@ -20,7 +20,6 @@ use settings::Settings;
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
-use task::DebugRequestType;
 use ui::prelude::*;
 use util::ResultExt;
 use workspace::{
@@ -601,29 +600,20 @@ impl DebugPanel {
         cx: &mut ViewContext<Self>,
     ) {
         let restart_args = event.clone().and_then(|e| e.restart);
-        let workspace = self.workspace.clone();
 
-        cx.spawn(|this, mut cx| async move {
-            Self::remove_highlights(workspace.clone(), cx.clone())?;
+        // TODO debugger: remove current hightlights
 
+        self.dap_store.update(cx, |store, cx| {
             if restart_args.is_some() {
-                client.disconnect(Some(true), None, None).await?;
-
-                match client.request_type() {
-                    DebugRequestType::Launch => client.launch(restart_args).await,
-                    DebugRequestType::Attach => client.attach(restart_args).await,
-                }
+                store
+                    .restart(&client.id(), restart_args, cx)
+                    .detach_and_log_err(cx);
             } else {
-                this.update(&mut cx, |this, cx| {
-                    this.dap_store.update(cx, |store, cx| {
-                        store
-                            .shutdown_client(&client.id(), cx)
-                            .detach_and_log_err(cx);
-                    })
-                })
+                store
+                    .shutdown_client(&client.id(), cx)
+                    .detach_and_log_err(cx);
             }
-        })
-        .detach_and_log_err(cx);
+        });
     }
 
     fn handle_output_event(

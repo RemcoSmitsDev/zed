@@ -501,10 +501,11 @@ impl DebugPanelItem {
     }
 
     fn handle_disconnect_action(&mut self, cx: &mut ViewContext<Self>) {
-        let client = self.client.clone();
-        cx.background_executor()
-            .spawn(async move { client.disconnect(None, Some(true), None).await })
-            .detach_and_log_err(cx);
+        self.dap_store.update(cx, |store, cx| {
+            store
+                .disconnect_client(&self.client.id(), cx)
+                .detach_and_log_err(cx);
+        });
     }
 }
 
