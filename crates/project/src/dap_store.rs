@@ -98,10 +98,6 @@ impl DapStore {
             .unwrap_or_default()
     }
 
-    pub fn breakpoints(&self) -> &BTreeMap<ProjectPath, HashSet<Breakpoint>> {
-        &self.breakpoints
-    }
-
     pub fn merge_capabilities_for_client(
         &mut self,
         client_id: &DebugAdapterClientId,
@@ -110,6 +106,10 @@ impl DapStore {
         if let Some(capabilities) = self.capabilities.get_mut(client_id) {
             *capabilities = capabilities.merge(other.clone());
         }
+    }
+
+    pub fn breakpoints(&self) -> &BTreeMap<ProjectPath, HashSet<Breakpoint>> {
+        &self.breakpoints
     }
 
     pub fn set_active_breakpoints(&mut self, project_path: &ProjectPath, buffer: &Buffer) {

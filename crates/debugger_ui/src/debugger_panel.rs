@@ -17,7 +17,7 @@ use gpui::{
 };
 use project::dap_store::DapStore;
 use settings::Settings;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use task::DebugRequestType;
