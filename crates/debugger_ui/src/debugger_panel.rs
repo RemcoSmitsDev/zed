@@ -13,7 +13,7 @@ use editor::Editor;
 use futures::future::try_join_all;
 use gpui::{
     actions, Action, AppContext, AsyncWindowContext, EventEmitter, FocusHandle, FocusableView,
-    FontWeight, Model, Subscription, Task, View, ViewContext, WeakView,
+    FontWeight, Subscription, Task, View, ViewContext, WeakModel, WeakView,
 };
 use project::dap_store::DapStore;
 use settings::Settings;
@@ -43,7 +43,7 @@ pub struct DebugPanel {
     size: Pixels,
     pane: View<Pane>,
     focus_handle: FocusHandle,
-    dap_store: Model<DapStore>,
+    dap_store: WeakModel<DapStore>,
     workspace: WeakView<Workspace>,
     show_did_not_stop_warning: bool,
     _subscriptions: Vec<Subscription>,
@@ -109,7 +109,7 @@ impl DebugPanel {
                 focus_handle: cx.focus_handle(),
                 show_did_not_stop_warning: false,
                 workspace: workspace.weak_handle(),
-                dap_store: DapStore::global(cx),
+                dap_store: DapStore::global(cx).downgrade(),
             }
         })
     }
@@ -153,11 +153,13 @@ impl DebugPanel {
                 let thread_id = thread_panel.read(cx).thread_id();
                 let client_id = thread_panel.read(cx).client().id();
 
-                self.dap_store.update(cx, |store, cx| {
-                    store
-                        .terminate_threads(&client_id, Some(vec![thread_id; 1]), cx)
-                        .detach()
-                });
+                self.dap_store
+                    .update(cx, |store, cx| {
+                        store
+                            .terminate_threads(&client_id, Some(vec![thread_id; 1]), cx)
+                            .detach()
+                    })
+                    .log_err();
             }
             pane::Event::Remove { .. } => cx.emit(PanelEvent::Close),
             pane::Event::ZoomIn => cx.emit(PanelEvent::ZoomIn),
@@ -345,9 +347,11 @@ impl DebugPanel {
         cx: &mut ViewContext<Self>,
     ) {
         if let Some(capabilities) = capabilities {
-            self.dap_store.update(cx, |store, _| {
-                store.merge_capabilities_for_client(&client.id(), capabilities);
-            });
+            self.dap_store
+                .update(cx, |store, _| {
+                    store.merge_capabilities_for_client(&client.id(), capabilities);
+                })
+                .log_err();
         }
 
         let send_breakpoints_task = self.workspace.update(cx, |workspace, cx| {
@@ -363,7 +367,7 @@ impl DebugPanel {
         cx.spawn(|_, _| async move {
             send_breakpoints_task?.await?;
 
-            configuration_done_task.await
+            configuration_done_task?.await
         })
         .detach_and_log_err(cx);
     }
@@ -603,17 +607,19 @@ impl DebugPanel {
 
         // TODO debugger: remove current hightlights
 
-        self.dap_store.update(cx, |store, cx| {
-            if restart_args.is_some() {
-                store
-                    .restart(&client.id(), restart_args, cx)
-                    .detach_and_log_err(cx);
-            } else {
-                store
-                    .shutdown_client(&client.id(), cx)
-                    .detach_and_log_err(cx);
-            }
-        });
+        self.dap_store
+            .update(cx, |store, cx| {
+                if restart_args.is_some() {
+                    store
+                        .restart(&client.id(), restart_args, cx)
+                        .detach_and_log_err(cx);
+                } else {
+                    store
+                        .shutdown_client(&client.id(), cx)
+                        .detach_and_log_err(cx);
+                }
+            })
+            .log_err();
     }
 
     fn handle_output_event(

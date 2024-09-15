@@ -377,8 +377,8 @@ impl DapStore {
     fn shutdown_clients(&mut self, cx: &mut ModelContext<Self>) -> impl Future<Output = ()> {
         let mut tasks = Vec::new();
 
-        let keys = self.clients.keys().cloned().collect::<Vec<_>>();
-        for client_id in keys {
+        let client_ids = self.clients.keys().cloned().collect::<Vec<_>>();
+        for client_id in client_ids {
             tasks.push(self.shutdown_client(&client_id, cx));
         }
 
