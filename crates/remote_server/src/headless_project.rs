@@ -43,7 +43,7 @@ impl HeadlessProject {
             Task::ready(()),
             cx.background_executor().clone(),
         ));
-        let dap_store = cx.read(DapStore::global).clone();
+        let dap_store = DapStore::global(cx);
 
         let worktree_store = cx.new_model(|_| WorktreeStore::new(true, fs.clone()));
         let buffer_store = cx.new_model(|cx| {
