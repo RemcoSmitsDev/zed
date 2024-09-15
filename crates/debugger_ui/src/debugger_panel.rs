@@ -610,7 +610,7 @@ impl DebugPanel {
         let restart_args = event.clone().and_then(|e| e.restart);
         let workspace = self.workspace.clone();
 
-        cx.spawn(|_, mut cx| async move {
+        cx.spawn(|this, mut cx| async move {
             Self::remove_highlights(workspace.clone(), cx.clone())?;
 
             if restart_args.is_some() {
@@ -621,15 +621,13 @@ impl DebugPanel {
                     DebugRequestType::Attach => client.attach(restart_args).await,
                 }
             } else {
-                cx.update(|cx| {
-                    workspace.update(cx, |workspace, cx| {
-                        workspace.project().update(cx, |project, cx| {
-                            project
-                                .dap_store()
-                                .update(cx, |store, cx| store.shutdown_client(client.id(), cx))
-                        })
+                this.update(&mut cx, |this, cx| {
+                    this.dap_store.update(cx, |store, cx| {
+                        store
+                            .shutdown_client(&client.id(), cx)
+                            .detach_and_log_err(cx);
                     })
-                })?
+                })
             }
         })
         .detach_and_log_err(cx);

@@ -284,42 +284,42 @@ impl DapStore {
         })
     }
 
-    fn shutdown_clients(&mut self, _: &mut ModelContext<Self>) -> impl Future<Output = ()> {
-        let shutdown_futures = self
-            .clients
-            .drain()
-            .map(|(_, client_state)| async {
-                match client_state {
-                    DebugAdapterClientState::Starting(task) => task.await?.shutdown().await.ok(),
-                    DebugAdapterClientState::Running(client) => client.shutdown().await.ok(),
-                }
-            })
-            .collect::<Vec<_>>();
+    fn shutdown_clients(&mut self, cx: &mut ModelContext<Self>) -> impl Future<Output = ()> {
+        let mut tasks = Vec::new();
+
+        let keys = self.clients.keys().cloned().collect::<Vec<_>>();
+        for client_id in keys {
+            tasks.push(self.shutdown_client(&client_id, cx));
+        }
 
         async move {
-            futures::future::join_all(shutdown_futures).await;
+            futures::future::join_all(tasks).await;
         }
     }
 
     pub fn shutdown_client(
         &mut self,
-        client_id: DebugAdapterClientId,
+        client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
-    ) {
+    ) -> Task<Result<()>> {
         let Some(debug_client) = self.clients.remove(&client_id) else {
-            return;
+            return Task::ready(Err(anyhow!("Could not found client")));
         };
 
-        cx.emit(DapStoreEvent::DebugClientStopped(client_id));
+        cx.emit(DapStoreEvent::DebugClientStopped(*client_id));
 
-        cx.background_executor()
-            .spawn(async move {
-                match debug_client {
-                    DebugAdapterClientState::Starting(task) => task.await?.shutdown().await.ok(),
-                    DebugAdapterClientState::Running(client) => client.shutdown().await.ok(),
+        cx.spawn(|_, _| async move {
+            match debug_client {
+                DebugAdapterClientState::Starting(task) => {
+                    if let Some(client) = task.await {
+                        client.shutdown().await?;
+                    }
                 }
-            })
-            .detach();
+                DebugAdapterClientState::Running(client) => client.shutdown().await?,
+            };
+
+            anyhow::Ok(())
+        })
     }
 
     pub fn toggle_breakpoint_for_buffer(
