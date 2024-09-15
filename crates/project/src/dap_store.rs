@@ -102,7 +102,11 @@ impl DapStore {
         &self.breakpoints
     }
 
-    pub fn merge_capabilities(&mut self, client_id: &DebugAdapterClientId, other: &Capabilities) {
+    pub fn merge_capabilities_for_client(
+        &mut self,
+        client_id: &DebugAdapterClientId,
+        other: &Capabilities,
+    ) {
         if let Some(capabilities) = self.capabilities.get_mut(client_id) {
             *capabilities = capabilities.merge(other.clone());
         }

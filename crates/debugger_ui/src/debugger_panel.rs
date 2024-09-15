@@ -355,7 +355,7 @@ impl DebugPanel {
     ) {
         if let Some(capabilities) = capabilities {
             self.dap_store.update(cx, |store, _| {
-                store.merge_capabilities(&client.id(), capabilities);
+                store.merge_capabilities_for_client(&client.id(), capabilities);
             });
         }
 
