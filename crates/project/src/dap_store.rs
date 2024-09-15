@@ -2,10 +2,11 @@ use anyhow::{anyhow, Context as _, Result};
 use collections::{HashMap, HashSet};
 use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 use dap::messages::Message;
-use dap::requests::{Attach, ConfigurationDone, Initialize, Launch};
+use dap::requests::{Attach, ConfigurationDone, Initialize, Launch, TerminateThreads};
 use dap::{
     AttachRequestArguments, Capabilities, ConfigurationDoneArguments, InitializeRequestArguments,
     InitializeRequestArgumentsPathFormat, LaunchRequestArguments, SourceBreakpoint,
+    TerminateThreadsArguments,
 };
 use gpui::{AppContext, Context, EventEmitter, Global, Model, ModelContext, Task};
 use language::{Buffer, BufferSnapshot};
@@ -286,6 +287,32 @@ impl DapStore {
                 Ok(())
             }
         })
+    }
+
+    pub fn terminate_threads(
+        &mut self,
+        client_id: &DebugAdapterClientId,
+        thread_ids: Option<Vec<u64>>,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<()>> {
+        let Some(client) = self.client_by_id(client_id) else {
+            return Task::ready(Err(anyhow!("Could not found client")));
+        };
+
+        let capabilities = self.capabilities_by_id(client_id);
+
+        if capabilities
+            .supports_terminate_threads_request
+            .unwrap_or_default()
+        {
+            cx.spawn(|_, _| async move {
+                client
+                    .request::<TerminateThreads>(TerminateThreadsArguments { thread_ids })
+                    .await
+            })
+        } else {
+            self.shutdown_client(client_id, cx)
+        }
     }
 
     fn shutdown_clients(&mut self, cx: &mut ModelContext<Self>) -> impl Future<Output = ()> {

@@ -9,8 +9,9 @@ use dap::{OutputEvent, OutputEventCategory, StackFrame, StoppedEvent, ThreadEven
 use editor::Editor;
 use gpui::{
     impl_actions, list, AnyElement, AppContext, AsyncWindowContext, EventEmitter, FocusHandle,
-    FocusableView, ListState, Subscription, View, WeakView,
+    FocusableView, ListState, Model, Subscription, View, WeakView,
 };
+use project::dap_store::DapStore;
 use serde::Deserialize;
 use settings::Settings;
 use std::sync::Arc;
@@ -35,6 +36,7 @@ pub struct DebugPanelItem {
     thread_id: u64,
     console: View<Console>,
     focus_handle: FocusHandle,
+    dap_store: Model<DapStore>,
     stack_frame_list: ListState,
     output_editor: View<Editor>,
     current_stack_frame_id: u64,
@@ -73,6 +75,7 @@ impl DebugPanelItem {
     pub fn new(
         debug_panel: View<DebugPanel>,
         workspace: WeakView<Workspace>,
+        dap_store: Model<DapStore>,
         client: Arc<DebugAdapterClient>,
         thread_id: u64,
         current_stack_frame_id: u64,
@@ -132,6 +135,7 @@ impl DebugPanelItem {
         Self {
             client,
             thread_id,
+            dap_store,
             workspace,
             focus_handle,
             variable_list,
@@ -488,12 +492,12 @@ impl DebugPanelItem {
     }
 
     fn handle_stop_action(&mut self, cx: &mut ViewContext<Self>) {
-        let client = self.client.clone();
-        let thread_ids = vec![self.thread_id; 1];
+        let client_id = self.client.clone().id();
+        let thread_ids = Some(vec![self.thread_id; 1]);
 
-        cx.background_executor()
-            .spawn(async move { client.terminate_threads(Some(thread_ids)).await })
-            .detach_and_log_err(cx);
+        self.dap_store.update(cx, |store, cx| {
+            store.terminate_threads(&client_id, thread_ids, cx).detach()
+        });
     }
 
     fn handle_disconnect_action(&mut self, cx: &mut ViewContext<Self>) {

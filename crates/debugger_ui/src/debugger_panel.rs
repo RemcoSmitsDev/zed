@@ -17,7 +17,7 @@ use gpui::{
 };
 use project::dap_store::DapStore;
 use settings::Settings;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 use task::DebugRequestType;
@@ -151,21 +151,13 @@ impl DebugPanel {
             pane::Event::RemovedItem { item } => {
                 let thread_panel = item.downcast::<DebugPanelItem>().unwrap();
 
-                thread_panel.update(cx, |pane, cx| {
-                    let thread_id = pane.thread_id();
-                    let client = pane.client();
-                    let thread_status = client.thread_state_by_id(thread_id).status;
+                let thread_id = thread_panel.read(cx).thread_id();
+                let client_id = thread_panel.read(cx).client().id();
 
-                    // only terminate thread if the thread has not yet ended
-                    if thread_status != ThreadStatus::Ended && thread_status != ThreadStatus::Exited
-                    {
-                        let client = client.clone();
-                        cx.background_executor()
-                            .spawn(async move {
-                                client.terminate_threads(Some(vec![thread_id; 1])).await
-                            })
-                            .detach_and_log_err(cx);
-                    }
+                self.dap_store.update(cx, |store, cx| {
+                    store
+                        .terminate_threads(&client_id, Some(vec![thread_id; 1]), cx)
+                        .detach()
                 });
             }
             pane::Event::Remove { .. } => cx.emit(PanelEvent::Close),
@@ -506,6 +498,7 @@ impl DebugPanel {
                                 DebugPanelItem::new(
                                     debug_panel,
                                     this.workspace.clone(),
+                                    this.dap_store.clone(),
                                     client.clone(),
                                     thread_id,
                                     current_stack_frame.clone().id,
