@@ -487,11 +487,13 @@ impl DebugPanelItem {
     }
 
     fn handle_pause_action(&mut self, cx: &mut ViewContext<Self>) {
-        let client = self.client.clone();
-        let thread_id = self.thread_id;
-        cx.background_executor()
-            .spawn(async move { client.pause(thread_id).await })
-            .detach_and_log_err(cx);
+        self.dap_store
+            .update(cx, |store, cx| {
+                store
+                    .pause_thread(&self.client.id(), self.thread_id, cx)
+                    .detach()
+            })
+            .log_err();
     }
 
     fn handle_stop_action(&mut self, cx: &mut ViewContext<Self>) {

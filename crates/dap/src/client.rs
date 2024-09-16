@@ -5,14 +5,13 @@ use crate::adapters::{build_adapter, DebugAdapter};
 use dap_types::{
     messages::{Message, Response},
     requests::{
-        Attach, Continue, Disconnect, Launch, Next, Pause, Request, SetBreakpoints, StepBack,
-        StepIn, StepOut, Terminate, Variables,
+        Attach, Continue, Disconnect, Launch, Next, Request, SetBreakpoints, StepBack, StepIn,
+        StepOut, Terminate, Variables,
     },
     AttachRequestArguments, ContinueArguments, ContinueResponse, DisconnectArguments,
-    LaunchRequestArguments, NextArguments, PauseArguments, Scope, SetBreakpointsArguments,
-    SetBreakpointsResponse, Source, SourceBreakpoint, StackFrame, StepBackArguments,
-    StepInArguments, StepOutArguments, SteppingGranularity, TerminateArguments, Variable,
-    VariablesArguments,
+    LaunchRequestArguments, NextArguments, Scope, SetBreakpointsArguments, SetBreakpointsResponse,
+    Source, SourceBreakpoint, StackFrame, StepBackArguments, StepInArguments, StepOutArguments,
+    SteppingGranularity, TerminateArguments, Variable, VariablesArguments,
 };
 use futures::{AsyncBufRead, AsyncWrite};
 use gpui::{AppContext, AsyncAppContext};
@@ -358,10 +357,6 @@ impl DebugAdapterClient {
             single_thread: supports_single_thread_execution_requests.then(|| true),
         })
         .await
-    }
-
-    pub async fn pause(&self, thread_id: u64) -> Result<()> {
-        self.request::<Pause>(PauseArguments { thread_id }).await
     }
 
     pub async fn set_breakpoints(

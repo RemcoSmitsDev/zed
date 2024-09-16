@@ -2,11 +2,13 @@ use anyhow::{anyhow, Context as _, Result};
 use collections::{HashMap, HashSet};
 use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 use dap::messages::Message;
-use dap::requests::{Attach, ConfigurationDone, Disconnect, Initialize, Launch, TerminateThreads};
+use dap::requests::{
+    Attach, ConfigurationDone, Disconnect, Initialize, Launch, Pause, TerminateThreads,
+};
 use dap::{
     AttachRequestArguments, Capabilities, ConfigurationDoneArguments, DisconnectArguments,
     InitializeRequestArguments, InitializeRequestArgumentsPathFormat, LaunchRequestArguments,
-    SourceBreakpoint, TerminateThreadsArguments,
+    PauseArguments, SourceBreakpoint, TerminateThreadsArguments,
 };
 use gpui::{AppContext, Context, EventEmitter, Global, Model, ModelContext, Task};
 use language::{Buffer, BufferSnapshot};
@@ -288,6 +290,19 @@ impl DapStore {
                 Ok(())
             }
         })
+    }
+
+    pub fn pause_thread(
+        &mut self,
+        client_id: &DebugAdapterClientId,
+        thread_id: u64,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<()>> {
+        let Some(client) = self.client_by_id(client_id) else {
+            return Task::ready(Err(anyhow!("Could not found client")));
+        };
+
+        cx.spawn(|_, _| async move { client.request::<Pause>(PauseArguments { thread_id }).await })
     }
 
     pub fn terminate_threads(
