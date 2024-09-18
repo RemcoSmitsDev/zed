@@ -5,17 +5,17 @@ use crate::adapters::{build_adapter, DebugAdapter};
 use dap_types::{
     messages::{Message, Response},
     requests::{
-        Attach, Continue, Disconnect, Launch, Next, Request, SetBreakpoints, StepBack, StepIn,
-        StepOut, Terminate, Variables,
+        Continue, Disconnect, Next, Request, SetBreakpoints, StepBack, StepIn, StepOut, Terminate,
+        Variables,
     },
-    AttachRequestArguments, ContinueArguments, ContinueResponse, DisconnectArguments,
-    LaunchRequestArguments, NextArguments, Scope, SetBreakpointsArguments, SetBreakpointsResponse,
-    Source, SourceBreakpoint, StackFrame, StepBackArguments, StepInArguments, StepOutArguments,
-    SteppingGranularity, TerminateArguments, Variable, VariablesArguments,
+    ContinueArguments, ContinueResponse, DisconnectArguments, NextArguments, Scope,
+    SetBreakpointsArguments, SetBreakpointsResponse, Source, SourceBreakpoint, StackFrame,
+    StepBackArguments, StepInArguments, StepOutArguments, SteppingGranularity, TerminateArguments,
+    Variable, VariablesArguments,
 };
 use futures::{AsyncBufRead, AsyncWrite};
 use gpui::{AppContext, AsyncAppContext};
-use parking_lot::{Mutex, MutexGuard};
+use parking_lot::Mutex;
 use serde_json::Value;
 use smol::{
     channel::{bounded, Receiver, Sender},
@@ -73,9 +73,6 @@ pub struct DebugAdapterClient {
     _process: Arc<Mutex<Option<Child>>>,
     sequence_count: AtomicU64,
     config: DebugAdapterConfig,
-    /// thread_id -> thread_state
-    thread_states: Arc<Mutex<HashMap<u64, ThreadState>>>,
-    capabilities: Arc<Mutex<Option<dap_types::Capabilities>>>,
 }
 
 pub struct TransportParams {
@@ -127,8 +124,6 @@ impl DebugAdapterClient {
             config,
             adapter,
             transport,
-            capabilities: Default::default(),
-            thread_states: Default::default(),
             sequence_count: AtomicU64::new(1),
             _process: Arc::new(Mutex::new(transport_params.process)),
         }))
@@ -236,48 +231,18 @@ impl DebugAdapterClient {
         self.config.request.clone()
     }
 
-    pub fn capabilities(&self) -> dap_types::Capabilities {
-        self.capabilities.lock().clone().unwrap_or_default()
-    }
-
     /// Get the next sequence id to be used in a request
     pub fn next_sequence_id(&self) -> u64 {
         self.sequence_count.fetch_add(1, Ordering::Relaxed)
     }
 
-    pub fn update_thread_state_status(&self, thread_id: u64, status: ThreadStatus) {
-        if let Some(thread_state) = self.thread_states().get_mut(&thread_id) {
-            thread_state.status = status;
-        };
-    }
-
-    pub fn thread_states(&self) -> MutexGuard<HashMap<u64, ThreadState>> {
-        self.thread_states.lock()
-    }
-
-    pub fn thread_state_by_id(&self, thread_id: u64) -> ThreadState {
-        self.thread_states.lock().get(&thread_id).cloned().unwrap()
-    }
-
-    pub async fn launch(&self, args: Option<Value>) -> Result<()> {
-        self.request::<Launch>(LaunchRequestArguments {
-            raw: args.unwrap_or(Value::Null),
-        })
-        .await
-    }
-
-    pub async fn attach(&self, args: Option<Value>) -> Result<()> {
-        self.request::<Attach>(AttachRequestArguments {
-            raw: args.unwrap_or(Value::Null),
-        })
-        .await
-    }
-
     pub async fn resume(&self, thread_id: u64) -> Result<ContinueResponse> {
-        let supports_single_thread_execution_requests = self
-            .capabilities()
-            .supports_single_thread_execution_requests
-            .unwrap_or_default();
+        // TODO debugger: make this work again
+        let supports_single_thread_execution_requests = true;
+        // let supports_single_thread_execution_requests = self
+        //     .capabilities()
+        //     .supports_single_thread_execution_requests
+        //     .unwrap_or_default();
 
         self.request::<Continue>(ContinueArguments {
             thread_id,
@@ -287,14 +252,15 @@ impl DebugAdapterClient {
     }
 
     pub async fn step_over(&self, thread_id: u64, granularity: SteppingGranularity) -> Result<()> {
-        let capabilities = self.capabilities();
-
-        let supports_single_thread_execution_requests = capabilities
-            .supports_single_thread_execution_requests
-            .unwrap_or_default();
-        let supports_stepping_granularity = capabilities
-            .supports_stepping_granularity
-            .unwrap_or_default();
+        // TODO debugger: make this work again
+        let supports_single_thread_execution_requests = true;
+        // let supports_single_thread_execution_requests = capabilities
+        //     .supports_single_thread_execution_requests
+        //     .unwrap_or_default();
+        let supports_stepping_granularity = true;
+        // let supports_stepping_granularity = capabilities
+        //     .supports_stepping_granularity
+        //     .unwrap_or_default();
 
         self.request::<Next>(NextArguments {
             thread_id,
@@ -305,14 +271,15 @@ impl DebugAdapterClient {
     }
 
     pub async fn step_in(&self, thread_id: u64, granularity: SteppingGranularity) -> Result<()> {
-        let capabilities = self.capabilities();
-
-        let supports_single_thread_execution_requests = capabilities
-            .supports_single_thread_execution_requests
-            .unwrap_or_default();
-        let supports_stepping_granularity = capabilities
-            .supports_stepping_granularity
-            .unwrap_or_default();
+        // TODO debugger: make this work again
+        let supports_single_thread_execution_requests = true;
+        // let supports_single_thread_execution_requests = capabilities
+        //     .supports_single_thread_execution_requests
+        //     .unwrap_or_default();
+        let supports_stepping_granularity = true;
+        // let supports_stepping_granularity = capabilities
+        //     .supports_stepping_granularity
+        //     .unwrap_or_default();
 
         self.request::<StepIn>(StepInArguments {
             thread_id,
@@ -324,14 +291,15 @@ impl DebugAdapterClient {
     }
 
     pub async fn step_out(&self, thread_id: u64, granularity: SteppingGranularity) -> Result<()> {
-        let capabilities = self.capabilities();
-
-        let supports_single_thread_execution_requests = capabilities
-            .supports_single_thread_execution_requests
-            .unwrap_or_default();
-        let supports_stepping_granularity = capabilities
-            .supports_stepping_granularity
-            .unwrap_or_default();
+        // TODO debugger: make this work again
+        let supports_single_thread_execution_requests = true;
+        // let supports_single_thread_execution_requests = capabilities
+        //     .supports_single_thread_execution_requests
+        //     .unwrap_or_default();
+        let supports_stepping_granularity = true;
+        // let supports_stepping_granularity = capabilities
+        //     .supports_stepping_granularity
+        //     .unwrap_or_default();
 
         self.request::<StepOut>(StepOutArguments {
             thread_id,
@@ -342,14 +310,15 @@ impl DebugAdapterClient {
     }
 
     pub async fn step_back(&self, thread_id: u64, granularity: SteppingGranularity) -> Result<()> {
-        let capabilities = self.capabilities();
-
-        let supports_single_thread_execution_requests = capabilities
-            .supports_single_thread_execution_requests
-            .unwrap_or_default();
-        let supports_stepping_granularity = capabilities
-            .supports_stepping_granularity
-            .unwrap_or_default();
+        // TODO debugger: make this work again
+        let supports_single_thread_execution_requests = true;
+        // let supports_single_thread_execution_requests = capabilities
+        //     .supports_single_thread_execution_requests
+        //     .unwrap_or_default();
+        let supports_stepping_granularity = true;
+        // let supports_stepping_granularity = capabilities
+        //     .supports_stepping_granularity
+        //     .unwrap_or_default();
 
         self.request::<StepBack>(StepBackArguments {
             thread_id,
@@ -411,10 +380,12 @@ impl DebugAdapterClient {
     }
 
     pub async fn terminate(&self) -> Result<()> {
-        let support_terminate_request = self
-            .capabilities()
-            .supports_terminate_request
-            .unwrap_or_default();
+        // TODO debugger: make this work again
+        let support_terminate_request = true;
+        // let support_terminate_request = self
+        //     .capabilities()
+        //     .supports_terminate_request
+        //     .unwrap_or_default();
 
         if support_terminate_request {
             self.request::<Terminate>(TerminateArguments {

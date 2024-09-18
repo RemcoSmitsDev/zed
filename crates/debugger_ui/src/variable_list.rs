@@ -4,7 +4,6 @@ use dap::{
     requests::{SetExpression, SetVariable, Variables},
     Scope, SetExpressionArguments, SetVariableArguments, Variable, VariablesArguments,
 };
-
 use editor::{
     actions::{self, SelectAll},
     Editor, EditorEvent,
@@ -12,7 +11,7 @@ use editor::{
 use futures::future::try_join_all;
 use gpui::{
     anchored, deferred, list, AnyElement, ClipboardItem, DismissEvent, FocusHandle, FocusableView,
-    ListState, Model, MouseDownEvent, Point, Subscription, View,
+    ListState, MouseDownEvent, Point, Subscription, View,
 };
 use menu::Confirm;
 use std::{collections::HashMap, sync::Arc};
@@ -49,14 +48,14 @@ pub struct VariableList {
     focus_handle: FocusHandle,
     open_entries: Vec<SharedString>,
     set_variable_editor: View<Editor>,
-    debug_panel_item: Model<DebugPanelItem>,
+    debug_panel_item: View<DebugPanelItem>,
     set_variable_state: Option<SetVariableState>,
     stack_frame_entries: HashMap<u64, Vec<VariableListEntry>>,
     open_context_menu: Option<(View<ContextMenu>, Point<Pixels>, Subscription)>,
 }
 
 impl VariableList {
-    pub fn new(debug_panel_item: Model<DebugPanelItem>, cx: &mut ViewContext<Self>) -> Self {
+    pub fn new(debug_panel_item: View<DebugPanelItem>, cx: &mut ViewContext<Self>) -> Self {
         let weakview = cx.view().downgrade();
         let focus_handle = cx.focus_handle();
 
@@ -133,8 +132,11 @@ impl VariableList {
             }
         };
 
-        let (stack_frame_id, thread_state) = self.debug_panel_item.read_with(cx, |panel, _| {
-            (panel.current_stack_frame_id(), panel.current_thread_state())
+        let (thread_state, stack_frame_id) = self.debug_panel_item.update(cx, |panel, cx| {
+            (
+                panel.current_thread_state(cx),
+                panel.current_stack_frame_id(),
+            )
         });
 
         self.build_entries(thread_state, stack_frame_id, false, true);
@@ -240,13 +242,13 @@ impl VariableList {
     ) {
         let this = cx.view().clone();
 
-        let (stack_frame_id, client) = self
+        let debug_panel_item = self.debug_panel_item.read(cx);
+        let stack_frame_id = debug_panel_item.current_stack_frame_id();
+        let capabilities = self
             .debug_panel_item
-            .read_with(cx, |p, _| (p.current_stack_frame_id(), p.client()));
-        let support_set_variable = client
-            .capabilities()
-            .supports_set_variable
-            .unwrap_or_default();
+            .update(cx, |panel, cx| panel.capabilities(cx));
+
+        let support_set_variable = capabilities.supports_set_variable.unwrap_or_default();
 
         let context_menu = ContextMenu::build(cx, |menu, cx| {
             menu.entry(
@@ -294,7 +296,7 @@ impl VariableList {
 
                         let thread_state = this
                             .debug_panel_item
-                            .read_with(cx, |panel, _| panel.current_thread_state());
+                            .update(cx, |panel, cx| panel.current_thread_state(cx));
                         this.build_entries(thread_state, stack_frame_id, false, true);
 
                         cx.notify();
@@ -323,8 +325,11 @@ impl VariableList {
             return;
         };
 
-        let (stack_frame_id, thread_state) = self.debug_panel_item.read_with(cx, |panel, _| {
-            (panel.current_stack_frame_id(), panel.current_thread_state())
+        let (stack_frame_id, thread_state) = self.debug_panel_item.update(cx, |panel, cx| {
+            (
+                panel.current_stack_frame_id(),
+                panel.current_thread_state(cx),
+            )
         });
 
         self.build_entries(thread_state, stack_frame_id, false, true);
@@ -350,18 +355,21 @@ impl VariableList {
             return;
         }
 
-        let (mut thread_state, client) = self
-            .debug_panel_item
-            .read_with(cx, |p, _| (p.current_thread_state(), p.client()));
+        let (mut thread_state, client) = self.debug_panel_item.update(cx, |panel, cx| {
+            (panel.current_thread_state(cx), panel.client())
+        });
+
         let variables_reference = state.parent_variables_reference;
         let scope = state.scope;
         let name = state.name;
         let evaluate_name = state.evaluate_name;
         let stack_frame_id = state.stack_frame_id;
-        let supports_set_expression = client
-            .capabilities()
-            .supports_set_expression
-            .unwrap_or_default();
+        let supports_set_expression = self.debug_panel_item.update(cx, |panel, cx| {
+            panel
+                .capabilities(cx)
+                .supports_set_expression
+                .unwrap_or_default()
+        });
 
         cx.spawn(|this, mut cx| async move {
             if let Some(evaluate_name) = supports_set_expression.then(|| evaluate_name).flatten() {
@@ -415,7 +423,8 @@ impl VariableList {
                                 container_reference,
                                 variable,
                                 depth,
-                            }),
+                            })
+                            .collect::<Vec<_>>(),
                     )
                 });
             }
@@ -423,28 +432,19 @@ impl VariableList {
             let updated_variables = try_join_all(tasks).await?;
 
             this.update(&mut cx, |this, cx| {
-                let (thread_id, stack_frame_id, client) =
-                    this.debug_panel_item.read_with(cx, |panel, _| {
-                        (
-                            panel.thread_id(),
-                            panel.current_stack_frame_id(),
-                            panel.client(),
-                        )
-                    });
+                let thread_state = this.debug_panel_item.update(cx, |panel, cx| {
+                    let thread_state = panel.current_thread_state(cx);
 
-                let mut thread_states = client.thread_states();
+                    panel.insert_variables(
+                        scope.variables_reference,
+                        updated_variables.into_iter().flatten().collect(),
+                        cx,
+                    );
 
-                let Some(thread_state) = thread_states.get_mut(&thread_id) else {
-                    return;
-                };
-
-                for variables in updated_variables {
                     thread_state
-                        .variables
-                        .insert(scope.variables_reference, variables.collect::<_>());
-                }
+                });
 
-                this.build_entries(thread_state.clone(), stack_frame_id, false, true);
+                this.build_entries(thread_state, stack_frame_id, false, true);
                 cx.notify();
             })
         })
@@ -508,13 +508,15 @@ impl VariableList {
                                 return;
                             }
 
-                            let debug_item = this.debug_panel_item.read(cx);
+                            let thread_state = this
+                                .debug_panel_item
+                                .update(cx, |panel, cx| panel.current_thread_state(cx));
+                            let debug_panel_item = this.debug_panel_item.read(cx);
 
                             // if we already opened the variable/we already fetched it
                             // we can just toggle it because we already have the nested variable
                             if disclosed.unwrap_or(true)
-                                || debug_item
-                                    .current_thread_state()
+                                || thread_state
                                     .fetched_variable_ids
                                     .contains(&variable_reference)
                             {
@@ -523,7 +525,7 @@ impl VariableList {
 
                             let Some(entries) = this
                                 .stack_frame_entries
-                                .get(&debug_item.current_stack_frame_id())
+                                .get(&debug_panel_item.current_stack_frame_id())
                             else {
                                 return;
                             };
@@ -534,7 +536,7 @@ impl VariableList {
 
                             if let VariableListEntry::Variable { scope, depth, .. } = entry {
                                 let variable_id = variable_id.clone();
-                                let client = debug_item.client();
+                                let client = debug_panel_item.client();
                                 let scope = scope.clone();
                                 let depth = *depth;
 
@@ -543,44 +545,39 @@ impl VariableList {
                                         client.variables(variable_reference).await?;
 
                                     this.update(&mut cx, |this, cx| {
-                                        let client = client.clone();
-                                        let mut thread_states = client.thread_states();
-                                        let Some(thread_state) = thread_states
-                                            .get_mut(&this.debug_panel_item.read(cx).thread_id())
-                                        else {
-                                            return;
-                                        };
+                                        this.debug_panel_item.update(cx, |panel, cx| {
+                                            let mut thread_state = panel.current_thread_state(cx);
 
-                                        let Some(variables) = thread_state
-                                            .variables
-                                            .get_mut(&scope.variables_reference)
-                                        else {
-                                            return;
-                                        };
+                                            let Some(variables) = thread_state
+                                                .variables
+                                                .get_mut(&scope.variables_reference)
+                                            else {
+                                                return;
+                                            };
 
-                                        let position = variables.iter().position(|v| {
-                                            variable_entry_id(&scope, &v.variable, v.depth)
-                                                == variable_id
+                                            let position = variables.iter().position(|v| {
+                                                variable_entry_id(&scope, &v.variable, v.depth)
+                                                    == variable_id
+                                            });
+
+                                            if let Some(position) = position {
+                                                variables.splice(
+                                                    position + 1..position + 1,
+                                                    new_variables.clone().into_iter().map(
+                                                        |variable| VariableContainer {
+                                                            container_reference: variable_reference,
+                                                            variable,
+                                                            depth: depth + 1,
+                                                        },
+                                                    ),
+                                                );
+
+                                                thread_state
+                                                    .fetched_variable_ids
+                                                    .insert(variable_reference);
+                                            }
                                         });
 
-                                        if let Some(position) = position {
-                                            variables.splice(
-                                                position + 1..position + 1,
-                                                new_variables.clone().into_iter().map(|variable| {
-                                                    VariableContainer {
-                                                        container_reference: variable_reference,
-                                                        variable,
-                                                        depth: depth + 1,
-                                                    }
-                                                }),
-                                            );
-
-                                            thread_state
-                                                .fetched_variable_ids
-                                                .insert(variable_reference);
-                                        }
-
-                                        drop(thread_states);
                                         this.toggle_entry_collapsed(&variable_id, cx);
                                         cx.notify();
                                     })

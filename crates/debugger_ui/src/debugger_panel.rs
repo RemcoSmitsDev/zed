@@ -17,9 +17,10 @@ use gpui::{
 };
 use project::dap_store::DapStore;
 use settings::Settings;
-use std::collections::HashSet;
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
+use std::u64;
 use ui::prelude::*;
 use util::ResultExt;
 use workspace::{
@@ -47,6 +48,7 @@ pub struct DebugPanel {
     workspace: WeakView<Workspace>,
     show_did_not_stop_warning: bool,
     _subscriptions: Vec<Subscription>,
+    thread_states: BTreeMap<(DebugAdapterClientId, u64), ThreadState>,
 }
 
 impl DebugPanel {
@@ -96,6 +98,9 @@ impl DebugPanel {
                         }
                         project::Event::DebugClientStopped(client_id) => {
                             cx.emit(DebugPanelEvent::ClientStopped(*client_id));
+
+                            this.thread_states
+                                .retain(|&(client_id_, _), _| client_id_ != *client_id);
                         }
                         _ => {}
                     }
@@ -108,6 +113,7 @@ impl DebugPanel {
                 _subscriptions,
                 focus_handle: cx.focus_handle(),
                 show_did_not_stop_warning: false,
+                thread_states: Default::default(),
                 workspace: workspace.weak_handle(),
                 dap_store: DapStore::global(cx).downgrade(),
             }
@@ -121,6 +127,17 @@ impl DebugPanel {
         cx.spawn(|mut cx| async move {
             workspace.update(&mut cx, |workspace, cx| DebugPanel::new(workspace, cx))
         })
+    }
+
+    pub fn thread_state_by_id(
+        &self,
+        client_id: &DebugAdapterClientId,
+        thread_id: u64,
+    ) -> ThreadState {
+        self.thread_states
+            .get(&(*client_id, thread_id))
+            .cloned()
+            .unwrap_or_default()
     }
 
     fn debug_client_by_id(
@@ -152,6 +169,10 @@ impl DebugPanel {
 
                 let thread_id = thread_panel.read(cx).thread_id();
                 let client_id = thread_panel.read(cx).client().id();
+
+                self.thread_states.remove(&(client_id, thread_id));
+
+                cx.notify();
 
                 self.dap_store
                     .update(cx, |store, cx| {
@@ -198,10 +219,10 @@ impl DebugPanel {
         match event {
             Events::Initialized(event) => self.handle_initialized_event(client, event, cx),
             Events::Stopped(event) => self.handle_stopped_event(client, event, cx),
-            Events::Continued(event) => self.handle_continued_event(client, event, cx),
-            Events::Exited(event) => self.handle_exited_event(client, event, cx),
+            Events::Continued(event) => self.handle_continued_event(&client.id(), event, cx),
+            Events::Exited(event) => self.handle_exited_event(&client.id(), event, cx),
             Events::Terminated(event) => self.handle_terminated_event(client, event, cx),
-            Events::Thread(event) => self.handle_thread_event(client, event, cx),
+            Events::Thread(event) => self.handle_thread_event(&client.id(), event, cx),
             Events::Output(event) => self.handle_output_event(client, event, cx),
             Events::Breakpoint(_) => {}
             Events::Module(_) => {}
@@ -279,66 +300,66 @@ impl DebugPanel {
         })
     }
 
-    async fn remove_highlights_for_thread(
-        workspace: WeakView<Workspace>,
-        client: Arc<DebugAdapterClient>,
-        thread_id: u64,
-        cx: AsyncWindowContext,
-    ) -> Result<()> {
-        let mut tasks = Vec::new();
-        let mut paths: HashSet<String> = HashSet::new();
-        let thread_state = client.thread_state_by_id(thread_id);
+    // async fn remove_highlights_for_thread(
+    //     workspace: WeakView<Workspace>,
+    //     client: Arc<DebugAdapterClient>,
+    //     thread_id: u64,
+    //     cx: AsyncWindowContext,
+    // ) -> Result<()> {
+    //     let mut tasks = Vec::new();
+    //     let mut paths: HashSet<String> = HashSet::new();
+    //     let thread_state = client.thread_state_by_id(thread_id);
 
-        for stack_frame in thread_state.stack_frames.into_iter() {
-            let Some(path) = stack_frame.source.clone().and_then(|s| s.path.clone()) else {
-                continue;
-            };
+    //     for stack_frame in thread_state.stack_frames.into_iter() {
+    //         let Some(path) = stack_frame.source.clone().and_then(|s| s.path.clone()) else {
+    //             continue;
+    //         };
 
-            if paths.contains(&path) {
-                continue;
-            }
+    //         if paths.contains(&path) {
+    //             continue;
+    //         }
 
-            paths.insert(path.clone());
-            tasks.push(Self::remove_editor_highlight(
-                workspace.clone(),
-                path,
-                cx.clone(),
-            ));
-        }
+    //         paths.insert(path.clone());
+    //         tasks.push(Self::remove_editor_highlight(
+    //             workspace.clone(),
+    //             path,
+    //             cx.clone(),
+    //         ));
+    //     }
 
-        if !tasks.is_empty() {
-            try_join_all(tasks).await?;
-        }
+    //     if !tasks.is_empty() {
+    //         try_join_all(tasks).await?;
+    //     }
 
-        anyhow::Ok(())
-    }
+    //     anyhow::Ok(())
+    // }
 
-    async fn remove_editor_highlight(
-        workspace: WeakView<Workspace>,
-        path: String,
-        mut cx: AsyncWindowContext,
-    ) -> Result<()> {
-        let task = workspace.update(&mut cx, |workspace, cx| {
-            let project_path = workspace.project().read_with(cx, |project, cx| {
-                project.project_path_for_absolute_path(&Path::new(&path), cx)
-            });
+    // async fn remove_editor_highlight(
+    //     workspace: WeakView<Workspace>,
+    //     path: String,
+    //     mut cx: AsyncWindowContext,
+    // ) -> Result<()> {
+    //     let task = workspace.update(&mut cx, |workspace, cx| {
+    //         let project_path = workspace.project().read_with(cx, |project, cx| {
+    //             project.project_path_for_absolute_path(&Path::new(&path), cx)
+    //         });
 
-            if let Some(project_path) = project_path {
-                workspace.open_path(project_path, None, false, cx)
-            } else {
-                Task::ready(Err(anyhow::anyhow!(
-                    "No project path found for path: {}",
-                    path
-                )))
-            }
-        })?;
+    //         if let Some(project_path) = project_path {
+    //             workspace.open_path(project_path, None, false, cx)
+    //         } else {
+    //             Task::ready(Err(anyhow::anyhow!(
+    //                 "No project path found for path: {}",
+    //                 path
+    //             )))
+    //         }
+    //     })?;
 
-        let editor = task.await?.downcast::<Editor>().unwrap();
+    //     let editor = task.await?.downcast::<Editor>().unwrap();
 
-        editor.update(&mut cx, |editor, _| {
-            editor.clear_row_highlights::<DebugCurrentRowHighlight>();
-        })
-    }
+    //     editor.update(&mut cx, |editor, _| {
+    //         editor.clear_row_highlights::<DebugCurrentRowHighlight>();
+    //     })
+    // }
 
     fn handle_initialized_event(
         &mut self,
@@ -374,18 +395,23 @@ impl DebugPanel {
 
     fn handle_continued_event(
         &mut self,
-        client: Arc<DebugAdapterClient>,
+        client_id: &DebugAdapterClientId,
         event: &ContinuedEvent,
         cx: &mut ViewContext<Self>,
     ) {
         let all_threads = event.all_threads_continued.unwrap_or(false);
 
         if all_threads {
-            for thread in client.thread_states().values_mut() {
-                thread.status = ThreadStatus::Running;
+            for (_, thread_state) in self
+                .thread_states
+                .range_mut((*client_id, u64::MIN)..(*client_id, u64::MAX))
+            {
+                thread_state.status = ThreadStatus::Running;
             }
         } else {
-            client.update_thread_state_status(event.thread_id, ThreadStatus::Running);
+            if let Some(thread_state) = self.thread_states.get_mut(&(*client_id, event.thread_id)) {
+                thread_state.status = ThreadStatus::Running;
+            }
         }
 
         cx.notify();
@@ -481,7 +507,8 @@ impl DebugPanel {
                     thread_state.status = ThreadStatus::Stopped;
                     thread_state.stopped = true;
 
-                    client.thread_states().insert(thread_id, thread_state);
+                    this.thread_states
+                        .insert((client_id, thread_id), thread_state.clone());
 
                     let existing_item = this
                         .pane
@@ -545,13 +572,13 @@ impl DebugPanel {
 
     fn handle_thread_event(
         &mut self,
-        client: Arc<DebugAdapterClient>,
+        client_id: &DebugAdapterClientId,
         event: &ThreadEvent,
         cx: &mut ViewContext<Self>,
     ) {
         let thread_id = event.thread_id;
 
-        if let Some(thread_state) = client.thread_states().get(&thread_id) {
+        if let Some(thread_state) = self.thread_states.get(&(*client_id, thread_id)) {
             if !thread_state.stopped && event.reason == ThreadEventReason::Exited {
                 self.show_did_not_stop_warning = true;
                 cx.notify();
@@ -559,38 +586,42 @@ impl DebugPanel {
         }
 
         if event.reason == ThreadEventReason::Started {
-            client
-                .thread_states()
-                .insert(thread_id, ThreadState::default());
+            self.thread_states
+                .insert((*client_id, thread_id), ThreadState::default());
         } else {
-            client.update_thread_state_status(thread_id, ThreadStatus::Ended);
+            if let Some(thread_state) = self.thread_states.get_mut(&(*client_id, thread_id)) {
+                thread_state.status = ThreadStatus::Ended;
+            }
 
-            cx.notify();
+            // TODO debugger: we want to figure out for witch clients/threads we should remove the highlights
+            // cx.spawn({
+            //     let client = client.clone();
+            //     |this, mut cx| async move {
+            //         let workspace = this.update(&mut cx, |this, _| this.workspace.clone())?;
 
-            // TODO: we want to figure out for witch clients/threads we should remove the highlights
-            cx.spawn({
-                let client = client.clone();
-                |this, mut cx| async move {
-                    let workspace = this.update(&mut cx, |this, _| this.workspace.clone())?;
+            //         Self::remove_highlights_for_thread(workspace, client, thread_id, cx).await?;
 
-                    Self::remove_highlights_for_thread(workspace, client, thread_id, cx).await?;
-
-                    anyhow::Ok(())
-                }
-            })
-            .detach_and_log_err(cx);
+            //         anyhow::Ok(())
+            //     }
+            // })
+            // .detach_and_log_err(cx);
         }
 
-        cx.emit(DebugPanelEvent::Thread((client.id(), event.clone())));
+        cx.notify();
+
+        cx.emit(DebugPanelEvent::Thread((*client_id, event.clone())));
     }
 
     fn handle_exited_event(
         &mut self,
-        client: Arc<DebugAdapterClient>,
+        client_id: &DebugAdapterClientId,
         _: &ExitedEvent,
         cx: &mut ViewContext<Self>,
     ) {
-        for thread_state in client.thread_states().values_mut() {
+        for (_, thread_state) in self
+            .thread_states
+            .range_mut((*client_id, u64::MIN)..(*client_id, u64::MAX))
+        {
             thread_state.status = ThreadStatus::Exited;
         }
 
