@@ -626,8 +626,6 @@ impl DebugPanel {
             // .detach_and_log_err(cx);
         }
 
-        cx.notify();
-
         cx.emit(DebugPanelEvent::Thread((*client_id, event.clone())));
     }
 
