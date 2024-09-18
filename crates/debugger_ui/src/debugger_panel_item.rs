@@ -420,7 +420,6 @@ impl DebugPanelItem {
     }
 
     fn handle_continue_action(&mut self, cx: &mut ViewContext<Self>) {
-        let client = self.client.clone();
         let thread_id = self.thread_id;
 
         self.debug_panel.update(cx, |panel, cx| {
@@ -433,9 +432,13 @@ impl DebugPanelItem {
             );
         });
 
-        cx.background_executor()
-            .spawn(async move { client.resume(thread_id).await })
-            .detach_and_log_err(cx);
+        self.dap_store
+            .update(cx, |store, cx| {
+                store
+                    .continue_thread(&self.client.id(), thread_id, cx)
+                    .detach_and_log_err(cx);
+            })
+            .log_err();
     }
 
     fn handle_step_over_action(&mut self, cx: &mut ViewContext<Self>) {

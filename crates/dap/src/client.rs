@@ -5,13 +5,11 @@ use crate::adapters::{build_adapter, DebugAdapter};
 use dap_types::{
     messages::{Message, Response},
     requests::{
-        Continue, Disconnect, Next, Request, SetBreakpoints, StepBack, StepIn, StepOut, Terminate,
-        Variables,
+        Disconnect, Next, Request, SetBreakpoints, StepBack, StepIn, StepOut, Terminate, Variables,
     },
-    ContinueArguments, ContinueResponse, DisconnectArguments, NextArguments, Scope,
-    SetBreakpointsArguments, SetBreakpointsResponse, Source, SourceBreakpoint, StackFrame,
-    StepBackArguments, StepInArguments, StepOutArguments, SteppingGranularity, TerminateArguments,
-    Variable, VariablesArguments,
+    DisconnectArguments, NextArguments, Scope, SetBreakpointsArguments, SetBreakpointsResponse,
+    Source, SourceBreakpoint, StackFrame, StepBackArguments, StepInArguments, StepOutArguments,
+    SteppingGranularity, TerminateArguments, Variable, VariablesArguments,
 };
 use futures::{AsyncBufRead, AsyncWrite};
 use gpui::{AppContext, AsyncAppContext};
@@ -234,21 +232,6 @@ impl DebugAdapterClient {
     /// Get the next sequence id to be used in a request
     pub fn next_sequence_id(&self) -> u64 {
         self.sequence_count.fetch_add(1, Ordering::Relaxed)
-    }
-
-    pub async fn resume(&self, thread_id: u64) -> Result<ContinueResponse> {
-        // TODO debugger: make this work again
-        let supports_single_thread_execution_requests = true;
-        // let supports_single_thread_execution_requests = self
-        //     .capabilities()
-        //     .supports_single_thread_execution_requests
-        //     .unwrap_or_default();
-
-        self.request::<Continue>(ContinueArguments {
-            thread_id,
-            single_thread: supports_single_thread_execution_requests.then(|| true),
-        })
-        .await
     }
 
     pub async fn step_over(&self, thread_id: u64, granularity: SteppingGranularity) -> Result<()> {

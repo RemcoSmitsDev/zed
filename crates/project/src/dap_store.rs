@@ -3,12 +3,12 @@ use collections::{HashMap, HashSet};
 use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 use dap::messages::Message;
 use dap::requests::{
-    Attach, ConfigurationDone, Disconnect, Initialize, Launch, Pause, TerminateThreads,
+    Attach, ConfigurationDone, Continue, Disconnect, Initialize, Launch, Pause, TerminateThreads,
 };
 use dap::{
-    AttachRequestArguments, Capabilities, ConfigurationDoneArguments, DisconnectArguments,
-    InitializeRequestArguments, InitializeRequestArgumentsPathFormat, LaunchRequestArguments,
-    PauseArguments, SourceBreakpoint, TerminateThreadsArguments,
+    AttachRequestArguments, Capabilities, ConfigurationDoneArguments, ContinueArguments,
+    DisconnectArguments, InitializeRequestArguments, InitializeRequestArgumentsPathFormat,
+    LaunchRequestArguments, PauseArguments, SourceBreakpoint, TerminateThreadsArguments,
 };
 use gpui::{AppContext, Context, EventEmitter, Global, Model, ModelContext, Task};
 use language::{Buffer, BufferSnapshot};
@@ -289,6 +289,28 @@ impl DapStore {
             } else {
                 Ok(())
             }
+        })
+    }
+
+    pub fn continue_thread(
+        &mut self,
+        client_id: &DebugAdapterClientId,
+        thread_id: u64,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<()>> {
+        let Some(client) = self.client_by_id(client_id) else {
+            return Task::ready(Err(anyhow!("Could not found client")));
+        };
+
+        cx.spawn(|_, _| async move {
+            client
+                .request::<Continue>(ContinueArguments {
+                    thread_id,
+                    single_thread: Some(true),
+                })
+                .await?;
+
+            Ok(())
         })
     }
 
