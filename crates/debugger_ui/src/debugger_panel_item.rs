@@ -2,7 +2,6 @@ use crate::console::Console;
 use crate::debugger_panel::{DebugPanel, DebugPanelEvent};
 use crate::variable_list::VariableList;
 
-use anyhow::Result;
 use dap::client::{
     DebugAdapterClient, DebugAdapterClientId, ThreadState, ThreadStatus, VariableContainer,
 };
@@ -10,8 +9,8 @@ use dap::debugger_settings::DebuggerSettings;
 use dap::{Capabilities, OutputEvent, OutputEventCategory, StackFrame, StoppedEvent, ThreadEvent};
 use editor::Editor;
 use gpui::{
-    impl_actions, list, AnyElement, AppContext, AsyncWindowContext, EventEmitter, FocusHandle,
-    FocusableView, ListState, Subscription, View, WeakModel, WeakView,
+    impl_actions, list, AnyElement, AppContext, EventEmitter, FocusHandle, FocusableView,
+    ListState, Subscription, View, WeakModel, WeakView,
 };
 use project::dap_store::DapStore;
 use serde::Deserialize;
@@ -381,36 +380,6 @@ impl DebugPanelItem {
             .into_any()
     }
 
-    // if the debug adapter does not send the continued event,
-    // and the status of the thread did not change we have to assume the thread is running
-    // so we have to update the thread state status to running
-    fn update_thread_state(
-        this: WeakView<Self>,
-        previous_status: ThreadStatus,
-        all_threads_continued: Option<bool>,
-        mut cx: AsyncWindowContext,
-    ) -> Result<()> {
-        this.update(&mut cx, |this, cx| {
-            let client_id = this.client.id();
-
-            // if previous_status == this.current_thread_state(cx).status {
-            //     if all_threads_continued.unwrap_or(false) {
-            //         for (_, thread_state) in this
-            //             .thread_states
-            //             .range_mut((client_id, u64::MIN)..(client_id, u64::MAX))
-            //         {
-            //             thread.status = ThreadStatus::Running;
-            //         }
-            //     } else {
-            //         this.client
-            //             .update_thread_state_status(this.thread_id, ThreadStatus::Running);
-            //     }
-
-            //     cx.notify();
-            // }
-        })
-    }
-
     /// Actions that should be handled even when Debug Panel is not in focus
     pub fn workspace_action_handler(
         workspace: &mut Workspace,
@@ -453,56 +422,83 @@ impl DebugPanelItem {
     fn handle_continue_action(&mut self, cx: &mut ViewContext<Self>) {
         let client = self.client.clone();
         let thread_id = self.thread_id;
-        let previous_status = self.current_thread_state(cx).status;
 
-        cx.spawn(|this, cx| async move {
-            let response = client.resume(thread_id).await?;
+        self.debug_panel.update(cx, |panel, cx| {
+            panel.update_thread_state_status(
+                &self.client.id(),
+                Some(thread_id),
+                ThreadStatus::Running,
+                None,
+                cx,
+            );
+        });
 
-            Self::update_thread_state(this, previous_status, response.all_threads_continued, cx)
-        })
-        .detach_and_log_err(cx);
+        cx.background_executor()
+            .spawn(async move { client.resume(thread_id).await })
+            .detach_and_log_err(cx);
     }
 
     fn handle_step_over_action(&mut self, cx: &mut ViewContext<Self>) {
         let client = self.client.clone();
         let thread_id = self.thread_id;
-        let previous_status = self.current_thread_state(cx).status;
+
+        self.debug_panel.update(cx, |panel, cx| {
+            panel.update_thread_state_status(
+                &self.client.id(),
+                Some(thread_id),
+                ThreadStatus::Running,
+                None,
+                cx,
+            );
+        });
+
         let granularity = DebuggerSettings::get_global(cx).stepping_granularity();
 
-        cx.spawn(|this, cx| async move {
-            client.step_over(thread_id, granularity).await?;
-
-            Self::update_thread_state(this, previous_status, None, cx)
-        })
-        .detach_and_log_err(cx);
+        cx.background_executor()
+            .spawn(async move { client.step_over(thread_id, granularity).await })
+            .detach_and_log_err(cx);
     }
 
     fn handle_step_in_action(&mut self, cx: &mut ViewContext<Self>) {
         let client = self.client.clone();
         let thread_id = self.thread_id;
-        let previous_status = self.current_thread_state(cx).status;
+
+        self.debug_panel.update(cx, |panel, cx| {
+            panel.update_thread_state_status(
+                &self.client.id(),
+                Some(thread_id),
+                ThreadStatus::Running,
+                None,
+                cx,
+            );
+        });
+
         let granularity = DebuggerSettings::get_global(cx).stepping_granularity();
 
-        cx.spawn(|this, cx| async move {
-            client.step_in(thread_id, granularity).await?;
-
-            Self::update_thread_state(this, previous_status, None, cx)
-        })
-        .detach_and_log_err(cx);
+        cx.background_executor()
+            .spawn(async move { client.step_in(thread_id, granularity).await })
+            .detach_and_log_err(cx);
     }
 
     fn handle_step_out_action(&mut self, cx: &mut ViewContext<Self>) {
         let client = self.client.clone();
         let thread_id = self.thread_id;
-        let previous_status = self.current_thread_state(cx).status;
+
+        self.debug_panel.update(cx, |panel, cx| {
+            panel.update_thread_state_status(
+                &self.client.id(),
+                Some(thread_id),
+                ThreadStatus::Running,
+                None,
+                cx,
+            );
+        });
+
         let granularity = DebuggerSettings::get_global(cx).stepping_granularity();
 
-        cx.spawn(|this, cx| async move {
-            client.step_out(thread_id, granularity).await?;
-
-            Self::update_thread_state(this, previous_status, None, cx)
-        })
-        .detach_and_log_err(cx);
+        cx.background_executor()
+            .spawn(async move { client.step_out(thread_id, granularity).await })
+            .detach_and_log_err(cx);
     }
 
     fn handle_restart_action(&mut self, cx: &mut ViewContext<Self>) {

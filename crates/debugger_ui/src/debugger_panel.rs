@@ -140,6 +140,30 @@ impl DebugPanel {
             .unwrap_or_default()
     }
 
+    pub fn update_thread_state_status(
+        &mut self,
+        client_id: &DebugAdapterClientId,
+        thread_id: Option<u64>,
+        status: ThreadStatus,
+        all_threads_continued: Option<bool>,
+        cx: &mut ViewContext<Self>,
+    ) {
+        if all_threads_continued.unwrap_or(false) {
+            for (_, thread_state) in self
+                .thread_states
+                .range_mut((*client_id, u64::MIN)..(*client_id, u64::MAX))
+            {
+                thread_state.status = status;
+            }
+        } else if let Some(thread_state) =
+            thread_id.and_then(|thread_id| self.thread_states.get_mut(&(*client_id, thread_id)))
+        {
+            thread_state.status = ThreadStatus::Running;
+        }
+
+        cx.notify();
+    }
+
     fn debug_client_by_id(
         &self,
         client_id: &DebugAdapterClientId,
@@ -399,22 +423,13 @@ impl DebugPanel {
         event: &ContinuedEvent,
         cx: &mut ViewContext<Self>,
     ) {
-        let all_threads = event.all_threads_continued.unwrap_or(false);
-
-        if all_threads {
-            for (_, thread_state) in self
-                .thread_states
-                .range_mut((*client_id, u64::MIN)..(*client_id, u64::MAX))
-            {
-                thread_state.status = ThreadStatus::Running;
-            }
-        } else {
-            if let Some(thread_state) = self.thread_states.get_mut(&(*client_id, event.thread_id)) {
-                thread_state.status = ThreadStatus::Running;
-            }
-        }
-
-        cx.notify();
+        self.update_thread_state_status(
+            client_id,
+            Some(event.thread_id),
+            ThreadStatus::Running,
+            event.all_threads_continued,
+            cx,
+        );
     }
 
     fn handle_stopped_event(
@@ -589,9 +604,13 @@ impl DebugPanel {
             self.thread_states
                 .insert((*client_id, thread_id), ThreadState::default());
         } else {
-            if let Some(thread_state) = self.thread_states.get_mut(&(*client_id, thread_id)) {
-                thread_state.status = ThreadStatus::Ended;
-            }
+            self.update_thread_state_status(
+                client_id,
+                Some(thread_id),
+                ThreadStatus::Ended,
+                None,
+                cx,
+            );
 
             // TODO debugger: we want to figure out for witch clients/threads we should remove the highlights
             // cx.spawn({
@@ -618,14 +637,7 @@ impl DebugPanel {
         _: &ExitedEvent,
         cx: &mut ViewContext<Self>,
     ) {
-        for (_, thread_state) in self
-            .thread_states
-            .range_mut((*client_id, u64::MIN)..(*client_id, u64::MAX))
-        {
-            thread_state.status = ThreadStatus::Exited;
-        }
-
-        cx.notify();
+        self.update_thread_state_status(client_id, None, ThreadStatus::Exited, Some(true), cx);
     }
 
     fn handle_terminated_event(
