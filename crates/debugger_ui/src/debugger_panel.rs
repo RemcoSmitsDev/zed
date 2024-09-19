@@ -426,12 +426,13 @@ impl DebugPanel {
             store.send_configuration_done(&client.id(), cx)
         });
 
-        cx.spawn(|_, _| async move {
-            send_breakpoints_task?.await?;
+        cx.background_executor()
+            .spawn(async move {
+                send_breakpoints_task?.await?;
 
-            configuration_done_task.await
-        })
-        .detach_and_log_err(cx);
+                configuration_done_task.await
+            })
+            .detach_and_log_err(cx);
     }
 
     fn handle_continued_event(
