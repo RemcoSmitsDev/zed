@@ -531,6 +531,8 @@ impl DapStore {
 
         cx.emit(DapStoreEvent::DebugClientStopped(*client_id));
 
+        self.capabilities.remove(client_id);
+
         cx.spawn(|_, _| async move {
             match debug_client {
                 DebugAdapterClientState::Starting(task) => {
