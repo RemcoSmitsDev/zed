@@ -475,9 +475,11 @@ impl DebugPanelItem {
 
         let granularity = DebuggerSettings::get_global(cx).stepping_granularity();
 
-        cx.background_executor()
-            .spawn(async move { client.step_in(thread_id, granularity).await })
-            .detach_and_log_err(cx);
+        self.dap_store.update(cx, |store, cx| {
+            store
+                .step_in(&self.client.id(), thread_id, granularity, cx)
+                .detach_and_log_err(cx);
+        });
     }
 
     fn handle_step_out_action(&mut self, cx: &mut ViewContext<Self>) {

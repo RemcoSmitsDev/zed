@@ -4,12 +4,10 @@ use anyhow::{anyhow, Context, Result};
 use crate::adapters::{build_adapter, DebugAdapter};
 use dap_types::{
     messages::{Message, Response},
-    requests::{
-        Disconnect, Request, SetBreakpoints, StepBack, StepIn, StepOut, Terminate, Variables,
-    },
+    requests::{Disconnect, Request, SetBreakpoints, StepBack, StepOut, Terminate, Variables},
     DisconnectArguments, Scope, SetBreakpointsArguments, SetBreakpointsResponse, Source,
-    SourceBreakpoint, StackFrame, StepBackArguments, StepInArguments, StepOutArguments,
-    SteppingGranularity, TerminateArguments, Variable, VariablesArguments,
+    SourceBreakpoint, StackFrame, StepBackArguments, StepOutArguments, SteppingGranularity,
+    TerminateArguments, Variable, VariablesArguments,
 };
 use futures::{AsyncBufRead, AsyncWrite};
 use gpui::{AppContext, AsyncAppContext};
@@ -232,26 +230,6 @@ impl DebugAdapterClient {
     /// Get the next sequence id to be used in a request
     pub fn next_sequence_id(&self) -> u64 {
         self.sequence_count.fetch_add(1, Ordering::Relaxed)
-    }
-
-    pub async fn step_in(&self, thread_id: u64, granularity: SteppingGranularity) -> Result<()> {
-        // TODO debugger: make this work again
-        let supports_single_thread_execution_requests = true;
-        // let supports_single_thread_execution_requests = capabilities
-        //     .supports_single_thread_execution_requests
-        //     .unwrap_or_default();
-        let supports_stepping_granularity = true;
-        // let supports_stepping_granularity = capabilities
-        //     .supports_stepping_granularity
-        //     .unwrap_or_default();
-
-        self.request::<StepIn>(StepInArguments {
-            thread_id,
-            target_id: None,
-            granularity: supports_stepping_granularity.then(|| granularity),
-            single_thread: supports_single_thread_execution_requests.then(|| true),
-        })
-        .await
     }
 
     pub async fn step_out(&self, thread_id: u64, granularity: SteppingGranularity) -> Result<()> {
