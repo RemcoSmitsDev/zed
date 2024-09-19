@@ -438,7 +438,6 @@ impl DebugPanelItem {
     }
 
     fn handle_step_over_action(&mut self, cx: &mut ViewContext<Self>) {
-        let client = self.client.clone();
         let thread_id = self.thread_id;
 
         self.debug_panel.update(cx, |panel, cx| {
@@ -453,9 +452,11 @@ impl DebugPanelItem {
 
         let granularity = DebuggerSettings::get_global(cx).stepping_granularity();
 
-        cx.background_executor()
-            .spawn(async move { client.step_over(thread_id, granularity).await })
-            .detach_and_log_err(cx);
+        self.dap_store.update(cx, |store, cx| {
+            store
+                .step_over(&self.client.id(), thread_id, granularity, cx)
+                .detach_and_log_err(cx);
+        });
     }
 
     fn handle_step_in_action(&mut self, cx: &mut ViewContext<Self>) {
