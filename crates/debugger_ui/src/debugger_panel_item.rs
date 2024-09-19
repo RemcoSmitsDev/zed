@@ -305,8 +305,10 @@ impl DebugPanelItem {
 
         let thread_state = self.current_thread_state(cx);
 
-        self.variable_list.update(cx, |variable_list, _| {
+        self.variable_list.update(cx, |variable_list, cx| {
             variable_list.build_entries(thread_state, stack_frame_id, true, false);
+
+            cx.notify();
         });
     }
 
