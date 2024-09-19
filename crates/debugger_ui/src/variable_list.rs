@@ -1,6 +1,8 @@
-use crate::debugger_panel_item::DebugPanelItem;
+use crate::{
+    debugger_panel::{ThreadState, VariableContainer},
+    debugger_panel_item::DebugPanelItem,
+};
 use dap::{
-    client::{ThreadState, VariableContainer},
     requests::{SetExpression, SetVariable, Variables},
     Scope, SetExpressionArguments, SetVariableArguments, Variable, VariablesArguments,
 };

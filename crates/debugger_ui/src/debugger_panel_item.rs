@@ -1,10 +1,8 @@
 use crate::console::Console;
-use crate::debugger_panel::{DebugPanel, DebugPanelEvent};
+use crate::debugger_panel::{DebugPanel, DebugPanelEvent, ThreadState, VariableContainer};
 use crate::variable_list::VariableList;
 
-use dap::client::{
-    DebugAdapterClient, DebugAdapterClientId, ThreadState, ThreadStatus, VariableContainer,
-};
+use dap::client::{DebugAdapterClient, DebugAdapterClientId, ThreadStatus};
 use dap::debugger_settings::DebuggerSettings;
 use dap::{Capabilities, OutputEvent, OutputEventCategory, StackFrame, StoppedEvent, ThreadEvent};
 use editor::Editor;

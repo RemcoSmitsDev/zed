@@ -5,8 +5,8 @@ use crate::adapters::{build_adapter, DebugAdapter};
 use dap_types::{
     messages::{Message, Response},
     requests::{Disconnect, Request, SetBreakpoints, Terminate, Variables},
-    DisconnectArguments, Scope, SetBreakpointsArguments, SetBreakpointsResponse, Source,
-    SourceBreakpoint, StackFrame, TerminateArguments, Variable, VariablesArguments,
+    DisconnectArguments, SetBreakpointsArguments, SetBreakpointsResponse, Source, SourceBreakpoint,
+    TerminateArguments, Variable, VariablesArguments,
 };
 use futures::{AsyncBufRead, AsyncWrite};
 use gpui::{AppContext, AsyncAppContext};
@@ -17,7 +17,6 @@ use smol::{
     process::Child,
 };
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
     hash::Hash,
     path::Path,
     sync::{
@@ -39,27 +38,6 @@ pub enum ThreadStatus {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct DebugAdapterClientId(pub usize);
-
-#[derive(Debug, Clone)]
-pub struct VariableContainer {
-    pub container_reference: u64,
-    pub variable: Variable,
-    pub depth: usize,
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct ThreadState {
-    pub status: ThreadStatus,
-    pub stack_frames: Vec<StackFrame>,
-    /// HashMap<stack_frame_id, Vec<Scope>>
-    pub scopes: HashMap<u64, Vec<Scope>>,
-    /// BTreeMap<scope.variables_reference, Vec<VariableContainer>>
-    pub variables: BTreeMap<u64, Vec<VariableContainer>>,
-    pub fetched_variable_ids: HashSet<u64>,
-    // we update this value only once we stopped,
-    // we will use this to indicated if we should show a warning when debugger thread was exited
-    pub stopped: bool,
-}
 
 pub struct DebugAdapterClient {
     id: DebugAdapterClientId,

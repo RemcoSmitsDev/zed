@@ -1,13 +1,13 @@
 use crate::debugger_panel_item::DebugPanelItem;
 use anyhow::Result;
 use dap::client::DebugAdapterClient;
-use dap::client::{DebugAdapterClientId, ThreadState, ThreadStatus, VariableContainer};
+use dap::client::{DebugAdapterClientId, ThreadStatus};
 use dap::debugger_settings::DebuggerSettings;
 use dap::messages::{Events, Message};
 use dap::requests::{Request, Scopes, StackTrace, StartDebugging};
 use dap::{
-    Capabilities, ContinuedEvent, ExitedEvent, OutputEvent, ScopesArguments, StackFrame,
-    StackTraceArguments, StoppedEvent, TerminatedEvent, ThreadEvent, ThreadEventReason,
+    Capabilities, ContinuedEvent, ExitedEvent, OutputEvent, Scope, ScopesArguments, StackFrame,
+    StackTraceArguments, StoppedEvent, TerminatedEvent, ThreadEvent, ThreadEventReason, Variable,
 };
 use editor::Editor;
 use futures::future::try_join_all;
@@ -17,7 +17,7 @@ use gpui::{
 };
 use project::dap_store::DapStore;
 use settings::Settings;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::u64;
@@ -39,6 +39,27 @@ pub enum DebugPanelEvent {
 }
 
 actions!(debug_panel, [ToggleFocus]);
+
+#[derive(Debug, Clone)]
+pub struct VariableContainer {
+    pub container_reference: u64,
+    pub variable: Variable,
+    pub depth: usize,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct ThreadState {
+    pub status: ThreadStatus,
+    pub stack_frames: Vec<StackFrame>,
+    /// HashMap<stack_frame_id, Vec<Scope>>
+    pub scopes: HashMap<u64, Vec<Scope>>,
+    /// BTreeMap<scope.variables_reference, Vec<VariableContainer>>
+    pub variables: BTreeMap<u64, Vec<VariableContainer>>,
+    pub fetched_variable_ids: HashSet<u64>,
+    // we update this value only once we stopped,
+    // we will use this to indicated if we should show a warning when debugger thread was exited
+    pub stopped: bool,
+}
 
 pub struct DebugPanel {
     size: Pixels,
