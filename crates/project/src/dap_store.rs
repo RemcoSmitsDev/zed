@@ -4,13 +4,13 @@ use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 use dap::messages::Message;
 use dap::requests::{
     Attach, ConfigurationDone, Continue, Disconnect, Initialize, Launch, Next, Pause, StepIn,
-    TerminateThreads,
+    StepOut, TerminateThreads,
 };
 use dap::{
     AttachRequestArguments, Capabilities, ConfigurationDoneArguments, ContinueArguments,
     DisconnectArguments, InitializeRequestArguments, InitializeRequestArgumentsPathFormat,
     LaunchRequestArguments, NextArguments, PauseArguments, SourceBreakpoint, StepInArguments,
-    SteppingGranularity, TerminateThreadsArguments,
+    StepOutArguments, SteppingGranularity, TerminateThreadsArguments,
 };
 use gpui::{AppContext, Context, EventEmitter, Global, Model, ModelContext, Task};
 use language::{Buffer, BufferSnapshot};
@@ -374,6 +374,37 @@ impl DapStore {
                     granularity: supports_stepping_granularity.then(|| granularity),
                     single_thread: supports_single_thread_execution_requests.then(|| true),
                     target_id: None,
+                })
+                .await
+        })
+    }
+
+    pub fn step_out(
+        &mut self,
+        client_id: &DebugAdapterClientId,
+        thread_id: u64,
+        granularity: SteppingGranularity,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<()>> {
+        let Some(client) = self.client_by_id(client_id) else {
+            return Task::ready(Err(anyhow!("Could not found client")));
+        };
+
+        let capabilities = self.capabilities_by_id(client_id);
+
+        let supports_single_thread_execution_requests = capabilities
+            .supports_single_thread_execution_requests
+            .unwrap_or_default();
+        let supports_stepping_granularity = capabilities
+            .supports_stepping_granularity
+            .unwrap_or_default();
+
+        cx.spawn(|_, _| async move {
+            client
+                .request::<StepOut>(StepOutArguments {
+                    thread_id,
+                    granularity: supports_stepping_granularity.then(|| granularity),
+                    single_thread: supports_single_thread_execution_requests.then(|| true),
                 })
                 .await
         })
