@@ -10,7 +10,7 @@ use dap::{Capabilities, OutputEvent, OutputEventCategory, StackFrame, StoppedEve
 use editor::Editor;
 use gpui::{
     impl_actions, list, AnyElement, AppContext, EventEmitter, FocusHandle, FocusableView,
-    ListState, Subscription, View, WeakModel, WeakView,
+    ListState, Model, Subscription, View, WeakView,
 };
 use project::dap_store::DapStore;
 use serde::Deserialize;
@@ -18,7 +18,6 @@ use settings::Settings;
 use std::sync::Arc;
 use ui::WindowContext;
 use ui::{prelude::*, Tooltip};
-use util::ResultExt;
 use workspace::dock::Panel;
 use workspace::item::{Item, ItemEvent};
 use workspace::Workspace;
@@ -38,11 +37,11 @@ pub struct DebugPanelItem {
     thread_id: u64,
     console: View<Console>,
     focus_handle: FocusHandle,
+    dap_store: Model<DapStore>,
     stack_frame_list: ListState,
     output_editor: View<Editor>,
     current_stack_frame_id: u64,
     debug_panel: View<DebugPanel>,
-    dap_store: WeakModel<DapStore>,
     active_thread_item: ThreadItem,
     workspace: WeakView<Workspace>,
     client: Arc<DebugAdapterClient>,
@@ -78,7 +77,7 @@ impl DebugPanelItem {
     pub fn new(
         debug_panel: View<DebugPanel>,
         workspace: WeakView<Workspace>,
-        dap_store: WeakModel<DapStore>,
+        dap_store: Model<DapStore>,
         client: Arc<DebugAdapterClient>,
         thread_id: u64,
         current_stack_frame_id: u64,
@@ -279,7 +278,6 @@ impl DebugPanelItem {
     pub fn capabilities(&self, cx: &mut ViewContext<Self>) -> Capabilities {
         self.dap_store
             .read_with(cx, |store, _| store.capabilities_by_id(&self.client.id()))
-            .unwrap()
     }
 
     fn stack_frame_for_index(&self, ix: usize, cx: &mut ViewContext<Self>) -> StackFrame {
@@ -432,13 +430,11 @@ impl DebugPanelItem {
             );
         });
 
-        self.dap_store
-            .update(cx, |store, cx| {
-                store
-                    .continue_thread(&self.client.id(), thread_id, cx)
-                    .detach_and_log_err(cx);
-            })
-            .log_err();
+        self.dap_store.update(cx, |store, cx| {
+            store
+                .continue_thread(&self.client.id(), thread_id, cx)
+                .detach_and_log_err(cx);
+        });
     }
 
     fn handle_step_over_action(&mut self, cx: &mut ViewContext<Self>) {
@@ -505,43 +501,35 @@ impl DebugPanelItem {
     }
 
     fn handle_restart_action(&mut self, cx: &mut ViewContext<Self>) {
-        self.dap_store
-            .update(cx, |store, cx| {
-                store
-                    .restart(&self.client.id(), None, cx)
-                    .detach_and_log_err(cx);
-            })
-            .log_err();
+        self.dap_store.update(cx, |store, cx| {
+            store
+                .restart(&self.client.id(), None, cx)
+                .detach_and_log_err(cx);
+        });
     }
 
     fn handle_pause_action(&mut self, cx: &mut ViewContext<Self>) {
-        self.dap_store
-            .update(cx, |store, cx| {
-                store
-                    .pause_thread(&self.client.id(), self.thread_id, cx)
-                    .detach_and_log_err(cx)
-            })
-            .log_err();
+        self.dap_store.update(cx, |store, cx| {
+            store
+                .pause_thread(&self.client.id(), self.thread_id, cx)
+                .detach_and_log_err(cx)
+        });
     }
 
     fn handle_stop_action(&mut self, cx: &mut ViewContext<Self>) {
-        self.dap_store
-            .update(cx, |store, cx| {
-                store
-                    .terminate_threads(&self.client.id(), Some(vec![self.thread_id; 1]), cx)
-                    .detach_and_log_err(cx)
-            })
-            .log_err();
+        self.dap_store.update(cx, |store, cx| {
+            store
+                .terminate_threads(&self.client.id(), Some(vec![self.thread_id; 1]), cx)
+                .detach_and_log_err(cx)
+        });
     }
 
     fn handle_disconnect_action(&mut self, cx: &mut ViewContext<Self>) {
-        self.dap_store
-            .update(cx, |store, cx| {
-                store
-                    .disconnect_client(&self.client.id(), cx)
-                    .detach_and_log_err(cx);
-            })
-            .log_err();
+        self.dap_store.update(cx, |store, cx| {
+            store
+                .disconnect_client(&self.client.id(), cx)
+                .detach_and_log_err(cx);
+        });
     }
 }
 
