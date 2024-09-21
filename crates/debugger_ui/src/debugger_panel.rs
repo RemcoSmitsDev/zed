@@ -119,6 +119,11 @@ impl DebugPanel {
                         }
                         project::Event::DebugClientStopped(client_id) => {
                             cx.emit(DebugPanelEvent::ClientStopped(*client_id));
+
+                            this.thread_states
+                                .retain(|&(client_id_, _), _| client_id_ != *client_id);
+
+                            cx.notify();
                         }
                         _ => {}
                     }
