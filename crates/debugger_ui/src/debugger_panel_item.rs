@@ -13,6 +13,7 @@ use gpui::{
 use project::dap_store::DapStore;
 use serde::Deserialize;
 use settings::Settings;
+use task::DebugAdapterKind;
 use ui::WindowContext;
 use ui::{prelude::*, Tooltip};
 use workspace::dock::Panel;
@@ -38,6 +39,7 @@ pub struct DebugPanelItem {
     stack_frame_list: ListState,
     output_editor: View<Editor>,
     current_stack_frame_id: u64,
+    client_kind: DebugAdapterKind,
     debug_panel: View<DebugPanel>,
     active_thread_item: ThreadItem,
     workspace: WeakView<Workspace>,
@@ -79,6 +81,7 @@ impl DebugPanelItem {
         dap_store: Model<DapStore>,
         thread_state: Model<ThreadState>,
         client_id: &DebugAdapterClientId,
+        client_kind: &DebugAdapterKind,
         thread_id: u64,
         current_stack_frame_id: u64,
         cx: &mut ViewContext<Self>,
@@ -158,6 +161,7 @@ impl DebugPanelItem {
             stack_frame_list,
             client_id: *client_id,
             current_stack_frame_id,
+            client_kind: client_kind.clone(),
             active_thread_item: ThreadItem::Variables,
         }
     }
@@ -535,9 +539,7 @@ impl Item for DebugPanelItem {
     ) -> AnyElement {
         Label::new(format!(
             "{:?} - Thread {}",
-            // self.client.config().kind,
-            "asdjkl",
-            self.thread_id
+            self.client_kind, self.thread_id
         ))
         .color(if params.selected {
             Color::Default
@@ -550,8 +552,7 @@ impl Item for DebugPanelItem {
     fn tab_tooltip_text(&self, cx: &AppContext) -> Option<SharedString> {
         Some(SharedString::from(format!(
             "{:?} Thread {} - {:?}",
-            // self.client.config().kind,
-            "asdjkl",
+            self.client_kind,
             self.thread_id,
             self.thread_state.read(cx).status,
         )))

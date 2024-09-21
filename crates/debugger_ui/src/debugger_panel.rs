@@ -459,6 +459,15 @@ impl DebugPanel {
             return;
         };
 
+        let Some(client_kind) = self
+            .dap_store
+            .read(cx)
+            .client_by_id(client_id)
+            .map(|c| c.config().kind)
+        else {
+            return; // this can never happen
+        };
+
         let client_id = *client_id;
 
         cx.spawn({
@@ -572,6 +581,7 @@ impl DebugPanel {
                                     this.dap_store.clone(),
                                     thread_state.clone(),
                                     &client_id,
+                                    &client_kind,
                                     thread_id,
                                     current_stack_frame.clone().id,
                                     cx,
