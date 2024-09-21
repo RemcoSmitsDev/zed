@@ -4,14 +4,14 @@ use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 use dap::messages::Message;
 use dap::requests::{
     Attach, ConfigurationDone, Continue, Disconnect, Initialize, Launch, Next, Pause,
-    SetExpression, SetVariable, StepIn, StepOut, TerminateThreads, Variables,
+    SetBreakpoints, SetExpression, SetVariable, StepIn, StepOut, TerminateThreads, Variables,
 };
 use dap::{
     AttachRequestArguments, Capabilities, ConfigurationDoneArguments, ContinueArguments,
     DisconnectArguments, InitializeRequestArguments, InitializeRequestArgumentsPathFormat,
-    LaunchRequestArguments, NextArguments, PauseArguments, SetExpressionArguments,
-    SetVariableArguments, SourceBreakpoint, StepInArguments, StepOutArguments, SteppingGranularity,
-    TerminateThreadsArguments, Variable, VariablesArguments,
+    LaunchRequestArguments, NextArguments, PauseArguments, SetBreakpointsArguments,
+    SetExpressionArguments, SetVariableArguments, Source, SourceBreakpoint, StepInArguments,
+    StepOutArguments, SteppingGranularity, TerminateThreadsArguments, Variable, VariablesArguments,
 };
 use gpui::{AppContext, Context, EventEmitter, Global, Model, ModelContext, Task};
 use language::{Buffer, BufferSnapshot};
@@ -270,7 +270,7 @@ impl DapStore {
                 }
             }
 
-            anyhow::Ok(())
+            Ok(())
         })
     }
 
@@ -638,7 +638,42 @@ impl DapStore {
             breakpoint_set.insert(breakpoint);
         }
 
-        self.send_changed_breakpoints(project_path, buffer_path, buffer_snapshot, cx);
+        self.send_changed_breakpoints(project_path, buffer_path, buffer_snapshot, cx)
+            .detach();
+    }
+
+    pub fn send_breakpoints(
+        &self,
+        client_id: &DebugAdapterClientId,
+        absolute_file_path: Arc<Path>,
+        breakpoints: Vec<SourceBreakpoint>,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<()>> {
+        let Some(client) = self.client_by_id(client_id) else {
+            return Task::ready(Err(anyhow!("Could not found client")));
+        };
+
+        cx.spawn(|_, _| async move {
+            client
+                .request::<SetBreakpoints>(SetBreakpointsArguments {
+                    source: Source {
+                        path: Some(String::from(absolute_file_path.to_string_lossy())),
+                        name: None,
+                        source_reference: None,
+                        presentation_hint: None,
+                        origin: None,
+                        sources: None,
+                        adapter_data: None,
+                        checksums: None,
+                    },
+                    breakpoints: Some(breakpoints),
+                    source_modified: None,
+                    lines: None,
+                })
+                .await?;
+
+            Ok(())
+        })
     }
 
     pub fn send_changed_breakpoints(
@@ -647,15 +682,15 @@ impl DapStore {
         buffer_path: PathBuf,
         buffer_snapshot: BufferSnapshot,
         cx: &mut ModelContext<Self>,
-    ) {
+    ) -> Task<()> {
         let clients = self.running_clients().collect::<Vec<_>>();
 
         if clients.is_empty() {
-            return;
+            return Task::ready(());
         }
 
         let Some(breakpoints) = self.breakpoints.get(project_path) else {
-            return;
+            return Task::ready(());
         };
 
         let source_breakpoints = breakpoints
@@ -665,18 +700,17 @@ impl DapStore {
 
         let mut tasks = Vec::new();
         for client in clients {
-            let buffer_path = buffer_path.clone();
-            let source_breakpoints = source_breakpoints.clone();
-            tasks.push(async move {
-                client
-                    .set_breakpoints(Arc::from(buffer_path), source_breakpoints)
-                    .await
-            });
+            tasks.push(self.send_breakpoints(
+                &client.id(),
+                Arc::from(buffer_path.clone()),
+                source_breakpoints.clone(),
+                cx,
+            ))
         }
 
-        cx.background_executor()
-            .spawn(async move { futures::future::join_all(tasks).await })
-            .detach()
+        cx.background_executor().spawn(async move {
+            futures::future::join_all(tasks).await;
+        })
     }
 }
 

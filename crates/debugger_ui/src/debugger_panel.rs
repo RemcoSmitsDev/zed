@@ -411,9 +411,9 @@ impl DebugPanel {
         }
 
         let send_breakpoints_task = self.workspace.update(cx, |workspace, cx| {
-            workspace.project().update(cx, |project, cx| {
-                project.send_breakpoints(client.clone(), cx)
-            })
+            workspace
+                .project()
+                .update(cx, |project, cx| project.send_breakpoints(&client_id, cx))
         });
 
         let configuration_done_task = self.dap_store.update(cx, |store, cx| {
@@ -422,7 +422,7 @@ impl DebugPanel {
 
         cx.background_executor()
             .spawn(async move {
-                send_breakpoints_task?.await?;
+                send_breakpoints_task?.await;
 
                 configuration_done_task.await
             })

@@ -1105,29 +1105,24 @@ impl Project {
 
     pub fn send_breakpoints(
         &self,
-        client: Arc<DebugAdapterClient>,
+        client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
-    ) -> Task<Result<()>> {
-        cx.spawn(|project, mut cx| async move {
-            let task = project.update(&mut cx, |project, cx| {
-                let mut tasks = Vec::new();
+    ) -> Task<()> {
+        let mut tasks = Vec::new();
 
-                for (abs_path, serialized_breakpoints) in project.all_breakpoints(true, cx) {
-                    let source_breakpoints = serialized_breakpoints
-                        .iter()
-                        .map(|bp| bp.to_source_breakpoint())
-                        .collect::<Vec<_>>();
+        for (abs_path, serialized_breakpoints) in self.all_breakpoints(true, cx) {
+            let source_breakpoints = serialized_breakpoints
+                .iter()
+                .map(|bp| bp.to_source_breakpoint())
+                .collect::<Vec<_>>();
 
-                    tasks
-                        .push(client.set_breakpoints(abs_path.clone(), source_breakpoints.clone()));
-                }
+            tasks.push(self.dap_store.update(cx, |store, cx| {
+                store.send_breakpoints(client_id, abs_path, source_breakpoints, cx)
+            }));
+        }
 
-                join_all(tasks)
-            })?;
-
-            task.await;
-
-            Ok(())
+        cx.background_executor().spawn(async move {
+            join_all(tasks).await;
         })
     }
 

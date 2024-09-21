@@ -4,9 +4,8 @@ use anyhow::{anyhow, Context, Result};
 use crate::adapters::{build_adapter, DebugAdapter};
 use dap_types::{
     messages::{Message, Response},
-    requests::{Disconnect, Request, SetBreakpoints, Terminate, Variables},
-    DisconnectArguments, SetBreakpointsArguments, SetBreakpointsResponse, Source, SourceBreakpoint,
-    TerminateArguments, Variable, VariablesArguments,
+    requests::{Disconnect, Request, Terminate, Variables},
+    DisconnectArguments, TerminateArguments, Variable, VariablesArguments,
 };
 use futures::{AsyncBufRead, AsyncWrite};
 use gpui::{AppContext, AsyncAppContext};
@@ -18,7 +17,6 @@ use smol::{
 };
 use std::{
     hash::Hash,
-    path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
@@ -207,29 +205,6 @@ impl DebugAdapterClient {
     /// Get the next sequence id to be used in a request
     pub fn next_sequence_id(&self) -> u64 {
         self.sequence_count.fetch_add(1, Ordering::Relaxed)
-    }
-
-    pub async fn set_breakpoints(
-        &self,
-        absolute_file_path: Arc<Path>,
-        breakpoints: Vec<SourceBreakpoint>,
-    ) -> Result<SetBreakpointsResponse> {
-        self.request::<SetBreakpoints>(SetBreakpointsArguments {
-            source: Source {
-                path: Some(String::from(absolute_file_path.to_string_lossy())),
-                name: None,
-                source_reference: None,
-                presentation_hint: None,
-                origin: None,
-                sources: None,
-                adapter_data: None,
-                checksums: None,
-            },
-            breakpoints: Some(breakpoints),
-            source_modified: None,
-            lines: None,
-        })
-        .await
     }
 
     pub async fn shutdown(&self) -> Result<()> {
