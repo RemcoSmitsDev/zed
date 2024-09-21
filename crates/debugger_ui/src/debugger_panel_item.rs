@@ -1,5 +1,5 @@
 use crate::console::Console;
-use crate::debugger_panel::{DebugPanel, DebugPanelEvent, ThreadState, VariableContainer};
+use crate::debugger_panel::{DebugPanel, DebugPanelEvent, ThreadState};
 use crate::variable_list::VariableList;
 
 use dap::client::{DebugAdapterClientId, ThreadStatus};
@@ -276,10 +276,6 @@ impl DebugPanelItem {
         self.thread_id
     }
 
-    pub fn current_stack_frame_id(&self) -> u64 {
-        self.current_stack_frame_id
-    }
-
     pub fn capabilities(&self, cx: &mut ViewContext<Self>) -> Capabilities {
         self.dap_store
             .read_with(cx, |store, _| store.capabilities_by_id(&self.client_id))
@@ -299,7 +295,7 @@ impl DebugPanelItem {
 
         self.variable_list.update(cx, |variable_list, cx| {
             variable_list.update_stack_frame_id(stack_frame_id, cx);
-            variable_list.build_entries(stack_frame_id, true, false, cx);
+            variable_list.build_entries(true, false, cx);
         });
 
         cx.notify();

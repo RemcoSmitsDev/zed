@@ -140,7 +140,7 @@ impl VariableList {
             }
         };
 
-        self.build_entries(self.stack_frame_id, false, true, cx);
+        self.build_entries(false, true, cx);
         cx.notify();
     }
 
@@ -152,14 +152,13 @@ impl VariableList {
 
     pub fn build_entries(
         &mut self,
-        stack_frame_id: u64,
         open_first_scope: bool,
         keep_open_entries: bool,
         cx: &mut ViewContext<Self>,
     ) {
         let thread_state = self.thread_state.read(cx);
 
-        let Some(scopes) = thread_state.scopes.get(&stack_frame_id) else {
+        let Some(scopes) = thread_state.scopes.get(&self.stack_frame_id) else {
             return;
         };
 
@@ -237,7 +236,7 @@ impl VariableList {
         }
 
         let len = entries.len();
-        self.entries.insert(stack_frame_id, entries);
+        self.entries.insert(self.stack_frame_id, entries);
         self.list.reset(len);
 
         cx.notify();
@@ -300,9 +299,7 @@ impl VariableList {
                             editor.focus(cx);
                         });
 
-                        this.build_entries(stack_frame_id, false, true, cx);
-
-                        cx.notify();
+                        this.build_entries(false, true, cx);
                     }),
                 )
             })
@@ -328,8 +325,7 @@ impl VariableList {
             return;
         };
 
-        self.build_entries(self.stack_frame_id, false, true, cx);
-        cx.notify();
+        self.build_entries(false, true, cx);
     }
 
     fn set_variable_value(&mut self, _: &Confirm, cx: &mut ViewContext<Self>) {
@@ -345,7 +341,7 @@ impl VariableList {
             return cx.notify();
         };
 
-        if new_variable_value == state.value {
+        if new_variable_value == state.value || state.stack_frame_id != self.stack_frame_id {
             return cx.notify();
         }
 
@@ -374,7 +370,7 @@ impl VariableList {
             set_value_task?.await?;
 
             let Some(scope_variables) = this.update(&mut cx, |this, cx| {
-                this.thread_state.update(cx, |thread_state, cx| {
+                this.thread_state.update(cx, |thread_state, _| {
                     thread_state.variables.remove(&scope.variables_reference)
                 })
             })?
@@ -424,7 +420,7 @@ impl VariableList {
                     cx.notify();
                 });
 
-                this.build_entries(stack_frame_id, false, true, cx);
+                this.build_entries(false, true, cx);
             })
         })
         .detach_and_log_err(cx);
