@@ -360,10 +360,6 @@ impl VariableList {
         let name = state.name;
         let evaluate_name = state.evaluate_name;
         let stack_frame_id = state.stack_frame_id;
-        let supports_set_expression = self
-            .capabilities
-            .supports_set_expression
-            .unwrap_or_default();
 
         cx.spawn(|this, mut cx| async move {
             let set_value_task = this.update(&mut cx, |this, cx| {
@@ -395,8 +391,8 @@ impl VariableList {
                 let mut tasks = Vec::new();
 
                 for variable_container in scope_variables {
-                    let fetch_variable_task = this.dap_store.update(cx, |store, cx| {
-                        store.variables(&client_id, variables_reference, cx)
+                    let fetch_variables_task = this.dap_store.update(cx, |store, cx| {
+                        store.variables(&client_id, variable_container.container_reference, cx)
                     });
 
                     tasks.push(async move {
@@ -404,7 +400,7 @@ impl VariableList {
                         let container_reference = variable_container.container_reference;
 
                         anyhow::Ok(
-                            fetch_variable_task
+                            fetch_variables_task
                                 .await?
                                 .into_iter()
                                 .map(move |variable| VariableContainer {
@@ -424,10 +420,11 @@ impl VariableList {
 
             this.update(&mut cx, |this, cx| {
                 this.thread_state.update(cx, |thread_state, cx| {
-                    thread_state.variables.insert(
-                        scope.variables_reference,
-                        updated_variables.into_iter().flatten().collect(),
-                    );
+                    for variables in updated_variables {
+                        thread_state
+                            .variables
+                            .insert(scope.variables_reference, variables);
+                    }
 
                     cx.notify();
                 });
