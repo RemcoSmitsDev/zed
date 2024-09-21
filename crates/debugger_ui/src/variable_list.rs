@@ -71,6 +71,7 @@ impl VariableList {
         capabilities: &Capabilities,
         stack_frame_id: u64,
         cx: &mut ViewContext<Self>,
+    ) -> Self {
         let weakview = cx.view().downgrade();
         let focus_handle = cx.focus_handle();
 
@@ -351,100 +352,99 @@ impl VariableList {
             return;
         }
 
-        let (mut thread_state, client_id) = self.debug_panel_item.update(cx, |panel, cx| {
-            (panel.current_thread_state(cx), panel.client_id())
-        });
+        // let thread_state = self.thread_state;
+        // let client_id = self.client_id;
 
-        let variables_reference = state.parent_variables_reference;
-        let scope = state.scope;
-        let name = state.name;
-        let evaluate_name = state.evaluate_name;
-        let stack_frame_id = state.stack_frame_id;
-        let supports_set_expression = self.debug_panel_item.update(cx, |panel, cx| {
-            panel
-                .capabilities(cx)
-                .supports_set_expression
-                .unwrap_or_default()
-        });
+        // let variables_reference = state.parent_variables_reference;
+        // let scope = state.scope;
+        // let name = state.name;
+        // let evaluate_name = state.evaluate_name;
+        // let stack_frame_id = state.stack_frame_id;
+        // let supports_set_expression = self
+        //     .capabilities
+        //     .supports_set_expression
+        //     .unwrap_or_default();
 
-        cx.spawn(|this, mut cx| async move {
-            if let Some(evaluate_name) = supports_set_expression.then(|| evaluate_name).flatten() {
-                client
-                    .request::<SetExpression>(SetExpressionArguments {
-                        expression: evaluate_name,
-                        value: new_variable_value,
-                        frame_id: Some(stack_frame_id),
-                        format: None,
-                    })
-                    .await?;
-            } else {
-                client
-                    .request::<SetVariable>(SetVariableArguments {
-                        variables_reference,
-                        name,
-                        value: new_variable_value,
-                        format: None,
-                    })
-                    .await?;
-            }
+        // cx.spawn(|this, mut cx| async move {
+        //     if let Some(evaluate_name) = supports_set_expression.then(|| evaluate_name).flatten() {
+        //         client
+        //             .request::<SetExpression>(SetExpressionArguments {
+        //                 expression: evaluate_name,
+        //                 value: new_variable_value,
+        //                 frame_id: Some(stack_frame_id),
+        //                 format: None,
+        //             })
+        //             .await?;
+        //     } else {
+        //         client
+        //             .request::<SetVariable>(SetVariableArguments {
+        //                 variables_reference,
+        //                 name,
+        //                 value: new_variable_value,
+        //                 format: None,
+        //             })
+        //             .await?;
+        //     }
 
-            let Some(scope_variables) = thread_state.variables.remove(&scope.variables_reference)
-            else {
-                return anyhow::Ok(());
-            };
+        //     let Some(scope_variables) = thread_state.variables.remove(&scope.variables_reference)
+        //     else {
+        //         return anyhow::Ok(());
+        //     };
 
-            let mut tasks = Vec::new();
+        //     let mut tasks = Vec::new();
 
-            for variable_container in scope_variables {
-                let client = client.clone();
-                tasks.push(async move {
-                    let variables = client
-                        .request::<Variables>(VariablesArguments {
-                            variables_reference: variable_container.container_reference,
-                            filter: None,
-                            start: None,
-                            count: None,
-                            format: None,
-                        })
-                        .await?
-                        .variables;
+        //     for variable_container in scope_variables {
+        //         let client = client.clone();
+        //         tasks.push(async move {
+        //             let variables = client
+        //                 .request::<Variables>(VariablesArguments {
+        //                     variables_reference: variable_container.container_reference,
+        //                     filter: None,
+        //                     start: None,
+        //                     count: None,
+        //                     format: None,
+        //                 })
+        //                 .await?
+        //                 .variables;
 
-                    let depth = variable_container.depth;
-                    let container_reference = variable_container.container_reference;
+        //             let depth = variable_container.depth;
+        //             let container_reference = variable_container.container_reference;
 
-                    anyhow::Ok(
-                        variables
-                            .into_iter()
-                            .map(move |variable| VariableContainer {
-                                container_reference,
-                                variable,
-                                depth,
-                            })
-                            .collect::<Vec<_>>(),
-                    )
-                });
-            }
+        //             anyhow::Ok(
+        //                 variables
+        //                     .into_iter()
+        //                     .map(move |variable| VariableContainer {
+        //                         container_reference,
+        //                         variable,
+        //                         depth,
+        //                     })
+        //                     .collect::<Vec<_>>(),
+        //             )
+        //         });
+        //     }
 
-            let updated_variables = try_join_all(tasks).await?;
+        //     let updated_variables = try_join_all(tasks).await?;
 
-            this.update(&mut cx, |this, cx| {
-                let thread_state = this.debug_panel_item.update(cx, |panel, cx| {
-                    let thread_state = panel.current_thread_state(cx);
+        //     this.update(&mut cx, |this, cx| {
+        //         let thread_state = this.debug_panel_item.update(cx, |panel, cx| {
+        //             let thread_state = panel.current_thread_state(cx);
 
-                    panel.insert_variables(
-                        scope.variables_reference,
-                        updated_variables.into_iter().flatten().collect(),
-                        cx,
-                    );
+        //             panel.insert_variables(
+        //                 scope.variables_reference,
+        //                 updated_variables.into_iter().flatten().collect(),
+        //                 cx,
+        //             );
 
-                    thread_state
-                });
+        //             cx.notify();
 
-                this.build_entries(thread_state, stack_frame_id, false, true);
-                cx.notify();
-            })
-        })
-        .detach_and_log_err(cx);
+        //             thread_state
+        //         });
+
+        //         this.build_entries(thread_state, stack_frame_id, false, true);
+        //         cx.notify();
+        //     })
+        // })
+        // .detach_and_log_err(cx);
     }
 
     fn render_set_variable_editor(
@@ -525,54 +525,54 @@ impl VariableList {
                             };
 
                             if let VariableListEntry::Variable { scope, depth, .. } = entry {
-                                let variable_id = variable_id.clone();
-                                let client = debug_panel_item.client();
-                                let scope = scope.clone();
-                                let depth = *depth;
+                                // let variable_id = variable_id.clone();
+                                // let client = debug_panel_item.client();
+                                // let scope = scope.clone();
+                                // let depth = *depth;
 
-                                cx.spawn(|this, mut cx| async move {
-                                    let new_variables =
-                                        client.variables(variable_reference).await?;
+                                // cx.spawn(|this, mut cx| async move {
+                                //     let new_variables =
+                                //         client.variables(variable_reference).await?;
 
-                                    this.update(&mut cx, |this, cx| {
-                                        this.debug_panel_item.update(cx, |panel, cx| {
-                                            let mut thread_state = panel.current_thread_state(cx);
+                                //     this.update(&mut cx, |this, cx| {
+                                //         this.debug_panel_item.update(cx, |panel, cx| {
+                                //             let mut thread_state = panel.current_thread_state(cx);
 
-                                            let Some(variables) = thread_state
-                                                .variables
-                                                .get_mut(&scope.variables_reference)
-                                            else {
-                                                return;
-                                            };
+                                //             let Some(variables) = thread_state
+                                //                 .variables
+                                //                 .get_mut(&scope.variables_reference)
+                                //             else {
+                                //                 return;
+                                //             };
 
-                                            let position = variables.iter().position(|v| {
-                                                variable_entry_id(&scope, &v.variable, v.depth)
-                                                    == variable_id
-                                            });
+                                //             let position = variables.iter().position(|v| {
+                                //                 variable_entry_id(&scope, &v.variable, v.depth)
+                                //                     == variable_id
+                                //             });
 
-                                            if let Some(position) = position {
-                                                variables.splice(
-                                                    position + 1..position + 1,
-                                                    new_variables.clone().into_iter().map(
-                                                        |variable| VariableContainer {
-                                                            container_reference: variable_reference,
-                                                            variable,
-                                                            depth: depth + 1,
-                                                        },
-                                                    ),
-                                                );
+                                //             if let Some(position) = position {
+                                //                 variables.splice(
+                                //                     position + 1..position + 1,
+                                //                     new_variables.clone().into_iter().map(
+                                //                         |variable| VariableContainer {
+                                //                             container_reference: variable_reference,
+                                //                             variable,
+                                //                             depth: depth + 1,
+                                //                         },
+                                //                     ),
+                                //                 );
 
-                                                thread_state
-                                                    .fetched_variable_ids
-                                                    .insert(variable_reference);
-                                            }
-                                        });
+                                //                 thread_state
+                                //                     .fetched_variable_ids
+                                //                     .insert(variable_reference);
+                                //             }
+                                //         });
 
-                                        this.toggle_entry_collapsed(&variable_id, cx);
-                                        cx.notify();
-                                    })
-                                })
-                                .detach_and_log_err(cx);
+                                //         this.toggle_entry_collapsed(&variable_id, cx);
+                                //         cx.notify();
+                                //     })
+                                // })
+                                // .detach_and_log_err(cx);
                             }
                         }
                     }))

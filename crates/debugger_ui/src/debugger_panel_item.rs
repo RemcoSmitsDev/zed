@@ -553,7 +553,8 @@ impl Item for DebugPanelItem {
     ) -> AnyElement {
         Label::new(format!(
             "{:?} - Thread {}",
-            self.client.config().kind,
+            // self.client.config().kind,
+            "asdjkl",
             self.thread_id
         ))
         .color(if params.selected {
@@ -568,7 +569,8 @@ impl Item for DebugPanelItem {
         // TODO debugger: allow showing current thread status
         Some(SharedString::from(format!(
             "{:?} Thread {}",
-            self.client.config().kind,
+            // self.client.config().kind,
+            "asdjkl",
             self.thread_id,
             // self.current_thread_state(cx).status
         )))
