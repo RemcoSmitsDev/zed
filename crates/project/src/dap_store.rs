@@ -3,15 +3,17 @@ use collections::{HashMap, HashSet};
 use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 use dap::messages::Message;
 use dap::requests::{
-    Attach, ConfigurationDone, Continue, Disconnect, Initialize, Launch, Next, Pause,
-    SetBreakpoints, SetExpression, SetVariable, StepIn, StepOut, TerminateThreads, Variables,
+    Attach, ConfigurationDone, Continue, Disconnect, Initialize, Launch, Next, Pause, Scopes,
+    SetBreakpoints, SetExpression, SetVariable, StackTrace, StepIn, StepOut, TerminateThreads,
+    Variables,
 };
 use dap::{
     AttachRequestArguments, Capabilities, ConfigurationDoneArguments, ContinueArguments,
     DisconnectArguments, InitializeRequestArguments, InitializeRequestArgumentsPathFormat,
-    LaunchRequestArguments, NextArguments, PauseArguments, SetBreakpointsArguments,
-    SetExpressionArguments, SetVariableArguments, Source, SourceBreakpoint, StepInArguments,
-    StepOutArguments, SteppingGranularity, TerminateThreadsArguments, Variable, VariablesArguments,
+    LaunchRequestArguments, NextArguments, PauseArguments, Scope, ScopesArguments,
+    SetBreakpointsArguments, SetExpressionArguments, SetVariableArguments, Source,
+    SourceBreakpoint, StackFrame, StackTraceArguments, StepInArguments, StepOutArguments,
+    SteppingGranularity, TerminateThreadsArguments, Variable, VariablesArguments,
 };
 use gpui::{AppContext, Context, EventEmitter, Global, Model, ModelContext, Task};
 use language::{Buffer, BufferSnapshot};
@@ -271,6 +273,49 @@ impl DapStore {
             }
 
             Ok(())
+        })
+    }
+
+    pub fn stack_frames(
+        &mut self,
+        client_id: &DebugAdapterClientId,
+        thread_id: u64,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<Vec<StackFrame>>> {
+        let Some(client) = self.client_by_id(client_id) else {
+            return Task::ready(Err(anyhow!("Client was not found")));
+        };
+
+        cx.spawn(|_, _| async move {
+            Ok(client
+                .request::<StackTrace>(StackTraceArguments {
+                    thread_id,
+                    start_frame: None,
+                    levels: None,
+                    format: None,
+                })
+                .await?
+                .stack_frames)
+        })
+    }
+
+    pub fn scopes(
+        &mut self,
+        client_id: &DebugAdapterClientId,
+        stack_frame_id: u64,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<Vec<Scope>>> {
+        let Some(client) = self.client_by_id(client_id) else {
+            return Task::ready(Err(anyhow!("Client was not found")));
+        };
+
+        cx.spawn(|_, _| async move {
+            Ok(client
+                .request::<Scopes>(ScopesArguments {
+                    frame_id: stack_frame_id,
+                })
+                .await?
+                .scopes)
         })
     }
 

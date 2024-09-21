@@ -78,7 +78,7 @@ impl DebugPanelItem {
         workspace: WeakView<Workspace>,
         dap_store: Model<DapStore>,
         thread_state: Model<ThreadState>,
-        client_id: DebugAdapterClientId,
+        client_id: &DebugAdapterClientId,
         thread_id: u64,
         current_stack_frame_id: u64,
         cx: &mut ViewContext<Self>,
@@ -146,7 +146,6 @@ impl DebugPanelItem {
 
         Self {
             console,
-            client_id,
             thread_id,
             dap_store,
             workspace,
@@ -157,6 +156,7 @@ impl DebugPanelItem {
             variable_list,
             _subscriptions,
             stack_frame_list,
+            client_id: *client_id,
             current_stack_frame_id,
             active_thread_item: ThreadItem::Variables,
         }

@@ -4,8 +4,8 @@ use anyhow::{anyhow, Context, Result};
 use crate::adapters::{build_adapter, DebugAdapter};
 use dap_types::{
     messages::{Message, Response},
-    requests::{Disconnect, Request, Terminate, Variables},
-    DisconnectArguments, TerminateArguments, Variable, VariablesArguments,
+    requests::{Disconnect, Request, Terminate},
+    DisconnectArguments, TerminateArguments,
 };
 use futures::{AsyncBufRead, AsyncWrite};
 use gpui::{AppContext, AsyncAppContext};
@@ -256,19 +256,5 @@ impl DebugAdapterClient {
             })
             .await
         }
-    }
-
-    pub async fn variables(&self, variables_reference: u64) -> Result<Vec<Variable>> {
-        anyhow::Ok(
-            self.request::<Variables>(VariablesArguments {
-                variables_reference,
-                filter: None,
-                start: None,
-                count: None,
-                format: None,
-            })
-            .await?
-            .variables,
-        )
     }
 }

@@ -4,10 +4,10 @@ use dap::client::DebugAdapterClient;
 use dap::client::{DebugAdapterClientId, ThreadStatus};
 use dap::debugger_settings::DebuggerSettings;
 use dap::messages::{Events, Message};
-use dap::requests::{Request, Scopes, StackTrace, StartDebugging};
+use dap::requests::{Request, StartDebugging};
 use dap::{
-    Capabilities, ContinuedEvent, ExitedEvent, OutputEvent, Scope, ScopesArguments, StackFrame,
-    StackTraceArguments, StoppedEvent, TerminatedEvent, ThreadEvent, ThreadEventReason, Variable,
+    Capabilities, ContinuedEvent, ExitedEvent, OutputEvent, Scope, StackFrame, StoppedEvent,
+    TerminatedEvent, ThreadEvent, ThreadEventReason, Variable,
 };
 use editor::Editor;
 use futures::future::try_join_all;
@@ -107,7 +107,7 @@ impl DebugPanel {
 
                             match message {
                                 Message::Event(event) => {
-                                    this.handle_debug_client_events(client, event, cx);
+                                    this.handle_debug_client_events(client_id, event, cx);
                                 }
                                 Message::Request(request) => {
                                     if StartDebugging::COMMAND == request.command {
@@ -249,18 +249,18 @@ impl DebugPanel {
 
     fn handle_debug_client_events(
         &mut self,
-        client: Arc<DebugAdapterClient>,
+        client_id: &DebugAdapterClientId,
         event: &Events,
         cx: &mut ViewContext<Self>,
     ) {
         match event {
-            Events::Initialized(event) => self.handle_initialized_event(&client.id(), event, cx),
-            Events::Stopped(event) => self.handle_stopped_event(client, event, cx),
-            Events::Continued(event) => self.handle_continued_event(&client.id(), event, cx),
-            Events::Exited(event) => self.handle_exited_event(&client.id(), event, cx),
-            Events::Terminated(event) => self.handle_terminated_event(&client.id(), event, cx),
-            Events::Thread(event) => self.handle_thread_event(&client.id(), event, cx),
-            Events::Output(event) => self.handle_output_event(&client.id(), event, cx),
+            Events::Initialized(event) => self.handle_initialized_event(&client_id, event, cx),
+            Events::Stopped(event) => self.handle_stopped_event(&client_id, event, cx),
+            Events::Continued(event) => self.handle_continued_event(&client_id, event, cx),
+            Events::Exited(event) => self.handle_exited_event(&client_id, event, cx),
+            Events::Terminated(event) => self.handle_terminated_event(&client_id, event, cx),
+            Events::Thread(event) => self.handle_thread_event(&client_id, event, cx),
+            Events::Output(event) => self.handle_output_event(&client_id, event, cx),
             Events::Breakpoint(_) => {}
             Events::Module(_) => {}
             Events::LoadedSource(_) => {}
@@ -446,7 +446,7 @@ impl DebugPanel {
 
     fn handle_stopped_event(
         &mut self,
-        client: Arc<DebugAdapterClient>,
+        client_id: &DebugAdapterClientId,
         event: &StoppedEvent,
         cx: &mut ViewContext<Self>,
     ) {
@@ -454,51 +454,52 @@ impl DebugPanel {
             return;
         };
 
-        let client_id = client.id();
+        let client_id = *client_id;
+
         cx.spawn({
             let event = event.clone();
             |this, mut cx| async move {
-                let stack_trace_response = client
-                    .request::<StackTrace>(StackTraceArguments {
-                        thread_id,
-                        start_frame: None,
-                        levels: None,
-                        format: None,
+                let stack_frames_task = this.update(&mut cx, |this, cx| {
+                    this.dap_store.update(cx, |store, cx| {
+                        store.stack_frames(&client_id, thread_id, cx)
                     })
-                    .await?;
+                })?;
 
-                let current_stack_frame =
-                    stack_trace_response.stack_frames.first().unwrap().clone();
+                let stack_frames = stack_frames_task.await?;
+
+                let current_stack_frame = stack_frames.first().unwrap().clone();
+
                 let mut scope_tasks = Vec::new();
-                for stack_frame in stack_trace_response.stack_frames.clone().into_iter() {
-                    let client = client.clone();
+                for stack_frame in stack_frames.clone().into_iter() {
+                    let stack_frame_scopes_task = this.update(&mut cx, |this, cx| {
+                        this.dap_store
+                            .update(cx, |store, cx| store.scopes(&client_id, stack_frame.id, cx))
+                    });
+
                     scope_tasks.push(async move {
-                        anyhow::Ok((
-                            stack_frame.id,
-                            client
-                                .request::<Scopes>(ScopesArguments {
-                                    frame_id: stack_frame.id,
-                                })
-                                .await?,
-                        ))
+                        anyhow::Ok((stack_frame.id, stack_frame_scopes_task?.await?))
                     });
                 }
 
                 let mut stack_frame_tasks = Vec::new();
-                for (stack_frame_id, response) in try_join_all(scope_tasks).await? {
-                    let client = client.clone();
+                for (stack_frame_id, scopes) in try_join_all(scope_tasks).await? {
+                    let variable_tasks = this.update(&mut cx, |this, cx| {
+                        this.dap_store.update(cx, |store, cx| {
+                            let mut tasks = Vec::new();
+
+                            for scope in scopes {
+                                let variables_task =
+                                    store.variables(&client_id, scope.variables_reference, cx);
+                                tasks.push(
+                                    async move { anyhow::Ok((scope, variables_task.await?)) },
+                                );
+                            }
+
+                            tasks
+                        })
+                    })?;
+
                     stack_frame_tasks.push(async move {
-                        let mut variable_tasks = Vec::new();
-
-                        for scope in response.scopes {
-                            let scope_reference = scope.variables_reference;
-
-                            let client = client.clone();
-                            variable_tasks.push(async move {
-                                anyhow::Ok((scope, client.variables(scope_reference).await?))
-                            });
-                        }
-
                         anyhow::Ok((stack_frame_id, try_join_all(variable_tasks).await?))
                     });
                 }
@@ -538,7 +539,7 @@ impl DebugPanel {
 
                 this.update(&mut cx, |this, cx| {
                     thread_state.update(cx, |thread_state, cx| {
-                        thread_state.stack_frames = stack_trace_response.stack_frames;
+                        thread_state.stack_frames = stack_frames;
                         thread_state.status = ThreadStatus::Stopped;
                         thread_state.stopped = true;
 
@@ -565,7 +566,7 @@ impl DebugPanel {
                                     this.workspace.clone(),
                                     this.dap_store.clone(),
                                     thread_state.clone(),
-                                    client.id(),
+                                    &client_id,
                                     thread_id,
                                     current_stack_frame.clone().id,
                                     cx,
