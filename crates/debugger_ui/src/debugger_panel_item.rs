@@ -304,7 +304,6 @@ impl DebugPanelItem {
 
     fn render_stack_frames(&self, _cx: &mut ViewContext<Self>) -> impl IntoElement {
         v_flex()
-            .gap_3()
             .size_full()
             .child(list(self.stack_frame_list.clone()).size_full())
             .into_any()
