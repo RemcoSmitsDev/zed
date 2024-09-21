@@ -42,6 +42,7 @@ pub struct DebugPanelItem {
     active_thread_item: ThreadItem,
     workspace: WeakView<Workspace>,
     client_id: DebugAdapterClientId,
+    thread_state: Model<ThreadState>,
     variable_list: View<VariableList>,
     _subscriptions: Vec<Subscription>,
 }
@@ -75,6 +76,7 @@ impl DebugPanelItem {
         debug_panel: View<DebugPanel>,
         workspace: WeakView<Workspace>,
         dap_store: Model<DapStore>,
+        thread_state: Model<ThreadState>,
         client_id: DebugAdapterClientId,
         thread_id: u64,
         current_stack_frame_id: u64,
@@ -82,8 +84,17 @@ impl DebugPanelItem {
     ) -> Self {
         let focus_handle = cx.focus_handle();
 
-        let view = cx.view().clone();
-        let variable_list = cx.new_view(|cx| VariableList::new(view, cx));
+        let capabilities = dap_store.read(cx).capabilities_by_id(&client_id);
+
+        let variable_list = cx.new_view(|cx| {
+            VariableList::new(
+                &client_id,
+                &thread_state,
+                &capabilities,
+                current_stack_frame_id,
+                cx,
+            )
+        });
         let console = cx.new_view(Console::new);
 
         let weakview = cx.view().downgrade();
@@ -138,6 +149,7 @@ impl DebugPanelItem {
             dap_store,
             workspace,
             debug_panel,
+            thread_state,
             focus_handle,
             output_editor,
             variable_list,
@@ -166,10 +178,7 @@ impl DebugPanelItem {
             return;
         }
 
-        let thread_state = this
-            .debug_panel
-            .read(cx)
-            .thread_state_by_id(client_id, this.thread_id);
+        let thread_state = this.thread_state.read(cx);
 
         this.stack_frame_list.reset(thread_state.stack_frames.len());
         if let Some(stack_frame) = thread_state.stack_frames.first() {
@@ -270,23 +279,18 @@ impl DebugPanelItem {
         self.current_stack_frame_id
     }
 
-    pub fn current_thread_state(&self, cx: &mut ViewContext<Self>) -> ThreadState {
-        self.debug_panel
-            .read(cx)
-            .thread_state_by_id(&self.client_id, self.thread_id)
-    }
-
     pub fn capabilities(&self, cx: &mut ViewContext<Self>) -> Capabilities {
         self.dap_store
             .read_with(cx, |store, _| store.capabilities_by_id(&self.client_id))
     }
 
     fn stack_frame_for_index(&self, ix: usize, cx: &mut ViewContext<Self>) -> StackFrame {
-        self.current_thread_state(cx)
+        self.thread_state
+            .read(cx)
             .stack_frames
             .get(ix)
             .cloned()
-            .expect("Index is coming directly from iterator so bounds check was previously done")
+            .unwrap()
     }
 
     pub fn insert_variables(
@@ -295,24 +299,24 @@ impl DebugPanelItem {
         variables: Vec<VariableContainer>,
         cx: &mut ViewContext<Self>,
     ) {
-        self.debug_panel.update(cx, |panel, _| {
-            let mut thread_state = panel.thread_state_by_id(&self.client_id, self.thread_id);
-
-            // TODO debugger: make this work
+        self.thread_state.update(cx, |thread_state, cx| {
             thread_state.variables.insert(variable_id, variables);
-        })
+            cx.notify();
+        });
+
+        cx.notify();
     }
 
     fn update_stack_frame_id(&mut self, stack_frame_id: u64, cx: &mut ViewContext<Self>) {
         self.current_stack_frame_id = stack_frame_id;
 
-        let thread_state = self.current_thread_state(cx);
-
         self.variable_list.update(cx, |variable_list, cx| {
-            variable_list.build_entries(thread_state, stack_frame_id, true, false);
+            variable_list.build_entries(stack_frame_id, true, false, cx);
 
             cx.notify();
         });
+
+        cx.notify();
     }
 
     fn render_stack_frames(&self, _cx: &mut ViewContext<Self>) -> impl IntoElement {
@@ -579,7 +583,7 @@ impl Item for DebugPanelItem {
 
 impl Render for DebugPanelItem {
     fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
-        let thread_status = self.current_thread_state(cx).status;
+        let thread_status = self.thread_state.read(cx).status;
         let active_thread_item = &self.active_thread_item;
 
         let capabilities = self.capabilities(cx);

@@ -69,7 +69,7 @@ pub struct DebugPanel {
     workspace: WeakView<Workspace>,
     show_did_not_stop_warning: bool,
     _subscriptions: Vec<Subscription>,
-    thread_states: BTreeMap<(DebugAdapterClientId, u64), ThreadState>,
+    thread_states: BTreeMap<(DebugAdapterClientId, u64), Model<ThreadState>>,
 }
 
 impl DebugPanel {
@@ -147,17 +147,6 @@ impl DebugPanel {
         })
     }
 
-    pub fn thread_state_by_id(
-        &self,
-        client_id: &DebugAdapterClientId,
-        thread_id: u64,
-    ) -> ThreadState {
-        self.thread_states
-            .get(&(*client_id, thread_id))
-            .cloned()
-            .unwrap_or_default()
-    }
-
     pub fn update_thread_state_status(
         &mut self,
         client_id: &DebugAdapterClientId,
@@ -171,12 +160,20 @@ impl DebugPanel {
                 .thread_states
                 .range_mut((*client_id, u64::MIN)..(*client_id, u64::MAX))
             {
-                thread_state.status = status;
+                thread_state.update(cx, |thread_state, cx| {
+                    thread_state.status = status;
+
+                    cx.notify();
+                });
             }
         } else if let Some(thread_state) =
             thread_id.and_then(|thread_id| self.thread_states.get_mut(&(*client_id, thread_id)))
         {
-            thread_state.status = ThreadStatus::Running;
+            thread_state.update(cx, |thread_state, cx| {
+                thread_state.status = ThreadStatus::Running;
+
+                cx.notify();
+            });
         }
 
         cx.notify();
@@ -408,8 +405,9 @@ impl DebugPanel {
         cx: &mut ViewContext<Self>,
     ) {
         if let Some(capabilities) = capabilities {
-            self.dap_store.update(cx, |store, _| {
+            self.dap_store.update(cx, |store, cx| {
                 store.merge_capabilities_for_client(&client.id(), capabilities);
+                cx.notify();
             });
         }
 
@@ -470,8 +468,6 @@ impl DebugPanel {
                     })
                     .await?;
 
-                let mut thread_state = ThreadState::default();
-
                 let current_stack_frame =
                     stack_trace_response.stack_frames.first().unwrap().clone();
                 let mut scope_tasks = Vec::new();
@@ -508,37 +504,47 @@ impl DebugPanel {
                     });
                 }
 
+                let thread_state = this.update(&mut cx, |this, cx| {
+                    this.thread_states
+                        .entry((client_id, thread_id))
+                        .or_insert(cx.new_model(|_| ThreadState::default()))
+                        .clone()
+                })?;
+
                 for (stack_frame_id, scopes) in try_join_all(stack_frame_tasks).await? {
-                    thread_state
-                        .scopes
-                        .insert(stack_frame_id, scopes.iter().map(|s| s.0.clone()).collect());
-
-                    for (scope, variables) in scopes {
+                    thread_state.update(&mut cx, |thread_state, _| {
                         thread_state
-                            .fetched_variable_ids
-                            .insert(scope.variables_reference);
+                            .scopes
+                            .insert(stack_frame_id, scopes.iter().map(|s| s.0.clone()).collect());
 
-                        thread_state.variables.insert(
-                            scope.variables_reference,
-                            variables
-                                .into_iter()
-                                .map(|v| VariableContainer {
-                                    container_reference: scope.variables_reference,
-                                    variable: v,
-                                    depth: 1,
-                                })
-                                .collect::<Vec<VariableContainer>>(),
-                        );
-                    }
+                        for (scope, variables) in scopes {
+                            thread_state
+                                .fetched_variable_ids
+                                .insert(scope.variables_reference);
+
+                            thread_state.variables.insert(
+                                scope.variables_reference,
+                                variables
+                                    .into_iter()
+                                    .map(|v| VariableContainer {
+                                        container_reference: scope.variables_reference,
+                                        variable: v,
+                                        depth: 1,
+                                    })
+                                    .collect::<Vec<VariableContainer>>(),
+                            );
+                        }
+                    })?;
                 }
 
                 this.update(&mut cx, |this, cx| {
-                    thread_state.stack_frames = stack_trace_response.stack_frames;
-                    thread_state.status = ThreadStatus::Stopped;
-                    thread_state.stopped = true;
+                    thread_state.update(cx, |thread_state, cx| {
+                        thread_state.stack_frames = stack_trace_response.stack_frames;
+                        thread_state.status = ThreadStatus::Stopped;
+                        thread_state.stopped = true;
 
-                    this.thread_states
-                        .insert((client_id, thread_id), thread_state.clone());
+                        cx.notify();
+                    });
 
                     let existing_item = this
                         .pane
@@ -559,6 +565,7 @@ impl DebugPanel {
                                     debug_panel,
                                     this.workspace.clone(),
                                     this.dap_store.clone(),
+                                    thread_state.clone(),
                                     client.id(),
                                     thread_id,
                                     current_stack_frame.clone().id,
@@ -609,15 +616,17 @@ impl DebugPanel {
         let thread_id = event.thread_id;
 
         if let Some(thread_state) = self.thread_states.get(&(*client_id, thread_id)) {
-            if !thread_state.stopped && event.reason == ThreadEventReason::Exited {
+            if !thread_state.read(cx).stopped && event.reason == ThreadEventReason::Exited {
                 self.show_did_not_stop_warning = true;
                 cx.notify();
             };
         }
 
         if event.reason == ThreadEventReason::Started {
-            self.thread_states
-                .insert((*client_id, thread_id), ThreadState::default());
+            self.thread_states.insert(
+                (*client_id, thread_id),
+                cx.new_model(|_| ThreadState::default()),
+            );
         } else {
             self.update_thread_state_status(
                 client_id,

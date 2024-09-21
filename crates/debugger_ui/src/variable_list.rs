@@ -3,8 +3,10 @@ use crate::{
     debugger_panel_item::DebugPanelItem,
 };
 use dap::{
+    client::DebugAdapterClientId,
     requests::{SetExpression, SetVariable, Variables},
-    Scope, SetExpressionArguments, SetVariableArguments, Variable, VariablesArguments,
+    Capabilities, Scope, SetExpressionArguments, SetVariableArguments, Variable,
+    VariablesArguments,
 };
 use editor::{
     actions::{self, SelectAll},
@@ -13,10 +15,13 @@ use editor::{
 use futures::future::try_join_all;
 use gpui::{
     anchored, deferred, list, AnyElement, ClipboardItem, DismissEvent, FocusHandle, FocusableView,
-    ListState, MouseDownEvent, Point, Subscription, View,
+    ListState, Model, MouseDownEvent, Point, Subscription, View,
 };
 use menu::Confirm;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    sync::Arc,
+};
 use ui::{prelude::*, ContextMenu, ListItem};
 
 #[derive(Debug, Clone)]
@@ -47,17 +52,25 @@ pub enum VariableListEntry {
 
 pub struct VariableList {
     list: ListState,
+    stack_frame_id: u64,
     focus_handle: FocusHandle,
+    capabilities: Capabilities,
+    client_id: DebugAdapterClientId,
     open_entries: Vec<SharedString>,
+    thread_state: Model<ThreadState>,
     set_variable_editor: View<Editor>,
-    debug_panel_item: View<DebugPanelItem>,
     set_variable_state: Option<SetVariableState>,
-    stack_frame_entries: HashMap<u64, Vec<VariableListEntry>>,
+    entries: HashMap<u64, Vec<VariableListEntry>>,
     open_context_menu: Option<(View<ContextMenu>, Point<Pixels>, Subscription)>,
 }
 
 impl VariableList {
-    pub fn new(debug_panel_item: View<DebugPanelItem>, cx: &mut ViewContext<Self>) -> Self {
+    pub fn new(
+        client_id: &DebugAdapterClientId,
+        thread_state: &Model<ThreadState>,
+        capabilities: &Capabilities,
+        stack_frame_id: u64,
+        cx: &mut ViewContext<Self>,
         let weakview = cx.view().downgrade();
         let focus_handle = cx.focus_handle();
 
@@ -83,21 +96,20 @@ impl VariableList {
         Self {
             list,
             focus_handle,
-            debug_panel_item,
+            stack_frame_id,
             set_variable_editor,
+            client_id: *client_id,
             open_context_menu: None,
             set_variable_state: None,
+            entries: Default::default(),
             open_entries: Default::default(),
-            stack_frame_entries: Default::default(),
+            thread_state: thread_state.clone(),
+            capabilities: capabilities.clone(),
         }
     }
 
     fn render_entry(&mut self, ix: usize, cx: &mut ViewContext<Self>) -> AnyElement {
-        let debug_item = self.debug_panel_item.read(cx);
-        let Some(entries) = self
-            .stack_frame_entries
-            .get(&debug_item.current_stack_frame_id())
-        else {
+        let Some(entries) = self.entries.get(&self.stack_frame_id) else {
             return div().into_any_element();
         };
 
@@ -134,24 +146,19 @@ impl VariableList {
             }
         };
 
-        let (thread_state, stack_frame_id) = self.debug_panel_item.update(cx, |panel, cx| {
-            (
-                panel.current_thread_state(cx),
-                panel.current_stack_frame_id(),
-            )
-        });
-
-        self.build_entries(thread_state, stack_frame_id, false, true);
+        self.build_entries(self.stack_frame_id, false, true, cx);
         cx.notify();
     }
 
     pub fn build_entries(
         &mut self,
-        thread_state: ThreadState,
         stack_frame_id: u64,
         open_first_scope: bool,
         keep_open_entries: bool,
+        cx: &mut ViewContext<Self>,
     ) {
+        let thread_state = self.thread_state.read(cx);
+
         let Some(scopes) = thread_state.scopes.get(&stack_frame_id) else {
             return;
         };
@@ -230,8 +237,10 @@ impl VariableList {
         }
 
         let len = entries.len();
-        self.stack_frame_entries.insert(stack_frame_id, entries);
+        self.entries.insert(stack_frame_id, entries);
         self.list.reset(len);
+
+        cx.notify();
     }
 
     fn deploy_variable_context_menu(
@@ -244,13 +253,8 @@ impl VariableList {
     ) {
         let this = cx.view().clone();
 
-        let debug_panel_item = self.debug_panel_item.read(cx);
-        let stack_frame_id = debug_panel_item.current_stack_frame_id();
-        let capabilities = self
-            .debug_panel_item
-            .update(cx, |panel, cx| panel.capabilities(cx));
-
-        let support_set_variable = capabilities.supports_set_variable.unwrap_or_default();
+        let stack_frame_id = self.stack_frame_id;
+        let support_set_variable = self.capabilities.supports_set_variable.unwrap_or_default();
 
         let context_menu = ContextMenu::build(cx, |menu, cx| {
             menu.entry(
@@ -296,10 +300,7 @@ impl VariableList {
                             editor.focus(cx);
                         });
 
-                        let thread_state = this
-                            .debug_panel_item
-                            .update(cx, |panel, cx| panel.current_thread_state(cx));
-                        this.build_entries(thread_state, stack_frame_id, false, true);
+                        this.build_entries(stack_frame_id, false, true, cx);
 
                         cx.notify();
                     }),
@@ -327,14 +328,7 @@ impl VariableList {
             return;
         };
 
-        let (stack_frame_id, thread_state) = self.debug_panel_item.update(cx, |panel, cx| {
-            (
-                panel.current_stack_frame_id(),
-                panel.current_thread_state(cx),
-            )
-        });
-
-        self.build_entries(thread_state, stack_frame_id, false, true);
+        self.build_entries(self.stack_frame_id, false, true, cx);
         cx.notify();
     }
 
@@ -510,25 +504,19 @@ impl VariableList {
                                 return;
                             }
 
-                            let thread_state = this
-                                .debug_panel_item
-                                .update(cx, |panel, cx| panel.current_thread_state(cx));
-                            let debug_panel_item = this.debug_panel_item.read(cx);
-
                             // if we already opened the variable/we already fetched it
                             // we can just toggle it because we already have the nested variable
                             if disclosed.unwrap_or(true)
-                                || thread_state
+                                || this
+                                    .thread_state
+                                    .read(cx)
                                     .fetched_variable_ids
                                     .contains(&variable_reference)
                             {
                                 return this.toggle_entry_collapsed(&variable_id, cx);
                             }
 
-                            let Some(entries) = this
-                                .stack_frame_entries
-                                .get(&debug_panel_item.current_stack_frame_id())
-                            else {
+                            let Some(entries) = this.entries.get(&this.stack_frame_id) else {
                                 return;
                             };
 

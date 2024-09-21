@@ -242,8 +242,10 @@ impl DapStore {
                 })
                 .await?;
 
-            this.update(&mut cx, |store, _| {
+            this.update(&mut cx, |store, cx| {
                 store.capabilities.insert(client.id(), capabilities);
+
+                cx.notify();
             })?;
 
             // send correct request based on adapter config
@@ -532,6 +534,8 @@ impl DapStore {
         cx.emit(DapStoreEvent::DebugClientStopped(*client_id));
 
         self.capabilities.remove(client_id);
+
+        cx.notify();
 
         cx.spawn(|_, _| async move {
             match debug_client {
