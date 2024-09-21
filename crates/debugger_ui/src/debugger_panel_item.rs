@@ -548,14 +548,13 @@ impl Item for DebugPanelItem {
         .into_any_element()
     }
 
-    fn tab_tooltip_text(&self, _: &AppContext) -> Option<SharedString> {
-        // TODO debugger: allow showing current thread status
+    fn tab_tooltip_text(&self, cx: &AppContext) -> Option<SharedString> {
         Some(SharedString::from(format!(
-            "{:?} Thread {}",
+            "{:?} Thread {} - {:?}",
             // self.client.config().kind,
             "asdjkl",
             self.thread_id,
-            // self.current_thread_state(cx).status
+            self.thread_state.read(cx).status,
         )))
     }
 
