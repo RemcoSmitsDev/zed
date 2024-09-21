@@ -294,20 +294,6 @@ impl DebugPanelItem {
             .unwrap()
     }
 
-    pub fn insert_variables(
-        &mut self,
-        variable_id: u64,
-        variables: Vec<VariableContainer>,
-        cx: &mut ViewContext<Self>,
-    ) {
-        self.thread_state.update(cx, |thread_state, cx| {
-            thread_state.variables.insert(variable_id, variables);
-            cx.notify();
-        });
-
-        cx.notify();
-    }
-
     fn update_stack_frame_id(&mut self, stack_frame_id: u64, cx: &mut ViewContext<Self>) {
         self.current_stack_frame_id = stack_frame_id;
 
