@@ -18,6 +18,7 @@ use gpui::{
     ListState, Model, MouseDownEvent, Point, Subscription, View,
 };
 use menu::Confirm;
+use project::dap_store::{self, DapStore};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
@@ -53,6 +54,7 @@ pub enum VariableListEntry {
 pub struct VariableList {
     list: ListState,
     stack_frame_id: u64,
+    dap_store: Model<DapStore>,
     focus_handle: FocusHandle,
     capabilities: Capabilities,
     client_id: DebugAdapterClientId,
@@ -66,6 +68,7 @@ pub struct VariableList {
 
 impl VariableList {
     pub fn new(
+        dap_store: Model<DapStore>,
         client_id: &DebugAdapterClientId,
         thread_state: &Model<ThreadState>,
         capabilities: &Capabilities,
@@ -96,6 +99,7 @@ impl VariableList {
 
         Self {
             list,
+            dap_store,
             focus_handle,
             stack_frame_id,
             set_variable_editor,
@@ -343,108 +347,95 @@ impl VariableList {
         });
 
         let Some(state) = self.set_variable_state.take() else {
-            cx.notify();
-            return;
+            return cx.notify();
         };
 
         if new_variable_value == state.value {
-            cx.notify();
-            return;
+            return cx.notify();
         }
 
-        // let thread_state = self.thread_state;
-        // let client_id = self.client_id;
+        let client_id = self.client_id;
+        let variables_reference = state.parent_variables_reference;
+        let scope = state.scope;
+        let name = state.name;
+        let evaluate_name = state.evaluate_name;
+        let stack_frame_id = state.stack_frame_id;
+        let supports_set_expression = self
+            .capabilities
+            .supports_set_expression
+            .unwrap_or_default();
 
-        // let variables_reference = state.parent_variables_reference;
-        // let scope = state.scope;
-        // let name = state.name;
-        // let evaluate_name = state.evaluate_name;
-        // let stack_frame_id = state.stack_frame_id;
-        // let supports_set_expression = self
-        //     .capabilities
-        //     .supports_set_expression
-        //     .unwrap_or_default();
+        cx.spawn(|this, mut cx| async move {
+            let set_value_task = this.update(&mut cx, |this, cx| {
+                this.dap_store.update(cx, |store, cx| {
+                    store.set_variable_value(
+                        &client_id,
+                        stack_frame_id,
+                        variables_reference,
+                        name,
+                        new_variable_value,
+                        evaluate_name,
+                        cx,
+                    )
+                })
+            });
 
-        // cx.spawn(|this, mut cx| async move {
-        //     if let Some(evaluate_name) = supports_set_expression.then(|| evaluate_name).flatten() {
-        //         client
-        //             .request::<SetExpression>(SetExpressionArguments {
-        //                 expression: evaluate_name,
-        //                 value: new_variable_value,
-        //                 frame_id: Some(stack_frame_id),
-        //                 format: None,
-        //             })
-        //             .await?;
-        //     } else {
-        //         client
-        //             .request::<SetVariable>(SetVariableArguments {
-        //                 variables_reference,
-        //                 name,
-        //                 value: new_variable_value,
-        //                 format: None,
-        //             })
-        //             .await?;
-        //     }
+            set_value_task?.await?;
 
-        //     let Some(scope_variables) = thread_state.variables.remove(&scope.variables_reference)
-        //     else {
-        //         return anyhow::Ok(());
-        //     };
+            let Some(scope_variables) = this.update(&mut cx, |this, cx| {
+                this.thread_state.update(cx, |thread_state, cx| {
+                    thread_state.variables.remove(&scope.variables_reference)
+                })
+            })?
+            else {
+                return Ok(());
+            };
 
-        //     let mut tasks = Vec::new();
+            let tasks = this.update(&mut cx, |this, cx| {
+                let mut tasks = Vec::new();
 
-        //     for variable_container in scope_variables {
-        //         let client = client.clone();
-        //         tasks.push(async move {
-        //             let variables = client
-        //                 .request::<Variables>(VariablesArguments {
-        //                     variables_reference: variable_container.container_reference,
-        //                     filter: None,
-        //                     start: None,
-        //                     count: None,
-        //                     format: None,
-        //                 })
-        //                 .await?
-        //                 .variables;
+                for variable_container in scope_variables {
+                    let fetch_variable_task = this.dap_store.update(cx, |store, cx| {
+                        store.variables(&client_id, variables_reference, cx)
+                    });
 
-        //             let depth = variable_container.depth;
-        //             let container_reference = variable_container.container_reference;
+                    tasks.push(async move {
+                        let depth = variable_container.depth;
+                        let container_reference = variable_container.container_reference;
 
-        //             anyhow::Ok(
-        //                 variables
-        //                     .into_iter()
-        //                     .map(move |variable| VariableContainer {
-        //                         container_reference,
-        //                         variable,
-        //                         depth,
-        //                     })
-        //                     .collect::<Vec<_>>(),
-        //             )
-        //         });
-        //     }
+                        anyhow::Ok(
+                            fetch_variable_task
+                                .await?
+                                .into_iter()
+                                .map(move |variable| VariableContainer {
+                                    container_reference,
+                                    variable,
+                                    depth,
+                                })
+                                .collect::<Vec<_>>(),
+                        )
+                    });
+                }
 
-        //     let updated_variables = try_join_all(tasks).await?;
+                tasks
+            })?;
 
-        //     this.update(&mut cx, |this, cx| {
-        //         let thread_state = this.debug_panel_item.update(cx, |panel, cx| {
-        //             let thread_state = panel.current_thread_state(cx);
+            let updated_variables = try_join_all(tasks).await?;
 
-        //             panel.insert_variables(
-        //                 scope.variables_reference,
-        //                 updated_variables.into_iter().flatten().collect(),
-        //                 cx,
-        //             );
+            this.update(&mut cx, |this, cx| {
+                this.thread_state.update(cx, |thread_state, cx| {
+                    thread_state.variables.insert(
+                        scope.variables_reference,
+                        updated_variables.into_iter().flatten().collect(),
+                    );
 
-        //             cx.notify();
+                    cx.notify();
+                });
 
-        //             thread_state
-        //         });
-
-        //         this.build_entries(thread_state, stack_frame_id, false, true);
-        //         cx.notify();
-        //     })
-        // })
-        // .detach_and_log_err(cx);
+                this.build_entries(stack_frame_id, false, true, cx);
+            })
+        })
+        .detach_and_log_err(cx);
     }
 
     fn render_set_variable_editor(

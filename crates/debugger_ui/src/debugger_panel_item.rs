@@ -88,6 +88,7 @@ impl DebugPanelItem {
 
         let variable_list = cx.new_view(|cx| {
             VariableList::new(
+                dap_store.clone(),
                 &client_id,
                 &thread_state,
                 &capabilities,

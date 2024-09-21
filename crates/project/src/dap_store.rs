@@ -3,14 +3,15 @@ use collections::{HashMap, HashSet};
 use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 use dap::messages::Message;
 use dap::requests::{
-    Attach, ConfigurationDone, Continue, Disconnect, Initialize, Launch, Next, Pause, StepIn,
-    StepOut, TerminateThreads,
+    Attach, ConfigurationDone, Continue, Disconnect, Initialize, Launch, Next, Pause,
+    SetExpression, SetVariable, StepIn, StepOut, TerminateThreads, Variables,
 };
 use dap::{
     AttachRequestArguments, Capabilities, ConfigurationDoneArguments, ContinueArguments,
     DisconnectArguments, InitializeRequestArguments, InitializeRequestArgumentsPathFormat,
-    LaunchRequestArguments, NextArguments, PauseArguments, SourceBreakpoint, StepInArguments,
-    StepOutArguments, SteppingGranularity, TerminateThreadsArguments,
+    LaunchRequestArguments, NextArguments, PauseArguments, SetExpressionArguments,
+    SetVariableArguments, SourceBreakpoint, StepInArguments, StepOutArguments, SteppingGranularity,
+    TerminateThreadsArguments, Variable, VariablesArguments,
 };
 use gpui::{AppContext, Context, EventEmitter, Global, Model, ModelContext, Task};
 use language::{Buffer, BufferSnapshot};
@@ -297,7 +298,7 @@ impl DapStore {
     }
 
     pub fn continue_thread(
-        &mut self,
+        &self,
         client_id: &DebugAdapterClientId,
         thread_id: u64,
         cx: &mut ModelContext<Self>,
@@ -319,7 +320,7 @@ impl DapStore {
     }
 
     pub fn step_over(
-        &mut self,
+        &self,
         client_id: &DebugAdapterClientId,
         thread_id: u64,
         granularity: SteppingGranularity,
@@ -350,7 +351,7 @@ impl DapStore {
     }
 
     pub fn step_in(
-        &mut self,
+        &self,
         client_id: &DebugAdapterClientId,
         thread_id: u64,
         granularity: SteppingGranularity,
@@ -382,7 +383,7 @@ impl DapStore {
     }
 
     pub fn step_out(
-        &mut self,
+        &self,
         client_id: &DebugAdapterClientId,
         thread_id: u64,
         granularity: SteppingGranularity,
@@ -409,6 +410,74 @@ impl DapStore {
                     single_thread: supports_single_thread_execution_requests.then(|| true),
                 })
                 .await
+        })
+    }
+
+    pub fn variables(
+        &self,
+        client_id: &DebugAdapterClientId,
+        variables_reference: u64,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<Vec<Variable>>> {
+        let Some(client) = self.client_by_id(client_id) else {
+            return Task::ready(Err(anyhow!("Could not found client")));
+        };
+
+        cx.spawn(|_, _| async move {
+            Ok(client
+                .request::<Variables>(VariablesArguments {
+                    variables_reference,
+                    filter: None,
+                    start: None,
+                    count: None,
+                    format: None,
+                })
+                .await?
+                .variables)
+        })
+    }
+
+    pub fn set_variable_value(
+        &self,
+        client_id: &DebugAdapterClientId,
+        stack_frame_id: u64,
+        variables_reference: u64,
+        name: String,
+        value: String,
+        evaluate_name: Option<String>,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<()>> {
+        let Some(client) = self.client_by_id(client_id) else {
+            return Task::ready(Err(anyhow!("Could not found client")));
+        };
+
+        let supports_set_expression = self
+            .capabilities_by_id(client_id)
+            .supports_set_expression
+            .unwrap_or_default();
+
+        cx.spawn(|_, _| async move {
+            if let Some(evaluate_name) = supports_set_expression.then(|| evaluate_name).flatten() {
+                client
+                    .request::<SetExpression>(SetExpressionArguments {
+                        expression: evaluate_name,
+                        value,
+                        frame_id: Some(stack_frame_id),
+                        format: None,
+                    })
+                    .await?;
+            } else {
+                client
+                    .request::<SetVariable>(SetVariableArguments {
+                        variables_reference,
+                        name,
+                        value,
+                        format: None,
+                    })
+                    .await?;
+            }
+
+            Ok(())
         })
     }
 
