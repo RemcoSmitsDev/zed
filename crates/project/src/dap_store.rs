@@ -109,9 +109,12 @@ impl DapStore {
         &mut self,
         client_id: &DebugAdapterClientId,
         other: &Capabilities,
+        cx: &mut ModelContext<Self>,
     ) {
         if let Some(capabilities) = self.capabilities.get_mut(client_id) {
             *capabilities = capabilities.merge(other.clone());
+
+            cx.notify();
         }
     }
 
@@ -437,6 +440,7 @@ impl DapStore {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn set_variable_value(
         &self,
         client_id: &DebugAdapterClientId,

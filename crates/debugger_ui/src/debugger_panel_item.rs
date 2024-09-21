@@ -72,6 +72,7 @@ enum DebugPanelItemActionKind {
 }
 
 impl DebugPanelItem {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         debug_panel: View<DebugPanel>,
         workspace: WeakView<Workspace>,
