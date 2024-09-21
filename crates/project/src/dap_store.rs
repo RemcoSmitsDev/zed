@@ -4,8 +4,8 @@ use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 use dap::messages::Message;
 use dap::requests::{
     Attach, ConfigurationDone, Continue, Disconnect, Initialize, Launch, Next, Pause, Scopes,
-    SetBreakpoints, SetExpression, SetVariable, StackTrace, StepIn, StepOut, TerminateThreads,
-    Variables,
+    SetBreakpoints, SetExpression, SetVariable, StackTrace, StepIn, StepOut, Terminate,
+    TerminateThreads, Variables,
 };
 use dap::{
     AttachRequestArguments, Capabilities, ConfigurationDoneArguments, ContinueArguments,
@@ -13,7 +13,8 @@ use dap::{
     LaunchRequestArguments, NextArguments, PauseArguments, Scope, ScopesArguments,
     SetBreakpointsArguments, SetExpressionArguments, SetVariableArguments, Source,
     SourceBreakpoint, StackFrame, StackTraceArguments, StepInArguments, StepOutArguments,
-    SteppingGranularity, TerminateThreadsArguments, Variable, VariablesArguments,
+    SteppingGranularity, TerminateArguments, TerminateThreadsArguments, Variable,
+    VariablesArguments,
 };
 use gpui::{AppContext, Context, EventEmitter, Global, Model, ModelContext, Task};
 use language::{Buffer, BufferSnapshot};
@@ -645,27 +646,38 @@ impl DapStore {
         client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(debug_client) = self.clients.remove(&client_id) else {
+        let Some(client) = self.clients.remove(&client_id) else {
             return Task::ready(Err(anyhow!("Could not found client")));
         };
 
         cx.emit(DapStoreEvent::DebugClientStopped(*client_id));
 
-        self.capabilities.remove(client_id);
+        let capabilities = self.capabilities.remove(client_id);
 
         cx.notify();
 
         cx.spawn(|_, _| async move {
-            match debug_client {
-                DebugAdapterClientState::Starting(task) => {
-                    if let Some(client) = task.await {
-                        client.shutdown().await?;
-                    }
-                }
-                DebugAdapterClientState::Running(client) => client.shutdown().await?,
+            let client = match client {
+                DebugAdapterClientState::Starting(task) => task.await,
+                DebugAdapterClientState::Running(client) => Some(client),
             };
 
-            anyhow::Ok(())
+            let Some(client) = client else {
+                return Ok(());
+            };
+
+            if capabilities
+                .and_then(|c| c.supports_terminate_request)
+                .unwrap_or_default()
+            {
+                let _ = client
+                    .request::<Terminate>(TerminateArguments {
+                        restart: Some(false),
+                    })
+                    .await;
+            }
+
+            client.shutdown().await
         })
     }
 

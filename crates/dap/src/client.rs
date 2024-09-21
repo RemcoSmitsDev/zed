@@ -4,8 +4,7 @@ use anyhow::{anyhow, Context, Result};
 use crate::adapters::{build_adapter, DebugAdapter};
 use dap_types::{
     messages::{Message, Response},
-    requests::{Disconnect, Request, Terminate},
-    DisconnectArguments, TerminateArguments,
+    requests::Request,
 };
 use futures::{AsyncBufRead, AsyncWrite};
 use gpui::{AppContext, AsyncAppContext};
@@ -208,8 +207,6 @@ impl DebugAdapterClient {
     }
 
     pub async fn shutdown(&self) -> Result<()> {
-        let _ = self.terminate().await;
-
         self.transport.server_tx.close();
         self.transport.server_rx.close();
 
@@ -233,28 +230,5 @@ impl DebugAdapterClient {
             anyhow::Ok(())
         }
         .await
-    }
-
-    pub async fn terminate(&self) -> Result<()> {
-        // TODO debugger: make this work again
-        let support_terminate_request = true;
-        // let support_terminate_request = self
-        //     .capabilities()
-        //     .supports_terminate_request
-        //     .unwrap_or_default();
-
-        if support_terminate_request {
-            self.request::<Terminate>(TerminateArguments {
-                restart: Some(false),
-            })
-            .await
-        } else {
-            self.request::<Disconnect>(DisconnectArguments {
-                restart: Some(false),
-                terminate_debuggee: Some(true),
-                suspend_debuggee: Some(false),
-            })
-            .await
-        }
     }
 }
