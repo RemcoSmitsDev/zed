@@ -251,6 +251,10 @@ impl DebugPanelItem {
             return;
         }
 
+        this.stack_frame_list.reset(0);
+
+        cx.notify();
+
         cx.emit(Event::Close);
     }
 
