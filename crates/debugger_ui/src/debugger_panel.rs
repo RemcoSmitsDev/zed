@@ -254,13 +254,13 @@ impl DebugPanel {
         cx: &mut ViewContext<Self>,
     ) {
         match event {
-            Events::Initialized(event) => self.handle_initialized_event(client, event, cx),
+            Events::Initialized(event) => self.handle_initialized_event(&client.id(), event, cx),
             Events::Stopped(event) => self.handle_stopped_event(client, event, cx),
             Events::Continued(event) => self.handle_continued_event(&client.id(), event, cx),
             Events::Exited(event) => self.handle_exited_event(&client.id(), event, cx),
-            Events::Terminated(event) => self.handle_terminated_event(client, event, cx),
+            Events::Terminated(event) => self.handle_terminated_event(&client.id(), event, cx),
             Events::Thread(event) => self.handle_thread_event(&client.id(), event, cx),
-            Events::Output(event) => self.handle_output_event(client, event, cx),
+            Events::Output(event) => self.handle_output_event(&client.id(), event, cx),
             Events::Breakpoint(_) => {}
             Events::Module(_) => {}
             Events::LoadedSource(_) => {}
@@ -400,13 +400,13 @@ impl DebugPanel {
 
     fn handle_initialized_event(
         &mut self,
-        client: Arc<DebugAdapterClient>,
+        client_id: &DebugAdapterClientId,
         capabilities: &Option<Capabilities>,
         cx: &mut ViewContext<Self>,
     ) {
         if let Some(capabilities) = capabilities {
             self.dap_store.update(cx, |store, cx| {
-                store.merge_capabilities_for_client(&client.id(), capabilities, cx);
+                store.merge_capabilities_for_client(&client_id, capabilities, cx);
             });
         }
 
@@ -417,7 +417,7 @@ impl DebugPanel {
         });
 
         let configuration_done_task = self.dap_store.update(cx, |store, cx| {
-            store.send_configuration_done(&client.id(), cx)
+            store.send_configuration_done(&client_id, cx)
         });
 
         cx.background_executor()
@@ -663,7 +663,7 @@ impl DebugPanel {
 
     fn handle_terminated_event(
         &mut self,
-        client: Arc<DebugAdapterClient>,
+        client_id: &DebugAdapterClientId,
         event: &Option<TerminatedEvent>,
         cx: &mut ViewContext<Self>,
     ) {
@@ -674,23 +674,21 @@ impl DebugPanel {
         self.dap_store.update(cx, |store, cx| {
             if restart_args.is_some() {
                 store
-                    .restart(&client.id(), restart_args, cx)
+                    .restart(&client_id, restart_args, cx)
                     .detach_and_log_err(cx);
             } else {
-                store
-                    .shutdown_client(&client.id(), cx)
-                    .detach_and_log_err(cx);
+                store.shutdown_client(&client_id, cx).detach_and_log_err(cx);
             }
         });
     }
 
     fn handle_output_event(
         &mut self,
-        client: Arc<DebugAdapterClient>,
+        client_id: &DebugAdapterClientId,
         event: &OutputEvent,
         cx: &mut ViewContext<Self>,
     ) {
-        cx.emit(DebugPanelEvent::Output((client.id(), event.clone())));
+        cx.emit(DebugPanelEvent::Output((*client_id, event.clone())));
     }
 
     fn render_did_not_stop_warning(&self, cx: &mut ViewContext<Self>) -> impl IntoElement {
