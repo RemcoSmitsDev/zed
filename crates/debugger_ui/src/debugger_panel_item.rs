@@ -298,9 +298,8 @@ impl DebugPanelItem {
         self.current_stack_frame_id = stack_frame_id;
 
         self.variable_list.update(cx, |variable_list, cx| {
+            variable_list.update_stack_frame_id(stack_frame_id, cx);
             variable_list.build_entries(stack_frame_id, true, false, cx);
-
-            cx.notify();
         });
 
         cx.notify();

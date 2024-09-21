@@ -1,13 +1,5 @@
-use crate::{
-    debugger_panel::{ThreadState, VariableContainer},
-    debugger_panel_item::DebugPanelItem,
-};
-use dap::{
-    client::DebugAdapterClientId,
-    requests::{SetExpression, SetVariable, Variables},
-    Capabilities, Scope, SetExpressionArguments, SetVariableArguments, Variable,
-    VariablesArguments,
-};
+use crate::debugger_panel::{ThreadState, VariableContainer};
+use dap::{client::DebugAdapterClientId, Capabilities, Scope, Variable};
 use editor::{
     actions::{self, SelectAll},
     Editor, EditorEvent,
@@ -18,11 +10,8 @@ use gpui::{
     ListState, Model, MouseDownEvent, Point, Subscription, View,
 };
 use menu::Confirm;
-use project::dap_store::{self, DapStore};
-use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-    sync::Arc,
-};
+use project::dap_store::DapStore;
+use std::{collections::HashMap, sync::Arc};
 use ui::{prelude::*, ContextMenu, ListItem};
 
 #[derive(Debug, Clone)]
@@ -152,6 +141,12 @@ impl VariableList {
         };
 
         self.build_entries(self.stack_frame_id, false, true, cx);
+        cx.notify();
+    }
+
+    pub fn update_stack_frame_id(&mut self, stack_frame_id: u64, cx: &mut ViewContext<Self>) {
+        self.stack_frame_id = stack_frame_id;
+
         cx.notify();
     }
 
