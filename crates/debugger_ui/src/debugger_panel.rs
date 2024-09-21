@@ -210,7 +210,7 @@ impl DebugPanel {
                 let thread_panel = item.downcast::<DebugPanelItem>().unwrap();
 
                 let thread_id = thread_panel.read(cx).thread_id();
-                let client_id = thread_panel.read(cx).client().id();
+                let client_id = thread_panel.read(cx).client_id();
 
                 self.thread_states.remove(&(client_id, thread_id));
 
@@ -548,7 +548,7 @@ impl DebugPanel {
                         .any(|item| {
                             let item = item.read(cx);
 
-                            item.client().id() == client_id && item.thread_id() == thread_id
+                            item.client_id() == client_id && item.thread_id() == thread_id
                         });
 
                     if !existing_item {
@@ -559,7 +559,7 @@ impl DebugPanel {
                                     debug_panel,
                                     this.workspace.clone(),
                                     this.dap_store.clone(),
-                                    client.clone(),
+                                    client.id(),
                                     thread_id,
                                     current_stack_frame.clone().id,
                                     cx,
@@ -577,7 +577,7 @@ impl DebugPanel {
                     if let Some(item) = this.pane.read(cx).active_item() {
                         if let Some(pane) = item.downcast::<DebugPanelItem>() {
                             let pane = pane.read(cx);
-                            if pane.thread_id() == thread_id && pane.client().id() == client_id {
+                            if pane.thread_id() == thread_id && pane.client_id() == client_id {
                                 let workspace = this.workspace.clone();
                                 return cx.spawn(|_, cx| async move {
                                     Self::go_to_stack_frame(

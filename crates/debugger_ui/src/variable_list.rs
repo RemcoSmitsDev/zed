@@ -357,8 +357,8 @@ impl VariableList {
             return;
         }
 
-        let (mut thread_state, client) = self.debug_panel_item.update(cx, |panel, cx| {
-            (panel.current_thread_state(cx), panel.client())
+        let (mut thread_state, client_id) = self.debug_panel_item.update(cx, |panel, cx| {
+            (panel.current_thread_state(cx), panel.client_id())
         });
 
         let variables_reference = state.parent_variables_reference;
