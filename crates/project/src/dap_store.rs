@@ -18,6 +18,7 @@ use dap::{
     VariablesArguments,
 };
 use gpui::{EventEmitter, Model, ModelContext, Task};
+use http_client::HttpClient;
 use language::{Buffer, BufferSnapshot};
 use serde_json::Value;
 use settings::WorktreeId;
@@ -60,12 +61,13 @@ pub struct DapStore {
     breakpoints: BTreeMap<ProjectPath, HashSet<Breakpoint>>,
     capabilities: HashMap<DebugAdapterClientId, Capabilities>,
     active_debug_line: Option<(ProjectPath, DebugPosition)>,
+    _http_client: Option<Arc<dyn HttpClient>>,
 }
 
 impl EventEmitter<DapStoreEvent> for DapStore {}
 
 impl DapStore {
-    pub fn new(cx: &mut ModelContext<Self>) -> Self {
+    pub fn new(http_client: Option<Arc<dyn HttpClient>>, cx: &mut ModelContext<Self>) -> Self {
         cx.on_app_quit(Self::shutdown_clients).detach();
 
         Self {
@@ -74,6 +76,7 @@ impl DapStore {
             breakpoints: Default::default(),
             capabilities: HashMap::default(),
             next_client_id: Default::default(),
+            _http_client: http_client,
         }
     }
 
