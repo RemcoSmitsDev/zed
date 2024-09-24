@@ -3386,6 +3386,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "dap-types",
+ "fs",
  "futures 0.3.30",
  "gpui",
  "http_client",

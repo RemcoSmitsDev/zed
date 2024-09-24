@@ -1,6 +1,7 @@
 use crate::client::TransportParams;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
+use fs::Fs;
 use futures::AsyncReadExt;
 use gpui::AsyncAppContext;
 use http_client::HttpClient;
@@ -109,13 +110,21 @@ async fn create_tcp_client(
 /// # Parameters
 /// - `adapter_binary`: The debug adapter binary to start
 fn create_stdio_client(adapter_binary: DebugAdapterBinary) -> Result<TransportParams> {
-    let mut command = process::Command::new(adapter_binary.path);
+    let mut command = if let Some(start_command) = &adapter_binary.start_command {
+        let mut command = process::Command::new(start_command);
+        command.arg(adapter_binary.path);
+        command
+    } else {
+        let mut command = process::Command::new(adapter_binary.path);
+        command.args(adapter_binary.arguments);
+        command
+    };
+
     command
-        .args(adapter_binary.arguments)
         .envs(adapter_binary.env.clone().unwrap_or_default())
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .kill_on_drop(true);
 
     let mut process = command
@@ -148,6 +157,7 @@ pub struct DebugAdapterName(pub Arc<str>);
 
 #[derive(Debug, Clone)]
 pub struct DebugAdapterBinary {
+    pub start_command: Option<String>,
     pub path: PathBuf,
     pub arguments: Vec<OsString>,
     pub env: Option<HashMap<String, String>>,
@@ -167,8 +177,10 @@ pub trait DebugAdapter: Debug + Send + Sync + 'static {
         cx: &mut AsyncAppContext,
     ) -> anyhow::Result<TransportParams>;
 
-    fn install_or_fetch_binary(&self, delegate: Box<dyn DapDelegate>)
-        -> Option<DebugAdapterBinary>;
+    async fn install_or_fetch_binary(
+        &self,
+        delegate: Box<dyn DapDelegate>,
+    ) -> Option<DebugAdapterBinary>;
 
     fn request_args(&self) -> Value;
 }
@@ -213,7 +225,7 @@ impl DebugAdapter for CustomDebugAdapter {
         }
     }
 
-    fn install_or_fetch_binary(
+    async fn install_or_fetch_binary(
         &self,
         _delegate: Box<dyn DapDelegate>,
     ) -> Option<DebugAdapterBinary> {
@@ -266,11 +278,24 @@ impl DebugAdapter for PythonDebugAdapter {
         create_stdio_client(adapter_binary)
     }
 
-    fn install_or_fetch_binary(
+    async fn install_or_fetch_binary(
         &self,
-        _delegate: Box<dyn DapDelegate>,
+        delegate: Box<dyn DapDelegate>,
     ) -> Option<DebugAdapterBinary> {
-        None
+        let debugpy_path = paths::debug_adapters_dir().join("debugpy");
+        let adapter_path = debugpy_path.clone().join("src/debugpy/adapter");
+        let fs = delegate.fs();
+
+        if fs.is_dir(debugpy_path.as_path()).await && fs.is_dir(adapter_path.as_path()).await {
+            return Some(DebugAdapterBinary {
+                start_command: Some("python3".to_string()),
+                path: adapter_path,
+                arguments: vec![],
+                env: None,
+            });
+        } else {
+            return None;
+        }
     }
 
     fn request_args(&self) -> Value {
@@ -315,7 +340,7 @@ impl DebugAdapter for PhpDebugAdapter {
         create_tcp_client(host, adapter_binary, cx).await
     }
 
-    fn install_or_fetch_binary(
+    async fn install_or_fetch_binary(
         &self,
         _delegate: Box<dyn DapDelegate>,
     ) -> Option<DebugAdapterBinary> {
@@ -358,7 +383,7 @@ impl DebugAdapter for LldbDebugAdapter {
         create_stdio_client(adapter_binary)
     }
 
-    fn install_or_fetch_binary(
+    async fn install_or_fetch_binary(
         &self,
         _delegate: Box<dyn DapDelegate>,
     ) -> Option<DebugAdapterBinary> {
@@ -372,4 +397,5 @@ impl DebugAdapter for LldbDebugAdapter {
 
 pub trait DapDelegate {
     fn http_client(&self) -> Option<Arc<dyn HttpClient>>;
+    fn fs(&self) -> Arc<dyn Fs>;
 }

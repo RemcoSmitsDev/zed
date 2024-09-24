@@ -964,7 +964,7 @@ impl SerializedBreakpoint {
 
 pub struct DapAdapterDelegate {
     _dap_store: WeakModel<DapStore>,
-    _fs: Arc<dyn Fs>,
+    fs: Arc<dyn Fs>,
     http_client: Option<Arc<dyn HttpClient>>,
 }
 
@@ -977,7 +977,7 @@ impl DapAdapterDelegate {
     ) -> Self {
         Self {
             _dap_store: cx.weak_model(),
-            _fs: fs,
+            fs,
             http_client,
         }
     }
@@ -986,5 +986,9 @@ impl DapAdapterDelegate {
 impl dap::adapters::DapDelegate for DapAdapterDelegate {
     fn http_client(&self) -> Option<Arc<dyn HttpClient>> {
         self.http_client.clone()
+    }
+
+    fn fs(&self) -> Arc<dyn Fs> {
+        self.fs.clone()
     }
 }

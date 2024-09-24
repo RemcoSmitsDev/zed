@@ -81,7 +81,9 @@ impl DebugAdapterClient {
         let adapter = Arc::new(build_adapter(&config).context("Creating debug adapter")?);
         let binary = adapter
             .install_or_fetch_binary(delegate)
+            .await
             .ok_or(anyhow!("Failed to get debug adapter binary"))?;
+        println!("{:?}", &binary);
         let transport_params = adapter.connect(binary, cx).await?;
 
         let transport = Self::handle_transport(
