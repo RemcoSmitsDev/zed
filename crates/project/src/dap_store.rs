@@ -17,7 +17,7 @@ use dap::{
     SteppingGranularity, TerminateArguments, TerminateThreadsArguments, Variable,
     VariablesArguments,
 };
-use gpui::{EventEmitter, ModelContext, Task};
+use gpui::{EventEmitter, Model, ModelContext, Task};
 use language::{Buffer, BufferSnapshot};
 use serde_json::Value;
 use settings::WorktreeId;
@@ -112,9 +112,16 @@ impl DapStore {
         &self.breakpoints
     }
 
-    pub fn set_active_breakpoints(&mut self, project_path: &ProjectPath, buffer: &Buffer) {
+    pub fn on_open_buffer(
+        &mut self,
+        project_path: &ProjectPath,
+        buffer: &Model<Buffer>,
+        cx: &mut ModelContext<Self>,
+    ) {
         let entry = self.breakpoints.remove(project_path).unwrap_or_default();
         let mut set_bp: HashSet<Breakpoint> = HashSet::default();
+
+        let buffer = buffer.read(cx);
 
         for mut bp in entry.into_iter() {
             bp.set_active_position(&buffer);
@@ -122,6 +129,8 @@ impl DapStore {
         }
 
         self.breakpoints.insert(project_path.clone(), set_bp);
+
+        cx.notify();
     }
 
     pub fn deserialize_breakpoints(
