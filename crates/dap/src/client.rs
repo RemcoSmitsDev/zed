@@ -1,4 +1,5 @@
-use crate::transport::Transport;
+pub use crate::transport::IoKind;
+use crate::transport::{IoHandler, Transport};
 use anyhow::{anyhow, Context, Result};
 
 use crate::adapters::{build_adapter, DebugAdapter};
@@ -43,6 +44,7 @@ pub struct DebugAdapterClient {
     _process: Arc<Mutex<Option<Child>>>,
     sequence_count: AtomicU64,
     config: DebugAdapterConfig,
+    io_handlers: Arc<Mutex<Vec<IoHandler>>>,
 }
 
 pub struct TransportParams {
@@ -81,11 +83,14 @@ impl DebugAdapterClient {
         let adapter = Arc::new(build_adapter(&config).context("Creating debug adapter")?);
         let transport_params = adapter.connect(cx).await?;
 
+        let io_handlers = Arc::new(Mutex::new(Vec::new()));
+
         let transport = Self::handle_transport(
             transport_params.rx,
             transport_params.tx,
             transport_params.err,
             event_handler,
+            io_handlers.clone(),
             cx,
         );
 
@@ -94,6 +99,7 @@ impl DebugAdapterClient {
             config,
             adapter,
             transport,
+            io_handlers,
             sequence_count: AtomicU64::new(1),
             _process: Arc::new(Mutex::new(transport_params.process)),
         }))
@@ -104,12 +110,13 @@ impl DebugAdapterClient {
         tx: Box<dyn AsyncWrite + Unpin + Send>,
         err: Option<Box<dyn AsyncBufRead + Unpin + Send>>,
         event_handler: F,
+        io_handlers: Arc<Mutex<Vec<IoHandler>>>,
         cx: &mut AsyncAppContext,
     ) -> Arc<Transport>
     where
         F: FnMut(Message, &mut AppContext) + 'static + Send + Sync + Clone,
     {
-        let transport = Transport::start(rx, tx, err, cx);
+        let transport = Transport::start(rx, tx, err, io_handlers, cx);
 
         let server_rx = transport.server_rx.clone();
         let server_tr = transport.server_tx.clone();
@@ -230,5 +237,13 @@ impl DebugAdapterClient {
             anyhow::Ok(())
         }
         .await
+    }
+
+    pub fn on_io<F>(&self, f: F)
+    where
+        F: 'static + Send + FnMut(IoKind, &str),
+    {
+        let mut io_handlers = self.io_handlers.lock();
+        io_handlers.push(Box::new(f));
     }
 }
