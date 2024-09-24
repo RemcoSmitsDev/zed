@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::path::Path;
 
 use crate::console::Console;
@@ -13,8 +12,8 @@ use dap::{
 };
 use editor::Editor;
 use gpui::{
-    list, AnyElement, AppContext, Entity, EventEmitter, FocusHandle, FocusableView, ListState,
-    Model, Subscription, Task, View, WeakView,
+    list, AnyElement, AppContext, EventEmitter, FocusHandle, FocusableView, ListState, Model,
+    Subscription, Task, View, WeakView,
 };
 use project::dap_store::DapStore;
 use settings::Settings;
@@ -369,7 +368,7 @@ impl DebugPanelItem {
         cx.spawn({
             let workspace = self.workspace.clone();
             let path = path.clone();
-            |this, mut cx| async move {
+            |_, mut cx| async move {
                 let task = workspace.update(&mut cx, |workspace, cx| {
                     let project_path = workspace.project().read_with(cx, |project, cx| {
                         project.project_path_for_absolute_path(&Path::new(&path), cx)
