@@ -1,3 +1,6 @@
+use std::any::Any;
+use std::path::Path;
+
 use crate::console::Console;
 use crate::debugger_panel::{DebugPanel, DebugPanelEvent, ThreadState};
 use crate::variable_list::VariableList;
@@ -10,8 +13,8 @@ use dap::{
 };
 use editor::Editor;
 use gpui::{
-    list, AnyElement, AppContext, EventEmitter, FocusHandle, FocusableView, ListState, Model,
-    Subscription, View, WeakView,
+    list, AnyElement, AppContext, Entity, EventEmitter, FocusHandle, FocusableView, ListState,
+    Model, Subscription, Task, View, WeakView,
 };
 use project::dap_store::DapStore;
 use settings::Settings;
@@ -93,9 +96,11 @@ impl DebugPanelItem {
         let _subscriptions = vec![cx.subscribe(&debug_panel, {
             move |this: &mut Self, _, event: &DebugPanelEvent, cx| {
                 match event {
-                    DebugPanelEvent::Stopped((client_id, event)) => {
-                        this.handle_stopped_event(client_id, event, cx)
-                    }
+                    DebugPanelEvent::Stopped {
+                        client_id,
+                        event,
+                        go_to_stack_frame,
+                    } => this.handle_stopped_event(client_id, event, *go_to_stack_frame, cx),
                     DebugPanelEvent::Thread((client_id, event)) => {
                         this.handle_thread_event(client_id, event, cx)
                     }
@@ -178,6 +183,7 @@ impl DebugPanelItem {
         &mut self,
         client_id: &DebugAdapterClientId,
         event: &StoppedEvent,
+        go_to_stack_frame: bool,
         cx: &mut ViewContext<Self>,
     ) {
         if self.should_skip_event(client_id, event.thread_id.unwrap_or(self.thread_id)) {
@@ -188,7 +194,7 @@ impl DebugPanelItem {
 
         self.stack_frame_list.reset(thread_state.stack_frames.len());
         if let Some(stack_frame) = thread_state.stack_frames.first() {
-            self.update_stack_frame_id(stack_frame.id, cx);
+            self.update_stack_frame_id(stack_frame.id, go_to_stack_frame, cx);
         };
 
         cx.notify();
@@ -268,6 +274,8 @@ impl DebugPanelItem {
 
         self.update_thread_state_status(ThreadStatus::Stopped, cx);
 
+        self.remove_highlights(cx);
+
         cx.emit(Event::Close);
     }
 
@@ -299,15 +307,15 @@ impl DebugPanelItem {
     }
 
     fn stack_frame_for_index(&self, ix: usize, cx: &mut ViewContext<Self>) -> StackFrame {
-        self.thread_state
-            .read(cx)
-            .stack_frames
-            .get(ix)
-            .cloned()
-            .unwrap()
+        self.thread_state.read(cx).stack_frames[ix].clone()
     }
 
-    fn update_stack_frame_id(&mut self, stack_frame_id: u64, cx: &mut ViewContext<Self>) {
+    fn update_stack_frame_id(
+        &mut self,
+        stack_frame_id: u64,
+        go_to_stack_frame: bool,
+        cx: &mut ViewContext<Self>,
+    ) {
         self.current_stack_frame_id = stack_frame_id;
 
         self.variable_list.update(cx, |variable_list, cx| {
@@ -315,7 +323,83 @@ impl DebugPanelItem {
             variable_list.build_entries(true, false, cx);
         });
 
+        if go_to_stack_frame {
+            self.go_to_stack_frame(cx);
+        }
+
         cx.notify();
+    }
+
+    fn remove_highlights(&self, cx: &mut ViewContext<Self>) {
+        self.workspace
+            .update(cx, |workspace, cx| {
+                let editor_views = workspace
+                    .items_of_type::<Editor>(cx)
+                    .collect::<Vec<View<Editor>>>();
+
+                for editor_view in editor_views {
+                    editor_view.update(cx, |editor, _| {
+                        editor.clear_row_highlights::<editor::DebugCurrentRowHighlight>();
+                    });
+                }
+            })
+            .ok();
+    }
+
+    pub fn go_to_stack_frame(&mut self, cx: &mut ViewContext<Self>) {
+        self.remove_highlights(cx);
+
+        let Some(stack_frame) = self
+            .thread_state
+            .read(cx)
+            .stack_frames
+            .iter()
+            .find(|s| s.id == self.current_stack_frame_id)
+        else {
+            return;
+        };
+
+        let Some(path) = stack_frame.source.as_ref().and_then(|s| s.path.as_ref()) else {
+            return;
+        };
+
+        let row = (stack_frame.line.saturating_sub(1)) as u32;
+        let column = (stack_frame.column.saturating_sub(1)) as u32;
+
+        cx.spawn({
+            let workspace = self.workspace.clone();
+            let path = path.clone();
+            |this, mut cx| async move {
+                let task = workspace.update(&mut cx, |workspace, cx| {
+                    let project_path = workspace.project().read_with(cx, |project, cx| {
+                        project.project_path_for_absolute_path(&Path::new(&path), cx)
+                    });
+
+                    if let Some(project_path) = project_path {
+                        workspace.open_path_preview(project_path, None, false, true, cx)
+                    } else {
+                        Task::ready(Err(anyhow::anyhow!(
+                            "No project path found for path: {}",
+                            path
+                        )))
+                    }
+                })?;
+
+                let editor = task.await?.downcast::<Editor>().unwrap();
+
+                workspace.update(&mut cx, |_, cx| {
+                    editor.update(cx, |editor, cx| {
+                        editor.go_to_line::<editor::DebugCurrentRowHighlight>(
+                            row,
+                            column,
+                            Some(cx.theme().colors().editor_debugger_active_line_background),
+                            cx,
+                        );
+                    })
+                })
+            }
+        })
+        .detach_and_log_err(cx);
     }
 
     fn render_stack_frames(&self, _cx: &mut ViewContext<Self>) -> impl IntoElement {
@@ -352,18 +436,8 @@ impl DebugPanelItem {
             })
             .on_click(cx.listener({
                 let stack_frame_id = stack_frame.id;
-                let stack_frame = stack_frame.clone();
                 move |this, _, cx| {
-                    this.update_stack_frame_id(stack_frame_id, cx);
-
-                    let workspace = this.workspace.clone();
-                    let stack_frame = stack_frame.clone();
-                    cx.spawn(|_, cx| async move {
-                        DebugPanel::go_to_stack_frame(workspace, stack_frame, true, cx).await
-                    })
-                    .detach_and_log_err(cx);
-
-                    cx.notify();
+                    this.update_stack_frame_id(stack_frame_id, true, cx);
                 }
             }))
             .hover(|s| s.bg(cx.theme().colors().element_hover).cursor_pointer())
