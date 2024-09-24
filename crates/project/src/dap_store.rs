@@ -17,7 +17,8 @@ use dap::{
     SteppingGranularity, TerminateArguments, TerminateThreadsArguments, Variable,
     VariablesArguments,
 };
-use gpui::{EventEmitter, Model, ModelContext, Task};
+use fs::Fs;
+use gpui::{EventEmitter, Model, ModelContext, Task, WeakModel};
 use http_client::HttpClient;
 use language::{Buffer, BufferSnapshot};
 use serde_json::Value;
@@ -62,12 +63,17 @@ pub struct DapStore {
     capabilities: HashMap<DebugAdapterClientId, Capabilities>,
     active_debug_line: Option<(ProjectPath, DebugPosition)>,
     _http_client: Option<Arc<dyn HttpClient>>,
+    fs: Arc<dyn Fs>,
 }
 
 impl EventEmitter<DapStoreEvent> for DapStore {}
 
 impl DapStore {
-    pub fn new(http_client: Option<Arc<dyn HttpClient>>, cx: &mut ModelContext<Self>) -> Self {
+    pub fn new(
+        _http_client: Option<Arc<dyn HttpClient>>,
+        fs: Arc<dyn Fs>,
+        cx: &mut ModelContext<Self>,
+    ) -> Self {
         cx.on_app_quit(Self::shutdown_clients).detach();
 
         Self {
@@ -76,7 +82,8 @@ impl DapStore {
             breakpoints: Default::default(),
             capabilities: HashMap::default(),
             next_client_id: Default::default(),
-            _http_client: http_client,
+            _http_client,
+            fs,
         }
     }
 
@@ -204,12 +211,18 @@ impl DapStore {
 
     pub fn start_client(&mut self, config: DebugAdapterConfig, cx: &mut ModelContext<Self>) {
         let client_id = self.next_client_id();
-
+        let adapter_delegate = Box::new(DapAdapterDelegate::new(
+            self,
+            self._http_client.clone(),
+            self.fs.clone(),
+            cx,
+        ));
         let start_client_task = cx.spawn(|this, mut cx| async move {
             let dap_store = this.clone();
             let client = DebugAdapterClient::new(
                 client_id,
                 config,
+                adapter_delegate,
                 move |message, cx| {
                     dap_store
                         .update(cx, |_, cx| {
@@ -946,5 +959,32 @@ impl SerializedBreakpoint {
             column: None,
             mode: None,
         }
+    }
+}
+
+pub struct DapAdapterDelegate {
+    _dap_store: WeakModel<DapStore>,
+    _fs: Arc<dyn Fs>,
+    http_client: Option<Arc<dyn HttpClient>>,
+}
+
+impl DapAdapterDelegate {
+    pub fn new(
+        _dap_store: &DapStore,
+        http_client: Option<Arc<dyn HttpClient>>,
+        fs: Arc<dyn Fs>,
+        cx: &mut ModelContext<DapStore>,
+    ) -> Self {
+        Self {
+            _dap_store: cx.weak_model(),
+            _fs: fs,
+            http_client,
+        }
+    }
+}
+
+impl dap::adapters::DapDelegate for DapAdapterDelegate {
+    fn http_client(&self) -> Option<Arc<dyn HttpClient>> {
+        self.http_client.clone()
     }
 }

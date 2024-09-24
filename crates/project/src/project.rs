@@ -653,7 +653,8 @@ impl Project {
             cx.subscribe(&worktree_store, Self::on_worktree_store_event)
                 .detach();
 
-            let dap_store = cx.new_model(|cx| DapStore::new(Some(client.http_client()), cx));
+            let dap_store =
+                cx.new_model(|cx| DapStore::new(Some(client.http_client()), fs.clone(), cx));
 
             let buffer_store = cx.new_model(|cx| {
                 BufferStore::new(worktree_store.clone(), None, dap_store.clone(), cx)
@@ -757,7 +758,8 @@ impl Project {
             cx.subscribe(&worktree_store, Self::on_worktree_store_event)
                 .detach();
 
-            let dap_store = cx.new_model(|cx| DapStore::new(Some(client.http_client()), cx));
+            let dap_store =
+                cx.new_model(|cx| DapStore::new(Some(client.http_client()), fs.clone(), cx));
 
             let buffer_store = cx.new_model(|cx| {
                 BufferStore::new(worktree_store.clone(), None, dap_store.clone(), cx)
@@ -916,7 +918,8 @@ impl Project {
             store
         })?;
 
-        let dap_store = cx.new_model(|cx| DapStore::new(Some(client.http_client()), cx))?;
+        let dap_store =
+            cx.new_model(|cx| DapStore::new(Some(client.http_client()), fs.clone(), cx))?;
 
         let buffer_store = cx.new_model(|cx| {
             BufferStore::new(

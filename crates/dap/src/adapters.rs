@@ -3,6 +3,7 @@ use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use futures::AsyncReadExt;
 use gpui::AsyncAppContext;
+use http_client::HttpClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use smol::{
@@ -12,6 +13,8 @@ use smol::{
     process,
 };
 use std::{
+    collections::HashMap,
+    ffi::OsString,
     fmt::Debug,
     net::{Ipv4Addr, SocketAddrV4},
     path::PathBuf,
@@ -50,14 +53,12 @@ async fn get_port(host: Ipv4Addr) -> Option<u16> {
 /// TCP clients don't have an error communication stream with an adapter
 ///
 /// # Parameters
-/// - `command`: The command that starts the debugger
-/// - `args`: Arguments of the command that starts the debugger
-/// - `cwd`: The absolute path of the project that is being debugged
+/// - `host`: The ip/port that that the client will connect too
+/// - `adapter_binary`: The debug adapter binary to start
 /// - `cx`: The context that the new client belongs too
 async fn create_tcp_client(
     host: TCPHost,
-    command: &String,
-    args: &Vec<String>,
+    adapter_binary: DebugAdapterBinary,
     cx: &mut AsyncAppContext,
 ) -> Result<TransportParams> {
     let host_address = host.host.unwrap_or_else(|| Ipv4Addr::new(127, 0, 0, 1));
@@ -67,9 +68,10 @@ async fn create_tcp_client(
         port = get_port(host_address).await;
     }
 
-    let mut command = process::Command::new(command);
+    let mut command = process::Command::new(adapter_binary.path);
     command
-        .args(args)
+        .args(adapter_binary.arguments)
+        .envs(adapter_binary.env.clone().unwrap_or_default())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -105,15 +107,15 @@ async fn create_tcp_client(
 /// Creates a debug client that connects to an adapter through std input/output
 ///
 /// # Parameters
-/// - `command`: The command that starts the debugger
-/// - `args`: Arguments of the command that starts the debugger
-fn create_stdio_client(command: &String, args: &Vec<String>) -> Result<TransportParams> {
-    let mut command = process::Command::new(command);
+/// - `adapter_binary`: The debug adapter binary to start
+fn create_stdio_client(adapter_binary: DebugAdapterBinary) -> Result<TransportParams> {
+    let mut command = process::Command::new(adapter_binary.path);
     command
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .args(adapter_binary.arguments)
+        .envs(adapter_binary.env.clone().unwrap_or_default())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .kill_on_drop(true);
 
     let mut process = command
@@ -144,8 +146,11 @@ fn create_stdio_client(command: &String, args: &Vec<String>) -> Result<Transport
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub struct DebugAdapterName(pub Arc<str>);
 
+#[derive(Debug, Clone)]
 pub struct DebugAdapterBinary {
     pub path: PathBuf,
+    pub arguments: Vec<OsString>,
+    pub env: Option<HashMap<String, String>>,
 }
 
 #[async_trait(?Send)]
@@ -156,11 +161,14 @@ pub trait DebugAdapter: Debug + Send + Sync + 'static {
 
     fn name(&self) -> DebugAdapterName;
 
-    async fn connect(&self, cx: &mut AsyncAppContext) -> anyhow::Result<TransportParams>;
+    async fn connect(
+        &self,
+        adapter_binary: DebugAdapterBinary,
+        cx: &mut AsyncAppContext,
+    ) -> anyhow::Result<TransportParams>;
 
-    fn is_installed(&self) -> Option<DebugAdapterBinary>;
-
-    fn download_adapter(&self) -> anyhow::Result<DebugAdapterBinary>;
+    fn install_or_fetch_binary(&self, delegate: Box<dyn DapDelegate>)
+        -> Option<DebugAdapterBinary>;
 
     fn request_args(&self) -> Value;
 }
@@ -192,21 +200,24 @@ impl DebugAdapter for CustomDebugAdapter {
         DebugAdapterName(Self::_ADAPTER_NAME.into())
     }
 
-    async fn connect(&self, cx: &mut AsyncAppContext) -> Result<TransportParams> {
+    async fn connect(
+        &self,
+        adapter_binary: DebugAdapterBinary,
+        cx: &mut AsyncAppContext,
+    ) -> Result<TransportParams> {
         match &self.connection {
-            DebugConnectionType::STDIO => create_stdio_client(&self.start_command, &vec![]),
+            DebugConnectionType::STDIO => create_stdio_client(adapter_binary),
             DebugConnectionType::TCP(tcp_host) => {
-                create_tcp_client(tcp_host.clone(), &self.start_command, &vec![], cx).await
+                create_tcp_client(tcp_host.clone(), adapter_binary, cx).await
             }
         }
     }
 
-    fn is_installed(&self) -> Option<DebugAdapterBinary> {
+    fn install_or_fetch_binary(
+        &self,
+        _delegate: Box<dyn DapDelegate>,
+    ) -> Option<DebugAdapterBinary> {
         None
-    }
-
-    fn download_adapter(&self) -> anyhow::Result<DebugAdapterBinary> {
-        Err(anyhow::format_err!("Not implemented"))
     }
 
     fn request_args(&self) -> Value {
@@ -247,24 +258,19 @@ impl DebugAdapter for PythonDebugAdapter {
         DebugAdapterName(Self::_ADAPTER_NAME.into())
     }
 
-    async fn connect(&self, _cx: &mut AsyncAppContext) -> Result<TransportParams> {
-        let command = "python3".to_string();
-
-        let args = if let Some(path) = self.adapter_path.clone() {
-            vec![path]
-        } else {
-            Vec::new()
-        };
-
-        create_stdio_client(&command, &args)
+    async fn connect(
+        &self,
+        adapter_binary: DebugAdapterBinary,
+        _cx: &mut AsyncAppContext,
+    ) -> Result<TransportParams> {
+        create_stdio_client(adapter_binary)
     }
 
-    fn is_installed(&self) -> Option<DebugAdapterBinary> {
+    fn install_or_fetch_binary(
+        &self,
+        _delegate: Box<dyn DapDelegate>,
+    ) -> Option<DebugAdapterBinary> {
         None
-    }
-
-    fn download_adapter(&self) -> anyhow::Result<DebugAdapterBinary> {
-        Err(anyhow::format_err!("Not implemented"))
     }
 
     fn request_args(&self) -> Value {
@@ -295,30 +301,25 @@ impl DebugAdapter for PhpDebugAdapter {
         DebugAdapterName(Self::_ADAPTER_NAME.into())
     }
 
-    async fn connect(&self, cx: &mut AsyncAppContext) -> Result<TransportParams> {
-        let command = "bun".to_string();
-
-        let args = if let Some(path) = self.adapter_path.clone() {
-            vec![path, "--server=8132".into()]
-        } else {
-            Vec::new()
-        };
-
+    async fn connect(
+        &self,
+        adapter_binary: DebugAdapterBinary,
+        cx: &mut AsyncAppContext,
+    ) -> Result<TransportParams> {
         let host = TCPHost {
             port: Some(8132),
             host: None,
             delay: Some(1000),
         };
 
-        create_tcp_client(host, &command, &args, cx).await
+        create_tcp_client(host, adapter_binary, cx).await
     }
 
-    fn is_installed(&self) -> Option<DebugAdapterBinary> {
+    fn install_or_fetch_binary(
+        &self,
+        _delegate: Box<dyn DapDelegate>,
+    ) -> Option<DebugAdapterBinary> {
         None
-    }
-
-    fn download_adapter(&self) -> anyhow::Result<DebugAdapterBinary> {
-        Err(anyhow::format_err!("Not implemented"))
     }
 
     fn request_args(&self) -> Value {
@@ -349,21 +350,26 @@ impl DebugAdapter for LldbDebugAdapter {
         DebugAdapterName(Self::_ADAPTER_NAME.into())
     }
 
-    async fn connect(&self, _: &mut AsyncAppContext) -> Result<TransportParams> {
-        let command = "/opt/homebrew/opt/llvm/bin/lldb-dap".to_string();
-
-        create_stdio_client(&command, &vec![])
+    async fn connect(
+        &self,
+        adapter_binary: DebugAdapterBinary,
+        _: &mut AsyncAppContext,
+    ) -> Result<TransportParams> {
+        create_stdio_client(adapter_binary)
     }
 
-    fn is_installed(&self) -> Option<DebugAdapterBinary> {
+    fn install_or_fetch_binary(
+        &self,
+        _delegate: Box<dyn DapDelegate>,
+    ) -> Option<DebugAdapterBinary> {
         None
-    }
-
-    fn download_adapter(&self) -> anyhow::Result<DebugAdapterBinary> {
-        Err(anyhow::format_err!("Not implemented"))
     }
 
     fn request_args(&self) -> Value {
         json!({"program": format!("{}", &self.program)})
     }
+}
+
+pub trait DapDelegate {
+    fn http_client(&self) -> Option<Arc<dyn HttpClient>>;
 }

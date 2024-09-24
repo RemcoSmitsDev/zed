@@ -1,7 +1,6 @@
+use crate::adapters::{build_adapter, DapDelegate, DebugAdapter};
 use crate::transport::Transport;
 use anyhow::{anyhow, Context, Result};
-
-use crate::adapters::{build_adapter, DebugAdapter};
 use dap_types::{
     messages::{Message, Response},
     requests::Request,
@@ -72,6 +71,7 @@ impl DebugAdapterClient {
     pub async fn new<F>(
         id: DebugAdapterClientId,
         config: DebugAdapterConfig,
+        delegate: Box<dyn DapDelegate>,
         event_handler: F,
         cx: &mut AsyncAppContext,
     ) -> Result<Arc<Self>>
@@ -79,7 +79,10 @@ impl DebugAdapterClient {
         F: FnMut(Message, &mut AppContext) + 'static + Send + Sync + Clone,
     {
         let adapter = Arc::new(build_adapter(&config).context("Creating debug adapter")?);
-        let transport_params = adapter.connect(cx).await?;
+        let binary = adapter
+            .install_or_fetch_binary(delegate)
+            .ok_or(anyhow!("Failed to get debug adapter binary"))?;
+        let transport_params = adapter.connect(binary, cx).await?;
 
         let transport = Self::handle_transport(
             transport_params.rx,
