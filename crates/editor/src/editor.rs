@@ -1871,7 +1871,11 @@ impl Editor {
             None
         };
 
-        let dap_store = project.as_ref().map(|project| project.read(cx).dap_store());
+        let dap_store = if mode == EditorMode::Full {
+            project.as_ref().map(|project| project.read(cx).dap_store())
+        } else {
+            None
+        };
 
         let mut this = Self {
             focus_handle,
