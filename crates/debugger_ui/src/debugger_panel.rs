@@ -494,19 +494,6 @@ impl DebugPanel {
                 (*client_id, thread_id),
                 cx.new_model(|_| ThreadState::default()),
             );
-        } else {
-            // TODO debugger: we want to figure out for witch clients/threads we should remove the highlights
-            // cx.spawn({
-            //     let client = client.clone();
-            //     |this, mut cx| async move {
-            //         let workspace = this.update(&mut cx, |this, _| this.workspace.clone())?;
-
-            //         Self::remove_highlights_for_thread(workspace, client, thread_id, cx).await?;
-
-            //         anyhow::Ok(())
-            //     }
-            // })
-            // .detach_and_log_err(cx);
         }
 
         cx.emit(DebugPanelEvent::Thread((*client_id, event.clone())));
