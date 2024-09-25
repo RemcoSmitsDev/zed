@@ -49,11 +49,18 @@ pub enum DebugAdapterClientState {
     Running(Arc<DebugAdapterClient>),
 }
 
+#[derive(Clone, Debug)]
+pub struct DebugPosition {
+    pub row: u32,
+    pub column: u32,
+}
+
 pub struct DapStore {
     next_client_id: AtomicUsize,
     clients: HashMap<DebugAdapterClientId, DebugAdapterClientState>,
     breakpoints: BTreeMap<ProjectPath, HashSet<Breakpoint>>,
     capabilities: HashMap<DebugAdapterClientId, Capabilities>,
+    active_debug_line: Option<(ProjectPath, DebugPosition)>,
 }
 
 impl EventEmitter<DapStoreEvent> for DapStore {}
@@ -63,9 +70,10 @@ impl DapStore {
         cx.on_app_quit(Self::shutdown_clients).detach();
 
         Self {
+            active_debug_line: None,
             clients: Default::default(),
-            capabilities: HashMap::default(),
             breakpoints: Default::default(),
+            capabilities: HashMap::default(),
             next_client_id: Default::default(),
         }
     }
@@ -106,6 +114,26 @@ impl DapStore {
 
             cx.notify();
         }
+    }
+
+    pub fn active_debug_line(&self) -> Option<(ProjectPath, DebugPosition)> {
+        self.active_debug_line.clone()
+    }
+
+    pub fn set_active_debug_line(
+        &mut self,
+        project_path: &ProjectPath,
+        row: u32,
+        column: u32,
+        cx: &mut ModelContext<Self>,
+    ) {
+        self.active_debug_line = Some((project_path.clone(), DebugPosition { row, column }));
+
+        cx.notify();
+    }
+
+    pub fn remove_active_debug_line(&mut self) {
+        self.active_debug_line.take();
     }
 
     pub fn breakpoints(&self) -> &BTreeMap<ProjectPath, HashSet<Breakpoint>> {

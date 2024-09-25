@@ -2024,6 +2024,8 @@ impl Editor {
                 this.git_blame_inline_enabled = true;
                 this.start_git_blame_inline(false, cx);
             }
+
+            this.go_to_active_debug_line(cx);
         }
 
         this.report_editor_event("open", None, cx);
@@ -11306,6 +11308,31 @@ impl Editor {
                 if let Some(path) = file.path().to_str() {
                     cx.write_to_clipboard(ClipboardItem::new_string(path.to_string()));
                 }
+            }
+        }
+    }
+
+    pub fn go_to_active_debug_line(&mut self, cx: &mut ViewContext<Self>) {
+        let Some(dap_store) = self.dap_store.as_ref() else {
+            return;
+        };
+
+        let Some(buffer) = self.buffer.read(cx).as_singleton() else {
+            return;
+        };
+
+        let Some(project_path) = buffer.read_with(cx, |buffer, cx| buffer.project_path(cx)) else {
+            return;
+        };
+
+        if let Some((path, position)) = dap_store.read(cx).active_debug_line() {
+            if path == project_path {
+                self.go_to_line::<DebugCurrentRowHighlight>(
+                    position.row,
+                    position.column,
+                    Some(cx.theme().colors().editor_debugger_active_line_background),
+                    cx,
+                );
             }
         }
     }

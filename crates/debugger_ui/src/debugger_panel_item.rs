@@ -13,9 +13,10 @@ use dap::{
 use editor::Editor;
 use gpui::{
     list, AnyElement, AppContext, EventEmitter, FocusHandle, FocusableView, ListState, Model,
-    Subscription, Task, View, WeakView,
+    Subscription, View, WeakView,
 };
 use project::dap_store::DapStore;
+use project::ProjectPath;
 use settings::Settings;
 use task::DebugAdapterKind;
 use ui::WindowContext;
@@ -345,56 +346,61 @@ impl DebugPanelItem {
             .ok();
     }
 
+    pub fn project_path_from_stack_frame(
+        &self,
+        stack_frame: &StackFrame,
+        cx: &mut ViewContext<Self>,
+    ) -> Option<ProjectPath> {
+        let Some(path) = stack_frame.source.as_ref().and_then(|s| s.path.as_ref()) else {
+            return None;
+        };
+
+        self.workspace
+            .update(cx, |workspace, cx| {
+                workspace.project().read_with(cx, |project, cx| {
+                    project.project_path_for_absolute_path(&Path::new(path), cx)
+                })
+            })
+            .ok()?
+    }
+
     pub fn go_to_stack_frame(&mut self, cx: &mut ViewContext<Self>) {
         self.remove_highlights(cx);
 
-        let Some(stack_frame) = self
+        let stack_frame = self
             .thread_state
             .read(cx)
             .stack_frames
             .iter()
             .find(|s| s.id == self.current_stack_frame_id)
-        else {
-            return;
-        };
+            .cloned();
 
-        let Some(path) = stack_frame.source.as_ref().and_then(|s| s.path.as_ref()) else {
-            return;
+        let Some(stack_frame) = stack_frame else {
+            return; // this could never happen
         };
 
         let row = (stack_frame.line.saturating_sub(1)) as u32;
         let column = (stack_frame.column.saturating_sub(1)) as u32;
 
+        let Some(project_path) = self.project_path_from_stack_frame(&stack_frame, cx) else {
+            return;
+        };
+
+        self.dap_store.update(cx, |store, cx| {
+            store.set_active_debug_line(&project_path, row, column, cx);
+        });
+
         cx.spawn({
             let workspace = self.workspace.clone();
-            let path = path.clone();
-            |_, mut cx| async move {
+            move |_, mut cx| async move {
                 let task = workspace.update(&mut cx, |workspace, cx| {
-                    let project_path = workspace.project().read_with(cx, |project, cx| {
-                        project.project_path_for_absolute_path(&Path::new(&path), cx)
-                    });
-
-                    if let Some(project_path) = project_path {
-                        workspace.open_path_preview(project_path, None, false, true, cx)
-                    } else {
-                        Task::ready(Err(anyhow::anyhow!(
-                            "No project path found for path: {}",
-                            path
-                        )))
-                    }
+                    workspace.open_path_preview(project_path, None, false, true, cx)
                 })?;
 
                 let editor = task.await?.downcast::<Editor>().unwrap();
 
                 workspace.update(&mut cx, |_, cx| {
-                    editor.update(cx, |editor, cx| {
-                        editor.go_to_line::<editor::DebugCurrentRowHighlight>(
-                            row,
-                            column,
-                            Some(cx.theme().colors().editor_debugger_active_line_background),
-                            cx,
-                        );
-                    })
+                    editor.update(cx, |editor, cx| editor.go_to_active_debug_line(cx))
                 })
             }
         })
