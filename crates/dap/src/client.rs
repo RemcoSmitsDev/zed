@@ -82,8 +82,7 @@ impl DebugAdapterClient {
         let binary = adapter
             .install_or_fetch_binary(delegate)
             .await
-            .ok_or(anyhow!("Failed to get debug adapter binary"))?;
-        println!("{:?}", &binary);
+            .context("Failed to get debug adapter binary")?;
         let transport_params = adapter.connect(binary, cx).await?;
 
         let transport = Self::handle_transport(

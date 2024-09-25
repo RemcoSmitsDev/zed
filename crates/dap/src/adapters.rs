@@ -1,6 +1,6 @@
 use crate::client::TransportParams;
 use ::fs::Fs;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use futures::AsyncReadExt;
 use gpui::AsyncAppContext;
@@ -181,7 +181,7 @@ pub trait DebugAdapter: Debug + Send + Sync + 'static {
     async fn install_or_fetch_binary(
         &self,
         delegate: Box<dyn DapDelegate>,
-    ) -> Option<DebugAdapterBinary>;
+    ) -> Result<DebugAdapterBinary>;
 
     fn request_args(&self) -> Value;
 }
@@ -229,8 +229,8 @@ impl DebugAdapter for CustomDebugAdapter {
     async fn install_or_fetch_binary(
         &self,
         _delegate: Box<dyn DapDelegate>,
-    ) -> Option<DebugAdapterBinary> {
-        None
+    ) -> Result<DebugAdapterBinary> {
+        bail!("Install or fetch not implemented for custom debug adapter (yet)");
     }
 
     fn request_args(&self) -> Value {
@@ -282,12 +282,12 @@ impl DebugAdapter for PythonDebugAdapter {
     async fn install_or_fetch_binary(
         &self,
         delegate: Box<dyn DapDelegate>,
-    ) -> Option<DebugAdapterBinary> {
+    ) -> Result<DebugAdapterBinary> {
         let adapter_path = paths::debug_adapters_dir().join("debugpy/src/debugpy/adapter");
         let fs = delegate.fs();
 
         if fs.is_dir(adapter_path.as_path()).await {
-            return Some(DebugAdapterBinary {
+            return Ok(DebugAdapterBinary {
                 start_command: Some("python3".to_string()),
                 path: adapter_path,
                 arguments: vec![],
@@ -297,13 +297,12 @@ impl DebugAdapter for PythonDebugAdapter {
             let debugpy_dir = paths::debug_adapters_dir().join("debugpy");
 
             if !debugpy_dir.exists() {
-                fs.create_dir(&debugpy_dir.as_path()).await.ok()?;
+                fs.create_dir(&debugpy_dir.as_path()).await?;
             }
 
             let release =
                 latest_github_release("microsoft/debugpy", false, false, http_client.clone())
-                    .await
-                    .ok()?;
+                    .await?;
             let asset_name = format!("{}.zip", release.tag_name);
 
             let zip_path = debugpy_dir.join(asset_name);
@@ -312,40 +311,38 @@ impl DebugAdapter for PythonDebugAdapter {
                 let mut response = http_client
                     .get(&release.zipball_url, Default::default(), true)
                     .await
-                    .context("Error downloading release")
-                    .ok()?;
+                    .context("Error downloading release")?;
 
-                let mut file = File::create(&zip_path).await.ok()?;
-                futures::io::copy(response.body_mut(), &mut file)
-                    .await
-                    .ok()?;
+                let mut file = File::create(&zip_path).await?;
+                futures::io::copy(response.body_mut(), &mut file).await?;
 
                 let _unzip_status = process::Command::new("unzip")
                     .current_dir(&debugpy_dir)
                     .arg(&zip_path)
                     .output()
-                    .await
-                    .ok()?
+                    .await?
                     .status;
 
                 let mut ls = process::Command::new("ls")
                     .current_dir(&debugpy_dir)
                     .stdout(Stdio::piped())
-                    .spawn()
-                    .ok()?;
+                    .spawn()?;
 
-                let std = ls.stdout.take()?.into_stdio().await.ok()?;
+                let std = ls
+                    .stdout
+                    .take()
+                    .ok_or(anyhow!("Failed to list directories"))?
+                    .into_stdio()
+                    .await?;
 
                 let file_name = String::from_utf8(
                     process::Command::new("grep")
                         .arg("microsoft-debugpy")
                         .stdin(std)
                         .output()
-                        .await
-                        .ok()?
+                        .await?
                         .stdout,
-                )
-                .ok()?;
+                )?;
 
                 let file_name = file_name.trim_end();
                 process::Command::new("sh")
@@ -353,8 +350,7 @@ impl DebugAdapter for PythonDebugAdapter {
                     .arg("-c")
                     .arg(format!("mv {file_name}/* ."))
                     .output()
-                    .await
-                    .ok()?;
+                    .await?;
 
                 process::Command::new("rm")
                     .current_dir(&debugpy_dir)
@@ -362,19 +358,20 @@ impl DebugAdapter for PythonDebugAdapter {
                     .arg(file_name)
                     .arg(zip_path)
                     .output()
-                    .await
-                    .ok()?;
+                    .await?;
 
-                return Some(DebugAdapterBinary {
+                return Ok(DebugAdapterBinary {
                     start_command: Some("python3".to_string()),
                     path: adapter_path,
                     arguments: vec![],
                     env: None,
                 });
             }
-            return None;
+            return Err(anyhow!("Failed to download debugpy"));
         } else {
-            return None;
+            return Err(anyhow!(
+                "Could not find debugpy in paths or connect to http"
+            ));
         }
     }
 
@@ -423,8 +420,8 @@ impl DebugAdapter for PhpDebugAdapter {
     async fn install_or_fetch_binary(
         &self,
         _delegate: Box<dyn DapDelegate>,
-    ) -> Option<DebugAdapterBinary> {
-        None
+    ) -> Result<DebugAdapterBinary> {
+        bail!("Install or fetch not implemented for Php debug adapter (yet)");
     }
 
     fn request_args(&self) -> Value {
@@ -466,8 +463,8 @@ impl DebugAdapter for LldbDebugAdapter {
     async fn install_or_fetch_binary(
         &self,
         _delegate: Box<dyn DapDelegate>,
-    ) -> Option<DebugAdapterBinary> {
-        None
+    ) -> Result<DebugAdapterBinary> {
+        bail!("Install or fetch binary not implemented for lldb debug adapter (yet)");
     }
 
     fn request_args(&self) -> Value {
