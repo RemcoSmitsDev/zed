@@ -351,9 +351,7 @@ impl DebugPanelItem {
         stack_frame: &StackFrame,
         cx: &mut ViewContext<Self>,
     ) -> Option<ProjectPath> {
-        let Some(path) = stack_frame.source.as_ref().and_then(|s| s.path.as_ref()) else {
-            return None;
-        };
+        let path = stack_frame.source.as_ref().and_then(|s| s.path.as_ref())?;
 
         self.workspace
             .update(cx, |workspace, cx| {
