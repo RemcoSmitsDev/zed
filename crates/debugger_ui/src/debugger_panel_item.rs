@@ -113,8 +113,8 @@ impl DebugPanelItem {
                     DebugPanelEvent::Continued((client_id, event)) => {
                         this.handle_thread_continued_event(client_id, event, cx);
                     }
-                    DebugPanelEvent::Exited(client_id) => {
-                        this.handle_client_exited_event(client_id, cx);
+                    DebugPanelEvent::Exited(client_id) | DebugPanelEvent::Terminated(client_id) => {
+                        this.handle_client_exited_and_terminated_event(client_id, cx);
                     }
                 };
             }
@@ -158,6 +158,13 @@ impl DebugPanelItem {
 
             cx.notify();
         });
+
+        if status == ThreadStatus::Exited
+            || status == ThreadStatus::Ended
+            || status == ThreadStatus::Stopped
+        {
+            self.clear_highlights(cx);
+        }
 
         cx.notify();
     }
@@ -274,12 +281,10 @@ impl DebugPanelItem {
 
         self.update_thread_state_status(ThreadStatus::Stopped, cx);
 
-        self.remove_highlights(cx);
-
         cx.emit(Event::Close);
     }
 
-    fn handle_client_exited_event(
+    fn handle_client_exited_and_terminated_event(
         &mut self,
         client_id: &DebugAdapterClientId,
         cx: &mut ViewContext<Self>,
@@ -330,7 +335,7 @@ impl DebugPanelItem {
         cx.notify();
     }
 
-    fn remove_highlights(&self, cx: &mut ViewContext<Self>) {
+    fn clear_highlights(&self, cx: &mut ViewContext<Self>) {
         self.workspace
             .update(cx, |workspace, cx| {
                 let editor_views = workspace
@@ -363,7 +368,7 @@ impl DebugPanelItem {
     }
 
     pub fn go_to_stack_frame(&mut self, cx: &mut ViewContext<Self>) {
-        self.remove_highlights(cx);
+        self.clear_highlights(cx);
 
         let stack_frame = self
             .thread_state

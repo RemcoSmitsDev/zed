@@ -28,6 +28,7 @@ use workspace::{pane, Pane, Start};
 
 pub enum DebugPanelEvent {
     Exited(DebugAdapterClientId),
+    Terminated(DebugAdapterClientId),
     Stopped {
         client_id: DebugAdapterClientId,
         event: StoppedEvent,
@@ -516,8 +517,6 @@ impl DebugPanel {
     ) {
         let restart_args = event.clone().and_then(|e| e.restart);
 
-        // TODO debugger: remove current highlights
-
         self.dap_store.update(cx, |store, cx| {
             if restart_args.is_some() {
                 store
@@ -527,6 +526,8 @@ impl DebugPanel {
                 store.shutdown_client(&client_id, cx).detach_and_log_err(cx);
             }
         });
+
+        cx.emit(DebugPanelEvent::Terminated(*client_id));
     }
 
     fn handle_output_event(
