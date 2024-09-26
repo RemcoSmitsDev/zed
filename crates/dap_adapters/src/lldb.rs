@@ -1,16 +1,16 @@
 use crate::*;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-pub(crate) struct PhpDebugAdapter {
+pub(crate) struct LldbDebugAdapter {
     program: String,
     adapter_path: Option<String>,
 }
 
-impl PhpDebugAdapter {
-    const _ADAPTER_NAME: &'static str = "vscode-php-debug";
+impl LldbDebugAdapter {
+    const _ADAPTER_NAME: &'static str = "lldb";
 
     pub(crate) fn new(adapter_config: &DebugAdapterConfig) -> Self {
-        PhpDebugAdapter {
+        LldbDebugAdapter {
             program: adapter_config.program.clone(),
             adapter_path: adapter_config.adapter_path.clone(),
         }
@@ -18,7 +18,7 @@ impl PhpDebugAdapter {
 }
 
 #[async_trait(?Send)]
-impl DebugAdapter for PhpDebugAdapter {
+impl DebugAdapter for LldbDebugAdapter {
     fn name(&self) -> DebugAdapterName {
         DebugAdapterName(Self::_ADAPTER_NAME.into())
     }
@@ -26,22 +26,16 @@ impl DebugAdapter for PhpDebugAdapter {
     async fn connect(
         &self,
         adapter_binary: DebugAdapterBinary,
-        cx: &mut AsyncAppContext,
+        _: &mut AsyncAppContext,
     ) -> Result<TransportParams> {
-        let host = TCPHost {
-            port: Some(8132),
-            host: None,
-            delay: Some(1000),
-        };
-
-        create_tcp_client(host, adapter_binary, cx).await
+        create_stdio_client(adapter_binary)
     }
 
     async fn install_or_fetch_binary(
         &self,
         _delegate: Box<dyn DapDelegate>,
     ) -> Result<DebugAdapterBinary> {
-        bail!("Install or fetch not implemented for Php debug adapter (yet)");
+        bail!("Install or fetch binary not implemented for lldb debug adapter (yet)");
     }
 
     fn request_args(&self) -> Value {
