@@ -1,6 +1,6 @@
-use crate::adapters::{build_adapter, DapDelegate, DebugAdapter};
 use crate::transport::Transport;
 use anyhow::{anyhow, Context, Result};
+use crate::adapters::{DapDelegate, DebugAdapter};
 use dap_types::{
     messages::{Message, Response},
     requests::Request,
@@ -71,6 +71,7 @@ impl DebugAdapterClient {
     pub async fn new<F>(
         id: DebugAdapterClientId,
         config: DebugAdapterConfig,
+        adapter: Arc<Box<dyn DebugAdapter>>,
         delegate: Box<dyn DapDelegate>,
         event_handler: F,
         cx: &mut AsyncAppContext,
@@ -78,7 +79,6 @@ impl DebugAdapterClient {
     where
         F: FnMut(Message, &mut AppContext) + 'static + Send + Sync + Clone,
     {
-        let adapter = Arc::new(build_adapter(&config).context("Creating debug adapter")?);
         let binary = adapter
             .install_or_fetch_binary(delegate)
             .await

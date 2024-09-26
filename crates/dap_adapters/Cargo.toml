@@ -1,27 +1,28 @@
 [package]
-name = "dap"
+name = "dap_adapters"
 version = "0.1.0"
-edition = "2021"
-publish = false
+edition =  "2021"
+publish =  false
 license = "GPL-3.0-or-later"
+
 
 [lints]
 workspace = true
 
+[lib]
+path = "src/dap_adapters.rs"
+doctest = false
+
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
-dap-types = { git = "https://github.com/zed-industries/dap-types" }
+dap.workspace = true
 fs.workspace = true
 futures.workspace = true
 gpui.workspace = true
 http_client.workspace = true
-parking_lot.workspace = true
-paths.workspace = true
-node_runtime.workspace = true
-schemars.workspace = true
+task.workspace = true
+smol.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-settings.workspace = true
-smol.workspace = true
-task.workspace = true
+paths.workspace = true

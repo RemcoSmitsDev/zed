@@ -3390,6 +3390,7 @@ dependencies = [
  "futures 0.3.30",
  "gpui",
  "http_client",
+ "node_runtime",
  "parking_lot",
  "paths",
  "schemars",
@@ -3407,6 +3408,24 @@ source = "git+https://github.com/zed-industries/dap-types#b7404edcd158d7d3ed8a7e
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "dap_adapters"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "dap",
+ "fs",
+ "futures 0.3.30",
+ "gpui",
+ "http_client",
+ "paths",
+ "serde",
+ "serde_json",
+ "smol",
+ "task",
 ]
 
 [[package]]
@@ -8497,6 +8516,7 @@ dependencies = [
  "clock",
  "collections",
  "dap",
+ "dap_adapters",
  "dev_server_projects",
  "env_logger",
  "fs",

@@ -17,8 +17,9 @@ use dap::{
     SteppingGranularity, TerminateArguments, TerminateThreadsArguments, Variable,
     VariablesArguments,
 };
+use dap_adapters::build_adapter;
 use fs::Fs;
-use gpui::{EventEmitter, Model, ModelContext, Task, WeakModel};
+use gpui::{EventEmitter, Model, ModelContext, Task};
 use http_client::HttpClient;
 use language::{Buffer, BufferSnapshot};
 use node_runtime::NodeRuntime;
@@ -35,7 +36,7 @@ use std::{
 };
 use task::{DebugAdapterConfig, DebugRequestType};
 use text::Point;
-use util::ResultExt as _;
+use util::ResultExt;
 
 pub enum DapStoreEvent {
     DebugClientStarted(DebugAdapterClientId),
@@ -216,17 +217,21 @@ impl DapStore {
     pub fn start_client(&mut self, config: DebugAdapterConfig, cx: &mut ModelContext<Self>) {
         let client_id = self.next_client_id();
         let adapter_delegate = Box::new(DapAdapterDelegate::new(
-            self,
             self.http_client.clone(),
             self.node_runtime.clone(),
             self.fs.clone(),
-            cx,
         ));
         let start_client_task = cx.spawn(|this, mut cx| async move {
             let dap_store = this.clone();
+            let adapter = Arc::new(
+                build_adapter(&config)
+                    .context("Creating debug adapter")
+                    .log_err()?,
+            );
             let client = DebugAdapterClient::new(
                 client_id,
                 config,
+                adapter,
                 adapter_delegate,
                 move |message, cx| {
                     dap_store
@@ -968,25 +973,21 @@ impl SerializedBreakpoint {
 }
 
 pub struct DapAdapterDelegate {
-    _dap_store: WeakModel<DapStore>,
     fs: Arc<dyn Fs>,
     http_client: Option<Arc<dyn HttpClient>>,
-    _node_runtime: Option<Arc<dyn NodeRuntime>>,
+    node_runtime: Option<Arc<dyn NodeRuntime>>,
 }
 
 impl DapAdapterDelegate {
     pub fn new(
-        _dap_store: &DapStore,
         http_client: Option<Arc<dyn HttpClient>>,
         node_runtime: Option<Arc<dyn NodeRuntime>>,
         fs: Arc<dyn Fs>,
-        cx: &mut ModelContext<DapStore>,
     ) -> Self {
         Self {
-            _dap_store: cx.weak_model(),
             fs,
             http_client,
-            _node_runtime: node_runtime,
+            node_runtime,
         }
     }
 }
@@ -994,6 +995,10 @@ impl DapAdapterDelegate {
 impl dap::adapters::DapDelegate for DapAdapterDelegate {
     fn http_client(&self) -> Option<Arc<dyn HttpClient>> {
         self.http_client.clone()
+    }
+
+    fn node_runtime(&self) -> Option<Arc<dyn NodeRuntime>> {
+        self.node_runtime.clone()
     }
 
     fn fs(&self) -> Arc<dyn Fs> {
