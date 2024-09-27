@@ -14127,3 +14127,80 @@ fn check_multiline_range(buffer: &Buffer, range: Range<usize>) -> Range<usize> {
         range.start..range.start
     }
 }
+
+struct BreakpointPromptEditor {
+    editor: View<Editor>,
+    _subscriptions: Vec<Subscription>,
+}
+
+impl BreakpointPromptEditor {
+    const MAX_LINES: u8 = 4;
+
+    fn new(cx: &mut ViewContext<Self>) -> Self {
+        let buffer = cx.new_model(|cx| Buffer::local(String::new(), cx));
+        let buffer = cx.new_model(|cx| MultiBuffer::singleton(buffer, cx));
+
+        let editor = cx.new_view(|cx| {
+            let mut editor = Editor::new(
+                EditorMode::AutoHeight {
+                    max_lines: Self::MAX_LINES as usize,
+                },
+                buffer,
+                None,
+                false,
+                cx,
+            );
+            editor.set_soft_wrap_mode(language::language_settings::SoftWrap::EditorWidth, cx);
+            // Since the prompt editors for all inline assistants are linked,
+            // always show the cursor (even when it isn't focused) because
+            // typing in one will make what you typed appear in all of them.
+            editor.set_show_cursor_when_unfocused(true, cx);
+            editor.set_placeholder_text("Add a prompt…", cx);
+            editor
+        });
+
+        Self {
+            editor,
+            _subscriptions: vec![],
+        }
+    }
+
+    fn render_prompt_editor(&self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+        let settings = ThemeSettings::get_global(cx);
+        let text_style = TextStyle {
+            color: if self.editor.read(cx).read_only(cx) {
+                cx.theme().colors().text_disabled
+            } else {
+                cx.theme().colors().text
+            },
+            font_family: settings.buffer_font.family.clone(),
+            font_fallbacks: settings.buffer_font.fallbacks.clone(),
+            font_size: settings.buffer_font_size.into(),
+            font_weight: settings.buffer_font.weight,
+            line_height: relative(settings.buffer_line_height.value()),
+            ..Default::default()
+        };
+        EditorElement::new(
+            &self.editor,
+            EditorStyle {
+                background: cx.theme().colors().editor_background,
+                local_player: cx.theme().players().local(),
+                text: text_style,
+                ..Default::default()
+            },
+        )
+    }
+}
+
+impl Render for BreakpointPromptEditor {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+        h_flex()
+            .key_context("Editor")
+            .bg(cx.theme().colors().editor_background)
+            .border_y_1()
+            .border_color(cx.theme().status().info_border)
+            .size_full()
+            .py(cx.line_height() / 2.5)
+            .child(self.render_prompt_editor(cx))
+    }
+}
