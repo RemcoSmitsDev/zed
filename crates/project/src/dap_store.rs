@@ -228,11 +228,21 @@ impl DapStore {
                     .context("Creating debug adapter")
                     .log_err()?,
             );
+            let binary = adapter
+                .install_or_fetch_binary(adapter_delegate)
+                .await
+                .context("Failed to get debug adapter binary")
+                .log_err()?;
+            let transport_params = adapter.connect(binary, &mut cx).await.log_err()?;
+            let request_args = adapter.request_args();
+            let adapter_id = adapter.id();
+
             let client = DebugAdapterClient::new(
                 client_id,
+                adapter_id,
+                request_args,
                 config,
-                adapter,
-                adapter_delegate,
+                transport_params,
                 move |message, cx| {
                     dap_store
                         .update(cx, |_, cx| {
@@ -282,7 +292,7 @@ impl DapStore {
                 .request::<Initialize>(InitializeRequestArguments {
                     client_id: Some("zed".to_owned()),
                     client_name: Some("Zed".to_owned()),
-                    adapter_id: client.adapter().id(),
+                    adapter_id: client.adapter_id(),
                     locale: Some("en-US".to_owned()),
                     path_format: Some(InitializeRequestArgumentsPathFormat::Path),
                     supports_variable_type: Some(true),
