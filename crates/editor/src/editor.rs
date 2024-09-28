@@ -5479,6 +5479,35 @@ impl Editor {
                         .entry("Toggle Log Breakpoint", None, move |cx| {
                             if let Some(editor) = second_weak.clone().upgrade() {
                                 editor.update(cx, |this, cx| {
+                                    let breakpoint_prompt =
+                                        cx.new_view(BreakpointPromptEditor::new);
+
+                                    let position = this.snapshot(cx).display_point_to_anchor(
+                                        DisplayPoint::new(row, 0),
+                                        Bias::Left,
+                                    );
+
+                                    let height = breakpoint_prompt.update(cx, |this, cx| {
+                                        this.editor.update(cx, |editor, cx| {
+                                            editor.max_point(cx).row().0 + 1 + 2
+                                        })
+                                    });
+
+                                    let prompt_editor = breakpoint_prompt.clone();
+
+                                    let blocks = vec![BlockProperties {
+                                        style: BlockStyle::Sticky,
+                                        position,
+                                        height,
+                                        render: Box::new(move |cx| {
+                                            prompt_editor.clone().into_any_element()
+                                        }),
+                                        disposition: BlockDisposition::Above,
+                                        priority: 0,
+                                    }];
+
+                                    this.insert_blocks(blocks, None, cx);
+
                                     this.toggle_breakpoint_at_anchor(
                                         anchor,
                                         BreakpointKind::Log("Log breakpoint".into()),
@@ -14129,7 +14158,7 @@ fn check_multiline_range(buffer: &Buffer, range: Range<usize>) -> Range<usize> {
 }
 
 struct BreakpointPromptEditor {
-    editor: View<Editor>,
+    pub(crate) editor: View<Editor>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -14201,6 +14230,6 @@ impl Render for BreakpointPromptEditor {
             .border_color(cx.theme().status().info_border)
             .size_full()
             .py(cx.line_height() / 2.5)
-            .child(self.render_prompt_editor(cx))
+            .child(div().flex_1().child(self.render_prompt_editor(cx)))
     }
 }
