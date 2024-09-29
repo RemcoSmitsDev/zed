@@ -343,7 +343,7 @@ impl DebugPanel {
 
                 let current_stack_frame = stack_frames.first().unwrap().clone();
 
-                let mut scope_tasks = Vec::new();
+                let mut scope_tasks = Vec::with_capacity(stack_frames.len());
                 for stack_frame in stack_frames.clone().into_iter() {
                     let stack_frame_scopes_task = this.update(&mut cx, |this, cx| {
                         this.dap_store
@@ -355,11 +355,11 @@ impl DebugPanel {
                     });
                 }
 
-                let mut stack_frame_tasks = Vec::new();
+                let mut stack_frame_tasks = Vec::with_capacity(scope_tasks.len());
                 for (stack_frame_id, scopes) in try_join_all(scope_tasks).await? {
                     let variable_tasks = this.update(&mut cx, |this, cx| {
                         this.dap_store.update(cx, |store, cx| {
-                            let mut tasks = Vec::new();
+                            let mut tasks = Vec::with_capacity(scopes.len());
 
                             for scope in scopes {
                                 let variables_task =
