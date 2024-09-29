@@ -749,6 +749,8 @@ impl DapStore {
             breakpoint_set.insert(breakpoint);
         }
 
+        cx.notify();
+
         self.send_changed_breakpoints(project_path, buffer_path, buffer_snapshot, cx)
             .detach();
     }
@@ -824,6 +826,7 @@ impl DapStore {
         })
     }
 }
+
 type LogMessage = Arc<str>;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]

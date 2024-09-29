@@ -80,11 +80,7 @@ impl Console {
             console.move_to_end(&editor::actions::MoveToEnd, cx);
             console.insert(format!("{}\n", message.trim_end()).as_str(), cx);
             console.set_read_only(true);
-
-            cx.notify();
         });
-
-        cx.notify();
     }
 
     fn evaluate(&mut self, _: &Confirm, cx: &mut ViewContext<Self>) {
