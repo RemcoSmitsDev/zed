@@ -260,7 +260,7 @@ impl CompletionProvider for ConsoleQueryBarCompletionProvider {
                             text: format!("{} {}", string_match.string.clone(), variable_value),
                             runs: Vec::new(),
                         },
-                        server_id: LanguageServerId(0), // TODO read from client
+                        server_id: LanguageServerId(0), // TODO debugger: read from client
                         documentation: None,
                         lsp_completion: Default::default(),
                         confirm: None,
