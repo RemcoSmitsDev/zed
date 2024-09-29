@@ -11,7 +11,7 @@ use gpui::{
 };
 use menu::Confirm;
 use project::dap_store::DapStore;
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 use ui::{prelude::*, ContextMenu, ListItem};
 
 #[derive(Debug, Clone)]
@@ -33,8 +33,8 @@ pub enum VariableListEntry {
     },
     Variable {
         depth: usize,
-        scope: Scope,
-        variable: Variable,
+        scope: Arc<Scope>,
+        variable: Arc<Variable>,
         has_children: bool,
         container_reference: u64,
     },
@@ -223,8 +223,8 @@ impl VariableList {
 
                 entries.push(VariableListEntry::Variable {
                     depth,
-                    scope: scope.clone(),
-                    variable: variable.clone(),
+                    scope: Arc::new(scope.clone()),
+                    variable: Arc::new(variable.clone()),
                     has_children: variable.variables_reference > 0,
                     container_reference,
                 });
