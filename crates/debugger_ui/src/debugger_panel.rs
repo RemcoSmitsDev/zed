@@ -9,7 +9,6 @@ use dap::{
     Capabilities, ContinuedEvent, ExitedEvent, OutputEvent, Scope, StackFrame, StoppedEvent,
     TerminatedEvent, ThreadEvent, ThreadEventReason, Variable,
 };
-use futures::future::try_join_all;
 use gpui::{
     actions, Action, AppContext, AsyncWindowContext, EventEmitter, FocusHandle, FocusableView,
     FontWeight, Model, Subscription, Task, View, ViewContext, WeakView,
@@ -343,73 +342,12 @@ impl DebugPanel {
 
                 let current_stack_frame = stack_frames.first().unwrap().clone();
 
-                let mut scope_tasks = Vec::with_capacity(stack_frames.len());
-                for stack_frame in stack_frames.clone().into_iter() {
-                    let stack_frame_scopes_task = this.update(&mut cx, |this, cx| {
-                        this.dap_store
-                            .update(cx, |store, cx| store.scopes(&client_id, stack_frame.id, cx))
-                    });
-
-                    scope_tasks.push(async move {
-                        anyhow::Ok((stack_frame.id, stack_frame_scopes_task?.await?))
-                    });
-                }
-
-                let mut stack_frame_tasks = Vec::with_capacity(scope_tasks.len());
-                for (stack_frame_id, scopes) in try_join_all(scope_tasks).await? {
-                    let variable_tasks = this.update(&mut cx, |this, cx| {
-                        this.dap_store.update(cx, |store, cx| {
-                            let mut tasks = Vec::with_capacity(scopes.len());
-
-                            for scope in scopes {
-                                let variables_task =
-                                    store.variables(&client_id, scope.variables_reference, cx);
-                                tasks.push(
-                                    async move { anyhow::Ok((scope, variables_task.await?)) },
-                                );
-                            }
-
-                            tasks
-                        })
-                    })?;
-
-                    stack_frame_tasks.push(async move {
-                        anyhow::Ok((stack_frame_id, try_join_all(variable_tasks).await?))
-                    });
-                }
-
                 let thread_state = this.update(&mut cx, |this, cx| {
                     this.thread_states
                         .entry((client_id, thread_id))
                         .or_insert(cx.new_model(|_| ThreadState::default()))
                         .clone()
                 })?;
-
-                for (stack_frame_id, scopes) in try_join_all(stack_frame_tasks).await? {
-                    thread_state.update(&mut cx, |thread_state, _| {
-                        thread_state
-                            .scopes
-                            .insert(stack_frame_id, scopes.iter().map(|s| s.0.clone()).collect());
-
-                        for (scope, variables) in scopes {
-                            thread_state
-                                .fetched_variable_ids
-                                .insert(scope.variables_reference);
-
-                            thread_state.variables.insert(
-                                scope.variables_reference,
-                                variables
-                                    .into_iter()
-                                    .map(|v| VariableContainer {
-                                        container_reference: scope.variables_reference,
-                                        variable: v,
-                                        depth: 1,
-                                    })
-                                    .collect::<Vec<VariableContainer>>(),
-                            );
-                        }
-                    })?;
-                }
 
                 this.update(&mut cx, |this, cx| {
                     thread_state.update(cx, |thread_state, cx| {

@@ -209,6 +209,10 @@ impl DebugPanelItem {
             self.update_stack_frame_id(stack_frame.id, go_to_stack_frame, cx);
         };
 
+        self.variable_list.update(cx, |variable_list, cx| {
+            variable_list.on_stopped_event(cx);
+        });
+
         cx.notify();
     }
 

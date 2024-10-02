@@ -1,4 +1,5 @@
 use crate::debugger_panel::{ThreadState, VariableContainer};
+use anyhow::Result;
 use dap::{client::DebugAdapterClientId, Scope, Variable};
 use editor::{
     actions::{self, SelectAll},
@@ -7,11 +8,14 @@ use editor::{
 use futures::future::try_join_all;
 use gpui::{
     anchored, deferred, list, AnyElement, ClipboardItem, DismissEvent, FocusHandle, FocusableView,
-    ListState, Model, MouseDownEvent, Point, Subscription, View,
+    ListState, Model, MouseDownEvent, Point, Subscription, Task, View,
 };
 use menu::Confirm;
 use project::dap_store::DapStore;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    sync::Arc,
+};
 use ui::{prelude::*, ContextMenu, ListItem};
 
 #[derive(Debug, Clone)]
@@ -47,10 +51,14 @@ pub struct VariableList {
     current_stack_frame_id: u64,
     client_id: DebugAdapterClientId,
     open_entries: Vec<SharedString>,
+    scopes: HashMap<u64, Vec<Scope>>,
     thread_state: Model<ThreadState>,
     set_variable_editor: View<Editor>,
+    fetched_variable_ids: HashSet<u64>,
     set_variable_state: Option<SetVariableState>,
     entries: HashMap<u64, Vec<VariableListEntry>>,
+    fetch_variables_task: Option<Task<Result<()>>>,
+    variables: BTreeMap<u64, Vec<VariableContainer>>,
     open_context_menu: Option<(View<ContextMenu>, Point<Pixels>, Subscription)>,
 }
 
@@ -93,9 +101,13 @@ impl VariableList {
             current_stack_frame_id,
             open_context_menu: None,
             set_variable_state: None,
+            fetch_variables_task: None,
+            scopes: Default::default(),
             entries: Default::default(),
+            variables: Default::default(),
             open_entries: Default::default(),
             thread_state: thread_state.clone(),
+            fetched_variable_ids: Default::default(),
         }
     }
 
@@ -152,9 +164,7 @@ impl VariableList {
         keep_open_entries: bool,
         cx: &mut ViewContext<Self>,
     ) {
-        let thread_state = self.thread_state.read(cx);
-
-        let Some(scopes) = thread_state.scopes.get(&self.current_stack_frame_id) else {
+        let Some(scopes) = self.scopes.get(&self.current_stack_frame_id) else {
             return;
         };
 
@@ -164,7 +174,7 @@ impl VariableList {
 
         let mut entries: Vec<VariableListEntry> = Vec::default();
         for scope in scopes {
-            let Some(variables) = thread_state.variables.get(&scope.variables_reference) else {
+            let Some(variables) = self.variables.get(&scope.variables_reference) else {
                 continue;
             };
 
@@ -236,6 +246,82 @@ impl VariableList {
         self.list.reset(len);
 
         cx.notify();
+    }
+
+    pub fn on_stopped_event(&mut self, cx: &mut ViewContext<Self>) {
+        let stack_frames = self.thread_state.read(cx).stack_frames.clone();
+
+        self.fetch_variables_task.take();
+        self.variables.clear();
+        self.scopes.clear();
+        self.fetched_variable_ids.clear();
+
+        self.fetch_variables_task = Some(cx.spawn(|this, mut cx| async move {
+            let mut scope_tasks = Vec::with_capacity(stack_frames.len());
+            for stack_frame in stack_frames.clone().into_iter() {
+                let stack_frame_scopes_task = this.update(&mut cx, |this, cx| {
+                    this.dap_store.update(cx, |store, cx| {
+                        store.scopes(&this.client_id, stack_frame.id, cx)
+                    })
+                });
+
+                scope_tasks.push(async move {
+                    anyhow::Ok((stack_frame.id, stack_frame_scopes_task?.await?))
+                });
+            }
+
+            let mut stack_frame_tasks = Vec::with_capacity(scope_tasks.len());
+            for (stack_frame_id, scopes) in try_join_all(scope_tasks).await? {
+                let variable_tasks = this.update(&mut cx, |this, cx| {
+                    this.dap_store.update(cx, |store, cx| {
+                        let mut tasks = Vec::with_capacity(scopes.len());
+
+                        for scope in scopes {
+                            let variables_task =
+                                store.variables(&this.client_id, scope.variables_reference, cx);
+                            tasks.push(async move { anyhow::Ok((scope, variables_task.await?)) });
+                        }
+
+                        tasks
+                    })
+                })?;
+
+                stack_frame_tasks.push(async move {
+                    anyhow::Ok((stack_frame_id, try_join_all(variable_tasks).await?))
+                });
+            }
+
+            for (stack_frame_id, scopes) in try_join_all(stack_frame_tasks).await? {
+                this.update(&mut cx, |this, _| {
+                    for (scope, variables) in scopes {
+                        this.scopes
+                            .entry(stack_frame_id)
+                            .or_default()
+                            .push(scope.clone());
+
+                        this.fetched_variable_ids.insert(scope.variables_reference);
+
+                        this.variables.insert(
+                            scope.variables_reference,
+                            variables
+                                .into_iter()
+                                .map(|v| VariableContainer {
+                                    container_reference: scope.variables_reference,
+                                    variable: v,
+                                    depth: 1,
+                                })
+                                .collect::<Vec<VariableContainer>>(),
+                        );
+                    }
+                })?;
+            }
+
+            this.update(&mut cx, |this, cx| {
+                this.build_entries(true, false, cx);
+
+                this.fetch_variables_task.take();
+            })
+        }));
     }
 
     fn deploy_variable_context_menu(
@@ -371,10 +457,8 @@ impl VariableList {
 
             set_value_task?.await?;
 
-            let Some(scope_variables) = this.update(&mut cx, |this, cx| {
-                this.thread_state.update(cx, |thread_state, _| {
-                    thread_state.variables.remove(&scope.variables_reference)
-                })
+            let Some(scope_variables) = this.update(&mut cx, |this, _| {
+                this.variables.remove(&scope.variables_reference)
             })?
             else {
                 return Ok(());
@@ -412,15 +496,9 @@ impl VariableList {
             let updated_variables = try_join_all(tasks).await?;
 
             this.update(&mut cx, |this, cx| {
-                this.thread_state.update(cx, |thread_state, cx| {
-                    for variables in updated_variables {
-                        thread_state
-                            .variables
-                            .insert(scope.variables_reference, variables);
-                    }
-
-                    cx.notify();
-                });
+                for variables in updated_variables {
+                    this.variables.insert(scope.variables_reference, variables);
+                }
 
                 this.build_entries(false, true, cx);
             })
@@ -462,13 +540,7 @@ impl VariableList {
 
         // if we already opened the variable/we already fetched it
         // we can just toggle it because we already have the nested variable
-        if disclosed.unwrap_or(true)
-            || self
-                .thread_state
-                .read(cx)
-                .fetched_variable_ids
-                .contains(&variable_reference)
-        {
+        if disclosed.unwrap_or(true) || self.fetched_variable_ids.contains(&variable_reference) {
             return self.toggle_entry_collapsed(&variable_id, cx);
         }
 
@@ -493,34 +565,29 @@ impl VariableList {
                 let new_variables = fetch_variables_task.await?;
 
                 this.update(&mut cx, |this, cx| {
-                    this.thread_state.update(cx, |thread_state, cx| {
-                        let Some(variables) =
-                            thread_state.variables.get_mut(&scope.variables_reference)
-                        else {
-                            return;
-                        };
+                    let Some(variables) = this.variables.get_mut(&scope.variables_reference) else {
+                        return;
+                    };
 
-                        let position = variables.iter().position(|v| {
-                            variable_entry_id(&scope, &v.variable, v.depth) == variable_id
-                        });
-
-                        if let Some(position) = position {
-                            variables.splice(
-                                position + 1..position + 1,
-                                new_variables.clone().into_iter().map(|variable| {
-                                    VariableContainer {
-                                        container_reference: variable_reference,
-                                        variable,
-                                        depth: depth + 1,
-                                    }
-                                }),
-                            );
-
-                            thread_state.fetched_variable_ids.insert(variable_reference);
-                        }
-
-                        cx.notify();
+                    let position = variables.iter().position(|v| {
+                        variable_entry_id(&scope, &v.variable, v.depth) == variable_id
                     });
+
+                    if let Some(position) = position {
+                        variables.splice(
+                            position + 1..position + 1,
+                            new_variables
+                                .clone()
+                                .into_iter()
+                                .map(|variable| VariableContainer {
+                                    container_reference: variable_reference,
+                                    variable,
+                                    depth: depth + 1,
+                                }),
+                        );
+
+                        this.fetched_variable_ids.insert(variable_reference);
+                    }
 
                     this.toggle_entry_collapsed(&variable_id, cx);
                 })
