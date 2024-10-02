@@ -80,7 +80,7 @@ impl DebugPanelItem {
             Console::new(
                 client_id,
                 current_stack_frame_id,
-                thread_state.clone(),
+                variable_list.clone(),
                 dap_store.clone(),
                 cx,
             )

@@ -111,6 +111,13 @@ impl VariableList {
         }
     }
 
+    pub fn variables(&self) -> Vec<VariableContainer> {
+        self.variables
+            .get(&self.current_stack_frame_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
     fn render_entry(&mut self, ix: usize, cx: &mut ViewContext<Self>) -> AnyElement {
         let Some(entries) = self.entries.get(&self.current_stack_frame_id) else {
             return div().into_any_element();

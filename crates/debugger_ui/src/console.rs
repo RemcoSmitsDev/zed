@@ -1,9 +1,9 @@
-use crate::debugger_panel::ThreadState;
+use crate::variable_list::VariableList;
 use dap::client::DebugAdapterClientId;
 use editor::{CompletionProvider, Editor, EditorElement, EditorStyle};
 use fuzzy::StringMatchCandidate;
 use gpui::{Model, Render, Task, TextStyle, View, ViewContext, WeakView};
-use language::{Buffer, CodeLabel, LanguageServerId};
+use language::{Buffer, CodeLabel, LanguageServerId, ToOffsetUtf16};
 use menu::Confirm;
 use parking_lot::RwLock;
 use project::{dap_store::DapStore, Completion};
@@ -18,14 +18,14 @@ pub struct Console {
     dap_store: Model<DapStore>,
     current_stack_frame_id: u64,
     client_id: DebugAdapterClientId,
-    thread_state: Model<ThreadState>,
+    variable_list: View<VariableList>,
 }
 
 impl Console {
     pub fn new(
         client_id: &DebugAdapterClientId,
         current_stack_frame_id: u64,
-        thread_state: Model<ThreadState>,
+        variable_list: View<VariableList>,
         dap_store: Model<DapStore>,
         cx: &mut ViewContext<Self>,
     ) -> Self {
@@ -58,7 +58,7 @@ impl Console {
             console,
             dap_store,
             query_bar,
-            thread_state,
+            variable_list,
             client_id: *client_id,
             current_stack_frame_id,
         }
@@ -194,16 +194,71 @@ impl CompletionProvider for ConsoleQueryBarCompletionProvider {
         _trigger: editor::CompletionContext,
         cx: &mut ViewContext<Editor>,
     ) -> gpui::Task<gpui::Result<Vec<project::Completion>>> {
-        let Some(handle) = self.0.upgrade() else {
+        let Some(console) = self.0.upgrade() else {
             return Task::ready(Ok(Vec::new()));
         };
 
-        let (variables, string_matches) = handle.update(cx, |console, cx| {
-            console.thread_state.read_with(cx, |state, _| {
+        let support_completions = console.update(cx, |this, cx| {
+            this.dap_store
+                .read(cx)
+                .capabilities_by_id(&this.client_id)
+                .supports_completions_request
+                .unwrap_or_default()
+        });
+
+        if support_completions {
+            self.client_completions(&console, buffer, buffer_position, cx)
+        } else {
+            self.variable_list_completions(&console, buffer, buffer_position, cx)
+        }
+    }
+
+    fn resolve_completions(
+        &self,
+        _buffer: Model<Buffer>,
+        _completion_indices: Vec<usize>,
+        _completions: Arc<RwLock<Box<[Completion]>>>,
+        _cx: &mut ViewContext<Editor>,
+    ) -> gpui::Task<gpui::Result<bool>> {
+        Task::ready(Ok(false))
+    }
+
+    fn apply_additional_edits_for_completion(
+        &self,
+        _buffer: Model<Buffer>,
+        _completion: project::Completion,
+        _push_to_history: bool,
+        _cx: &mut ViewContext<Editor>,
+    ) -> gpui::Task<gpui::Result<Option<language::Transaction>>> {
+        Task::ready(Ok(None))
+    }
+
+    fn is_completion_trigger(
+        &self,
+        _buffer: &Model<Buffer>,
+        _position: language::Anchor,
+        _text: &str,
+        _trigger_in_words: bool,
+        _cx: &mut ViewContext<Editor>,
+    ) -> bool {
+        true
+    }
+}
+
+impl ConsoleQueryBarCompletionProvider {
+    fn variable_list_completions(
+        &self,
+        console: &View<Console>,
+        buffer: &Model<Buffer>,
+        buffer_position: language::Anchor,
+        cx: &mut ViewContext<Editor>,
+    ) -> gpui::Task<gpui::Result<Vec<project::Completion>>> {
+        let (variables, string_matches) = console.update(cx, |console, cx| {
+            console.variable_list.update(cx, |variabel_list, _| {
                 let mut variables = HashMap::new();
                 let mut string_matches = Vec::new();
 
-                for variable in state.variables.values().flatten() {
+                for variable in variabel_list.variables() {
                     if let Some(evaluate_name) = &variable.variable.evaluate_name {
                         variables.insert(evaluate_name.clone(), variable.variable.value.clone());
                         string_matches.push(StringMatchCandidate {
@@ -245,10 +300,10 @@ impl CompletionProvider for ConsoleQueryBarCompletionProvider {
 
             Ok(matches
                 .iter()
-                .map(|string_match| {
-                    let variable_value = variables.get(&string_match.string).unwrap();
+                .filter_map(|string_match| {
+                    let variable_value = variables.get(&string_match.string)?;
 
-                    project::Completion {
+                    Some(project::Completion {
                         old_range: start_position..buffer_position,
                         new_text: string_match.string.clone(),
                         label: CodeLabel {
@@ -260,40 +315,53 @@ impl CompletionProvider for ConsoleQueryBarCompletionProvider {
                         documentation: None,
                         lsp_completion: Default::default(),
                         confirm: None,
-                    }
+                    })
                 })
                 .collect())
         })
     }
 
-    fn resolve_completions(
+    fn client_completions(
         &self,
-        _buffer: Model<Buffer>,
-        _completion_indices: Vec<usize>,
-        _completions: Arc<RwLock<Box<[Completion]>>>,
-        _cx: &mut ViewContext<Editor>,
-    ) -> gpui::Task<gpui::Result<bool>> {
-        Task::ready(Ok(false))
-    }
+        console: &View<Console>,
+        buffer: &Model<Buffer>,
+        buffer_position: language::Anchor,
+        cx: &mut ViewContext<Editor>,
+    ) -> gpui::Task<gpui::Result<Vec<project::Completion>>> {
+        let text = buffer.read(cx).text();
+        let start_position = buffer.read(cx).anchor_before(0);
+        let snapshot = buffer.read(cx).snapshot();
 
-    fn apply_additional_edits_for_completion(
-        &self,
-        _buffer: Model<Buffer>,
-        _completion: project::Completion,
-        _push_to_history: bool,
-        _cx: &mut ViewContext<Editor>,
-    ) -> gpui::Task<gpui::Result<Option<language::Transaction>>> {
-        Task::ready(Ok(None))
-    }
+        let completion_task = console.update(cx, |console, cx| {
+            console.dap_store.update(cx, |store, cx| {
+                store.completions(
+                    &console.client_id,
+                    console.current_stack_frame_id,
+                    text,
+                    buffer_position.to_offset_utf16(&snapshot).0 as u64,
+                    cx,
+                )
+            })
+        });
 
-    fn is_completion_trigger(
-        &self,
-        _buffer: &Model<Buffer>,
-        _position: language::Anchor,
-        _text: &str,
-        _trigger_in_words: bool,
-        _cx: &mut ViewContext<Editor>,
-    ) -> bool {
-        true
+        cx.background_executor().spawn(async move {
+            Ok(completion_task
+                .await?
+                .iter()
+                .map(|completion| project::Completion {
+                    old_range: start_position..buffer_position,
+                    new_text: completion.text.clone().unwrap_or(completion.label.clone()),
+                    label: CodeLabel {
+                        filter_range: 0..completion.label.len(),
+                        text: completion.label.clone(),
+                        runs: Vec::new(),
+                    },
+                    server_id: LanguageServerId(0), // TODO debugger: read from client
+                    documentation: None,
+                    lsp_completion: Default::default(),
+                    confirm: None,
+                })
+                .collect())
+        })
     }
 }

@@ -4,18 +4,19 @@ use collections::{HashMap, HashSet};
 use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 use dap::messages::Message;
 use dap::requests::{
-    Attach, ConfigurationDone, Continue, Disconnect, Evaluate, Initialize, Launch, Next, Pause,
-    Scopes, SetBreakpoints, SetExpression, SetVariable, StackTrace, StepIn, StepOut, Terminate,
-    TerminateThreads, Variables,
+    Attach, Completions, ConfigurationDone, Continue, Disconnect, Evaluate, Initialize, Launch,
+    Next, Pause, Scopes, SetBreakpoints, SetExpression, SetVariable, StackTrace, StepIn, StepOut,
+    Terminate, TerminateThreads, Variables,
 };
 use dap::{
-    AttachRequestArguments, Capabilities, ConfigurationDoneArguments, ContinueArguments,
-    DisconnectArguments, EvaluateArguments, EvaluateArgumentsContext, EvaluateResponse,
-    InitializeRequestArguments, InitializeRequestArgumentsPathFormat, LaunchRequestArguments,
-    NextArguments, PauseArguments, Scope, ScopesArguments, SetBreakpointsArguments,
-    SetExpressionArguments, SetVariableArguments, Source, SourceBreakpoint, StackFrame,
-    StackTraceArguments, StepInArguments, StepOutArguments, SteppingGranularity,
-    TerminateArguments, TerminateThreadsArguments, Variable, VariablesArguments,
+    AttachRequestArguments, Capabilities, CompletionItem, CompletionsArguments,
+    ConfigurationDoneArguments, ContinueArguments, DisconnectArguments, EvaluateArguments,
+    EvaluateArgumentsContext, EvaluateResponse, InitializeRequestArguments,
+    InitializeRequestArgumentsPathFormat, LaunchRequestArguments, NextArguments, PauseArguments,
+    Scope, ScopesArguments, SetBreakpointsArguments, SetExpressionArguments, SetVariableArguments,
+    Source, SourceBreakpoint, StackFrame, StackTraceArguments, StepInArguments, StepOutArguments,
+    SteppingGranularity, TerminateArguments, TerminateThreadsArguments, Variable,
+    VariablesArguments,
 };
 use gpui::{EventEmitter, Model, ModelContext, Task};
 use language::{Buffer, BufferSnapshot};
@@ -534,6 +535,31 @@ impl DapStore {
                     source: None,
                 })
                 .await
+        })
+    }
+
+    pub fn completions(
+        &self,
+        client_id: &DebugAdapterClientId,
+        stack_frame_id: u64,
+        text: String,
+        completion_column: u64,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<Vec<CompletionItem>>> {
+        let Some(client) = self.client_by_id(client_id) else {
+            return Task::ready(Err(anyhow!("Could not found client")));
+        };
+
+        cx.spawn(|_, _| async move {
+            Ok(client
+                .request::<Completions>(CompletionsArguments {
+                    frame_id: Some(stack_frame_id),
+                    line: None,
+                    text,
+                    column: completion_column,
+                })
+                .await?
+                .targets)
         })
     }
 
