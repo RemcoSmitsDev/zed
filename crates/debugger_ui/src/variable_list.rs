@@ -1,4 +1,4 @@
-use crate::debugger_panel::{ThreadState, VariableContainer};
+use crate::debugger_panel::ThreadState;
 use anyhow::Result;
 use dap::{client::DebugAdapterClientId, Scope, Variable};
 use editor::{
@@ -17,6 +17,13 @@ use std::{
     sync::Arc,
 };
 use ui::{prelude::*, ContextMenu, ListItem};
+
+#[derive(Debug, Clone)]
+pub struct VariableContainer {
+    pub container_reference: u64,
+    pub variable: Variable,
+    pub depth: usize,
+}
 
 #[derive(Debug, Clone)]
 pub struct SetVariableState {
