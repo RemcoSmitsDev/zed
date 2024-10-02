@@ -337,7 +337,7 @@ impl DebugPanel {
                         .clone()
                 })?;
 
-                this.update(&mut cx, |this, cx| {
+                let workspace = this.update(&mut cx, |this, cx| {
                     thread_state.update(cx, |thread_state, cx| {
                         thread_state.stack_frames = stack_frames;
                         thread_state.status = ThreadStatus::Stopped;
@@ -381,7 +381,6 @@ impl DebugPanel {
                     let go_to_stack_frame = if let Some(item) = this.pane.read(cx).active_item() {
                         item.downcast::<DebugPanelItem>().map_or(false, |pane| {
                             let pane = pane.read(cx);
-
                             pane.thread_id() == thread_id && pane.client_id() == client_id
                         })
                     } else {
@@ -395,6 +394,14 @@ impl DebugPanel {
                     });
 
                     cx.notify();
+
+                    this.workspace.clone()
+                })?;
+
+                cx.update(|cx| {
+                    workspace.update(cx, |workspace, cx| {
+                        workspace.focus_panel::<Self>(cx);
+                    })
                 })
             }
         })
