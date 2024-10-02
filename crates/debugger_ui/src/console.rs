@@ -254,34 +254,32 @@ impl ConsoleQueryBarCompletionProvider {
         cx: &mut ViewContext<Editor>,
     ) -> gpui::Task<gpui::Result<Vec<project::Completion>>> {
         let (variables, string_matches) = console.update(cx, |console, cx| {
-            console.variable_list.update(cx, |variabel_list, _| {
-                let mut variables = HashMap::new();
-                let mut string_matches = Vec::new();
+            let mut variables = HashMap::new();
+            let mut string_matches = Vec::new();
 
-                for variable in variabel_list.variables() {
-                    if let Some(evaluate_name) = &variable.variable.evaluate_name {
-                        variables.insert(evaluate_name.clone(), variable.variable.value.clone());
-                        string_matches.push(StringMatchCandidate {
-                            id: 0,
-                            string: evaluate_name.clone(),
-                            char_bag: evaluate_name.chars().collect(),
-                        });
-                    }
-
-                    variables.insert(
-                        variable.variable.name.clone(),
-                        variable.variable.value.clone(),
-                    );
-
+            for variable in console.variable_list.read(cx).variables() {
+                if let Some(evaluate_name) = &variable.variable.evaluate_name {
+                    variables.insert(evaluate_name.clone(), variable.variable.value.clone());
                     string_matches.push(StringMatchCandidate {
                         id: 0,
-                        string: variable.variable.name.clone(),
-                        char_bag: variable.variable.name.chars().collect(),
+                        string: evaluate_name.clone(),
+                        char_bag: evaluate_name.chars().collect(),
                     });
                 }
 
-                (variables, string_matches)
-            })
+                variables.insert(
+                    variable.variable.name.clone(),
+                    variable.variable.value.clone(),
+                );
+
+                string_matches.push(StringMatchCandidate {
+                    id: 0,
+                    string: variable.variable.name.clone(),
+                    char_bag: variable.variable.name.chars().collect(),
+                });
+            }
+
+            (variables, string_matches)
         });
 
         let query = buffer.read(cx).text();
