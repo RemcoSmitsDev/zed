@@ -344,7 +344,7 @@ impl DapStore {
         })
     }
 
-    pub fn send_configuration_done(
+    pub fn configuration_done(
         &self,
         client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,

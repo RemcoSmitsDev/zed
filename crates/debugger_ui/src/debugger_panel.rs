@@ -286,9 +286,9 @@ impl DebugPanel {
                 .update(cx, |project, cx| project.send_breakpoints(&client_id, cx))
         });
 
-        let configuration_done_task = self.dap_store.update(cx, |store, cx| {
-            store.send_configuration_done(&client_id, cx)
-        });
+        let configuration_done_task = self
+            .dap_store
+            .update(cx, |store, cx| store.configuration_done(&client_id, cx));
 
         cx.background_executor()
             .spawn(async move {
