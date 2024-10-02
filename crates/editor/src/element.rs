@@ -51,7 +51,7 @@ use language::{
 use lsp::DiagnosticSeverity;
 use multi_buffer::{Anchor, MultiBufferPoint, MultiBufferRow};
 use project::{
-    dap_store::BreakpointKind,
+    dap_store::{Breakpoint, BreakpointKind},
     project_settings::{GitGutterSetting, ProjectSettings},
     ProjectPath,
 };
@@ -1592,7 +1592,7 @@ impl EditorElement {
         gutter_hitbox: &Hitbox,
         rows_with_hunk_bounds: &HashMap<DisplayRow, Bounds<Pixels>>,
         snapshot: &EditorSnapshot,
-        breakpoints: HashMap<DisplayPoint, BreakpointKind>,
+        breakpoints: HashMap<DisplayPoint, Breakpoint>,
         cx: &mut WindowContext,
     ) -> Vec<AnyElement> {
         self.editor.update(cx, |editor, cx| {
@@ -1602,7 +1602,7 @@ impl EditorElement {
 
             breakpoints
                 .iter()
-                .filter_map(|(point, kind)| {
+                .filter_map(|(point, bp)| {
                     let row = MultiBufferRow { 0: point.row().0 };
 
                     if range.start > point.row() || range.end < point.row() {
@@ -1613,18 +1613,16 @@ impl EditorElement {
                         return None;
                     }
 
-                    let bias = if point.is_zero() {
-                        Bias::Right
-                    } else {
-                        Bias::Left
-                    };
-
-                    let position = snapshot
-                        .display_snapshot
-                        .display_point_to_anchor(*point, bias)
+                    let backup_position = snapshot
+                        .display_point_to_breakpoint_anchor(*point)
                         .text_anchor;
 
-                    let button = editor.render_breakpoint(position, point.row(), &kind, cx);
+                    let button = editor.render_breakpoint(
+                        bp.active_position.unwrap_or(backup_position),
+                        point.row(),
+                        &bp.kind,
+                        cx,
+                    );
 
                     let button = prepaint_gutter_button(
                         button,
@@ -1652,7 +1650,7 @@ impl EditorElement {
         gutter_hitbox: &Hitbox,
         rows_with_hunk_bounds: &HashMap<DisplayRow, Bounds<Pixels>>,
         snapshot: &EditorSnapshot,
-        breakpoints: &mut HashMap<DisplayPoint, BreakpointKind>,
+        breakpoints: &mut HashMap<DisplayPoint, Breakpoint>,
         cx: &mut WindowContext,
     ) -> Vec<AnyElement> {
         self.editor.update(cx, |editor, cx| {
@@ -1721,7 +1719,7 @@ impl EditorElement {
         gutter_dimensions: &GutterDimensions,
         gutter_hitbox: &Hitbox,
         rows_with_hunk_bounds: &HashMap<DisplayRow, Bounds<Pixels>>,
-        breakpoint_points: &mut HashMap<DisplayPoint, BreakpointKind>,
+        breakpoint_points: &mut HashMap<DisplayPoint, Breakpoint>,
         cx: &mut WindowContext,
     ) -> Option<AnyElement> {
         let mut active = false;
@@ -5248,7 +5246,15 @@ impl Element for EditorElement {
                     if let Some(gutter_breakpoint_point) = gutter_breakpoint_indicator {
                         breakpoint_lines
                             .entry(gutter_breakpoint_point)
-                            .or_insert(BreakpointKind::Standard);
+                            .or_insert(Breakpoint {
+                                active_position: Some(
+                                    snapshot
+                                        .display_point_to_breakpoint_anchor(gutter_breakpoint_point)
+                                        .text_anchor,
+                                ),
+                                cache_position: 0,
+                                kind: BreakpointKind::Standard,
+                            });
                     }
 
                     let line_numbers = self.layout_line_numbers(

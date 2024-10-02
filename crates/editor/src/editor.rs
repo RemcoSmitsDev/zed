@@ -5332,7 +5332,7 @@ impl Editor {
     fn active_breakpoint_points(
         &mut self,
         cx: &mut ViewContext<Self>,
-    ) -> HashMap<DisplayPoint, BreakpointKind> {
+    ) -> HashMap<DisplayPoint, Breakpoint> {
         let mut breakpoint_display_points = HashMap::default();
 
         let Some(dap_store) = self.dap_store.clone() else {
@@ -5352,7 +5352,7 @@ impl Editor {
                         let point = breakpoint.point_for_buffer(&buffer);
 
                         breakpoint_display_points
-                            .insert(point.to_display_point(&snapshot), breakpoint.kind.clone());
+                            .insert(point.to_display_point(&snapshot), breakpoint.clone());
                     }
                 };
             };
@@ -5408,7 +5408,7 @@ impl Editor {
 
                             let position = excerpt_head + DisplayPoint::new(DisplayRow(delta), 0);
 
-                            breakpoint_display_points.insert(position, breakpoint.kind.clone());
+                            breakpoint_display_points.insert(position, breakpoint.clone());
                         }
                     }
                 };
@@ -5484,7 +5484,7 @@ impl Editor {
 
                                     let position = this.snapshot(cx).display_point_to_anchor(
                                         DisplayPoint::new(row, 0),
-                                        Bias::Left,
+                                        Bias::Right,
                                     );
 
                                     let height = breakpoint_prompt.update(cx, |this, cx| {
@@ -5499,7 +5499,7 @@ impl Editor {
                                         style: BlockStyle::Sticky,
                                         position,
                                         height,
-                                        render: Box::new(move |cx| {
+                                        render: Box::new(move |_cx| {
                                             prompt_editor.clone().into_any_element()
                                         }),
                                         disposition: BlockDisposition::Above,
@@ -6372,15 +6372,6 @@ impl Editor {
     pub fn toggle_breakpoint(&mut self, _: &ToggleBreakpoint, cx: &mut ViewContext<Self>) {
         let cursor_position: Point = self.selections.newest(cx).head();
 
-        // Bias is set to right when placing a breakpoint on the first row
-        // to avoid having the breakpoint's anchor be anchor::MIN & having
-        // it's buffer_id be None
-        let bias = if cursor_position.row == 0 {
-            Bias::Right
-        } else {
-            Bias::Left
-        };
-
         // We Set the column position to zero so this function interacts correctly
         // between calls by clicking on the gutter & using an action to toggle a
         // breakpoint. Otherwise, toggling a breakpoint through an action wouldn't
@@ -6389,10 +6380,36 @@ impl Editor {
             .snapshot(cx)
             .display_snapshot
             .buffer_snapshot
-            .anchor_at(Point::new(cursor_position.row, 0), bias)
+            .breakpoint_anchor(Point::new(cursor_position.row, 0))
             .text_anchor;
 
-        self.toggle_breakpoint_at_anchor(breakpoint_position, BreakpointKind::Standard, cx);
+        let project = self.project.clone();
+
+        let found_bp = maybe!({
+            let buffer_id = breakpoint_position.buffer_id?;
+            let buffer =
+                project?.read_with(cx, |project, cx| project.buffer_for_id(buffer_id, cx))?;
+            let (buffer_snapshot, project_path) = (
+                buffer.read(cx).snapshot(),
+                buffer.read(cx).project_path(cx)?,
+            );
+
+            let row = buffer_snapshot
+                .summary_for_anchor::<Point>(&breakpoint_position)
+                .row;
+
+            let bp = self.dap_store.clone()?.read_with(cx, |store, _cx| {
+                store.breakpoint_at_row(row, &project_path, buffer_snapshot)
+            })?;
+
+            Some((bp.active_position?, bp.kind))
+        });
+
+        if let Some((anchor, kind)) = found_bp {
+            self.toggle_breakpoint_at_anchor(anchor, kind, cx);
+        } else {
+            self.toggle_breakpoint_at_anchor(breakpoint_position, BreakpointKind::Standard, cx);
+        }
     }
 
     pub fn toggle_breakpoint_at_anchor(
