@@ -5332,7 +5332,7 @@ impl Editor {
     fn active_breakpoint_points(
         &mut self,
         cx: &mut ViewContext<Self>,
-    ) -> HashMap<DisplayPoint, Breakpoint> {
+    ) -> HashMap<DisplayRow, Breakpoint> {
         let mut breakpoint_display_points = HashMap::default();
 
         let Some(dap_store) = self.dap_store.clone() else {
@@ -5352,7 +5352,7 @@ impl Editor {
                         let point = breakpoint.point_for_buffer(&buffer);
 
                         breakpoint_display_points
-                            .insert(point.to_display_point(&snapshot), breakpoint.clone());
+                            .insert(point.to_display_point(&snapshot).row(), breakpoint.clone());
                     }
                 };
             };
@@ -5408,7 +5408,7 @@ impl Editor {
 
                             let position = excerpt_head + DisplayPoint::new(DisplayRow(delta), 0);
 
-                            breakpoint_display_points.insert(position, breakpoint.clone());
+                            breakpoint_display_points.insert(position.row(), breakpoint.clone());
                         }
                     }
                 };

@@ -27,7 +27,7 @@ use crate::{
     ToPoint, CURSORS_VISIBLE_FOR, MAX_LINE_LEN,
 };
 use client::ParticipantIndex;
-use collections::{BTreeMap, HashMap, HashSet};
+use collections::{BTreeMap, HashMap};
 use git::{blame::BlameEntry, diff::DiffHunkStatus, Oid};
 use gpui::Subscription;
 use gpui::{
@@ -1592,7 +1592,7 @@ impl EditorElement {
         gutter_hitbox: &Hitbox,
         rows_with_hunk_bounds: &HashMap<DisplayRow, Bounds<Pixels>>,
         snapshot: &EditorSnapshot,
-        breakpoints: HashMap<DisplayPoint, Breakpoint>,
+        breakpoints: HashMap<DisplayRow, Breakpoint>,
         cx: &mut WindowContext,
     ) -> Vec<AnyElement> {
         self.editor.update(cx, |editor, cx| {
@@ -1603,9 +1603,9 @@ impl EditorElement {
             breakpoints
                 .iter()
                 .filter_map(|(point, bp)| {
-                    let row = MultiBufferRow { 0: point.row().0 };
+                    let row = MultiBufferRow { 0: point.0 };
 
-                    if range.start > point.row() || range.end < point.row() {
+                    if range.start > *point || range.end < *point {
                         return None;
                     }
 
@@ -1614,19 +1614,19 @@ impl EditorElement {
                     }
 
                     let backup_position = snapshot
-                        .display_point_to_breakpoint_anchor(*point)
+                        .display_point_to_breakpoint_anchor(DisplayPoint::new(*point, 0))
                         .text_anchor;
 
                     let button = editor.render_breakpoint(
                         bp.active_position.unwrap_or(backup_position),
-                        point.row(),
+                        *point,
                         &bp.kind,
                         cx,
                     );
 
                     let button = prepaint_gutter_button(
                         button,
-                        point.row(),
+                        *point,
                         line_height,
                         gutter_dimensions,
                         scroll_pixel_position,
@@ -1650,7 +1650,7 @@ impl EditorElement {
         gutter_hitbox: &Hitbox,
         rows_with_hunk_bounds: &HashMap<DisplayRow, Bounds<Pixels>>,
         snapshot: &EditorSnapshot,
-        breakpoints: &mut HashMap<DisplayPoint, Breakpoint>,
+        breakpoints: &mut HashMap<DisplayRow, Breakpoint>,
         cx: &mut WindowContext,
     ) -> Vec<AnyElement> {
         self.editor.update(cx, |editor, cx| {
@@ -1685,12 +1685,11 @@ impl EditorElement {
                     }
 
                     let display_row = multibuffer_point.to_display_point(snapshot).row();
-                    let display_point = DisplayPoint::new(display_row, 0);
                     let button = editor.render_run_indicator(
                         &self.style,
                         Some(display_row) == active_task_indicator_row,
                         display_row,
-                        breakpoints.remove(&display_point).is_some(),
+                        breakpoints.remove(&display_row).is_some(),
                         cx,
                     );
 
@@ -1719,7 +1718,7 @@ impl EditorElement {
         gutter_dimensions: &GutterDimensions,
         gutter_hitbox: &Hitbox,
         rows_with_hunk_bounds: &HashMap<DisplayRow, Bounds<Pixels>>,
-        breakpoint_points: &mut HashMap<DisplayPoint, Breakpoint>,
+        breakpoint_points: &mut HashMap<DisplayRow, Breakpoint>,
         cx: &mut WindowContext,
     ) -> Option<AnyElement> {
         let mut active = false;
@@ -1737,10 +1736,7 @@ impl EditorElement {
         });
 
         let button = button?;
-        let button = if breakpoint_points
-            .remove(&DisplayPoint::new(row, 0))
-            .is_some()
-        {
+        let button = if breakpoint_points.remove(&row).is_some() {
             button.icon_color(Color::Debugger)
         } else {
             button
@@ -1829,7 +1825,7 @@ impl EditorElement {
         active_rows: &BTreeMap<DisplayRow, bool>,
         newest_selection_head: Option<DisplayPoint>,
         snapshot: &EditorSnapshot,
-        breakpoint_rows: HashSet<DisplayRow>,
+        breakpoint_rows: &HashMap<DisplayRow, Breakpoint>,
         cx: &mut WindowContext,
     ) -> Vec<Option<ShapedLine>> {
         let include_line_numbers = snapshot.show_line_numbers.unwrap_or_else(|| {
@@ -1869,7 +1865,7 @@ impl EditorElement {
             .map(|(ix, multibuffer_row)| {
                 let multibuffer_row = multibuffer_row?;
                 let display_row = DisplayRow(rows.start.0 + ix as u32);
-                let color = if breakpoint_rows.contains(&display_row) {
+                let color = if breakpoint_rows.contains_key(&display_row) {
                     cx.theme().colors().debugger_accent
                 } else if active_rows.contains_key(&display_row) {
                     cx.theme().colors().editor_active_line_number
@@ -5045,7 +5041,7 @@ impl Element for EditorElement {
         cx.set_view_id(self.editor.entity_id());
         cx.set_focus_handle(&focus_handle);
 
-        let mut breakpoint_lines = self
+        let mut breakpoint_rows = self
             .editor
             .update(cx, |editor, cx| editor.active_breakpoint_points(cx));
 
@@ -5230,22 +5226,24 @@ impl Element for EditorElement {
                         cx,
                     );
 
+                    let line_numbers = self.layout_line_numbers(
+                        start_row..end_row,
+                        buffer_rows.iter().copied(),
+                        &active_rows,
+                        newest_selection_head,
+                        &snapshot,
+                        &breakpoint_rows,
+                        cx,
+                    );
+
+                    // We add the gutter breakpoint indicator to breakpoint_rows after painting
+                    // line numbers so we don't paint a line number debug accent color if a user
+                    // has their mouse over that line when a breakpoint isn't there
                     let gutter_breakpoint_indicator =
                         self.editor.read(cx).gutter_breakpoint_indicator;
-
-                    let breakpoint_rows = breakpoint_lines
-                        .keys()
-                        .map(|display_point| display_point.row())
-                        .collect();
-
-                    // We want all lines with breakpoint's to have their number's painted
-                    // debug accent color & we still want to render a grey breakpoint for the gutter
-                    // indicator so we add that in after creating breakpoint_rows for layout line nums
-                    // Otherwise, when a cursor is on a line number it will always be white even
-                    // if that line has a breakpoint
                     if let Some(gutter_breakpoint_point) = gutter_breakpoint_indicator {
-                        breakpoint_lines
-                            .entry(gutter_breakpoint_point)
+                        breakpoint_rows
+                            .entry(gutter_breakpoint_point.row())
                             .or_insert(Breakpoint {
                                 active_position: Some(
                                     snapshot
@@ -5256,16 +5254,6 @@ impl Element for EditorElement {
                                 kind: BreakpointKind::Standard,
                             });
                     }
-
-                    let line_numbers = self.layout_line_numbers(
-                        start_row..end_row,
-                        buffer_rows.iter().copied(),
-                        &active_rows,
-                        newest_selection_head,
-                        &snapshot,
-                        breakpoint_rows,
-                        cx,
-                    );
 
                     let mut gutter_fold_toggles =
                         cx.with_element_namespace("gutter_fold_toggles", |cx| {
@@ -5590,7 +5578,7 @@ impl Element for EditorElement {
                                                     &gutter_dimensions,
                                                     &gutter_hitbox,
                                                     &rows_with_hunk_bounds,
-                                                    &mut breakpoint_lines,
+                                                    &mut breakpoint_rows,
                                                     cx,
                                                 );
                                         }
@@ -5609,7 +5597,7 @@ impl Element for EditorElement {
                             &gutter_hitbox,
                             &rows_with_hunk_bounds,
                             &snapshot,
-                            &mut breakpoint_lines,
+                            &mut breakpoint_rows,
                             cx,
                         )
                     } else {
@@ -5624,7 +5612,7 @@ impl Element for EditorElement {
                         &gutter_hitbox,
                         &rows_with_hunk_bounds,
                         &snapshot,
-                        breakpoint_lines,
+                        breakpoint_rows,
                         cx,
                     );
 
@@ -6492,7 +6480,7 @@ mod tests {
         let style = cx.update(|cx| editor.read(cx).style().unwrap().clone());
         let element = EditorElement::new(&editor, style);
         let snapshot = window.update(cx, |editor, cx| editor.snapshot(cx)).unwrap();
-        let breakpoint_rows = HashSet::default();
+        let breakpoint_rows = HashMap::default();
 
         let layouts = cx
             .update_window(*window, |_, cx| {
@@ -6502,7 +6490,7 @@ mod tests {
                     &Default::default(),
                     Some(DisplayPoint::new(DisplayRow(0), 0)),
                     &snapshot,
-                    breakpoint_rows,
+                    &breakpoint_rows,
                     cx,
                 )
             })
