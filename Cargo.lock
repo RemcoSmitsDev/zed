@@ -3777,6 +3777,7 @@ dependencies = [
  "log",
  "lsp",
  "markdown",
+ "menu",
  "multi_buffer",
  "ordered-float 2.10.1",
  "parking_lot",

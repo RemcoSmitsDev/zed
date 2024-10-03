@@ -5479,41 +5479,37 @@ impl Editor {
                         .entry("Toggle Log Breakpoint", None, move |cx| {
                             if let Some(editor) = second_weak.clone().upgrade() {
                                 editor.update(cx, |this, cx| {
-                                    let breakpoint_prompt =
-                                        cx.new_view(BreakpointPromptEditor::new);
-
                                     let position = this.snapshot(cx).display_point_to_anchor(
                                         DisplayPoint::new(row, 0),
                                         Bias::Right,
                                     );
-
-                                    let height = breakpoint_prompt.update(cx, |this, cx| {
-                                        this.editor.update(cx, |editor, cx| {
-                                            editor.max_point(cx).row().0 + 1 + 2
-                                        })
+                                    let weak_editor = cx.view().downgrade();
+                                    let bp_prompt = cx.new_view(|cx| {
+                                        BreakpointPromptEditor::new(weak_editor, anchor, cx)
                                     });
 
-                                    let prompt_editor = breakpoint_prompt.clone();
-
+                                    let height = bp_prompt.update(cx, |this, cx| {
+                                        this.prompt.update(cx, |prompt, cx| {
+                                            prompt.max_point(cx).row().0 + 1 + 2
+                                        })
+                                    });
+                                    let cloned_prompt = bp_prompt.clone();
                                     let blocks = vec![BlockProperties {
                                         style: BlockStyle::Sticky,
                                         position,
                                         height,
                                         render: Box::new(move |_cx| {
-                                            prompt_editor.clone().into_any_element()
+                                            cloned_prompt.clone().into_any_element()
                                         }),
                                         disposition: BlockDisposition::Above,
                                         priority: 0,
                                     }];
 
-                                    this.insert_blocks(blocks, None, cx);
-
-                                    this.toggle_breakpoint_at_anchor(
-                                        anchor,
-                                        BreakpointKind::Log("Log breakpoint".into()),
-                                        cx,
-                                    );
-                                })
+                                    let block_ids = this.insert_blocks(blocks, None, cx);
+                                    bp_prompt.update(cx, |prompt, _| {
+                                        prompt.add_block_ids(block_ids);
+                                    });
+                                });
                             }
                         })
                 });
@@ -14175,19 +14171,26 @@ fn check_multiline_range(buffer: &Buffer, range: Range<usize>) -> Range<usize> {
 }
 
 struct BreakpointPromptEditor {
-    pub(crate) editor: View<Editor>,
+    pub(crate) prompt: View<Editor>,
+    editor: WeakView<Editor>,
+    breakpoint_anchor: text::Anchor,
+    block_ids: HashSet<CustomBlockId>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl BreakpointPromptEditor {
     const MAX_LINES: u8 = 4;
 
-    fn new(cx: &mut ViewContext<Self>) -> Self {
+    fn new(
+        editor: WeakView<Editor>,
+        breakpoint_anchor: text::Anchor,
+        cx: &mut ViewContext<Self>,
+    ) -> Self {
         let buffer = cx.new_model(|cx| Buffer::local(String::new(), cx));
         let buffer = cx.new_model(|cx| MultiBuffer::singleton(buffer, cx));
 
-        let editor = cx.new_view(|cx| {
-            let mut editor = Editor::new(
+        let prompt = cx.new_view(|cx| {
+            let mut prompt = Editor::new(
                 EditorMode::AutoHeight {
                     max_lines: Self::MAX_LINES as usize,
                 },
@@ -14196,25 +14199,66 @@ impl BreakpointPromptEditor {
                 false,
                 cx,
             );
-            editor.set_soft_wrap_mode(language::language_settings::SoftWrap::EditorWidth, cx);
+            prompt.set_soft_wrap_mode(language::language_settings::SoftWrap::EditorWidth, cx);
             // Since the prompt editors for all inline assistants are linked,
             // always show the cursor (even when it isn't focused) because
             // typing in one will make what you typed appear in all of them.
-            editor.set_show_cursor_when_unfocused(true, cx);
-            editor.set_placeholder_text("Add a prompt…", cx);
-            editor
+            prompt.set_show_cursor_when_unfocused(true, cx);
+            prompt.set_placeholder_text("Add a prompt…", cx);
+
+            prompt
         });
 
         Self {
+            prompt,
             editor,
+            breakpoint_anchor,
+            block_ids: Default::default(),
             _subscriptions: vec![],
+        }
+    }
+
+    pub(crate) fn add_block_ids(&mut self, block_ids: Vec<CustomBlockId>) {
+        self.block_ids.extend(block_ids)
+    }
+
+    fn confirm(&mut self, _: &menu::Confirm, cx: &mut ViewContext<Self>) {
+        if let Some(editor) = self.editor.upgrade() {
+            let log_message = self
+                .prompt
+                .read(cx)
+                .buffer
+                .read(cx)
+                .as_singleton()
+                .expect("A multi buffer in breakpoint prompt isn't possible")
+                .read(cx)
+                .as_rope()
+                .to_string();
+
+            editor.update(cx, |editor, cx| {
+                editor.toggle_breakpoint_at_anchor(
+                    self.breakpoint_anchor,
+                    BreakpointKind::Log(log_message.into()),
+                    cx,
+                );
+
+                editor.remove_blocks(self.block_ids.clone(), None, cx);
+            });
+        }
+    }
+
+    fn cancel(&mut self, _: &menu::Cancel, cx: &mut ViewContext<Self>) {
+        if let Some(editor) = self.editor.upgrade() {
+            editor.update(cx, |editor, cx| {
+                editor.remove_blocks(self.block_ids.clone(), None, cx);
+            });
         }
     }
 
     fn render_prompt_editor(&self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         let settings = ThemeSettings::get_global(cx);
         let text_style = TextStyle {
-            color: if self.editor.read(cx).read_only(cx) {
+            color: if self.prompt.read(cx).read_only(cx) {
                 cx.theme().colors().text_disabled
             } else {
                 cx.theme().colors().text
@@ -14227,7 +14271,7 @@ impl BreakpointPromptEditor {
             ..Default::default()
         };
         EditorElement::new(
-            &self.editor,
+            &self.prompt,
             EditorStyle {
                 background: cx.theme().colors().editor_background,
                 local_player: cx.theme().players().local(),
@@ -14247,6 +14291,8 @@ impl Render for BreakpointPromptEditor {
             .border_color(cx.theme().status().info_border)
             .size_full()
             .py(cx.line_height() / 2.5)
+            .on_action(cx.listener(Self::confirm))
+            .on_action(cx.listener(Self::cancel))
             .child(div().flex_1().child(self.render_prompt_editor(cx)))
     }
 }
