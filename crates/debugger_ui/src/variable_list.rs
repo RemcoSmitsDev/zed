@@ -236,6 +236,7 @@ impl VariableList {
 
                 if let Some(state) = self.set_variable_state.as_ref() {
                     if state.parent_variables_reference == container_reference
+                        && state.scope.variables_reference == scope.variables_reference
                         && state.name == variable.name
                     {
                         entries.push(VariableListEntry::SetVariableEditor {
