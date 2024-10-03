@@ -526,12 +526,14 @@ impl VariableList {
         cx.spawn(|this, mut cx| async move {
             let updated_variables = try_join_all(scope_tasks).await?;
 
-            this.update(&mut cx, |this, _| {
+            this.update(&mut cx, |this, cx| {
                 for (entry_id, variable_containers) in updated_variables {
                     for variables in variable_containers {
                         this.variables.insert(entry_id, variables);
                     }
                 }
+
+                this.build_entries(false, true, cx);
             })
         })
     }
