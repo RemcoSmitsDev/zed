@@ -100,6 +100,7 @@ use language::{
 };
 use language::{point_to_lsp, BufferRow, CharClassifier, Runnable, RunnableRange};
 use linked_editing_ranges::refresh_linked_ranges;
+use project::dap_store::BreakpointEditAction;
 use proposed_changes_editor::{ProposedChangesBuffer, ProposedChangesEditor};
 use similar::{ChangeTag, TextDiff};
 use task::{ResolvedTask, TaskTemplate, TaskVariables};
@@ -5439,6 +5440,7 @@ impl Editor {
             BreakpointKind::Log(_) => ui::IconName::DebugLogBreakpoint,
         };
         let arc_kind = Arc::new(kind.clone());
+        let arc_kind2 = arc_kind.clone();
 
         IconButton::new(("breakpoint_indicator", row.0 as usize), icon)
             .icon_size(IconSize::XSmall)
@@ -5447,7 +5449,12 @@ impl Editor {
             .style(ButtonStyle::Transparent)
             .on_click(cx.listener(move |editor, _e, cx| {
                 editor.focus(cx);
-                editor.toggle_breakpoint_at_anchor(position, (*arc_kind).clone(), cx);
+                editor.edit_breakpoint_at_anchor(
+                    position,
+                    (*arc_kind).clone(),
+                    BreakpointEditAction::Toggle,
+                    cx,
+                );
             }))
             .on_right_click(cx.listener(move |editor, event: &ClickEvent, cx| {
                 let source = editor
@@ -5461,6 +5468,14 @@ impl Editor {
                 let editor_weak = cx.view().downgrade();
                 let second_weak = editor_weak.clone();
 
+                let log_message = arc_kind2.log_message();
+
+                let second_entry_msg = if log_message.is_some() {
+                    "Edit Log Breakpoint"
+                } else {
+                    "Toggle Log Breakpoint"
+                };
+
                 let context_menu = ui::ContextMenu::build(cx, move |menu, _cx| {
                     let anchor = position;
                     menu.on_blur_subscription(Subscription::new(|| {}))
@@ -5468,24 +5483,32 @@ impl Editor {
                         .entry("Toggle Breakpoint", None, move |cx| {
                             if let Some(editor) = editor_weak.upgrade() {
                                 editor.update(cx, |this, cx| {
-                                    this.toggle_breakpoint_at_anchor(
+                                    this.edit_breakpoint_at_anchor(
                                         anchor,
                                         BreakpointKind::Standard,
+                                        BreakpointEditAction::Toggle,
                                         cx,
                                     );
                                 })
                             }
                         })
-                        .entry("Toggle Log Breakpoint", None, move |cx| {
+                        .entry(second_entry_msg, None, move |cx| {
                             if let Some(editor) = second_weak.clone().upgrade() {
+                                let log_message = log_message.clone();
                                 editor.update(cx, |this, cx| {
                                     let position = this.snapshot(cx).display_point_to_anchor(
                                         DisplayPoint::new(row, 0),
                                         Bias::Right,
                                     );
+
                                     let weak_editor = cx.view().downgrade();
                                     let bp_prompt = cx.new_view(|cx| {
-                                        BreakpointPromptEditor::new(weak_editor, anchor, cx)
+                                        BreakpointPromptEditor::new(
+                                            weak_editor,
+                                            anchor,
+                                            log_message,
+                                            cx,
+                                        )
                                     });
 
                                     let height = bp_prompt.update(cx, |this, cx| {
@@ -5498,12 +5521,17 @@ impl Editor {
                                         style: BlockStyle::Sticky,
                                         position,
                                         height,
-                                        render: Box::new(move |_cx| {
+                                        render: Box::new(move |cx| {
+                                            *cloned_prompt.read(cx).gutter_dimensions.lock() =
+                                                *cx.gutter_dimensions;
                                             cloned_prompt.clone().into_any_element()
                                         }),
                                         disposition: BlockDisposition::Above,
                                         priority: 0,
                                     }];
+
+                                    let focus_handle = bp_prompt.focus_handle(cx);
+                                    cx.focus(&focus_handle);
 
                                     let block_ids = this.insert_blocks(blocks, None, cx);
                                     bp_prompt.update(cx, |prompt, _| {
@@ -6401,17 +6429,25 @@ impl Editor {
             Some((bp.active_position?, bp.kind))
         });
 
+        let edit_action = BreakpointEditAction::Toggle;
+
         if let Some((anchor, kind)) = found_bp {
-            self.toggle_breakpoint_at_anchor(anchor, kind, cx);
+            self.edit_breakpoint_at_anchor(anchor, kind, edit_action, cx);
         } else {
-            self.toggle_breakpoint_at_anchor(breakpoint_position, BreakpointKind::Standard, cx);
+            self.edit_breakpoint_at_anchor(
+                breakpoint_position,
+                BreakpointKind::Standard,
+                edit_action,
+                cx,
+            );
         }
     }
 
-    pub fn toggle_breakpoint_at_anchor(
+    pub fn edit_breakpoint_at_anchor(
         &mut self,
         breakpoint_position: text::Anchor,
         kind: BreakpointKind,
+        edit_action: BreakpointEditAction,
         cx: &mut ViewContext<Self>,
     ) {
         let Some(project) = &self.project else {
@@ -6445,6 +6481,7 @@ impl Editor {
                     active_position: Some(breakpoint_position),
                     kind,
                 },
+                edit_action,
                 cx,
             );
         });
@@ -14175,6 +14212,7 @@ struct BreakpointPromptEditor {
     editor: WeakView<Editor>,
     breakpoint_anchor: text::Anchor,
     block_ids: HashSet<CustomBlockId>,
+    gutter_dimensions: Arc<Mutex<GutterDimensions>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -14184,9 +14222,15 @@ impl BreakpointPromptEditor {
     fn new(
         editor: WeakView<Editor>,
         breakpoint_anchor: text::Anchor,
+        log_message: Option<Arc<str>>,
         cx: &mut ViewContext<Self>,
     ) -> Self {
-        let buffer = cx.new_model(|cx| Buffer::local(String::new(), cx));
+        let buffer = cx.new_model(|cx| {
+            Buffer::local(
+                log_message.map(|msg| msg.to_string()).unwrap_or_default(),
+                cx,
+            )
+        });
         let buffer = cx.new_model(|cx| MultiBuffer::singleton(buffer, cx));
 
         let prompt = cx.new_view(|cx| {
@@ -14204,7 +14248,10 @@ impl BreakpointPromptEditor {
             // always show the cursor (even when it isn't focused) because
             // typing in one will make what you typed appear in all of them.
             prompt.set_show_cursor_when_unfocused(true, cx);
-            prompt.set_placeholder_text("Add a prompt…", cx);
+            prompt.set_placeholder_text(
+                "Message to log when breakpoint is hit. Expressions within {} are interpolated.",
+                cx,
+            );
 
             prompt
         });
@@ -14213,6 +14260,7 @@ impl BreakpointPromptEditor {
             prompt,
             editor,
             breakpoint_anchor,
+            gutter_dimensions: Arc::new(Mutex::new(GutterDimensions::default())),
             block_ids: Default::default(),
             _subscriptions: vec![],
         }
@@ -14236,9 +14284,10 @@ impl BreakpointPromptEditor {
                 .to_string();
 
             editor.update(cx, |editor, cx| {
-                editor.toggle_breakpoint_at_anchor(
+                editor.edit_breakpoint_at_anchor(
                     self.breakpoint_anchor,
                     BreakpointKind::Log(log_message.into()),
+                    BreakpointEditAction::EditLogMessage,
                     cx,
                 );
 
@@ -14284,6 +14333,7 @@ impl BreakpointPromptEditor {
 
 impl Render for BreakpointPromptEditor {
     fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+        let gutter_dimensions = *self.gutter_dimensions.lock();
         h_flex()
             .key_context("Editor")
             .bg(cx.theme().colors().editor_background)
@@ -14293,6 +14343,13 @@ impl Render for BreakpointPromptEditor {
             .py(cx.line_height() / 2.5)
             .on_action(cx.listener(Self::confirm))
             .on_action(cx.listener(Self::cancel))
+            .child(h_flex().w(gutter_dimensions.full_width() + (gutter_dimensions.margin / 2.0)))
             .child(div().flex_1().child(self.render_prompt_editor(cx)))
+    }
+}
+
+impl FocusableView for BreakpointPromptEditor {
+    fn focus_handle(&self, cx: &AppContext) -> FocusHandle {
+        self.prompt.focus_handle(cx)
     }
 }
