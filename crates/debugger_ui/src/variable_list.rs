@@ -65,7 +65,8 @@ pub struct VariableList {
     set_variable_state: Option<SetVariableState>,
     entries: HashMap<u64, Vec<VariableListEntry>>,
     fetch_variables_task: Option<Task<Result<()>>>,
-    variables: BTreeMap<u64, Vec<VariableContainer>>,
+    // (stack_frame_id, scope.variables_reference) -> variables
+    variables: BTreeMap<(u64, u64), Vec<VariableContainer>>,
     open_context_menu: Option<(View<ContextMenu>, Point<Pixels>, Subscription)>,
 }
 
@@ -120,9 +121,9 @@ impl VariableList {
 
     pub fn variables(&self) -> Vec<VariableContainer> {
         self.variables
-            .get(&self.current_stack_frame_id)
-            .cloned()
-            .unwrap_or_default()
+            .range((self.current_stack_frame_id, u64::MIN)..(self.current_stack_frame_id, u64::MAX))
+            .flat_map(|(_, containers)| containers.iter().cloned())
+            .collect()
     }
 
     fn render_entry(&mut self, ix: usize, cx: &mut ViewContext<Self>) -> AnyElement {
@@ -188,7 +189,10 @@ impl VariableList {
 
         let mut entries: Vec<VariableListEntry> = Vec::default();
         for scope in scopes {
-            let Some(variables) = self.variables.get(&scope.variables_reference) else {
+            let Some(variables) = self
+                .variables
+                .get(&(self.current_stack_frame_id, scope.variables_reference))
+            else {
                 continue;
             };
 
@@ -317,7 +321,7 @@ impl VariableList {
                         this.fetched_variable_ids.insert(scope.variables_reference);
 
                         this.variables.insert(
-                            scope.variables_reference,
+                            (stack_frame_id, scope.variables_reference),
                             variables
                                 .into_iter()
                                 .map(|v| VariableContainer {
@@ -450,7 +454,6 @@ impl VariableList {
 
         let client_id = self.client_id;
         let variables_reference = state.parent_variables_reference;
-        let scope = state.scope;
         let name = state.name;
         let evaluate_name = state.evaluate_name;
         let stack_frame_id = state.stack_frame_id;
@@ -472,53 +475,65 @@ impl VariableList {
 
             set_value_task?.await?;
 
-            let Some(scope_variables) = this.update(&mut cx, |this, _| {
-                this.variables.remove(&scope.variables_reference)
-            })?
-            else {
-                return Ok(());
-            };
-
-            let tasks = this.update(&mut cx, |this, cx| {
-                let mut tasks = Vec::with_capacity(scope_variables.len());
-
-                for variable_container in scope_variables {
-                    let fetch_variables_task = this.dap_store.update(cx, |store, cx| {
-                        store.variables(&client_id, variable_container.container_reference, cx)
-                    });
-
-                    tasks.push(async move {
-                        let depth = variable_container.depth;
-                        let container_reference = variable_container.container_reference;
-
-                        anyhow::Ok(
-                            fetch_variables_task
-                                .await?
-                                .into_iter()
-                                .map(move |variable| VariableContainer {
-                                    container_reference,
-                                    variable,
-                                    depth,
-                                })
-                                .collect::<Vec<_>>(),
-                        )
-                    });
-                }
-
-                tasks
-            })?;
-
-            let updated_variables = try_join_all(tasks).await?;
+            this.update(&mut cx, |this, cx| this.refetch_existing_variables(cx))?
+                .await?;
 
             this.update(&mut cx, |this, cx| {
-                for variables in updated_variables {
-                    this.variables.insert(scope.variables_reference, variables);
-                }
-
                 this.build_entries(false, true, cx);
             })
         })
         .detach_and_log_err(cx);
+    }
+
+    pub fn refetch_existing_variables(&mut self, cx: &mut ViewContext<Self>) -> Task<Result<()>> {
+        let mut scope_tasks = Vec::with_capacity(self.variables.len());
+
+        for ((stack_frame_id, scope_id), variable_containers) in self.variables.clone().into_iter()
+        {
+            let mut variable_tasks = Vec::with_capacity(variable_containers.len());
+
+            for variable_container in variable_containers {
+                let fetch_variables_task = self.dap_store.update(cx, |store, cx| {
+                    store.variables(&self.client_id, variable_container.container_reference, cx)
+                });
+
+                variable_tasks.push(async move {
+                    let depth = variable_container.depth;
+                    let container_reference = variable_container.container_reference;
+
+                    anyhow::Ok(
+                        fetch_variables_task
+                            .await?
+                            .into_iter()
+                            .map(move |variable| VariableContainer {
+                                container_reference,
+                                variable,
+                                depth,
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                });
+            }
+
+            scope_tasks.push(async move {
+                anyhow::Ok((
+                    (stack_frame_id, scope_id),
+                    try_join_all(variable_tasks).await?,
+                ))
+            });
+        }
+
+        cx.spawn(|this, mut cx| async move {
+            let updated_variables = try_join_all(scope_tasks).await?;
+
+            this.update(&mut cx, |this, _| {
+                for (entry_id, variable_containers) in updated_variables {
+                    for variables in variable_containers {
+                        this.variables.insert(entry_id, variables);
+                    }
+                }
+            })
+        })
     }
 
     fn render_set_variable_editor(
@@ -571,6 +586,7 @@ impl VariableList {
             let variable_id = variable_id.clone();
             let scope = scope.clone();
             let depth = *depth;
+            let stack_frame_id = self.current_stack_frame_id;
 
             let fetch_variables_task = self.dap_store.update(cx, |store, cx| {
                 store.variables(&self.client_id, variable_reference, cx)
@@ -580,7 +596,10 @@ impl VariableList {
                 let new_variables = fetch_variables_task.await?;
 
                 this.update(&mut cx, |this, cx| {
-                    let Some(variables) = this.variables.get_mut(&scope.variables_reference) else {
+                    let Some(variables) = this
+                        .variables
+                        .get_mut(&(stack_frame_id, scope.variables_reference))
+                    else {
                         return;
                     };
 
