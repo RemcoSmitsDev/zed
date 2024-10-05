@@ -2270,6 +2270,18 @@ impl BufferSnapshot {
         self.anchor_at_offset(position.to_offset(self), bias)
     }
 
+    pub fn breakpoint_anchor<T: ToOffset>(&self, position: T) -> Anchor {
+        let offset = position.to_offset(self);
+
+        let bias = if offset == 0usize {
+            Bias::Right
+        } else {
+            Bias::Left
+        };
+
+        self.anchor_at_offset(offset, bias)
+    }
+
     fn anchor_at_offset(&self, offset: usize, bias: Bias) -> Anchor {
         if bias == Bias::Left && offset == 0 {
             Anchor::MIN
@@ -2617,7 +2629,7 @@ impl Fragment {
 impl sum_tree::Item for Fragment {
     type Summary = FragmentSummary;
 
-    fn summary(&self) -> Self::Summary {
+    fn summary(&self, _cx: &Option<clock::Global>) -> Self::Summary {
         let mut max_version = clock::Global::new();
         max_version.observe(self.timestamp);
         for deletion in &self.deletions {
@@ -2688,7 +2700,7 @@ impl Default for FragmentSummary {
 impl sum_tree::Item for InsertionFragment {
     type Summary = InsertionFragmentKey;
 
-    fn summary(&self) -> Self::Summary {
+    fn summary(&self, _cx: &()) -> Self::Summary {
         InsertionFragmentKey {
             timestamp: self.timestamp,
             split_offset: self.split_offset,
@@ -2700,7 +2712,7 @@ impl sum_tree::KeyedItem for InsertionFragment {
     type Key = InsertionFragmentKey;
 
     fn key(&self) -> Self::Key {
-        sum_tree::Item::summary(self)
+        sum_tree::Item::summary(self, &())
     }
 }
 

@@ -4,16 +4,17 @@ use collections::{HashMap, HashSet};
 use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 use dap::messages::Message;
 use dap::requests::{
-    Attach, ConfigurationDone, Continue, Disconnect, Initialize, Launch, Next, Pause, Scopes,
-    SetBreakpoints, SetExpression, SetVariable, StackTrace, StepIn, StepOut, Terminate,
-    TerminateThreads, Variables,
+    Attach, Completions, ConfigurationDone, Continue, Disconnect, Evaluate, Initialize, Launch,
+    Next, Pause, Scopes, SetBreakpoints, SetExpression, SetVariable, StackTrace, StepIn, StepOut,
+    Terminate, TerminateThreads, Variables,
 };
 use dap::{
-    AttachRequestArguments, Capabilities, ConfigurationDoneArguments, ContinueArguments,
-    DisconnectArguments, InitializeRequestArguments, InitializeRequestArgumentsPathFormat,
-    LaunchRequestArguments, NextArguments, PauseArguments, Scope, ScopesArguments,
-    SetBreakpointsArguments, SetExpressionArguments, SetVariableArguments, Source,
-    SourceBreakpoint, StackFrame, StackTraceArguments, StepInArguments, StepOutArguments,
+    AttachRequestArguments, Capabilities, CompletionItem, CompletionsArguments,
+    ConfigurationDoneArguments, ContinueArguments, DisconnectArguments, EvaluateArguments,
+    EvaluateArgumentsContext, EvaluateResponse, InitializeRequestArguments,
+    InitializeRequestArgumentsPathFormat, LaunchRequestArguments, NextArguments, PauseArguments,
+    Scope, ScopesArguments, SetBreakpointsArguments, SetExpressionArguments, SetVariableArguments,
+    Source, SourceBreakpoint, StackFrame, StackTraceArguments, StepInArguments, StepOutArguments,
     SteppingGranularity, TerminateArguments, TerminateThreadsArguments, Variable,
     VariablesArguments,
 };
@@ -65,7 +66,7 @@ pub struct DapStore {
     capabilities: HashMap<DebugAdapterClientId, Capabilities>,
     active_debug_line: Option<(ProjectPath, DebugPosition)>,
     http_client: Option<Arc<dyn HttpClient>>,
-    node_runtime: Option<Arc<dyn NodeRuntime>>,
+    node_runtime: Option<NodeRuntime>,
     fs: Arc<dyn Fs>,
 }
 
@@ -74,7 +75,7 @@ impl EventEmitter<DapStoreEvent> for DapStore {}
 impl DapStore {
     pub fn new(
         http_client: Option<Arc<dyn HttpClient>>,
-        node_runtime: Option<Arc<dyn NodeRuntime>>,
+        node_runtime: Option<NodeRuntime>,
         fs: Arc<dyn Fs>,
         cx: &mut ModelContext<Self>,
     ) -> Self {
@@ -152,6 +153,20 @@ impl DapStore {
 
     pub fn breakpoints(&self) -> &BTreeMap<ProjectPath, HashSet<Breakpoint>> {
         &self.breakpoints
+    }
+
+    pub fn breakpoint_at_row(
+        &self,
+        row: u32,
+        project_path: &ProjectPath,
+        buffer_snapshot: BufferSnapshot,
+    ) -> Option<Breakpoint> {
+        let breakpoint_set = self.breakpoints.get(project_path)?;
+
+        breakpoint_set
+            .iter()
+            .find(|bp| bp.point_for_buffer_snapshot(&buffer_snapshot).row == row)
+            .cloned()
     }
 
     pub fn on_open_buffer(
@@ -380,7 +395,7 @@ impl DapStore {
         })
     }
 
-    pub fn send_configuration_done(
+    pub fn configuration_done(
         &self,
         client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
@@ -543,6 +558,58 @@ impl DapStore {
                 })
                 .await?
                 .variables)
+        })
+    }
+
+    pub fn evaluate(
+        &self,
+        client_id: &DebugAdapterClientId,
+        stack_frame_id: u64,
+        expression: String,
+        context: EvaluateArgumentsContext,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<EvaluateResponse>> {
+        let Some(client) = self.client_by_id(client_id) else {
+            return Task::ready(Err(anyhow!("Could not found client")));
+        };
+
+        cx.spawn(|_, _| async move {
+            client
+                .request::<Evaluate>(EvaluateArguments {
+                    expression: expression.clone(),
+                    frame_id: Some(stack_frame_id),
+                    context: Some(context),
+                    format: None,
+                    line: None,
+                    column: None,
+                    source: None,
+                })
+                .await
+        })
+    }
+
+    pub fn completions(
+        &self,
+        client_id: &DebugAdapterClientId,
+        stack_frame_id: u64,
+        text: String,
+        completion_column: u64,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<Vec<CompletionItem>>> {
+        let Some(client) = self.client_by_id(client_id) else {
+            return Task::ready(Err(anyhow!("Could not found client")));
+        };
+
+        cx.spawn(|_, _| async move {
+            Ok(client
+                .request::<Completions>(CompletionsArguments {
+                    frame_id: Some(stack_frame_id),
+                    line: None,
+                    text,
+                    column: completion_column,
+                })
+                .await?
+                .targets)
         })
     }
 
@@ -746,17 +813,24 @@ impl DapStore {
         breakpoint: Breakpoint,
         buffer_path: PathBuf,
         buffer_snapshot: BufferSnapshot,
+        edit_action: BreakpointEditAction,
         cx: &mut ModelContext<Self>,
     ) {
         let breakpoint_set = self.breakpoints.entry(project_path.clone()).or_default();
 
-        if let Some(gotten_breakpoint) = breakpoint_set.take(&breakpoint) {
-            if gotten_breakpoint.kind != breakpoint.kind {
+        match edit_action {
+            BreakpointEditAction::Toggle => {
+                if !breakpoint_set.remove(&breakpoint) {
+                    breakpoint_set.insert(breakpoint);
+                }
+            }
+            BreakpointEditAction::EditLogMessage => {
+                breakpoint_set.remove(&breakpoint);
                 breakpoint_set.insert(breakpoint);
             }
-        } else {
-            breakpoint_set.insert(breakpoint);
         }
+
+        cx.notify();
 
         self.send_changed_breakpoints(project_path, buffer_path, buffer_snapshot, cx)
             .detach();
@@ -833,9 +907,16 @@ impl DapStore {
         })
     }
 }
+
 type LogMessage = Arc<str>;
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug)]
+pub enum BreakpointEditAction {
+    Toggle,
+    EditLogMessage,
+}
+
+#[derive(Clone, Debug)]
 pub enum BreakpointKind {
     Standard,
     Log(LogMessage),
@@ -847,6 +928,27 @@ impl BreakpointKind {
             BreakpointKind::Standard => 0,
             BreakpointKind::Log(_) => 1,
         }
+    }
+
+    pub fn log_message(&self) -> Option<LogMessage> {
+        match self {
+            BreakpointKind::Standard => None,
+            BreakpointKind::Log(message) => Some(message.clone()),
+        }
+    }
+}
+
+impl PartialEq for BreakpointKind {
+    fn eq(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
+impl Eq for BreakpointKind {}
+
+impl Hash for BreakpointKind {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
     }
 }
 
@@ -863,7 +965,12 @@ pub struct Breakpoint {
 // overlapping breakpoint's with them being aware.
 impl PartialEq for Breakpoint {
     fn eq(&self, other: &Self) -> bool {
-        self.active_position == other.active_position && self.cache_position == other.cache_position
+        match (&self.active_position, &other.active_position) {
+            (None, None) => self.cache_position == other.cache_position,
+            (None, Some(_)) => false,
+            (Some(_), None) => false,
+            (Some(self_position), Some(other_position)) => self_position == other_position,
+        }
     }
 }
 
@@ -871,8 +978,11 @@ impl Eq for Breakpoint {}
 
 impl Hash for Breakpoint {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.active_position.hash(state);
-        self.cache_position.hash(state);
+        if self.active_position.is_some() {
+            self.active_position.hash(state);
+        } else {
+            self.cache_position.hash(state);
+        }
     }
 }
 
@@ -895,13 +1005,8 @@ impl Breakpoint {
 
     pub fn set_active_position(&mut self, buffer: &Buffer) {
         if self.active_position.is_none() {
-            let bias = if self.cache_position == 0 {
-                text::Bias::Right
-            } else {
-                text::Bias::Left
-            };
-
-            self.active_position = Some(buffer.anchor_at(Point::new(self.cache_position, 0), bias));
+            self.active_position =
+                Some(buffer.breakpoint_anchor(Point::new(self.cache_position, 0)));
         }
     }
 
@@ -985,13 +1090,13 @@ impl SerializedBreakpoint {
 pub struct DapAdapterDelegate {
     fs: Arc<dyn Fs>,
     http_client: Option<Arc<dyn HttpClient>>,
-    node_runtime: Option<Arc<dyn NodeRuntime>>,
+    node_runtime: Option<NodeRuntime>,
 }
 
 impl DapAdapterDelegate {
     pub fn new(
         http_client: Option<Arc<dyn HttpClient>>,
-        node_runtime: Option<Arc<dyn NodeRuntime>>,
+        node_runtime: Option<NodeRuntime>,
         fs: Arc<dyn Fs>,
     ) -> Self {
         Self {
@@ -1007,7 +1112,7 @@ impl dap::adapters::DapDelegate for DapAdapterDelegate {
         self.http_client.clone()
     }
 
-    fn node_runtime(&self) -> Option<Arc<dyn NodeRuntime>> {
+    fn node_runtime(&self) -> Option<NodeRuntime> {
         self.node_runtime.clone()
     }
 

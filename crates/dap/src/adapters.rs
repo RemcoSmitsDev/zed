@@ -41,7 +41,7 @@ async fn get_port(host: Ipv4Addr) -> Option<u16> {
 
 pub trait DapDelegate {
     fn http_client(&self) -> Option<Arc<dyn HttpClient>>;
-    fn node_runtime(&self) -> Option<Arc<dyn NodeRuntime>>;
+    fn node_runtime(&self) -> Option<NodeRuntime>;
     fn fs(&self) -> Arc<dyn Fs>;
 }
 
