@@ -2,6 +2,7 @@ use std::path::Path;
 
 use crate::console::Console;
 use crate::debugger_panel::{DebugPanel, DebugPanelEvent, ThreadState};
+use crate::module_list::ModuleList;
 use crate::variable_list::VariableList;
 
 use dap::client::{DebugAdapterClientId, ThreadStatus};
@@ -44,6 +45,7 @@ pub struct DebugPanelItem {
     stack_frame_list: ListState,
     output_editor: View<Editor>,
     current_stack_frame_id: u64,
+    module_list: View<ModuleList>,
     client_kind: DebugAdapterKind,
     active_thread_item: ThreadItem,
     workspace: WeakView<Workspace>,
@@ -77,6 +79,9 @@ impl DebugPanelItem {
                 cx,
             )
         });
+
+        let module_list = cx.new_view(|cx| ModuleList::new(dap_store.clone(), &client_id, cx));
+
         let console = cx.new_view(|cx| {
             Console::new(
                 client_id,
@@ -145,6 +150,7 @@ impl DebugPanelItem {
             thread_id,
             dap_store,
             workspace,
+            module_list,
             thread_state,
             focus_handle,
             output_editor,
@@ -768,6 +774,9 @@ impl Render for DebugPanelItem {
                     )
                     .when(*active_thread_item == ThreadItem::Variables, |this| {
                         this.size_full().child(self.variable_list.clone())
+                    })
+                    .when(*active_thread_item == ThreadItem::Modules, |this| {
+                        this.size_full().child(self.module_list.clone())
                     })
                     .when(*active_thread_item == ThreadItem::Output, |this| {
                         this.child(self.output_editor.clone())
