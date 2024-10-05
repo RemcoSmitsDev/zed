@@ -8,8 +8,8 @@ use crate::variable_list::VariableList;
 use dap::client::{DebugAdapterClientId, ThreadStatus};
 use dap::debugger_settings::DebuggerSettings;
 use dap::{
-    Capabilities, ContinuedEvent, OutputEvent, OutputEventCategory, StackFrame, StoppedEvent,
-    ThreadEvent,
+    Capabilities, ContinuedEvent, ModuleEvent, OutputEvent, OutputEventCategory, StackFrame,
+    StoppedEvent, ThreadEvent,
 };
 use editor::Editor;
 use gpui::{
@@ -117,6 +117,9 @@ impl DebugPanelItem {
                     }
                     DebugPanelEvent::Output((client_id, event)) => {
                         this.handle_output_event(client_id, event, cx)
+                    }
+                    DebugPanelEvent::Module((client_id, event)) => {
+                        this.handle_module_event(client_id, event, cx)
                     }
                     DebugPanelEvent::ClientStopped(client_id) => {
                         this.handle_client_stopped_event(client_id, cx)
@@ -270,6 +273,21 @@ impl DebugPanelItem {
                 });
             }
         }
+    }
+
+    fn handle_module_event(
+        &mut self,
+        client_id: &DebugAdapterClientId,
+        event: &ModuleEvent,
+        cx: &mut ViewContext<Self>,
+    ) {
+        if self.should_skip_event(client_id, self.thread_id) {
+            return;
+        }
+
+        self.module_list.update(cx, |variable_list, cx| {
+            variable_list.on_module_event(event, cx);
+        });
     }
 
     fn handle_client_stopped_event(

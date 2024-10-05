@@ -1,5 +1,5 @@
 use anyhow::Result;
-use dap::{client::DebugAdapterClientId, Module};
+use dap::{client::DebugAdapterClientId, Module, ModuleEvent};
 use gpui::{list, AnyElement, FocusHandle, FocusableView, ListState, Model, Task};
 use project::dap_store::DapStore;
 use ui::prelude::*;
@@ -39,6 +39,21 @@ impl ModuleList {
         this.fetch_modules(cx).detach_and_log_err(cx);
 
         this
+    }
+
+    pub fn on_module_event(&mut self, event: &ModuleEvent, cx: &mut ViewContext<Self>) {
+        match event.reason {
+            dap::ModuleEventReason::New => self.modules.push(event.module.clone()),
+            dap::ModuleEventReason::Changed => {
+                if let Some(module) = self.modules.iter_mut().find(|m| m.id == event.module.id) {
+                    *module = event.module.clone();
+                }
+            }
+            dap::ModuleEventReason::Removed => self.modules.retain(|m| m.id != event.module.id),
+        }
+
+        self.list.reset(self.modules.len());
+        cx.notify();
     }
 
     fn fetch_modules(&self, cx: &mut ViewContext<Self>) -> Task<Result<()>> {
