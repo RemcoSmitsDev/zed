@@ -28,9 +28,10 @@ pub enum Event {
     Close,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 enum ThreadItem {
     Variables,
+    Modules,
     Console,
     Output,
 }
@@ -464,6 +465,28 @@ impl DebugPanelItem {
             .into_any()
     }
 
+    fn render_entry_button(
+        &self,
+        label: &SharedString,
+        thread_item: ThreadItem,
+        cx: &mut ViewContext<Self>,
+    ) -> AnyElement {
+        div()
+            .id(label.clone())
+            .px_2()
+            .py_1()
+            .cursor_pointer()
+            .border_b_2()
+            .when(self.active_thread_item == thread_item, |this| {
+                this.border_color(cx.theme().colors().border)
+            })
+            .child(Button::new(label.clone(), label.clone()))
+            .on_click(cx.listener(move |this, _, _| {
+                this.active_thread_item = thread_item.clone();
+            }))
+            .into_any_element()
+    }
+
     pub fn continue_thread(&mut self, cx: &mut ViewContext<Self>) {
         self.update_thread_state_status(ThreadStatus::Running, cx);
 
@@ -717,51 +740,31 @@ impl Render for DebugPanelItem {
                             .border_b_1()
                             .w_full()
                             .border_color(cx.theme().colors().border_variant)
-                            .child(
-                                div()
-                                    .id("variables")
-                                    .px_2()
-                                    .py_1()
-                                    .cursor_pointer()
-                                    .border_b_2()
-                                    .when(*active_thread_item == ThreadItem::Variables, |this| {
-                                        this.border_color(cx.theme().colors().border)
-                                    })
-                                    .child(Button::new("variables-button", "Variables"))
-                                    .on_click(cx.listener(|this, _, _| {
-                                        this.active_thread_item = ThreadItem::Variables;
-                                    })),
+                            .child(self.render_entry_button(
+                                &SharedString::from("Variables"),
+                                ThreadItem::Variables,
+                                cx,
+                            ))
+                            .when(
+                                capabilities.supports_modules_request.unwrap_or_default(),
+                                |this| {
+                                    this.child(self.render_entry_button(
+                                        &SharedString::from("Modules"),
+                                        ThreadItem::Modules,
+                                        cx,
+                                    ))
+                                },
                             )
-                            .child(
-                                div()
-                                    .id("console")
-                                    .px_2()
-                                    .py_1()
-                                    .cursor_pointer()
-                                    .border_b_2()
-                                    .when(*active_thread_item == ThreadItem::Console, |this| {
-                                        this.border_color(cx.theme().colors().border)
-                                    })
-                                    .child(Button::new("console-button", "Console"))
-                                    .on_click(cx.listener(|this, _, _| {
-                                        this.active_thread_item = ThreadItem::Console;
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .id("output")
-                                    .px_2()
-                                    .py_1()
-                                    .cursor_pointer()
-                                    .border_b_2()
-                                    .when(*active_thread_item == ThreadItem::Output, |this| {
-                                        this.border_color(cx.theme().colors().border)
-                                    })
-                                    .child(Button::new("output", "Output"))
-                                    .on_click(cx.listener(|this, _, _| {
-                                        this.active_thread_item = ThreadItem::Output;
-                                    })),
-                            ),
+                            .child(self.render_entry_button(
+                                &SharedString::from("Console"),
+                                ThreadItem::Console,
+                                cx,
+                            ))
+                            .child(self.render_entry_button(
+                                &SharedString::from("Output"),
+                                ThreadItem::Output,
+                                cx,
+                            )),
                     )
                     .when(*active_thread_item == ThreadItem::Variables, |this| {
                         this.size_full().child(self.variable_list.clone())
