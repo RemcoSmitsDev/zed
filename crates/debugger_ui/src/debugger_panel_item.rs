@@ -3,6 +3,7 @@ use std::path::Path;
 use crate::console::Console;
 use crate::debugger_panel::{DebugPanel, DebugPanelEvent, ThreadState};
 use crate::module_list::ModuleList;
+use crate::stack_frame_list::StackFrameList;
 use crate::variable_list::VariableList;
 
 use dap::client::{DebugAdapterClientId, ThreadStatus};
@@ -13,8 +14,8 @@ use dap::{
 };
 use editor::Editor;
 use gpui::{
-    list, AnyElement, AppContext, EventEmitter, FocusHandle, FocusableView, ListState, Model,
-    Subscription, View, WeakView,
+    AnyElement, AppContext, EventEmitter, FocusHandle, FocusableView, Model, Subscription, View,
+    WeakView,
 };
 use project::dap_store::DapStore;
 use project::ProjectPath;
@@ -25,8 +26,10 @@ use ui::{prelude::*, Tooltip};
 use workspace::item::{Item, ItemEvent};
 use workspace::Workspace;
 
+#[derive(Debug)]
 pub enum Event {
     Close,
+    Stopped { go_to_stack_frame: bool },
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -42,7 +45,6 @@ pub struct DebugPanelItem {
     console: View<Console>,
     focus_handle: FocusHandle,
     dap_store: Model<DapStore>,
-    stack_frame_list: ListState,
     output_editor: View<Editor>,
     current_stack_frame_id: u64,
     module_list: View<ModuleList>,
@@ -53,6 +55,7 @@ pub struct DebugPanelItem {
     thread_state: Model<ThreadState>,
     variable_list: View<VariableList>,
     _subscriptions: Vec<Subscription>,
+    stack_frame_list: View<StackFrameList>,
 }
 
 impl DebugPanelItem {
@@ -70,8 +73,13 @@ impl DebugPanelItem {
     ) -> Self {
         let focus_handle = cx.focus_handle();
 
+        let this = cx.view().clone();
+        let stack_frame_list =
+            cx.new_view(|cx| StackFrameList::new(&this, &dap_store, client_id, thread_id, cx));
+
         let variable_list = cx.new_view(|cx| {
             VariableList::new(
+                &this,
                 dap_store.clone(),
                 &client_id,
                 &thread_state,
@@ -91,18 +99,6 @@ impl DebugPanelItem {
                 cx,
             )
         });
-
-        let weakview = cx.view().downgrade();
-        let stack_frame_list =
-            ListState::new(0, gpui::ListAlignment::Top, px(1000.), move |ix, cx| {
-                if let Some(view) = weakview.upgrade() {
-                    view.update(cx, |view, cx| {
-                        view.render_stack_frame(ix, cx).into_any_element()
-                    })
-                } else {
-                    div().into_any()
-                }
-            });
 
         let _subscriptions = vec![cx.subscribe(&debug_panel, {
             move |this: &mut Self, _, event: &DebugPanelEvent, cx| {
@@ -215,16 +211,13 @@ impl DebugPanelItem {
             return;
         }
 
+        cx.emit(Event::Stopped { go_to_stack_frame });
+
         let thread_state = self.thread_state.read(cx);
 
-        self.stack_frame_list.reset(thread_state.stack_frames.len());
         if let Some(stack_frame) = thread_state.stack_frames.first() {
             self.update_stack_frame_id(stack_frame.id, go_to_stack_frame, cx);
         };
-
-        self.variable_list.update(cx, |variable_list, cx| {
-            variable_list.on_stopped_event(cx);
-        });
 
         cx.notify();
     }
@@ -346,10 +339,6 @@ impl DebugPanelItem {
             .read_with(cx, |store, _| store.capabilities_by_id(&self.client_id))
     }
 
-    fn stack_frame_for_index(&self, ix: usize, cx: &mut ViewContext<Self>) -> StackFrame {
-        self.thread_state.read(cx).stack_frames[ix].clone()
-    }
-
     fn update_stack_frame_id(
         &mut self,
         stack_frame_id: u64,
@@ -360,7 +349,6 @@ impl DebugPanelItem {
 
         self.variable_list.update(cx, |variable_list, cx| {
             variable_list.update_stack_frame_id(stack_frame_id, cx);
-            variable_list.build_entries(true, false, cx);
         });
 
         self.console.update(cx, |console, cx| {
@@ -447,61 +435,6 @@ impl DebugPanelItem {
             }
         })
         .detach_and_log_err(cx);
-    }
-
-    fn render_stack_frames(&self, _cx: &mut ViewContext<Self>) -> impl IntoElement {
-        v_flex()
-            .size_full()
-            .child(list(self.stack_frame_list.clone()).size_full())
-            .into_any()
-    }
-
-    fn render_stack_frame(&self, ix: usize, cx: &mut ViewContext<Self>) -> impl IntoElement {
-        let stack_frame = self.stack_frame_for_index(ix, cx);
-
-        let source = stack_frame.source.clone();
-        let is_selected_frame = stack_frame.id == self.current_stack_frame_id;
-
-        let formatted_path = format!(
-            "{}:{}",
-            source.clone().and_then(|s| s.name).unwrap_or_default(),
-            stack_frame.line,
-        );
-
-        v_flex()
-            .rounded_md()
-            .w_full()
-            .group("")
-            .id(("stack-frame", stack_frame.id))
-            .tooltip({
-                let formatted_path = formatted_path.clone();
-                move |cx| Tooltip::text(formatted_path.clone(), cx)
-            })
-            .p_1()
-            .when(is_selected_frame, |this| {
-                this.bg(cx.theme().colors().element_hover)
-            })
-            .on_click(cx.listener({
-                let stack_frame_id = stack_frame.id;
-                move |this, _, cx| {
-                    this.update_stack_frame_id(stack_frame_id, true, cx);
-                }
-            }))
-            .hover(|s| s.bg(cx.theme().colors().element_hover).cursor_pointer())
-            .child(
-                h_flex()
-                    .gap_0p5()
-                    .text_ui_sm(cx)
-                    .child(stack_frame.name.clone())
-                    .child(formatted_path),
-            )
-            .child(
-                h_flex()
-                    .text_ui_xs(cx)
-                    .text_color(cx.theme().colors().text_muted)
-                    .when_some(source.and_then(|s| s.path), |this, path| this.child(path)),
-            )
-            .into_any()
     }
 
     fn render_entry_button(
@@ -645,6 +578,7 @@ impl Item for DebugPanelItem {
     fn to_item_events(event: &Self::Event, mut f: impl FnMut(ItemEvent)) {
         match event {
             Event::Close => f(ItemEvent::CloseItem),
+            Event::Stopped { .. } => {}
         }
     }
 }
@@ -765,7 +699,7 @@ impl Render for DebugPanelItem {
                             .items_start()
                             .p_1()
                             .gap_4()
-                            .child(self.render_stack_frames(cx)),
+                            .child(self.stack_frame_list.clone()),
                     ),
             )
             .child(

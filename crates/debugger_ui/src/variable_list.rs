@@ -1,4 +1,7 @@
-use crate::debugger_panel::ThreadState;
+use crate::{
+    debugger_panel::ThreadState,
+    debugger_panel_item::{self, DebugPanelItem, Event::Stopped},
+};
 use anyhow::Result;
 use dap::{client::DebugAdapterClientId, Scope, Variable};
 use editor::{
@@ -72,6 +75,7 @@ pub struct VariableList {
 
 impl VariableList {
     pub fn new(
+        debug_panel_item: &View<DebugPanelItem>,
         dap_store: Model<DapStore>,
         client_id: &DebugAdapterClientId,
         thread_state: &Model<ThreadState>,
@@ -100,6 +104,9 @@ impl VariableList {
         )
         .detach();
 
+        let _subscriptions =
+            vec![cx.subscribe(debug_panel_item, Self::handle_debug_panel_item_event)];
+
         Self {
             list,
             dap_store,
@@ -116,6 +123,20 @@ impl VariableList {
             open_entries: Default::default(),
             thread_state: thread_state.clone(),
             fetched_variable_ids: Default::default(),
+        }
+    }
+
+    fn handle_debug_panel_item_event(
+        &mut self,
+        _: View<DebugPanelItem>,
+        event: &debugger_panel_item::Event,
+        cx: &mut ViewContext<Self>,
+    ) {
+        match event {
+            Stopped { .. } => {
+                self.on_stopped_event(cx);
+            }
+            _ => {}
         }
     }
 
@@ -170,7 +191,7 @@ impl VariableList {
     pub fn update_stack_frame_id(&mut self, stack_frame_id: u64, cx: &mut ViewContext<Self>) {
         self.current_stack_frame_id = stack_frame_id;
 
-        cx.notify();
+        self.build_entries(true, false, cx);
     }
 
     pub fn build_entries(
@@ -267,7 +288,7 @@ impl VariableList {
         cx.notify();
     }
 
-    pub fn on_stopped_event(&mut self, cx: &mut ViewContext<Self>) {
+    fn on_stopped_event(&mut self, cx: &mut ViewContext<Self>) {
         let stack_frames = self.thread_state.read(cx).stack_frames.clone();
 
         self.fetch_variables_task.take();
