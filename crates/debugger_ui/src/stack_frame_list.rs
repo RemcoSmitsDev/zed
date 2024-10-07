@@ -86,13 +86,18 @@ impl StackFrameList {
     ) {
         match event {
             Stopped { go_to_stack_frame } => {
-                self.fetch_stack_frames(cx).detach_and_log_err(cx);
+                self.fetch_stack_frames(*go_to_stack_frame, cx)
+                    .detach_and_log_err(cx);
             }
             _ => {}
         }
     }
 
-    fn fetch_stack_frames(&self, cx: &mut ViewContext<Self>) -> Task<Result<()>> {
+    fn fetch_stack_frames(
+        &self,
+        go_to_stack_frame: bool,
+        cx: &mut ViewContext<Self>,
+    ) -> Task<Result<()>> {
         let task = self.dap_store.update(cx, |store, cx| {
             store.stack_frames(&self.client_id, self.thread_id, cx)
         });
@@ -100,7 +105,7 @@ impl StackFrameList {
         cx.spawn(|this, mut cx| async move {
             let mut stack_frames = task.await?;
 
-            this.update(&mut cx, |this, cx| {
+            let task = this.update(&mut cx, |this, cx| {
                 std::mem::swap(&mut this.stack_frames, &mut stack_frames);
 
                 if let Some(stack_frame) = this.stack_frames.first() {
@@ -112,14 +117,23 @@ impl StackFrameList {
                 cx.notify();
 
                 cx.emit(StackFrameListEvent::StackFramesUpdated);
-            })
+
+                if go_to_stack_frame {
+                    Some(this.go_to_stack_frame(cx))
+                } else {
+                    None
+                }
+            })?;
+
+            if let Some(task) = task {
+                task.await?;
+            }
+
+            Ok(())
         })
     }
 
     pub fn go_to_stack_frame(&mut self, cx: &mut ViewContext<Self>) -> Task<Result<()>> {
-        // TODO debugger:
-        // self.clear_highlights(cx);
-
         let stack_frame = self
             .stack_frames
             .iter()
@@ -202,6 +216,8 @@ impl StackFrameList {
                 let stack_frame_id = stack_frame.id;
                 move |this, _, cx| {
                     this.current_stack_frame_id = stack_frame_id;
+
+                    this.go_to_stack_frame(cx).detach_and_log_err(cx);
 
                     cx.notify();
 
