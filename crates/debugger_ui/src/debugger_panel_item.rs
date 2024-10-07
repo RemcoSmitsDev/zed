@@ -1,7 +1,7 @@
 use crate::console::Console;
 use crate::debugger_panel::{DebugPanel, DebugPanelEvent, ThreadState};
 use crate::module_list::ModuleList;
-use crate::stack_frame_list::StackFrameList;
+use crate::stack_frame_list::{StackFrameList, StackFrameListEvent};
 use crate::variable_list::VariableList;
 
 use dap::client::{DebugAdapterClientId, ThreadStatus};
@@ -88,38 +88,48 @@ impl DebugPanelItem {
             )
         });
 
-        let _subscriptions = vec![cx.subscribe(&debug_panel, {
-            move |this: &mut Self, _, event: &DebugPanelEvent, cx| {
-                match event {
-                    DebugPanelEvent::Stopped {
-                        client_id,
-                        event,
-                        go_to_stack_frame,
-                    } => this.handle_stopped_event(client_id, event, *go_to_stack_frame, cx),
-                    DebugPanelEvent::Thread((client_id, event)) => {
-                        this.handle_thread_event(client_id, event, cx)
-                    }
-                    DebugPanelEvent::Output((client_id, event)) => {
-                        this.handle_output_event(client_id, event, cx)
-                    }
-                    DebugPanelEvent::Module((client_id, event)) => {
-                        this.handle_module_event(client_id, event, cx)
-                    }
-                    DebugPanelEvent::ClientStopped(client_id) => {
-                        this.handle_client_stopped_event(client_id, cx)
-                    }
-                    DebugPanelEvent::Continued((client_id, event)) => {
-                        this.handle_thread_continued_event(client_id, event, cx);
-                    }
-                    DebugPanelEvent::Exited(client_id) | DebugPanelEvent::Terminated(client_id) => {
-                        this.handle_client_exited_and_terminated_event(client_id, cx);
-                    }
-                    DebugPanelEvent::CapabilitiesChanged(client_id) => {
-                        this.handle_capabilities_changed_event(client_id, cx);
-                    }
-                };
-            }
-        })];
+        let _subscriptions = vec![
+            cx.subscribe(&debug_panel, {
+                move |this: &mut Self, _, event: &DebugPanelEvent, cx| {
+                    match event {
+                        DebugPanelEvent::Stopped {
+                            client_id,
+                            event,
+                            go_to_stack_frame,
+                        } => this.handle_stopped_event(client_id, event, *go_to_stack_frame, cx),
+                        DebugPanelEvent::Thread((client_id, event)) => {
+                            this.handle_thread_event(client_id, event, cx)
+                        }
+                        DebugPanelEvent::Output((client_id, event)) => {
+                            this.handle_output_event(client_id, event, cx)
+                        }
+                        DebugPanelEvent::Module((client_id, event)) => {
+                            this.handle_module_event(client_id, event, cx)
+                        }
+                        DebugPanelEvent::ClientStopped(client_id) => {
+                            this.handle_client_stopped_event(client_id, cx)
+                        }
+                        DebugPanelEvent::Continued((client_id, event)) => {
+                            this.handle_thread_continued_event(client_id, event, cx);
+                        }
+                        DebugPanelEvent::Exited(client_id)
+                        | DebugPanelEvent::Terminated(client_id) => {
+                            this.handle_client_exited_and_terminated_event(client_id, cx);
+                        }
+                        DebugPanelEvent::CapabilitiesChanged(client_id) => {
+                            this.handle_capabilities_changed_event(client_id, cx);
+                        }
+                    };
+                }
+            }),
+            cx.subscribe(
+                &stack_frame_list,
+                move |this: &mut Self, _, event: &StackFrameListEvent, cx| match event {
+                    StackFrameListEvent::ChangedStackFrame => this.clear_highlights(cx),
+                    StackFrameListEvent::StackFramesUpdated => {}
+                },
+            ),
+        ];
 
         let output_editor = cx.new_view(|cx| {
             let mut editor = Editor::multi_line(cx);
