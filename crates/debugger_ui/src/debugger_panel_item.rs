@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use crate::console::Console;
 use crate::debugger_panel::{DebugPanel, DebugPanelEvent, ThreadState};
 use crate::module_list::ModuleList;
@@ -9,8 +7,8 @@ use crate::variable_list::VariableList;
 use dap::client::{DebugAdapterClientId, ThreadStatus};
 use dap::debugger_settings::DebuggerSettings;
 use dap::{
-    Capabilities, ContinuedEvent, ModuleEvent, OutputEvent, OutputEventCategory, StackFrame,
-    StoppedEvent, ThreadEvent,
+    Capabilities, ContinuedEvent, ModuleEvent, OutputEvent, OutputEventCategory, StoppedEvent,
+    ThreadEvent,
 };
 use editor::Editor;
 use gpui::{
@@ -18,7 +16,6 @@ use gpui::{
     WeakView,
 };
 use project::dap_store::DapStore;
-use project::ProjectPath;
 use settings::Settings;
 use task::DebugAdapterKind;
 use ui::WindowContext;
@@ -27,7 +24,7 @@ use workspace::item::{Item, ItemEvent};
 use workspace::Workspace;
 
 #[derive(Debug)]
-pub enum Event {
+pub enum DebugPanelItemEvent {
     Close,
     Stopped { go_to_stack_frame: bool },
 }
@@ -46,7 +43,6 @@ pub struct DebugPanelItem {
     focus_handle: FocusHandle,
     dap_store: Model<DapStore>,
     output_editor: View<Editor>,
-    current_stack_frame_id: u64,
     module_list: View<ModuleList>,
     client_kind: DebugAdapterKind,
     active_thread_item: ThreadItem,
@@ -68,32 +64,24 @@ impl DebugPanelItem {
         client_id: &DebugAdapterClientId,
         client_kind: &DebugAdapterKind,
         thread_id: u64,
-        current_stack_frame_id: u64,
         cx: &mut ViewContext<Self>,
     ) -> Self {
         let focus_handle = cx.focus_handle();
 
         let this = cx.view().clone();
-        let stack_frame_list =
-            cx.new_view(|cx| StackFrameList::new(&this, &dap_store, client_id, thread_id, cx));
-
-        let variable_list = cx.new_view(|cx| {
-            VariableList::new(
-                &this,
-                dap_store.clone(),
-                &client_id,
-                &thread_state,
-                current_stack_frame_id,
-                cx,
-            )
+        let stack_frame_list = cx.new_view(|cx| {
+            StackFrameList::new(&workspace, &this, &dap_store, client_id, thread_id, cx)
         });
+
+        let variable_list = cx
+            .new_view(|cx| VariableList::new(&stack_frame_list, dap_store.clone(), &client_id, cx));
 
         let module_list = cx.new_view(|cx| ModuleList::new(dap_store.clone(), &client_id, cx));
 
         let console = cx.new_view(|cx| {
             Console::new(
+                &stack_frame_list,
                 client_id,
-                current_stack_frame_id,
                 variable_list.clone(),
                 dap_store.clone(),
                 cx,
@@ -160,7 +148,6 @@ impl DebugPanelItem {
             _subscriptions,
             stack_frame_list,
             client_id: *client_id,
-            current_stack_frame_id,
             client_kind: client_kind.clone(),
             active_thread_item: ThreadItem::Variables,
         }
@@ -211,15 +198,7 @@ impl DebugPanelItem {
             return;
         }
 
-        cx.emit(Event::Stopped { go_to_stack_frame });
-
-        let thread_state = self.thread_state.read(cx);
-
-        if let Some(stack_frame) = thread_state.stack_frames.first() {
-            self.update_stack_frame_id(stack_frame.id, go_to_stack_frame, cx);
-        };
-
-        cx.notify();
+        cx.emit(DebugPanelItemEvent::Stopped { go_to_stack_frame });
     }
 
     fn handle_thread_event(
@@ -297,7 +276,7 @@ impl DebugPanelItem {
 
         self.update_thread_state_status(ThreadStatus::Stopped, cx);
 
-        cx.emit(Event::Close);
+        cx.emit(DebugPanelItemEvent::Close);
     }
 
     fn handle_client_exited_and_terminated_event(
@@ -311,7 +290,7 @@ impl DebugPanelItem {
 
         self.update_thread_state_status(ThreadStatus::Exited, cx);
 
-        cx.emit(Event::Close);
+        cx.emit(DebugPanelItemEvent::Close);
     }
 
     fn handle_capabilities_changed_event(
@@ -339,29 +318,6 @@ impl DebugPanelItem {
             .read_with(cx, |store, _| store.capabilities_by_id(&self.client_id))
     }
 
-    fn update_stack_frame_id(
-        &mut self,
-        stack_frame_id: u64,
-        go_to_stack_frame: bool,
-        cx: &mut ViewContext<Self>,
-    ) {
-        self.current_stack_frame_id = stack_frame_id;
-
-        self.variable_list.update(cx, |variable_list, cx| {
-            variable_list.update_stack_frame_id(stack_frame_id, cx);
-        });
-
-        self.console.update(cx, |console, cx| {
-            console.update_current_stack_frame_id(stack_frame_id, cx);
-        });
-
-        if go_to_stack_frame {
-            self.go_to_stack_frame(cx);
-        }
-
-        cx.notify();
-    }
-
     fn clear_highlights(&self, cx: &mut ViewContext<Self>) {
         self.workspace
             .update(cx, |workspace, cx| {
@@ -378,63 +334,12 @@ impl DebugPanelItem {
             .ok();
     }
 
-    pub fn project_path_from_stack_frame(
-        &self,
-        stack_frame: &StackFrame,
-        cx: &mut ViewContext<Self>,
-    ) -> Option<ProjectPath> {
-        let path = stack_frame.source.as_ref().and_then(|s| s.path.as_ref())?;
-
-        self.workspace
-            .update(cx, |workspace, cx| {
-                workspace.project().read_with(cx, |project, cx| {
-                    project.project_path_for_absolute_path(&Path::new(path), cx)
-                })
-            })
-            .ok()?
-    }
-
-    pub fn go_to_stack_frame(&mut self, cx: &mut ViewContext<Self>) {
-        self.clear_highlights(cx);
-
-        let stack_frame = self
-            .thread_state
-            .read(cx)
-            .stack_frames
-            .iter()
-            .find(|s| s.id == self.current_stack_frame_id)
-            .cloned();
-
-        let Some(stack_frame) = stack_frame else {
-            return; // this could never happen
-        };
-
-        let row = (stack_frame.line.saturating_sub(1)) as u32;
-        let column = (stack_frame.column.saturating_sub(1)) as u32;
-
-        let Some(project_path) = self.project_path_from_stack_frame(&stack_frame, cx) else {
-            return;
-        };
-
-        self.dap_store.update(cx, |store, cx| {
-            store.set_active_debug_line(&project_path, row, column, cx);
+    pub fn go_to_current_stack_frame(&self, cx: &mut ViewContext<Self>) {
+        self.stack_frame_list.update(cx, |stack_frame_list, cx| {
+            stack_frame_list
+                .go_to_stack_frame(cx)
+                .detach_and_log_err(cx);
         });
-
-        cx.spawn({
-            let workspace = self.workspace.clone();
-            move |_, mut cx| async move {
-                let task = workspace.update(&mut cx, |workspace, cx| {
-                    workspace.open_path_preview(project_path, None, false, true, cx)
-                })?;
-
-                let editor = task.await?.downcast::<Editor>().unwrap();
-
-                workspace.update(&mut cx, |_, cx| {
-                    editor.update(cx, |editor, cx| editor.go_to_active_debug_line(cx))
-                })
-            }
-        })
-        .detach_and_log_err(cx);
     }
 
     fn render_entry_button(
@@ -540,7 +445,7 @@ impl DebugPanelItem {
     }
 }
 
-impl EventEmitter<Event> for DebugPanelItem {}
+impl EventEmitter<DebugPanelItemEvent> for DebugPanelItem {}
 
 impl FocusableView for DebugPanelItem {
     fn focus_handle(&self, _: &AppContext) -> FocusHandle {
@@ -549,7 +454,7 @@ impl FocusableView for DebugPanelItem {
 }
 
 impl Item for DebugPanelItem {
-    type Event = Event;
+    type Event = DebugPanelItemEvent;
 
     fn tab_content(
         &self,
@@ -579,8 +484,8 @@ impl Item for DebugPanelItem {
 
     fn to_item_events(event: &Self::Event, mut f: impl FnMut(ItemEvent)) {
         match event {
-            Event::Close => f(ItemEvent::CloseItem),
-            Event::Stopped { .. } => {}
+            DebugPanelItemEvent::Close => f(ItemEvent::CloseItem),
+            DebugPanelItemEvent::Stopped { .. } => {}
         }
     }
 }

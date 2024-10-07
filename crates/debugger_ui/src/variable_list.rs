@@ -1,7 +1,4 @@
-use crate::{
-    debugger_panel::ThreadState,
-    debugger_panel_item::{self, DebugPanelItem, Event::Stopped},
-};
+use crate::stack_frame_list::{StackFrameList, StackFrameListEvent};
 use anyhow::Result;
 use dap::{client::DebugAdapterClientId, Scope, Variable};
 use editor::{
@@ -58,13 +55,13 @@ pub struct VariableList {
     list: ListState,
     dap_store: Model<DapStore>,
     focus_handle: FocusHandle,
-    current_stack_frame_id: u64,
     client_id: DebugAdapterClientId,
     open_entries: Vec<SharedString>,
     scopes: HashMap<u64, Vec<Scope>>,
-    thread_state: Model<ThreadState>,
     set_variable_editor: View<Editor>,
+    _subscriptions: Vec<Subscription>,
     fetched_variable_ids: HashSet<u64>,
+    stack_frame_list: View<StackFrameList>,
     set_variable_state: Option<SetVariableState>,
     entries: HashMap<u64, Vec<VariableListEntry>>,
     fetch_variables_task: Option<Task<Result<()>>>,
@@ -75,11 +72,9 @@ pub struct VariableList {
 
 impl VariableList {
     pub fn new(
-        debug_panel_item: &View<DebugPanelItem>,
+        stack_frame_list: &View<StackFrameList>,
         dap_store: Model<DapStore>,
         client_id: &DebugAdapterClientId,
-        thread_state: &Model<ThreadState>,
-        current_stack_frame_id: u64,
         cx: &mut ViewContext<Self>,
     ) -> Self {
         let weakview = cx.view().downgrade();
@@ -105,15 +100,15 @@ impl VariableList {
         .detach();
 
         let _subscriptions =
-            vec![cx.subscribe(debug_panel_item, Self::handle_debug_panel_item_event)];
+            vec![cx.subscribe(stack_frame_list, Self::handle_stack_frame_list_events)];
 
         Self {
             list,
             dap_store,
             focus_handle,
+            _subscriptions,
             set_variable_editor,
             client_id: *client_id,
-            current_stack_frame_id,
             open_context_menu: None,
             set_variable_state: None,
             fetch_variables_task: None,
@@ -121,34 +116,40 @@ impl VariableList {
             entries: Default::default(),
             variables: Default::default(),
             open_entries: Default::default(),
-            thread_state: thread_state.clone(),
             fetched_variable_ids: Default::default(),
+            stack_frame_list: stack_frame_list.clone(),
         }
     }
 
-    fn handle_debug_panel_item_event(
+    fn handle_stack_frame_list_events(
         &mut self,
-        _: View<DebugPanelItem>,
-        event: &debugger_panel_item::Event,
+        _: View<StackFrameList>,
+        event: &StackFrameListEvent,
         cx: &mut ViewContext<Self>,
     ) {
         match event {
-            Stopped { .. } => {
-                self.on_stopped_event(cx);
+            StackFrameListEvent::ChangedStackFrame => {
+                self.build_entries(true, false, cx);
             }
-            _ => {}
+            StackFrameListEvent::StackFramesUpdated => {
+                self.fetch_variables(cx);
+            }
         }
     }
 
-    pub fn variables(&self) -> Vec<VariableContainer> {
+    pub fn variables(&self, cx: &mut ViewContext<Self>) -> Vec<VariableContainer> {
+        let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
+
         self.variables
-            .range((self.current_stack_frame_id, u64::MIN)..(self.current_stack_frame_id, u64::MAX))
+            .range((stack_frame_id, u64::MIN)..(stack_frame_id, u64::MAX))
             .flat_map(|(_, containers)| containers.iter().cloned())
             .collect()
     }
 
     fn render_entry(&mut self, ix: usize, cx: &mut ViewContext<Self>) -> AnyElement {
-        let Some(entries) = self.entries.get(&self.current_stack_frame_id) else {
+        let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
+
+        let Some(entries) = self.entries.get(&stack_frame_id) else {
             return div().into_any_element();
         };
 
@@ -188,19 +189,15 @@ impl VariableList {
         self.build_entries(false, true, cx);
     }
 
-    pub fn update_stack_frame_id(&mut self, stack_frame_id: u64, cx: &mut ViewContext<Self>) {
-        self.current_stack_frame_id = stack_frame_id;
-
-        self.build_entries(true, false, cx);
-    }
-
     pub fn build_entries(
         &mut self,
         open_first_scope: bool,
         keep_open_entries: bool,
         cx: &mut ViewContext<Self>,
     ) {
-        let Some(scopes) = self.scopes.get(&self.current_stack_frame_id) else {
+        let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
+
+        let Some(scopes) = self.scopes.get(&stack_frame_id) else {
             return;
         };
 
@@ -212,7 +209,7 @@ impl VariableList {
         for scope in scopes {
             let Some(variables) = self
                 .variables
-                .get(&(self.current_stack_frame_id, scope.variables_reference))
+                .get(&(stack_frame_id, scope.variables_reference))
             else {
                 continue;
             };
@@ -282,14 +279,14 @@ impl VariableList {
         }
 
         let len = entries.len();
-        self.entries.insert(self.current_stack_frame_id, entries);
+        self.entries.insert(stack_frame_id, entries);
         self.list.reset(len);
 
         cx.notify();
     }
 
-    fn on_stopped_event(&mut self, cx: &mut ViewContext<Self>) {
-        let stack_frames = self.thread_state.read(cx).stack_frames.clone();
+    fn fetch_variables(&mut self, cx: &mut ViewContext<Self>) {
+        let stack_frames = self.stack_frame_list.read(cx).stack_frames().clone();
 
         self.fetch_variables_task.take();
         self.variables.clear();
@@ -360,6 +357,8 @@ impl VariableList {
                 this.build_entries(true, false, cx);
 
                 this.fetch_variables_task.take();
+
+                cx.notify();
             })
         }));
     }
@@ -374,7 +373,6 @@ impl VariableList {
     ) {
         let this = cx.view().clone();
 
-        let stack_frame_id = self.current_stack_frame_id;
         let support_set_variable = self.dap_store.read_with(cx, |store, _| {
             store
                 .capabilities_by_id(&self.client_id)
@@ -431,7 +429,7 @@ impl VariableList {
                             scope: scope.clone(),
                             evaluate_name: variable.evaluate_name.clone(),
                             value: variable.value.clone(),
-                            stack_frame_id,
+                            stack_frame_id: this.stack_frame_list.read(cx).current_stack_frame_id(),
                         });
 
                         this.set_variable_editor.update(cx, |editor, cx| {
@@ -482,7 +480,8 @@ impl VariableList {
             return cx.notify();
         };
 
-        if new_variable_value == state.value || state.stack_frame_id != self.current_stack_frame_id
+        if new_variable_value == state.value
+            || state.stack_frame_id != self.stack_frame_list.read(cx).current_stack_frame_id()
         {
             return cx.notify();
         }
@@ -611,7 +610,9 @@ impl VariableList {
             return self.toggle_entry_collapsed(&variable_id, cx);
         }
 
-        let Some(entries) = self.entries.get(&self.current_stack_frame_id) else {
+        let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
+
+        let Some(entries) = self.entries.get(&stack_frame_id) else {
             return;
         };
 
@@ -623,7 +624,6 @@ impl VariableList {
             let variable_id = variable_id.clone();
             let scope = scope.clone();
             let depth = *depth;
-            let stack_frame_id = self.current_stack_frame_id;
 
             let fetch_variables_task = self.dap_store.update(cx, |store, cx| {
                 store.variables(&self.client_id, variable_reference, cx)

@@ -1,18 +1,26 @@
-use anyhow::Result;
+use std::path::Path;
+
+use anyhow::{anyhow, Result};
 use dap::client::DebugAdapterClientId;
 use dap::StackFrame;
-use gpui::{list, AnyElement, EventEmitter, FocusHandle, ListState, Subscription, Task, View};
+use editor::Editor;
+use gpui::{
+    list, AnyElement, EventEmitter, FocusHandle, ListState, Subscription, Task, View, WeakView,
+};
 use gpui::{FocusableView, Model};
 use project::dap_store::DapStore;
+use project::ProjectPath;
 use ui::ViewContext;
 use ui::{prelude::*, Tooltip};
+use workspace::Workspace;
 
-use crate::debugger_panel_item::Event::Stopped;
+use crate::debugger_panel_item::DebugPanelItemEvent::Stopped;
 use crate::debugger_panel_item::{self, DebugPanelItem};
 
 #[derive(Debug)]
-pub enum Event {
-    ChangedStackFrame(u64),
+pub enum StackFrameListEvent {
+    ChangedStackFrame,
+    StackFramesUpdated,
 }
 
 pub struct StackFrameList {
@@ -22,12 +30,14 @@ pub struct StackFrameList {
     dap_store: Model<DapStore>,
     current_stack_frame_id: u64,
     stack_frames: Vec<StackFrame>,
+    workspace: WeakView<Workspace>,
     client_id: DebugAdapterClientId,
     _subscriptions: Vec<Subscription>,
 }
 
 impl StackFrameList {
     pub fn new(
+        workspace: &WeakView<Workspace>,
         debug_panel_item: &View<DebugPanelItem>,
         dap_store: &Model<DapStore>,
         client_id: &DebugAdapterClientId,
@@ -53,16 +63,25 @@ impl StackFrameList {
             focus_handle,
             _subscriptions,
             client_id: *client_id,
+            workspace: workspace.clone(),
             dap_store: dap_store.clone(),
             stack_frames: Default::default(),
             current_stack_frame_id: Default::default(),
         }
     }
 
+    pub fn stack_frames(&self) -> &Vec<StackFrame> {
+        &self.stack_frames
+    }
+
+    pub fn current_stack_frame_id(&self) -> u64 {
+        self.current_stack_frame_id
+    }
+
     fn handle_debug_panel_item_event(
         &mut self,
         _: View<DebugPanelItem>,
-        event: &debugger_panel_item::Event,
+        event: &debugger_panel_item::DebugPanelItemEvent,
         cx: &mut ViewContext<Self>,
     ) {
         match event {
@@ -86,13 +105,72 @@ impl StackFrameList {
 
                 if let Some(stack_frame) = this.stack_frames.first() {
                     this.current_stack_frame_id = stack_frame.id;
-                    cx.emit(Event::ChangedStackFrame(stack_frame.id));
+                    cx.emit(StackFrameListEvent::ChangedStackFrame);
                 }
 
                 this.list.reset(this.stack_frames.len());
                 cx.notify();
+
+                cx.emit(StackFrameListEvent::StackFramesUpdated);
             })
         })
+    }
+
+    pub fn go_to_stack_frame(&mut self, cx: &mut ViewContext<Self>) -> Task<Result<()>> {
+        // TODO debugger:
+        // self.clear_highlights(cx);
+
+        let stack_frame = self
+            .stack_frames
+            .iter()
+            .find(|s| s.id == self.current_stack_frame_id)
+            .cloned();
+
+        let Some(stack_frame) = stack_frame else {
+            return Task::ready(Ok(())); // this could never happen
+        };
+
+        let row = (stack_frame.line.saturating_sub(1)) as u32;
+        let column = (stack_frame.column.saturating_sub(1)) as u32;
+
+        let Some(project_path) = self.project_path_from_stack_frame(&stack_frame, cx) else {
+            return Task::ready(Err(anyhow!("Project path not found")));
+        };
+
+        self.dap_store.update(cx, |store, cx| {
+            store.set_active_debug_line(&project_path, row, column, cx);
+        });
+
+        cx.spawn({
+            let workspace = self.workspace.clone();
+            move |_, mut cx| async move {
+                let task = workspace.update(&mut cx, |workspace, cx| {
+                    workspace.open_path_preview(project_path, None, false, true, cx)
+                })?;
+
+                let editor = task.await?.downcast::<Editor>().unwrap();
+
+                workspace.update(&mut cx, |_, cx| {
+                    editor.update(cx, |editor, cx| editor.go_to_active_debug_line(cx))
+                })
+            }
+        })
+    }
+
+    pub fn project_path_from_stack_frame(
+        &self,
+        stack_frame: &StackFrame,
+        cx: &mut ViewContext<Self>,
+    ) -> Option<ProjectPath> {
+        let path = stack_frame.source.as_ref().and_then(|s| s.path.as_ref())?;
+
+        self.workspace
+            .update(cx, |workspace, cx| {
+                workspace.project().read_with(cx, |project, cx| {
+                    project.project_path_for_absolute_path(&Path::new(path), cx)
+                })
+            })
+            .ok()?
     }
 
     fn render_entry(&self, ix: usize, cx: &mut ViewContext<Self>) -> AnyElement {
@@ -127,7 +205,7 @@ impl StackFrameList {
 
                     cx.notify();
 
-                    cx.emit(Event::ChangedStackFrame(stack_frame_id));
+                    cx.emit(StackFrameListEvent::ChangedStackFrame);
                 }
             }))
             .hover(|s| s.bg(cx.theme().colors().element_hover).cursor_pointer())
@@ -163,4 +241,4 @@ impl FocusableView for StackFrameList {
     }
 }
 
-impl EventEmitter<Event> for StackFrameList {}
+impl EventEmitter<StackFrameListEvent> for StackFrameList {}
