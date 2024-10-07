@@ -453,8 +453,10 @@ impl DebugPanelItem {
                 this.border_color(cx.theme().colors().border)
             })
             .child(Button::new(label.clone(), label.clone()))
-            .on_click(cx.listener(move |this, _, _| {
+            .on_click(cx.listener(move |this, _, cx| {
                 this.active_thread_item = thread_item.clone();
+
+                cx.notify();
             }))
             .into_any_element()
     }
