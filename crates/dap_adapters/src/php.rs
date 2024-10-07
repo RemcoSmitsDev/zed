@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::*;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -43,6 +45,15 @@ impl DebugAdapter for PhpDebugAdapter {
     ) -> Result<DebugAdapterBinary> {
         let adapter_path = paths::debug_adapters_dir().join(self.name());
         let fs = delegate.fs();
+
+        if let Some(adapter_path) = self.adapter_path.as_ref() {
+            return Ok(DebugAdapterBinary {
+                start_command: Some("bun".into()),
+                path: std::path::PathBuf::from_str(adapter_path)?,
+                arguments: vec!["--server=8132".into()],
+                env: None,
+            });
+        }
 
         if fs.is_dir(adapter_path.as_path()).await {
             return Ok(DebugAdapterBinary {

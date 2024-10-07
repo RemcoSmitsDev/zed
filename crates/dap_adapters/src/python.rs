@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::*;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -37,6 +39,15 @@ impl DebugAdapter for PythonDebugAdapter {
     ) -> Result<DebugAdapterBinary> {
         let adapter_path = paths::debug_adapters_dir().join("debugpy/src/debugpy/adapter");
         let fs = delegate.fs();
+
+        if let Some(adapter_path) = self.adapter_path.as_ref() {
+            return Ok(DebugAdapterBinary {
+                start_command: Some("python3".to_string()),
+                path: std::path::PathBuf::from_str(&adapter_path)?,
+                arguments: vec![],
+                env: None,
+            });
+        }
 
         if fs.is_dir(adapter_path.as_path()).await {
             return Ok(DebugAdapterBinary {
