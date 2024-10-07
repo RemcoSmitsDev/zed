@@ -6,8 +6,8 @@ use dap::debugger_settings::DebuggerSettings;
 use dap::messages::{Events, Message};
 use dap::requests::{Request, StartDebugging};
 use dap::{
-    Capabilities, ContinuedEvent, ExitedEvent, OutputEvent, StackFrame, StoppedEvent,
-    TerminatedEvent, ThreadEvent, ThreadEventReason,
+    Capabilities, CapabilitiesEvent, ContinuedEvent, ExitedEvent, ModuleEvent, OutputEvent,
+    StoppedEvent, TerminatedEvent, ThreadEvent, ThreadEventReason,
 };
 use gpui::{
     actions, Action, AppContext, AsyncWindowContext, EventEmitter, FocusHandle, FocusableView,
@@ -36,7 +36,9 @@ pub enum DebugPanelEvent {
     Thread((DebugAdapterClientId, ThreadEvent)),
     Continued((DebugAdapterClientId, ContinuedEvent)),
     Output((DebugAdapterClientId, OutputEvent)),
+    Module((DebugAdapterClientId, ModuleEvent)),
     ClientStopped(DebugAdapterClientId),
+    CapabilitiesChanged(DebugAdapterClientId),
 }
 
 actions!(debug_panel, [ToggleFocus]);
@@ -44,7 +46,6 @@ actions!(debug_panel, [ToggleFocus]);
 #[derive(Debug, Default, Clone)]
 pub struct ThreadState {
     pub status: ThreadStatus,
-    pub stack_frames: Vec<StackFrame>,
     // we update this value only once we stopped,
     // we will use this to indicated if we should show a warning when debugger thread was exited
     pub stopped: bool,
@@ -209,7 +210,7 @@ impl DebugPanel {
                 if let Some(active_item) = self.pane.read(cx).active_item() {
                     if let Some(debug_item) = active_item.downcast::<DebugPanelItem>() {
                         debug_item.update(cx, |panel, cx| {
-                            panel.go_to_stack_frame(cx);
+                            panel.go_to_current_stack_frame(cx);
                         });
                     }
                 }
@@ -243,9 +244,11 @@ impl DebugPanel {
             Events::Thread(event) => self.handle_thread_event(&client_id, event, cx),
             Events::Output(event) => self.handle_output_event(&client_id, event, cx),
             Events::Breakpoint(_) => {}
-            Events::Module(_) => {}
+            Events::Module(event) => self.handle_module_event(&client_id, event, cx),
             Events::LoadedSource(_) => {}
-            Events::Capabilities(_) => {}
+            Events::Capabilities(event) => {
+                self.handle_capabilities_changed_event(client_id, event, cx);
+            }
             Events::Memory(_) => {}
             Events::Process(_) => {}
             Events::ProgressEnd(_) => {}
@@ -266,6 +269,8 @@ impl DebugPanel {
             self.dap_store.update(cx, |store, cx| {
                 store.merge_capabilities_for_client(&client_id, capabilities, cx);
             });
+
+            cx.emit(DebugPanelEvent::CapabilitiesChanged(*client_id));
         }
 
         let send_breakpoints_task = self.workspace.update(cx, |workspace, cx| {
@@ -320,28 +325,16 @@ impl DebugPanel {
         cx.spawn({
             let event = event.clone();
             |this, mut cx| async move {
-                let stack_frames_task = this.update(&mut cx, |this, cx| {
-                    this.dap_store.update(cx, |store, cx| {
-                        store.stack_frames(&client_id, thread_id, cx)
-                    })
-                })?;
-
-                let stack_frames = stack_frames_task.await?;
-
-                let current_stack_frame = stack_frames.first().unwrap().clone();
-
-                let thread_state = this.update(&mut cx, |this, cx| {
-                    this.thread_states
+                let workspace = this.update(&mut cx, |this, cx| {
+                    let thread_state = this
+                        .thread_states
                         .entry((client_id, thread_id))
                         .or_insert(cx.new_model(|_| ThreadState::default()))
-                        .clone()
-                })?;
+                        .clone();
 
-                let workspace = this.update(&mut cx, |this, cx| {
                     thread_state.update(cx, |thread_state, cx| {
-                        thread_state.stack_frames = stack_frames;
-                        thread_state.status = ThreadStatus::Stopped;
                         thread_state.stopped = true;
+                        thread_state.status = ThreadStatus::Stopped;
 
                         cx.notify();
                     });
@@ -369,7 +362,6 @@ impl DebugPanel {
                                     &client_id,
                                     &client_kind,
                                     thread_id,
-                                    current_stack_frame.clone().id,
                                     cx,
                                 )
                             });
@@ -470,6 +462,28 @@ impl DebugPanel {
         cx: &mut ViewContext<Self>,
     ) {
         cx.emit(DebugPanelEvent::Output((*client_id, event.clone())));
+    }
+
+    fn handle_module_event(
+        &mut self,
+        client_id: &DebugAdapterClientId,
+        event: &ModuleEvent,
+        cx: &mut ViewContext<Self>,
+    ) {
+        cx.emit(DebugPanelEvent::Module((*client_id, event.clone())));
+    }
+
+    fn handle_capabilities_changed_event(
+        &mut self,
+        client_id: &DebugAdapterClientId,
+        event: &CapabilitiesEvent,
+        cx: &mut ViewContext<Self>,
+    ) {
+        self.dap_store.update(cx, |store, cx| {
+            store.merge_capabilities_for_client(client_id, &event.capabilities, cx);
+        });
+
+        cx.emit(DebugPanelEvent::CapabilitiesChanged(*client_id));
     }
 
     fn render_did_not_stop_warning(&self, cx: &mut ViewContext<Self>) -> impl IntoElement {
