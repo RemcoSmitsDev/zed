@@ -6,7 +6,6 @@ use futures::AsyncReadExt;
 use gpui::AsyncAppContext;
 use http_client::HttpClient;
 use node_runtime::NodeRuntime;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use smol::{
     self,
@@ -19,7 +18,7 @@ use std::{
     ffi::OsString,
     fmt::Debug,
     net::{Ipv4Addr, SocketAddrV4},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Stdio,
     sync::Arc,
     time::Duration,
@@ -61,8 +60,14 @@ pub async fn create_tcp_client(
     if port.is_none() {
         port = get_port(host_address).await;
     }
+    let mut command = if let Some(start_command) = &adapter_binary.start_command {
+        let mut command = process::Command::new(start_command);
+        command.arg(adapter_binary.path);
+        command
+    } else {
+        process::Command::new(adapter_binary.path)
+    };
 
-    let mut command = process::Command::new(adapter_binary.path);
     command
         .args(adapter_binary.arguments)
         .envs(adapter_binary.env.clone().unwrap_or_default())
@@ -89,6 +94,7 @@ pub async fn create_tcp_client(
     );
 
     let (rx, tx) = TcpStream::connect(address).await?.split();
+    log::info!("Debug adapter has connected to tcp server");
 
     Ok(TransportParams::new(
         Box::new(BufReader::new(rx)),
@@ -108,12 +114,12 @@ pub fn create_stdio_client(adapter_binary: DebugAdapterBinary) -> Result<Transpo
         command.arg(adapter_binary.path);
         command
     } else {
-        let mut command = process::Command::new(adapter_binary.path);
-        command.args(adapter_binary.arguments);
+        let command = process::Command::new(adapter_binary.path);
         command
     };
 
     command
+        .args(adapter_binary.arguments)
         .envs(adapter_binary.env.clone().unwrap_or_default())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -137,6 +143,8 @@ pub fn create_stdio_client(adapter_binary: DebugAdapterBinary) -> Result<Transpo
         .take()
         .ok_or_else(|| anyhow!("Failed to open stderr"))?;
 
+    log::info!("Debug adapter has connected to stdio adapter");
+
     Ok(TransportParams::new(
         Box::new(BufReader::new(stdout)),
         Box::new(stdin),
@@ -145,8 +153,19 @@ pub fn create_stdio_client(adapter_binary: DebugAdapterBinary) -> Result<Transpo
     ))
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub struct DebugAdapterName(pub Arc<str>);
+
+impl AsRef<Path> for DebugAdapterName {
+    fn as_ref(&self) -> &Path {
+        Path::new(&*self.0)
+    }
+}
+
+impl std::fmt::Display for DebugAdapterName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct DebugAdapterBinary {
