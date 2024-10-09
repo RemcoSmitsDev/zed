@@ -183,11 +183,9 @@ pub trait DebugAdapter: 'static + Send + Sync {
 
     fn name(&self) -> DebugAdapterName;
 
-    /// The `initialize_args` could be used to determine the port/host for tcp connections
     async fn connect(
         &self,
         adapter_binary: &DebugAdapterBinary,
-        initialize_args: &serde_json::Value,
         cx: &mut AsyncAppContext,
     ) -> anyhow::Result<TransportParams>;
 

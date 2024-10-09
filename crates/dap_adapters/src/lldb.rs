@@ -24,7 +24,6 @@ impl DebugAdapter for LldbDebugAdapter {
     async fn connect(
         &self,
         adapter_binary: &DebugAdapterBinary,
-        _: &Value,
         _: &mut AsyncAppContext,
     ) -> Result<TransportParams> {
         create_stdio_client(adapter_binary)

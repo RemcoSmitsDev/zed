@@ -25,7 +25,6 @@ impl DebugAdapter for CustomDebugAdapter {
     async fn connect(
         &self,
         adapter_binary: &DebugAdapterBinary,
-        _: &Value,
         cx: &mut AsyncAppContext,
     ) -> Result<TransportParams> {
         match &self.custom_args.connection {

@@ -22,7 +22,6 @@ impl DebugAdapter for JsDebugAdapter {
     async fn connect(
         &self,
         adapter_binary: &DebugAdapterBinary,
-        _: &Value,
         cx: &mut AsyncAppContext,
     ) -> Result<TransportParams> {
         let host = TCPHost {
