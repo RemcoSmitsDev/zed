@@ -5,6 +5,7 @@ mod php;
 mod python;
 
 use custom::CustomDebugAdapter;
+use javascript::JsDebugAdapter;
 use lldb::LldbDebugAdapter;
 use php::PhpDebugAdapter;
 use python::PythonDebugAdapter;
@@ -35,6 +36,7 @@ pub fn build_adapter(adapter_config: &DebugAdapterConfig) -> Result<Box<dyn Debu
         }
         DebugAdapterKind::Python => Ok(Box::new(PythonDebugAdapter::new())),
         DebugAdapterKind::PHP => Ok(Box::new(PhpDebugAdapter::new())),
+        DebugAdapterKind::Javascript => Ok(Box::new(JsDebugAdapter::new())),
         DebugAdapterKind::Lldb => Ok(Box::new(LldbDebugAdapter::new())),
     }
 }
