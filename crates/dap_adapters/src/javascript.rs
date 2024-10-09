@@ -151,17 +151,17 @@ impl DebugAdapter for JsDebugAdapter {
                     .output()
                     .await?;
 
-                let _npm = delegate
+                let _ = delegate
                     .node_runtime()
                     .ok_or(anyhow!("Couldn't get npm runtime"))?
                     .run_npm_subcommand(&adapter_path, "install", &[])
                     .await
                     .ok();
 
-                let _npm = delegate
+                let _ = delegate
                     .node_runtime()
                     .ok_or(anyhow!("Couldn't get npm runtime"))?
-                    .run_npm_subcommand(&adapter_path, "compile", &[])
+                    .run_npm_subcommand(&adapter_path, "run", &["compile"])
                     .await
                     .ok();
 
