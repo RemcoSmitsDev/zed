@@ -42,7 +42,7 @@ impl DebugAdapter for LldbDebugAdapter {
         bail!("Install or fetch not implemented for lldb debug adapter (yet)")
     }
 
-    fn request_args(&self, _: &DebugAdapterConfig) -> Value {
-        Value::default()
+    fn request_args(&self, config: &DebugAdapterConfig) -> Value {
+        json!({"program": config.program})
     }
 }
