@@ -158,7 +158,7 @@ impl DebugAdapter for PhpDebugAdapter {
                 let _ = delegate
                     .node_runtime()
                     .ok_or(anyhow!("Couldn't get npm runtime"))?
-                    .run_npm_subcommand(&adapter_path, "build", &[])
+                    .run_npm_subcommand(&adapter_path, "run", &["build"])
                     .await
                     .is_ok();
 
