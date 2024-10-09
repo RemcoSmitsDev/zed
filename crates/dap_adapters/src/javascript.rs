@@ -176,9 +176,6 @@ impl DebugAdapter for JsDebugAdapter {
         json!({
             "program": config.program,
             "type": "pwa-node",
-            "request": "launch",
-            "sourceMaps": true,
-            "skipFiles": ["**/node_modules/**"],
         })
     }
 }
