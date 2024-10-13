@@ -246,11 +246,13 @@ pub enum Event {
     LocalSettingsUpdated(Result<(), InvalidSettingsError>),
     LanguageServerPrompt(LanguageServerPromptRequest),
     LanguageNotFound(Model<Buffer>),
+    DebugClientStarted(DebugAdapterClientId),
     DebugClientStopped(DebugAdapterClientId),
     DebugClientEvent {
         client_id: DebugAdapterClientId,
         message: Message,
     },
+    DebugClientLog(DebugAdapterClientId, String),
     ActiveEntryChanged(Option<ProjectEntryId>),
     ActivateProjectPanel,
     WorktreeAdded,
@@ -2247,6 +2249,7 @@ impl Project {
                 self.dap_store.update(cx, |store, cx| {
                     store.initialize(client_id, cx).detach_and_log_err(cx)
                 });
+                cx.emit(Event::DebugClientStarted(*client_id));
             }
             DapStoreEvent::DebugClientStopped(client_id) => {
                 cx.emit(Event::DebugClientStopped(*client_id));
@@ -4282,6 +4285,13 @@ impl Project {
         Ok(())
     }
 
+    pub fn debug_clients<'a>(
+        &'a self,
+        cx: &'a AppContext,
+    ) -> impl 'a + Iterator<Item = Arc<DebugAdapterClient>> {
+        self.dap_store.read(cx).running_clients()
+    }
+
     pub fn language_servers<'a>(
         &'a self,
         cx: &'a AppContext,
@@ -4323,6 +4333,14 @@ impl Project {
         self.lsp_store
             .read(cx)
             .language_server_for_buffer(buffer, server_id, cx)
+    }
+
+    pub fn debug_client_for_id(
+        &self,
+        id: DebugAdapterClientId,
+        cx: &AppContext,
+    ) -> Option<Arc<DebugAdapterClient>> {
+        self.dap_store.read(cx).client_by_id(&id)
     }
 
     pub fn task_context_for_location(
