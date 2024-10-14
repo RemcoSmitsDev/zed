@@ -69,8 +69,22 @@ impl LoadedSourceList {
         match event.reason {
             dap::LoadedSourceEventReason::New => self.sources.push(event.source.clone()),
             dap::LoadedSourceEventReason::Changed => {
-                // TODO debugger: make this work, find out what value never changes
-                if let Some(loaded_source) = self.sources.iter_mut().find(|s| **s == event.source) {
+                let updated_source =
+                    if let Some(ref_id) = event.source.source_reference.filter(|&r| r != 0) {
+                        self.sources
+                            .iter_mut()
+                            .find(|s| s.source_reference == Some(ref_id))
+                    } else if let Some(path) = &event.source.path {
+                        self.sources
+                            .iter_mut()
+                            .find(|s| s.path.as_ref() == Some(path))
+                    } else {
+                        self.sources
+                            .iter_mut()
+                            .find(|s| s.name == event.source.name)
+                    };
+
+                if let Some(loaded_source) = updated_source {
                     *loaded_source = event.source.clone();
                 }
             }
