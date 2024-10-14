@@ -176,8 +176,6 @@ impl DebugPanelItem {
         {
             self.clear_highlights(cx);
         }
-
-        cx.notify();
     }
 
     fn should_skip_event(&self, client_id: &DebugAdapterClientId, thread_id: u64) -> bool {
