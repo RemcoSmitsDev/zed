@@ -180,6 +180,14 @@ impl DebugAdapterClient {
         }
     }
 
+    pub async fn respond(&self, response: Response) -> Result<()> {
+        self.transport
+            .server_tx
+            .send(Message::Response(response))
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send response: {}", e))
+    }
+
     pub fn id(&self) -> DebugAdapterClientId {
         self.id
     }
