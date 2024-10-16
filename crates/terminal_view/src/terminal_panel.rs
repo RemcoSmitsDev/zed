@@ -620,7 +620,9 @@ impl TerminalPanel {
             .items()
             .filter_map(|item| {
                 let terminal_view = item.act_as::<TerminalView>(cx)?;
-                if terminal_view.read(cx).terminal().read(cx).task().is_some() {
+                let terminal = terminal_view.read(cx).terminal().read(cx);
+
+                if terminal.task().is_some() || terminal.debug_terminal() {
                     None
                 } else {
                     let id = item.item_id().as_u64();

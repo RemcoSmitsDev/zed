@@ -144,6 +144,8 @@ impl Project {
             .and_then(|path| self.python_venv_directory(path, settings, cx));
         let mut python_venv_activate_command = None;
 
+        let debug_terminal = matches!(kind, TerminalKind::Debug { .. });
+
         let (spawn_task, shell) = match kind {
             TerminalKind::Shell(_) => {
                 if let Some(python_venv_directory) = python_venv_directory {
@@ -248,6 +250,7 @@ impl Project {
             settings.max_scroll_history_lines,
             window,
             completion_tx,
+            debug_terminal,
             cx,
         )
         .map(|builder| {
