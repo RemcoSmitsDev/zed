@@ -159,18 +159,13 @@ impl DebugAdapterClient {
             arguments: Some(serialized_arguments),
         };
 
-        {
-            self.transport
-                .current_requests
-                .lock()
-                .await
-                .insert(sequence_id, callback_tx);
-        }
-
         self.transport
-            .server_tx
-            .send(Message::Request(request))
-            .await?;
+            .current_requests
+            .lock()
+            .await
+            .insert(sequence_id, callback_tx);
+
+        self.respond(Message::Request(request)).await?;
 
         let response = callback_rx.recv().await??;
 
@@ -180,12 +175,12 @@ impl DebugAdapterClient {
         }
     }
 
-    pub async fn respond(&self, response: Response) -> Result<()> {
+    pub async fn respond(&self, message: Message) -> Result<()> {
         self.transport
             .server_tx
-            .send(Message::Response(response))
+            .send(message)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send response: {}", e))
+            .map_err(|e| anyhow::anyhow!("Failed to send response back: {}", e))
     }
 
     pub fn id(&self) -> DebugAdapterClientId {
