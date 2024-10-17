@@ -313,13 +313,13 @@ impl DebugPanel {
             })
         });
 
-        let client_id = client_id.clone();
+        let client_id = *client_id;
         cx.spawn(|this, mut cx| async move {
             // Ensure a response is always sent, even in error cases,
             // to maintain proper communication with the debug adapter
             let (success, pid) = match terminal_task {
                 Ok(pid_task) => match pid_task.await {
-                    Ok(pid) => (true, pid.clone()),
+                    Ok(pid) => (true, pid),
                     Err(_) => (false, None),
                 },
                 Err(_) => (false, None),
