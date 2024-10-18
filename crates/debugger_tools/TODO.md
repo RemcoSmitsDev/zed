@@ -1,4 +1,1 @@
 - [ ] housekeeping: ensure references to debug adapters are cleaned when they are closed
-- [ ] feature: log server messages when available?
-- [ ] improve the client menu
-- [ ] log events separately?

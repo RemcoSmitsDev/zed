@@ -25,8 +25,8 @@ impl DebugAdapter for LldbDebugAdapter {
         &self,
         adapter_binary: &DebugAdapterBinary,
         _: &mut AsyncAppContext,
-    ) -> Result<TransportParams> {
-        create_stdio_client(adapter_binary)
+    ) -> Result<(TransportParams, Option<AdapterLogIo>)> {
+        create_stdio_client(adapter_binary).map(|transport| (transport, None))
     }
 
     async fn install_binary(&self, _: &dyn DapDelegate) -> Result<()> {

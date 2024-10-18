@@ -22,14 +22,16 @@ impl DebugAdapter for JsDebugAdapter {
         &self,
         adapter_binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
-    ) -> Result<TransportParams> {
+    ) -> Result<(TransportParams, Option<AdapterLogIo>)> {
         let host = TCPHost {
             port: Some(8133),
             host: None,
             delay: Some(1000),
         };
 
-        create_tcp_client(host, adapter_binary, cx).await
+        create_tcp_client(host, adapter_binary, cx)
+            .await
+            .map(|(transport, log_io)| (transport, Some(log_io)))
     }
 
     async fn fetch_binary(

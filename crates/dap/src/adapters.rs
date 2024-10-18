@@ -1,4 +1,3 @@
-use crate::client::TransportParams;
 use ::fs::Fs;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
@@ -25,6 +24,8 @@ use std::{
 };
 
 use task::{DebugAdapterConfig, TCPHost};
+
+use crate::client::{AdapterLogIo, TransportParams};
 
 /// Get an open port to use with the tcp client when not supplied by debug config
 async fn get_open_port(host: Ipv4Addr) -> Option<u16> {
@@ -53,7 +54,7 @@ pub async fn create_tcp_client(
     host: TCPHost,
     adapter_binary: &DebugAdapterBinary,
     cx: &mut AsyncAppContext,
-) -> Result<TransportParams> {
+) -> Result<(TransportParams, AdapterLogIo)> {
     let host_address = host.host.unwrap_or_else(|| Ipv4Addr::new(127, 0, 0, 1));
 
     let mut port = host.port;
@@ -73,13 +74,22 @@ pub async fn create_tcp_client(
 
     command
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .kill_on_drop(true);
 
-    let process = command
+    let mut process = command
         .spawn()
         .with_context(|| "failed to start debug adapter.")?;
+
+    let log_stdout = process
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("Failed to open stdout"))?;
+    let log_stderr = process
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow!("Failed to open stderr"))?;
 
     if let Some(delay) = host.delay {
         // some debug adapters need some time to start the TCP server
@@ -97,11 +107,17 @@ pub async fn create_tcp_client(
     let (rx, tx) = TcpStream::connect(address).await?.split();
     log::info!("Debug adapter has connected to tcp server");
 
-    Ok(TransportParams::new(
-        Box::new(BufReader::new(rx)),
-        Box::new(tx),
-        None,
-        Some(process),
+    Ok((
+        TransportParams::new(
+            Box::new(BufReader::new(rx)),
+            Box::new(tx),
+            None,
+            Some(process),
+        ),
+        AdapterLogIo::new(
+            Box::new(BufReader::new(log_stdout)),
+            Box::new(BufReader::new(log_stderr)),
+        ),
     ))
 }
 
@@ -186,7 +202,7 @@ pub trait DebugAdapter: 'static + Send + Sync {
         &self,
         adapter_binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
-    ) -> anyhow::Result<TransportParams>;
+    ) -> anyhow::Result<(TransportParams, Option<AdapterLogIo>)>;
 
     /// Installs the binary for the debug adapter.
     /// This method is called when the adapter binary is not found or needs to be updated.

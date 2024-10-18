@@ -17,7 +17,7 @@ use dap::{
         create_stdio_client, create_tcp_client, DapDelegate, DebugAdapter, DebugAdapterBinary,
         DebugAdapterName,
     },
-    client::TransportParams,
+    client::{AdapterLogIo, TransportParams},
 };
 use gpui::AsyncAppContext;
 use http_client::github::latest_github_release;
