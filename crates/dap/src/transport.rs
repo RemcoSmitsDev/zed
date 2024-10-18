@@ -12,6 +12,15 @@ use smol::{
 };
 use std::{collections::HashMap, sync::Arc};
 
+pub type IoHandler = Box<dyn Send + FnMut(IoKind, &str)>;
+
+#[derive(Debug, Clone, Copy)]
+pub enum IoKind {
+    StdIn,
+    StdOut,
+    StdErr,
+}
+
 #[derive(Debug)]
 pub struct Transport {
     pub server_tx: Sender<Message>,
@@ -25,6 +34,7 @@ impl Transport {
         server_stdout: Box<dyn AsyncBufRead + Unpin + Send>,
         server_stdin: Box<dyn AsyncWrite + Unpin + Send>,
         server_stderr: Option<Box<dyn AsyncBufRead + Unpin + Send>>,
+        io_handlers: Arc<parking_lot::Mutex<Vec<IoHandler>>>,
         cx: &mut AsyncAppContext,
     ) -> Arc<Self> {
         let (client_tx, server_rx) = unbounded::<Message>();
@@ -38,11 +48,14 @@ impl Transport {
                 pending_requests.clone(),
                 server_stdout,
                 client_tx,
+                io_handlers.clone(),
             ))
             .detach();
 
         if let Some(stderr) = server_stderr {
-            cx.background_executor().spawn(Self::err(stderr)).detach();
+            cx.background_executor()
+                .spawn(Self::err(stderr, io_handlers.clone()))
+                .detach();
         }
 
         cx.background_executor()
@@ -51,6 +64,7 @@ impl Transport {
                 pending_requests.clone(),
                 server_stdin,
                 client_rx,
+                io_handlers,
             ))
             .detach();
 
@@ -65,6 +79,7 @@ impl Transport {
     async fn recv_server_message(
         reader: &mut Box<dyn AsyncBufRead + Unpin + Send>,
         buffer: &mut String,
+        io_handlers: Arc<parking_lot::Mutex<Vec<IoHandler>>>,
     ) -> Result<Message> {
         let mut content_length = None;
         loop {
@@ -102,17 +117,26 @@ impl Transport {
             .with_context(|| "reading after a loop")?;
 
         let msg = std::str::from_utf8(&content).context("invalid utf8 from server")?;
+
+        for handler in io_handlers.lock().iter_mut() {
+            handler(IoKind::StdOut, msg);
+        }
         Ok(serde_json::from_str::<Message>(msg)?)
     }
 
     async fn recv_server_error(
         err: &mut (impl AsyncBufRead + Unpin + Send),
         buffer: &mut String,
+        io_handlers: Arc<parking_lot::Mutex<Vec<IoHandler>>>,
     ) -> Result<()> {
         buffer.truncate(0);
         if err.read_line(buffer).await? == 0 {
             return Err(anyhow!("debugger error stream closed"));
         };
+
+        for handler in io_handlers.lock().iter_mut() {
+            handler(IoKind::StdErr, buffer.as_str());
+        }
 
         Ok(())
     }
@@ -122,22 +146,29 @@ impl Transport {
         pending_requests: &Mutex<HashMap<u64, Sender<Result<Response>>>>,
         server_stdin: &mut Box<dyn AsyncWrite + Unpin + Send>,
         mut payload: Message,
+        io_handlers: Arc<parking_lot::Mutex<Vec<IoHandler>>>,
     ) -> Result<()> {
         if let Message::Request(request) = &mut payload {
             if let Some(sender) = current_requests.lock().await.remove(&request.seq) {
                 pending_requests.lock().await.insert(request.seq, sender);
             }
         }
-        Self::send_string_to_server(server_stdin, serde_json::to_string(&payload)?).await
+        Self::send_string_to_server(server_stdin, serde_json::to_string(&payload)?, io_handlers)
+            .await
     }
 
     async fn send_string_to_server(
         server_stdin: &mut Box<dyn AsyncWrite + Unpin + Send>,
         request: String,
+        io_handlers: Arc<parking_lot::Mutex<Vec<IoHandler>>>,
     ) -> Result<()> {
         server_stdin
             .write_all(format!("Content-Length: {}\r\n\r\n{}", request.len(), request).as_bytes())
             .await?;
+
+        for handler in io_handlers.lock().iter_mut() {
+            handler(IoKind::StdIn, request.as_str());
+        }
 
         server_stdin.flush().await?;
         Ok(())
@@ -186,10 +217,14 @@ impl Transport {
         pending_requests: Arc<Mutex<HashMap<u64, Sender<Result<Response>>>>>,
         mut server_stdout: Box<dyn AsyncBufRead + Unpin + Send>,
         client_tx: Sender<Message>,
+        io_handlers: Arc<parking_lot::Mutex<Vec<IoHandler>>>,
     ) -> Result<()> {
         let mut recv_buffer = String::new();
 
-        while let Ok(msg) = Self::recv_server_message(&mut server_stdout, &mut recv_buffer).await {
+        while let Ok(msg) =
+            Self::recv_server_message(&mut server_stdout, &mut recv_buffer, io_handlers.clone())
+                .await
+        {
             Self::process_server_message(&pending_requests, &client_tx, msg)
                 .await
                 .context("Process server message failed in transport::receive")?;
@@ -203,6 +238,7 @@ impl Transport {
         pending_requests: Arc<Mutex<HashMap<u64, Sender<Result<Response>>>>>,
         mut server_stdin: Box<dyn AsyncWrite + Unpin + Send>,
         client_rx: Receiver<Message>,
+        io_handlers: Arc<parking_lot::Mutex<Vec<IoHandler>>>,
     ) -> Result<()> {
         while let Ok(payload) = client_rx.recv().await {
             Self::send_payload_to_server(
@@ -210,6 +246,7 @@ impl Transport {
                 &pending_requests,
                 &mut server_stdin,
                 payload,
+                io_handlers.clone(),
             )
             .await?;
         }
@@ -217,10 +254,14 @@ impl Transport {
         Ok(())
     }
 
-    async fn err(mut server_stderr: Box<dyn AsyncBufRead + Unpin + Send>) -> Result<()> {
+    async fn err(
+        mut server_stderr: Box<dyn AsyncBufRead + Unpin + Send>,
+        io_handlers: Arc<parking_lot::Mutex<Vec<IoHandler>>>,
+    ) -> Result<()> {
         let mut recv_buffer = String::new();
         loop {
-            Self::recv_server_error(&mut server_stderr, &mut recv_buffer).await?;
+            Self::recv_server_error(&mut server_stderr, &mut recv_buffer, io_handlers.clone())
+                .await?;
         }
     }
 }
