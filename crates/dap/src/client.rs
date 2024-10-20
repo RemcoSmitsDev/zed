@@ -1,19 +1,16 @@
-pub use crate::transport::IoKind;
-use crate::transport::{IoHandler, Transport};
+use crate::{
+    adapters::{DebugAdapter, DebugAdapterBinary},
+    transport::{IoKind, LogKind, TransportDelegate},
+};
 use anyhow::{anyhow, Result};
 
 use dap_types::{
     messages::{Message, Response},
     requests::Request,
 };
-use futures::{AsyncBufRead, AsyncBufReadExt as _, AsyncWrite};
 use gpui::{AppContext, AsyncAppContext};
-use parking_lot::Mutex;
 use serde_json::Value;
-use smol::{
-    channel::{bounded, Receiver, Sender},
-    process::Child,
-};
+use smol::channel::{bounded, Receiver, Sender};
 use std::{
     hash::Hash,
     sync::{
@@ -40,131 +37,49 @@ pub struct DebugAdapterClient {
     id: DebugAdapterClientId,
     adapter_id: String,
     request_args: Value,
-    transport: Arc<Transport>,
-    _process: Arc<Mutex<Option<Child>>>,
     sequence_count: AtomicU64,
     config: DebugAdapterConfig,
-    io_handlers: Arc<Mutex<Vec<IoHandler>>>,
-    io_log_handlers: Arc<Mutex<Vec<IoHandler>>>,
-}
-
-pub struct TransportParams {
-    input: Box<dyn AsyncWrite + Unpin + Send>,
-    output: Box<dyn AsyncBufRead + Unpin + Send>,
-    stdout: Option<Box<dyn AsyncBufRead + Unpin + Send>>,
-    stderr: Box<dyn AsyncBufRead + Unpin + Send>,
-    process: Child,
-}
-
-impl TransportParams {
-    /// Defines communication channels for the debug adapter and logging:
-    /// - `input` and `output`: Communication with the debug adapter
-    /// - `stdin`, `stdout`, and `stderr`: Capture and log adapter process I/O
-    pub fn new(
-        input: Box<dyn AsyncWrite + Unpin + Send>,
-        output: Box<dyn AsyncBufRead + Unpin + Send>,
-        stdout: Option<Box<dyn AsyncBufRead + Unpin + Send>>,
-        stderr: Box<dyn AsyncBufRead + Unpin + Send>,
-        process: Child,
-    ) -> Self {
-        TransportParams {
-            input,
-            output,
-            stdout,
-            stderr,
-            process,
-        }
-    }
+    transport_delegate: TransportDelegate,
 }
 
 impl DebugAdapterClient {
-    pub async fn new<F>(
+    pub fn new(
         id: DebugAdapterClientId,
-        adapter_id: String,
         request_args: Value,
         config: DebugAdapterConfig,
-        transport_params: TransportParams,
-        event_handler: F,
-        cx: &mut AsyncAppContext,
-    ) -> Result<Arc<Self>>
-    where
-        F: FnMut(Message, &mut AppContext) + 'static + Send + Sync + Clone,
-    {
-        let io_handlers = Arc::new(Mutex::new(Vec::new()));
-        let io_log_handlers = Arc::new(Mutex::new(Vec::new()));
-
-        if let Some(stdout) = transport_params.stdout {
-            Self::handle_adapter_logs(stdout, io_log_handlers.clone(), cx);
-        }
-
-        let transport = Self::handle_transport(
-            transport_params.input,
-            transport_params.output,
-            transport_params.stderr,
-            event_handler,
-            io_handlers.clone(),
-            io_log_handlers.clone(),
-            cx,
-        );
-        Ok(Arc::new(Self {
+        adapter: Arc<Box<dyn DebugAdapter>>,
+    ) -> Self {
+        Self {
             id,
             config,
-            transport,
-            adapter_id,
-            io_handlers,
             request_args,
-            io_log_handlers,
             sequence_count: AtomicU64::new(1),
-            _process: Arc::new(Mutex::new(Some(transport_params.process))),
-        }))
+            adapter_id: adapter.name().to_string(),
+            transport_delegate: TransportDelegate::new(adapter.transport()),
+        }
     }
 
-    pub fn handle_transport<F>(
-        stdin: Box<dyn AsyncWrite + Unpin + Send>,
-        stdout: Box<dyn AsyncBufRead + Unpin + Send>,
-        stderr: Box<dyn AsyncBufRead + Unpin + Send>,
-        event_handler: F,
-        io_handlers: Arc<Mutex<Vec<IoHandler>>>,
-        io_log_handlers: Arc<Mutex<Vec<IoHandler>>>,
+    pub async fn start<F>(
+        &mut self,
+        binary: &DebugAdapterBinary,
+        message_handler: F,
         cx: &mut AsyncAppContext,
-    ) -> Arc<Transport>
+    ) -> Result<()>
     where
         F: FnMut(Message, &mut AppContext) + 'static + Send + Sync + Clone,
     {
-        let transport = Transport::start(stdin, stdout, stderr, io_handlers, io_log_handlers, cx);
+        let (server_rx, server_tx) = self.transport_delegate.start(binary, cx).await?;
 
-        let server_rx = transport.server_rx.clone();
-        let server_tr = transport.server_tx.clone();
+        // start handling events/reverse requests
         cx.spawn(|mut cx| async move {
-            Self::handle_recv(server_rx, server_tr, event_handler, &mut cx).await
+            Self::handle_receive_messages(server_rx, server_tx, message_handler, &mut cx).await
         })
         .detach();
 
-        transport
+        Ok(())
     }
 
-    fn handle_adapter_logs(
-        stdout: Box<dyn AsyncBufRead + Unpin + Send>,
-        io_log_handlers: Arc<Mutex<Vec<IoHandler>>>,
-        cx: &mut AsyncAppContext,
-    ) {
-        cx.spawn({
-            let io_log_handlers = io_log_handlers.clone();
-            |_| async move {
-                use futures::stream::StreamExt;
-
-                let mut lines = stdout.lines();
-                while let Some(Ok(line)) = lines.next().await {
-                    for handler in io_log_handlers.lock().iter_mut() {
-                        handler(IoKind::StdOut, line.as_ref());
-                    }
-                }
-            }
-        })
-        .detach();
-    }
-
-    async fn handle_recv<F>(
+    async fn handle_receive_messages<F>(
         server_rx: Receiver<Message>,
         client_tx: Sender<Message>,
         mut event_handler: F,
@@ -203,13 +118,11 @@ impl DebugAdapterClient {
             arguments: Some(serialized_arguments),
         };
 
-        self.transport
-            .current_requests
-            .lock()
-            .await
-            .insert(sequence_id, callback_tx);
+        self.transport_delegate
+            .add_pending_request(sequence_id, callback_tx)
+            .await;
 
-        self.respond(Message::Request(request)).await?;
+        self.send_message(Message::Request(request)).await?;
 
         let response = callback_rx.recv().await??;
 
@@ -219,12 +132,8 @@ impl DebugAdapterClient {
         }
     }
 
-    pub async fn respond(&self, message: Message) -> Result<()> {
-        self.transport
-            .server_tx
-            .send(message)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to send response back: {}", e))
+    pub async fn send_message(&self, message: Message) -> Result<()> {
+        self.transport_delegate.send_message(message).await
     }
 
     pub fn has_adapter_logs(&self) -> bool {
@@ -257,44 +166,13 @@ impl DebugAdapterClient {
     }
 
     pub async fn shutdown(&self) -> Result<()> {
-        self.transport.server_tx.close();
-        self.transport.server_rx.close();
-
-        let mut adapter = self._process.lock().take();
-
-        async move {
-            let mut current_requests = self.transport.current_requests.lock().await;
-            let mut pending_requests = self.transport.pending_requests.lock().await;
-
-            current_requests.clear();
-            pending_requests.clear();
-
-            if let Some(mut adapter) = adapter.take() {
-                adapter.kill()?;
-            }
-
-            drop(current_requests);
-            drop(pending_requests);
-            drop(adapter);
-
-            anyhow::Ok(())
-        }
-        .await
+        self.transport_delegate.shutdown().await
     }
 
-    pub fn on_io<F>(&self, f: F)
+    pub fn add_log_handler<F>(&self, f: F, kind: LogKind)
     where
         F: 'static + Send + FnMut(IoKind, &str),
     {
-        let mut io_handlers = self.io_handlers.lock();
-        io_handlers.push(Box::new(f));
-    }
-
-    pub fn on_log_io<F>(&self, f: F)
-    where
-        F: 'static + Send + FnMut(IoKind, &str),
-    {
-        let mut io_log_handlers = self.io_log_handlers.lock();
-        io_log_handlers.push(Box::new(f));
+        self.transport_delegate.add_log_handler(f, kind);
     }
 }

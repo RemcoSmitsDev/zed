@@ -1488,6 +1488,10 @@ impl Project {
         self.client.clone()
     }
 
+    pub fn ssh_client(&self) -> Option<Model<SshRemoteClient>> {
+        self.ssh_client.clone()
+    }
+
     pub fn user_store(&self) -> Model<UserStore> {
         self.user_store.clone()
     }
@@ -3762,6 +3766,17 @@ impl Project {
         cx: &AppContext,
     ) -> Task<Result<Blame>> {
         self.buffer_store.read(cx).blame_buffer(buffer, version, cx)
+    }
+
+    pub fn get_permalink_to_line(
+        &self,
+        buffer: &Model<Buffer>,
+        selection: Range<u32>,
+        cx: &AppContext,
+    ) -> Task<Result<url::Url>> {
+        self.buffer_store
+            .read(cx)
+            .get_permalink_to_line(buffer, selection, cx)
     }
 
     // RPC message handlers

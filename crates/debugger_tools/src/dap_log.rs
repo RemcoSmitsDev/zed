@@ -1,5 +1,7 @@
-use dap::client::IoKind;
-use dap::client::{DebugAdapterClient, DebugAdapterClientId};
+use dap::{
+    client::{DebugAdapterClient, DebugAdapterClientId},
+    transport::IoKind,
+};
 use editor::{Editor, EditorEvent};
 use futures::StreamExt;
 use gpui::{
@@ -271,18 +273,25 @@ impl LogStore {
 
         if let Some(client) = client {
             let io_tx = self.io_tx.clone();
-            client.on_io(move |io_kind, message| {
-                io_tx
-                    .unbounded_send((client_id, io_kind, message.to_string()))
-                    .ok();
-            });
+
+            client.add_log_handler(
+                move |io_kind, message| {
+                    io_tx
+                        .unbounded_send((client_id, io_kind, message.to_string()))
+                        .ok();
+                },
+                dap::transport::LogKind::Rpc,
+            );
 
             let log_io_tx = self.log_io_tx.clone();
-            client.on_log_io(move |io_kind, message| {
-                log_io_tx
-                    .unbounded_send((client_id, io_kind, message.to_string()))
-                    .ok();
-            });
+            client.add_log_handler(
+                move |io_kind, message| {
+                    log_io_tx
+                        .unbounded_send((client_id, io_kind, message.to_string()))
+                        .ok();
+                },
+                dap::transport::LogKind::Command,
+            );
         }
 
         Some(client_state)
