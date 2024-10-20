@@ -33,9 +33,15 @@ impl DebugAdapter for PythonDebugAdapter {
     ) -> Result<DebugAdapterBinary> {
         let adapter_path = paths::debug_adapters_dir().join(self.name());
 
+        let debugpy_dir = util::fs::find_file_name_in_dir(adapter_path.as_path(), |file_name| {
+            file_name.starts_with("debugpy_")
+        })
+        .await
+        .ok_or_else(|| anyhow!("Debugpy directory not found"))?;
+
         Ok(DebugAdapterBinary {
             command: "python3".to_string(),
-            arguments: Some(vec![adapter_path.join(Self::ADAPTER_PATH).into()]),
+            arguments: Some(vec![debugpy_dir.join(Self::ADAPTER_PATH).into()]),
             envs: None,
         })
     }
@@ -58,7 +64,7 @@ impl DebugAdapter for PythonDebugAdapter {
             let release =
                 latest_github_release("microsoft/debugpy", false, false, http_client.clone())
                     .await?;
-            let asset_name = format!("{}.zip", release.tag_name);
+            let asset_name = format!("{}_{}.zip", self.name(), release.tag_name);
 
             let zip_path = debugpy_dir.join(asset_name);
 
@@ -78,42 +84,29 @@ impl DebugAdapter for PythonDebugAdapter {
                     .await?
                     .status;
 
-                let mut ls = process::Command::new("ls")
-                    .current_dir(&debugpy_dir)
-                    .stdout(Stdio::piped())
-                    .spawn()?;
+                let file_name =
+                    util::fs::find_file_name_in_dir(&debugpy_dir.as_path(), |file_name| {
+                        file_name.starts_with("microsoft-debugpy-")
+                    })
+                    .await
+                    .ok_or_else(|| anyhow!("Debugpy unzipped directory not found"))?;
 
-                let std = ls
-                    .stdout
-                    .take()
-                    .ok_or(anyhow!("Failed to list directories"))?
-                    .into_stdio()
+                fs.rename(
+                    file_name.as_path(),
+                    debugpy_dir
+                        .join(format!("{}_{}", self.name(), release.tag_name))
+                        .as_path(),
+                    Default::default(),
+                )
+                .await?;
+
+                fs.remove_file(&zip_path.as_path(), Default::default())
                     .await?;
 
-                let file_name = String::from_utf8(
-                    process::Command::new("grep")
-                        .arg("microsoft-debugpy")
-                        .stdin(std)
-                        .output()
-                        .await?
-                        .stdout,
-                )?;
-
-                let file_name = file_name.trim_end();
-                process::Command::new("sh")
-                    .current_dir(&debugpy_dir)
-                    .arg("-c")
-                    .arg(format!("mv {file_name}/* ."))
-                    .output()
-                    .await?;
-
-                process::Command::new("rm")
-                    .current_dir(&debugpy_dir)
-                    .arg("-rf")
-                    .arg(file_name)
-                    .arg(zip_path)
-                    .output()
-                    .await?;
+                // if !unzip_status.success() {
+                //     dbg!(unzip_status);
+                //     Err(anyhow!("failed to unzip debugpy archive"))?;
+                // }
 
                 return Ok(());
             }

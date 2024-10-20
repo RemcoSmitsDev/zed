@@ -3388,6 +3388,7 @@ dependencies = [
  "serde_json",
  "smol",
  "task",
+ "util",
 ]
 
 [[package]]
