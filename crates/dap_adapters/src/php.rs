@@ -22,16 +22,14 @@ impl DebugAdapter for PhpDebugAdapter {
         &self,
         adapter_binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
-    ) -> Result<(TransportParams, Option<AdapterLogIo>)> {
+    ) -> Result<TransportParams> {
         let host = TCPHost {
             port: Some(8132),
             host: None,
             delay: Some(1000),
         };
 
-        create_tcp_client(host, adapter_binary, cx)
-            .await
-            .map(|(transport, log_io)| (transport, Some(log_io)))
+        create_tcp_client(host, adapter_binary, cx).await
     }
 
     async fn fetch_binary(

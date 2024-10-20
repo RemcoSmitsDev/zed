@@ -4249,8 +4249,6 @@ impl Project {
         Ok(())
     }
 
-
-
     pub fn language_servers<'a>(
         &'a self,
         cx: &'a AppContext,
@@ -4290,13 +4288,12 @@ impl Project {
         self.dap_store.read(cx).running_clients()
     }
 
-
     pub fn debug_client_for_id(
         &self,
-        id: DebugAdapterClientId,
+        id: &DebugAdapterClientId,
         cx: &AppContext,
     ) -> Option<Arc<DebugAdapterClient>> {
-        self.dap_store.read(cx).client_by_id(&id)
+        self.dap_store.read(cx).client_by_id(id)
     }
 }
 

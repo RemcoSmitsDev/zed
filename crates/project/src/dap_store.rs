@@ -273,8 +273,7 @@ impl DapStore {
                 merge_json_value_into(args.configuration, &mut request_args);
             }
 
-            let (transport_params, adapter_log_io) =
-                adapter.connect(&binary, &mut cx).await.log_err()?;
+            let transport_params = adapter.connect(&binary, &mut cx).await.log_err()?;
 
             let client = DebugAdapterClient::new(
                 client_id,
@@ -282,7 +281,6 @@ impl DapStore {
                 request_args,
                 config,
                 transport_params,
-                adapter_log_io,
                 move |message, cx| {
                     dap_store
                         .update(cx, |_, cx| {

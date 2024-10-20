@@ -28,15 +28,11 @@ impl DebugAdapter for CustomDebugAdapter {
         &self,
         adapter_binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
-    ) -> Result<(TransportParams, Option<AdapterLogIo>)> {
+    ) -> Result<TransportParams> {
         match &self.custom_args.connection {
-            DebugConnectionType::STDIO => {
-                create_stdio_client(adapter_binary).map(|transport| (transport, None))
-            }
+            DebugConnectionType::STDIO => create_stdio_client(adapter_binary),
             DebugConnectionType::TCP(tcp_host) => {
-                create_tcp_client(tcp_host.clone(), adapter_binary, cx)
-                    .await
-                    .map(|(transport, log_io)| (transport, Some(log_io)))
+                create_tcp_client(tcp_host.clone(), adapter_binary, cx).await
             }
         }
     }

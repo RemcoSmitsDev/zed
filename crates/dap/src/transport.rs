@@ -31,10 +31,11 @@ pub struct Transport {
 
 impl Transport {
     pub fn start(
-        server_stdout: Box<dyn AsyncBufRead + Unpin + Send>,
         server_stdin: Box<dyn AsyncWrite + Unpin + Send>,
-        server_stderr: Option<Box<dyn AsyncBufRead + Unpin + Send>>,
+        server_stdout: Box<dyn AsyncBufRead + Unpin + Send>,
+        server_stderr: Box<dyn AsyncBufRead + Unpin + Send>,
         io_handlers: Arc<parking_lot::Mutex<Vec<IoHandler>>>,
+        io_log_handlers: Arc<parking_lot::Mutex<Vec<IoHandler>>>,
         cx: &mut AsyncAppContext,
     ) -> Arc<Self> {
         let (client_tx, server_rx) = unbounded::<Message>();
@@ -52,11 +53,9 @@ impl Transport {
             ))
             .detach();
 
-        if let Some(stderr) = server_stderr {
-            cx.background_executor()
-                .spawn(Self::err(stderr, io_handlers.clone()))
-                .detach();
-        }
+        cx.background_executor()
+            .spawn(Self::err(server_stderr, io_log_handlers.clone()))
+            .detach();
 
         cx.background_executor()
             .spawn(Self::send(

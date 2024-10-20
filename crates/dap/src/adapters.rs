@@ -25,7 +25,7 @@ use std::{
 
 use task::{DebugAdapterConfig, TCPHost};
 
-use crate::client::{AdapterLogIo, TransportParams};
+use crate::client::TransportParams;
 
 /// Get an open port to use with the tcp client when not supplied by debug config
 async fn get_open_port(host: Ipv4Addr) -> Option<u16> {
@@ -54,7 +54,7 @@ pub async fn create_tcp_client(
     host: TCPHost,
     adapter_binary: &DebugAdapterBinary,
     cx: &mut AsyncAppContext,
-) -> Result<(TransportParams, AdapterLogIo)> {
+) -> Result<TransportParams> {
     let host_address = host.host.unwrap_or_else(|| Ipv4Addr::new(127, 0, 0, 1));
 
     let mut port = host.port;
@@ -82,11 +82,11 @@ pub async fn create_tcp_client(
         .spawn()
         .with_context(|| "failed to start debug adapter.")?;
 
-    let log_stdout = process
+    let stdout = process
         .stdout
         .take()
         .ok_or_else(|| anyhow!("Failed to open stdout"))?;
-    let log_stderr = process
+    let stderr = process
         .stderr
         .take()
         .ok_or_else(|| anyhow!("Failed to open stderr"))?;
@@ -104,20 +104,15 @@ pub async fn create_tcp_client(
         port.ok_or(anyhow!("Port is required to connect to TCP server"))?,
     );
 
-    let (rx, tx) = TcpStream::connect(address).await?.split();
+    let (output, input) = TcpStream::connect(address).await?.split();
     log::info!("Debug adapter has connected to tcp server");
 
-    Ok((
-        TransportParams::new(
-            Box::new(BufReader::new(rx)),
-            Box::new(tx),
-            None,
-            Some(process),
-        ),
-        AdapterLogIo::new(
-            Box::new(BufReader::new(log_stdout)),
-            Box::new(BufReader::new(log_stderr)),
-        ),
+    Ok(TransportParams::new(
+        Box::new(input),
+        Box::new(BufReader::new(output)),
+        Some(Box::new(BufReader::new(stdout))),
+        Box::new(BufReader::new(stderr)),
+        process,
     ))
 }
 
@@ -162,10 +157,11 @@ pub fn create_stdio_client(adapter_binary: &DebugAdapterBinary) -> Result<Transp
     log::info!("Debug adapter has connected to stdio adapter");
 
     Ok(TransportParams::new(
-        Box::new(BufReader::new(stdout)),
         Box::new(stdin),
-        Some(Box::new(BufReader::new(stderr))),
-        Some(process),
+        Box::new(BufReader::new(stdout)),
+        None,
+        Box::new(BufReader::new(stderr)),
+        process,
     ))
 }
 
@@ -202,7 +198,7 @@ pub trait DebugAdapter: 'static + Send + Sync {
         &self,
         adapter_binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
-    ) -> anyhow::Result<(TransportParams, Option<AdapterLogIo>)>;
+    ) -> anyhow::Result<TransportParams>;
 
     /// Installs the binary for the debug adapter.
     /// This method is called when the adapter binary is not found or needs to be updated.

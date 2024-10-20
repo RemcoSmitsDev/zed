@@ -3346,7 +3346,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "dap-types 0.0.1 (git+https://github.com/zed-industries/dap-types?rev=b95818130022bfc72bbcd639bdd0c0358c7549fc)",
+ "dap-types",
  "fs",
  "futures 0.3.30",
  "gpui",
@@ -3366,16 +3366,6 @@ dependencies = [
 name = "dap-types"
 version = "0.0.1"
 source = "git+https://github.com/zed-industries/dap-types?rev=b95818130022bfc72bbcd639bdd0c0358c7549fc#b95818130022bfc72bbcd639bdd0c0358c7549fc"
-dependencies = [
- "schemars",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "dap-types"
-version = "0.0.1"
-source = "git+https://github.com/zed-industries/dap-types#b95818130022bfc72bbcd639bdd0c0358c7549fc"
 dependencies = [
  "schemars",
  "serde",
@@ -3479,7 +3469,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "dap",
- "dap-types 0.0.1 (git+https://github.com/zed-industries/dap-types)",
  "editor",
  "futures 0.3.30",
  "gpui",

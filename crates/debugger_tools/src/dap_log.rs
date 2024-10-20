@@ -21,7 +21,7 @@ use workspace::{
 };
 
 struct DapLogView {
-    pub(crate) editor: View<Editor>,
+    editor: View<Editor>,
     focus_handle: FocusHandle,
     log_store: Model<LogStore>,
     editor_subscriptions: Vec<Subscription>,
@@ -52,9 +52,11 @@ struct RpcMessages {
 }
 
 impl RpcMessages {
+    const MESSAGE_QUEUE_LIMIT: usize = 255;
+
     fn new() -> Self {
         Self {
-            messages: VecDeque::with_capacity(255),
+            messages: VecDeque::with_capacity(Self::MESSAGE_QUEUE_LIMIT),
             last_message_kind: None,
         }
     }
@@ -158,11 +160,11 @@ impl LogStore {
                         this.projects.remove(&weak_project);
                     }),
                     cx.subscribe(project, |this, project, event, cx| match event {
-                        project::Event::DebugClientStarted(id) => {
-                            let read_project = project.read(cx);
-                            if let Some(client) = read_project.debug_client_for_id(*id, cx) {
-                                this.add_debug_client(client.id(), Some(client), cx);
-                            }
+                        project::Event::DebugClientStarted(client_id) => {
+                            this.add_debug_client(
+                                *client_id,
+                                project.read(cx).debug_client_for_id(client_id, cx),
+                            );
                         }
                         project::Event::DebugClientStopped(id) => {
                             this.remove_debug_client(*id, cx);
@@ -246,7 +248,7 @@ impl LogStore {
         kind: LogKind,
         cx: &mut ModelContext<Self>,
     ) {
-        while log_lines.len() >= 255 {
+        while log_lines.len() >= RpcMessages::MESSAGE_QUEUE_LIMIT {
             log_lines.pop_front();
         }
         let entry: &str = message.as_ref();
@@ -261,12 +263,11 @@ impl LogStore {
         &mut self,
         client_id: DebugAdapterClientId,
         client: Option<Arc<DebugAdapterClient>>,
-        cx: &mut ModelContext<Self>,
     ) -> Option<&mut DebugAdapterState> {
-        let client_state = self.debug_clients.entry(client_id).or_insert_with(|| {
-            cx.notify();
-            DebugAdapterState::new()
-        });
+        let client_state = self
+            .debug_clients
+            .entry(client_id)
+            .or_insert_with(DebugAdapterState::new);
 
         if let Some(client) = client {
             let io_tx = self.io_tx.clone();
@@ -276,14 +277,12 @@ impl LogStore {
                     .ok();
             });
 
-            if client.has_adapter_logs() {
-                let log_io_tx = self.log_io_tx.clone();
-                client.on_log_io(move |io_kind, message| {
-                    log_io_tx
-                        .unbounded_send((client_id, io_kind, message.to_string()))
-                        .ok();
-                });
-            }
+            let log_io_tx = self.log_io_tx.clone();
+            client.on_log_io(move |io_kind, message| {
+                log_io_tx
+                    .unbounded_send((client_id, io_kind, message.to_string()))
+                    .ok();
+            });
         }
 
         Some(client_state)
@@ -308,7 +307,7 @@ impl LogStore {
             .debug_clients
             .get_mut(&client_id)?
             .rpc_messages
-            .get_or_insert_with(|| RpcMessages::new());
+            .get_or_insert_with(RpcMessages::new);
         Some(&mut rpc_state.messages)
     }
 
@@ -326,10 +325,6 @@ impl LogStore {
         self.debug_clients.get_mut(&client_id)?.rpc_messages.take();
         Some(())
     }
-
-    // fn clients(&self) -> impl Iterator<Item = (&DebugAdapterClientId, &DebugAdapterState)> {
-    //     self.debug_clients.iter()
-    // }
 }
 
 pub struct DapLogToolbarItemView {
@@ -406,17 +401,15 @@ impl Render for DapLogToolbarItemView {
                     let log_toolbar_view = log_toolbar_view.clone();
                     ContextMenu::build(cx, move |mut menu, cx| {
                         for (ix, row) in menu_rows.into_iter().enumerate() {
-                            menu = menu.header(format!("{}", row.client_name,));
+                            menu = menu.header(row.client_name.to_string());
 
-                            if row.has_adapter_logs {
-                                menu = menu.entry(
-                                    CLIENT_LOGS,
-                                    None,
-                                    cx.handler_for(&log_view, move |view, cx| {
-                                        view.show_log_messages_for_server(row.client_id, cx);
-                                    }),
-                                );
-                            }
+                            menu = menu.entry(
+                                CLIENT_LOGS,
+                                None,
+                                cx.handler_for(&log_view, move |view, cx| {
+                                    view.show_log_messages_for_server(row.client_id, cx);
+                                }),
+                            );
 
                             menu = menu.custom_entry(
                                 {
@@ -495,7 +488,7 @@ impl ToolbarItemView for DapLogToolbarItemView {
     fn set_active_pane_item(
         &mut self,
         active_pane_item: Option<&dyn workspace::item::ItemHandle>,
-        _cx: &mut ViewContext<Self>, // TODO
+        cx: &mut ViewContext<Self>,
     ) -> workspace::ToolbarItemLocation {
         if let Some(item) = active_pane_item {
             if let Some(log_view) = item.downcast::<DapLogView>() {
@@ -504,6 +497,9 @@ impl ToolbarItemView for DapLogToolbarItemView {
             }
         }
         self.log_view = None;
+
+        cx.notify();
+
         workspace::ToolbarItemLocation::Hidden
     }
 }
@@ -575,21 +571,19 @@ impl DapLogView {
         (editor, vec![editor_subscription, search_subscription])
     }
 
-    fn menu_items<'a>(&self, cx: &'a AppContext) -> Option<Vec<DapMenuItem>> {
+    fn menu_items(&self, cx: &AppContext) -> Option<Vec<DapMenuItem>> {
         let log_store = self.log_store.read(cx);
 
         let mut rows = self
             .project
             .read(cx)
             .debug_clients(cx)
-            .filter_map(|client| {
-                Some(DapMenuItem {
-                    client_id: client.id(),
-                    client_name: client.config().kind.to_string(),
-                    selected_entry: self.current_view.map_or(LogKind::Logs, |(_, kind)| kind),
-                    has_adapter_logs: client.has_adapter_logs(),
-                    rpc_trace_enabled: log_store.rpc_logging_enabled_for_client(client.id()),
-                })
+            .map(|client| DapMenuItem {
+                client_id: client.id(),
+                client_name: client.config().kind.to_string(),
+                selected_entry: self.current_view.map_or(LogKind::Logs, |(_, kind)| kind),
+                has_adapter_logs: client.has_adapter_logs(),
+                rpc_trace_enabled: log_store.rpc_logging_enabled_for_client(client.id()),
             })
             .collect::<Vec<_>>();
         rows.sort_by_key(|row| row.client_id);
@@ -680,7 +674,6 @@ impl DapLogView {
             }
         });
         if !enabled && Some(client_id) == self.current_view.map(|(client_id, _)| client_id) {
-            // self.show(client_id, cx);
             cx.notify();
         }
     }

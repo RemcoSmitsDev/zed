@@ -18,7 +18,6 @@ workspace.workspace = true
 editor.workspace = true
 project.workspace = true
 dap.workspace = true
-dap-types = { git = "https://github.com/zed-industries/dap-types" }
 serde_json.workspace = true
 futures.workspace = true
 anyhow.workspace = true

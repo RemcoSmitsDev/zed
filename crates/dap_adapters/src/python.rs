@@ -22,8 +22,8 @@ impl DebugAdapter for PythonDebugAdapter {
         &self,
         adapter_binary: &DebugAdapterBinary,
         _: &mut AsyncAppContext,
-    ) -> Result<(TransportParams, Option<AdapterLogIo>)> {
-        create_stdio_client(adapter_binary).map(|transport| (transport, None))
+    ) -> Result<TransportParams> {
+        create_stdio_client(adapter_binary)
     }
 
     async fn fetch_binary(

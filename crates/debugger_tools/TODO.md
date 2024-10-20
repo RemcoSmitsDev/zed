@@ -1,1 +1,0 @@
-- [ ] housekeeping: ensure references to debug adapters are cleaned when they are closed
