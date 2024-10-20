@@ -4,7 +4,7 @@ use dap_types::{
     messages::{Message, Response},
     ErrorResponse,
 };
-use futures::{AsyncBufRead, AsyncReadExt as _, AsyncWrite};
+use futures::{select, AsyncBufRead, AsyncReadExt as _, AsyncWrite, FutureExt as _};
 use gpui::AsyncAppContext;
 use smol::{
     channel::{unbounded, Receiver, Sender},
@@ -349,20 +349,28 @@ impl Transport for TcpTransport {
             .take()
             .ok_or_else(|| anyhow!("Failed to open stderr"))?;
 
-        if let Some(delay) = self.config.delay {
-            // some debug adapters need some time to start the TCP server
-            // so we have to wait few milliseconds before we can connect to it
-            cx.background_executor()
-                .timer(Duration::from_millis(delay))
-                .await;
-        }
-
         let address = SocketAddrV4::new(
             host_address,
             port.ok_or(anyhow!("Port is required to connect to TCP server"))?,
         );
 
-        let (rx, tx) = TcpStream::connect(address).await?.split();
+        let timeout = self.config.timeout.unwrap_or(2000);
+
+        let (rx, tx) = select! {
+            _ = cx.background_executor().timer(Duration::from_millis(timeout)).fuse() => {
+                return Err(anyhow!("Connection to tcp DAP timeout"))
+            },
+            result = cx.spawn(|cx| async move {
+                loop {
+                    match TcpStream::connect(address).await {
+                        Ok(stream) => return stream.split(),
+                        Err(_) => {
+                            cx.background_executor().timer(Duration::from_millis(100)).await;
+                        }
+                    }
+                }
+            }).fuse() => result
+        };
         log::info!("Debug adapter has connected to tcp server");
 
         Ok(TransportParams::new(

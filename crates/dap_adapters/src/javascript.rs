@@ -24,7 +24,7 @@ impl DebugAdapter for JsDebugAdapter {
         Box::new(TcpTransport::new(TCPHost {
             port: Some(8133),
             host: None,
-            delay: Some(1000),
+            timeout: None,
         }))
     }
 

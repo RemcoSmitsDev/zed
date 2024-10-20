@@ -24,7 +24,7 @@ impl DebugAdapter for PhpDebugAdapter {
         Box::new(TcpTransport::new(TCPHost {
             port: Some(8132),
             host: None,
-            delay: Some(1000),
+            timeout: None,
         }))
     }
 
