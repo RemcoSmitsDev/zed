@@ -253,29 +253,26 @@ impl TransportDelegate {
     }
 
     pub async fn shutdown(&self) -> Result<()> {
-        async move {
-            if let Some(server_tx) = self.server_tx.as_ref() {
-                server_tx.close();
-            }
-
-            let mut adapter = self.process.lock().await.take();
-            let mut current_requests = self.current_requests.lock().await;
-            let mut pending_requests = self.pending_requests.lock().await;
-
-            current_requests.clear();
-            pending_requests.clear();
-
-            if let Some(mut adapter) = adapter.take() {
-                adapter.kill()?;
-            }
-
-            drop(current_requests);
-            drop(pending_requests);
-            drop(adapter);
-
-            anyhow::Ok(())
+        if let Some(server_tx) = self.server_tx.as_ref() {
+            server_tx.close();
         }
-        .await
+
+        let mut adapter = self.process.lock().await.take();
+        let mut current_requests = self.current_requests.lock().await;
+        let mut pending_requests = self.pending_requests.lock().await;
+
+        current_requests.clear();
+        pending_requests.clear();
+
+        if let Some(mut adapter) = adapter.take() {
+            adapter.kill()?;
+        }
+
+        drop(current_requests);
+        drop(pending_requests);
+        drop(adapter);
+
+        anyhow::Ok(())
     }
 }
 
