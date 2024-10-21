@@ -407,7 +407,6 @@ impl Render for DapLogToolbarItemView {
                     .unwrap_or_else(|| "No server selected".into()),
             ))
             .menu({
-                let _log_view = log_view.clone();
                 let log_toolbar_view = log_toolbar_view.clone();
                 move |cx| {
                     let log_view = log_view.clone();
@@ -417,13 +416,15 @@ impl Render for DapLogToolbarItemView {
                         for (ix, row) in menu_rows.into_iter().enumerate() {
                             menu = menu.header(row.client_name.to_string());
 
-                            menu = menu.entry(
-                                ADAPTER_LOGS,
-                                None,
-                                cx.handler_for(&log_view, move |view, cx| {
-                                    view.show_log_messages_for_server(row.client_id, cx);
-                                }),
-                            );
+                            if row.has_adapter_logs {
+                                menu = menu.entry(
+                                    ADAPTER_LOGS,
+                                    None,
+                                    cx.handler_for(&log_view, move |view, cx| {
+                                        view.show_log_messages_for_server(row.client_id, cx);
+                                    }),
+                                );
+                            }
 
                             menu = menu.custom_entry(
                                 {
