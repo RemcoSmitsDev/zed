@@ -136,10 +136,6 @@ impl DebugAdapterClient {
         self.transport_delegate.send_message(message).await
     }
 
-    pub fn has_adapter_logs(&self) -> bool {
-        true // TODO debugger: fix this when we move code to the transport layer
-    }
-
     pub fn id(&self) -> DebugAdapterClientId {
         self.id
     }
@@ -167,6 +163,10 @@ impl DebugAdapterClient {
 
     pub async fn shutdown(&self) -> Result<()> {
         self.transport_delegate.shutdown().await
+    }
+
+    pub fn has_adapter_logs(&self) -> bool {
+        self.transport_delegate.has_adapter_logs()
     }
 
     pub fn add_log_handler<F>(&self, f: F, kind: LogKind)

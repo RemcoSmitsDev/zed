@@ -320,6 +320,10 @@ impl TransportDelegate {
         anyhow::Ok(())
     }
 
+    pub fn has_adapter_logs(&self) -> bool {
+        self.transport.has_adapter_logs()
+    }
+
     pub fn add_log_handler<F>(&self, f: F, kind: LogKind)
     where
         F: 'static + Send + FnMut(IoKind, &str),
@@ -336,6 +340,8 @@ pub trait Transport: 'static + Send + Sync {
         binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
     ) -> Result<TransportParams>;
+
+    fn has_adapter_logs(&self) -> bool;
 }
 
 pub struct TcpTransport {
@@ -433,6 +439,10 @@ impl Transport for TcpTransport {
             process,
         ))
     }
+
+    fn has_adapter_logs(&self) -> bool {
+        true
+    }
 }
 
 pub struct StdioTransport {}
@@ -491,5 +501,9 @@ impl Transport for StdioTransport {
             Box::new(BufReader::new(stderr)),
             process,
         ))
+    }
+
+    fn has_adapter_logs(&self) -> bool {
+        false
     }
 }
