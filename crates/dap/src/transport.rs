@@ -12,7 +12,8 @@ use smol::{
     io::{AsyncBufReadExt as _, AsyncWriteExt, BufReader},
     lock::Mutex,
     net::{TcpListener, TcpStream},
-    process::{self, Child},
+    process::{self, Child, ChildStderr, ChildStdout},
+    stream::StreamExt as _,
 };
 use std::{
     borrow::BorrowMut,
@@ -28,9 +29,9 @@ use crate::adapters::DebugAdapterBinary;
 
 pub type IoHandler = Box<dyn Send + FnMut(IoKind, &str)>;
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub enum LogKind {
-    Command,
+    Adapter,
     Rpc,
 }
 
@@ -43,7 +44,6 @@ pub enum IoKind {
 pub struct TransportParams {
     input: Box<dyn AsyncWrite + Unpin + Send>,
     output: Box<dyn AsyncBufRead + Unpin + Send>,
-    error: Box<dyn AsyncBufRead + Unpin + Send>,
     process: Child,
 }
 
@@ -51,13 +51,11 @@ impl TransportParams {
     pub fn new(
         input: Box<dyn AsyncWrite + Unpin + Send>,
         output: Box<dyn AsyncBufRead + Unpin + Send>,
-        error: Box<dyn AsyncBufRead + Unpin + Send>,
         process: Child,
     ) -> Self {
         TransportParams {
             input,
             output,
-            error,
             process,
         }
     }
@@ -92,13 +90,16 @@ impl TransportDelegate {
         binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
     ) -> Result<(Receiver<Message>, Sender<Message>)> {
-        let params = self.transport.start(binary, cx).await?;
+        let mut params = self.transport.start(binary, cx).await?;
 
         let (client_tx, server_rx) = unbounded::<Message>();
         let (server_tx, client_rx) = unbounded::<Message>();
 
-        self.process = Arc::new(Mutex::new(Some(params.process)));
-        self.server_tx = Some(server_tx.clone());
+        if let Some(stdout) = params.process.stdout.take() {
+            cx.background_executor()
+                .spawn(Self::handle_adapter_log(stdout, self.log_handlers.clone()))
+                .detach();
+        }
 
         cx.background_executor()
             .spawn(Self::handle_output(
@@ -109,9 +110,11 @@ impl TransportDelegate {
             ))
             .detach();
 
-        cx.background_executor()
-            .spawn(Self::handle_error(params.error, self.log_handlers.clone()))
-            .detach();
+        if let Some(stderr) = params.process.stderr.take() {
+            cx.background_executor()
+                .spawn(Self::handle_error(stderr, self.log_handlers.clone()))
+                .detach();
+        }
 
         cx.background_executor()
             .spawn(Self::handle_input(
@@ -122,6 +125,9 @@ impl TransportDelegate {
                 self.log_handlers.clone(),
             ))
             .detach();
+
+        self.process = Arc::new(Mutex::new(Some(params.process)));
+        self.server_tx = Some(server_tx.clone());
 
         Ok((server_rx, server_tx))
     }
@@ -143,6 +149,17 @@ impl TransportDelegate {
                 .map_err(|e| anyhow!("Failed to send response back: {}", e))
         } else {
             Err(anyhow!("Server tx already dropped"))
+        }
+    }
+
+    async fn handle_adapter_log(stdout: ChildStdout, log_handlers: LogHandlers) {
+        let mut lines = BufReader::new(stdout).lines();
+        while let Some(Ok(line)) = lines.next().await {
+            for (kind, handler) in log_handlers.lock().iter_mut() {
+                if matches!(kind, LogKind::Adapter) {
+                    handler(IoKind::StdOut, line.as_ref());
+                }
+            }
         }
     }
 
@@ -211,14 +228,14 @@ impl TransportDelegate {
         Ok(())
     }
 
-    async fn handle_error(
-        mut stderr: Box<dyn AsyncBufRead + Unpin + Send>,
-        log_handlers: LogHandlers,
-    ) -> Result<()> {
+    async fn handle_error(stderr: ChildStderr, log_handlers: LogHandlers) -> Result<()> {
         let mut buffer = String::new();
+
+        let mut reader = BufReader::new(stderr);
+
         loop {
             buffer.truncate(0);
-            if stderr.read_line(&mut buffer).await? == 0 {
+            if reader.read_line(&mut buffer).await? == 0 {
                 return Err(anyhow!("debugger error stream closed"));
             }
 
@@ -399,14 +416,9 @@ impl Transport for TcpTransport {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
 
-        let mut process = command
+        let process = command
             .spawn()
             .with_context(|| "failed to start debug adapter.")?;
-
-        let stderr = process
-            .stderr
-            .take()
-            .ok_or_else(|| anyhow!("Failed to open stderr"))?;
 
         let address = SocketAddrV4::new(
             host_address,
@@ -435,7 +447,6 @@ impl Transport for TcpTransport {
         Ok(TransportParams::new(
             Box::new(tx),
             Box::new(BufReader::new(rx)),
-            Box::new(BufReader::new(stderr)),
             process,
         ))
     }
@@ -488,17 +499,12 @@ impl Transport for StdioTransport {
             .stdout
             .take()
             .ok_or_else(|| anyhow!("Failed to open stdout"))?;
-        let stderr = process
-            .stderr
-            .take()
-            .ok_or_else(|| anyhow!("Failed to open stderr"))?;
 
         log::info!("Debug adapter has connected to stdio adapter");
 
         Ok(TransportParams::new(
             Box::new(stdin),
             Box::new(BufReader::new(stdout)),
-            Box::new(BufReader::new(stderr)),
             process,
         ))
     }

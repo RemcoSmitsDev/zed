@@ -1,9 +1,12 @@
 use dap::{
     client::{DebugAdapterClient, DebugAdapterClientId},
-    transport::IoKind,
+    transport::{IoKind, LogKind},
 };
 use editor::{Editor, EditorEvent};
-use futures::StreamExt;
+use futures::{
+    channel::mpsc::{unbounded, UnboundedSender},
+    StreamExt,
+};
 use gpui::{
     actions, div, AnchorCorner, AppContext, Context, EventEmitter, FocusHandle, FocusableView,
     IntoElement, Model, ModelContext, ParentElement, Render, SharedString, Styled, Subscription,
@@ -35,8 +38,8 @@ struct DapLogView {
 struct LogStore {
     projects: HashMap<WeakModel<Project>, ProjectState>,
     debug_clients: HashMap<DebugAdapterClientId, DebugAdapterState>,
-    io_tx: futures::channel::mpsc::UnboundedSender<(DebugAdapterClientId, IoKind, String)>,
-    log_io_tx: futures::channel::mpsc::UnboundedSender<(DebugAdapterClientId, IoKind, String)>,
+    rpc_tx: UnboundedSender<(DebugAdapterClientId, IoKind, String)>,
+    adapter_log_tx: UnboundedSender<(DebugAdapterClientId, IoKind, String)>,
 }
 
 struct ProjectState {
@@ -93,13 +96,12 @@ impl DebugAdapterState {
 
 impl LogStore {
     fn new(cx: &ModelContext<Self>) -> Self {
-        let (io_tx, mut io_rx) =
-            futures::channel::mpsc::unbounded::<(DebugAdapterClientId, IoKind, String)>();
+        let (rpc_tx, mut rpc_rx) = unbounded::<(DebugAdapterClientId, IoKind, String)>();
         cx.spawn(|this, mut cx| async move {
-            while let Some((server_id, io_kind, message)) = io_rx.next().await {
+            while let Some((server_id, io_kind, message)) = rpc_rx.next().await {
                 if let Some(this) = this.upgrade() {
                     this.update(&mut cx, |this, cx| {
-                        this.on_io(server_id, io_kind, &message, cx);
+                        this.on_rpc_log(server_id, io_kind, &message, cx);
                     })?;
                 }
             }
@@ -107,13 +109,13 @@ impl LogStore {
         })
         .detach_and_log_err(cx);
 
-        let (log_io_tx, mut log_io_rx) =
-            futures::channel::mpsc::unbounded::<(DebugAdapterClientId, IoKind, String)>();
+        let (adapter_log_tx, mut adapter_log_rx) =
+            unbounded::<(DebugAdapterClientId, IoKind, String)>();
         cx.spawn(|this, mut cx| async move {
-            while let Some((server_id, io_kind, message)) = log_io_rx.next().await {
+            while let Some((server_id, io_kind, message)) = adapter_log_rx.next().await {
                 if let Some(this) = this.upgrade() {
                     this.update(&mut cx, |this, cx| {
-                        this.on_log_io(server_id, io_kind, &message, cx);
+                        this.on_adapter_log(server_id, io_kind, &message, cx);
                     })?;
                 }
             }
@@ -121,14 +123,14 @@ impl LogStore {
         })
         .detach_and_log_err(cx);
         Self {
+            rpc_tx,
+            adapter_log_tx,
             projects: HashMap::new(),
             debug_clients: HashMap::new(),
-            io_tx,
-            log_io_tx,
         }
     }
 
-    fn on_io(
+    fn on_rpc_log(
         &mut self,
         client_id: DebugAdapterClientId,
         io_kind: IoKind,
@@ -140,7 +142,7 @@ impl LogStore {
         Some(())
     }
 
-    fn on_log_io(
+    fn on_adapter_log(
         &mut self,
         client_id: DebugAdapterClientId,
         io_kind: IoKind,
@@ -238,7 +240,7 @@ impl LogStore {
             _ => message,
         };
 
-        Self::add_debug_client_entry(&mut log_messages, id, message, LogKind::Logs, cx);
+        Self::add_debug_client_entry(&mut log_messages, id, message, LogKind::Adapter, cx);
 
         Some(())
     }
@@ -272,7 +274,7 @@ impl LogStore {
             .or_insert_with(DebugAdapterState::new);
 
         if let Some(client) = client {
-            let io_tx = self.io_tx.clone();
+            let io_tx = self.rpc_tx.clone();
 
             client.add_log_handler(
                 move |io_kind, message| {
@@ -280,17 +282,17 @@ impl LogStore {
                         .unbounded_send((client_id, io_kind, message.to_string()))
                         .ok();
                 },
-                dap::transport::LogKind::Rpc,
+                LogKind::Rpc,
             );
 
-            let log_io_tx = self.log_io_tx.clone();
+            let log_io_tx = self.adapter_log_tx.clone();
             client.add_log_handler(
                 move |io_kind, message| {
                     log_io_tx
                         .unbounded_send((client_id, io_kind, message.to_string()))
                         .ok();
                 },
-                dap::transport::LogKind::Command,
+                LogKind::Adapter,
             );
         }
 
@@ -396,7 +398,10 @@ impl Render for DapLogToolbarItemView {
                         Cow::Owned(format!(
                             "{} - {}",
                             row.client_name,
-                            row.selected_entry.label()
+                            match row.selected_entry {
+                                LogKind::Adapter => ADAPTER_LOGS,
+                                LogKind::Rpc => RPC_MESSAGES,
+                            }
                         ))
                     })
                     .unwrap_or_else(|| "No server selected".into()),
@@ -413,7 +418,7 @@ impl Render for DapLogToolbarItemView {
                             menu = menu.header(row.client_name.to_string());
 
                             menu = menu.entry(
-                                CLIENT_LOGS,
+                                ADAPTER_LOGS,
                                 None,
                                 cx.handler_for(&log_view, move |view, cx| {
                                     view.show_log_messages_for_server(row.client_id, cx);
@@ -590,7 +595,7 @@ impl DapLogView {
             .map(|client| DapMenuItem {
                 client_id: client.id(),
                 client_name: client.config().kind.to_string(),
-                selected_entry: self.current_view.map_or(LogKind::Logs, |(_, kind)| kind),
+                selected_entry: self.current_view.map_or(LogKind::Adapter, |(_, kind)| kind),
                 has_adapter_logs: client.has_adapter_logs(),
                 rpc_trace_enabled: log_store.rpc_logging_enabled_for_client(client.id()),
             })
@@ -652,7 +657,7 @@ impl DapLogView {
                 .map(|state| log_contents(&state))
         });
         if let Some(message_log) = message_log {
-            self.current_view = Some((client_id, LogKind::Logs));
+            self.current_view = Some((client_id, LogKind::Adapter));
             let (editor, editor_subscriptions) = Self::editor_for_logs(message_log, cx);
             editor
                 .read(cx)
@@ -699,7 +704,7 @@ fn log_contents(lines: &VecDeque<String>) -> String {
     })
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub(crate) struct DapMenuItem {
     pub client_id: DebugAdapterClientId,
     pub client_name: String,
@@ -708,24 +713,8 @@ pub(crate) struct DapMenuItem {
     pub selected_entry: LogKind,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub enum LogKind {
-    Rpc,
-    #[default]
-    Logs,
-}
-
-const CLIENT_LOGS: &str = "Client Logs";
+const ADAPTER_LOGS: &str = "Adapter Logs";
 const RPC_MESSAGES: &str = "RPC Messages";
-
-impl LogKind {
-    fn label(&self) -> &'static str {
-        match self {
-            LogKind::Rpc => RPC_MESSAGES,
-            LogKind::Logs => CLIENT_LOGS,
-        }
-    }
-}
 
 impl Render for DapLogView {
     fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
