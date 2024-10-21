@@ -13,7 +13,6 @@ use smol::{
     lock::Mutex,
     net::{TcpListener, TcpStream},
     process::{self, Child, ChildStderr, ChildStdout},
-    stream::StreamExt as _,
 };
 use std::{
     borrow::BorrowMut,
@@ -152,15 +151,19 @@ impl TransportDelegate {
         }
     }
 
-    async fn handle_adapter_log(stdout: ChildStdout, log_handlers: LogHandlers) {
-        let mut lines = BufReader::new(stdout).lines();
-        while let Some(Ok(line)) = lines.next().await {
+    async fn handle_adapter_log(stdout: ChildStdout, log_handlers: LogHandlers) -> Result<()> {
+        let mut reader = BufReader::new(stdout);
+        let mut line = String::new();
+        while reader.read_line(&mut line).await? > 0 {
             for (kind, handler) in log_handlers.lock().iter_mut() {
                 if matches!(kind, LogKind::Adapter) {
-                    handler(IoKind::StdOut, line.as_ref());
+                    handler(IoKind::StdOut, line.as_str());
                 }
             }
+            line.truncate(0);
         }
+
+        Ok(())
     }
 
     async fn handle_input(
@@ -412,7 +415,7 @@ impl Transport for TcpTransport {
 
         command
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
 
