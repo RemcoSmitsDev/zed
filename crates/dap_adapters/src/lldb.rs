@@ -38,7 +38,25 @@ impl DebugAdapter for LldbDebugAdapter {
         _: &dyn DapDelegate,
         _: &DebugAdapterConfig,
     ) -> Result<DebugAdapterBinary> {
-        bail!("Install or fetch not implemented for lldb debug adapter (yet)")
+        #[cfg(target_os = "macos")]
+        {
+            let output = std::process::Command::new("xcrun")
+                .args(&["-f", "lldb-dap"])
+                .output()?;
+            let lldb_dap_path = String::from_utf8(output.stdout)?.trim().to_string();
+
+            Ok(DebugAdapterBinary {
+                command: lldb_dap_path,
+                arguments: None,
+                envs: None,
+            })
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Err(anyhow::anyhow!(
+                "LLDB-DAP is only supported on macOS (Right now)"
+            ))
+        }
     }
 
     fn request_args(&self, config: &DebugAdapterConfig) -> Value {
