@@ -18,6 +18,15 @@ impl DebugAdapter for JsDebugAdapter {
         DebugAdapterName(Self::ADAPTER_NAME.into())
     }
 
+    fn download_kind(&self) -> DebugAdapterDownloadKind {
+        let repo_name = "microsoft".to_string();
+        let repo_owner = "vscode-js-debug".to_string();
+        DebugAdapterDownloadKind::Github(GithubRepo {
+            repo_name,
+            repo_owner,
+        })
+    }
+
     async fn connect(
         &self,
         adapter_binary: &DebugAdapterBinary,

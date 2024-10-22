@@ -21,16 +21,19 @@ impl DebugAdapter for LldbDebugAdapter {
         DebugAdapterName(Self::ADAPTER_NAME.into())
     }
 
+    fn download_kind(&self) -> DebugAdapterDownloadKind {
+        DebugAdapterDownloadKind::Github(GithubRepo {
+            repo_name: "llvm-project".to_string(),
+            repo_owner: "llvm".to_string(),
+        })
+    }
+
     async fn connect(
         &self,
         adapter_binary: &DebugAdapterBinary,
         _: &mut AsyncAppContext,
     ) -> Result<TransportParams> {
         create_stdio_client(adapter_binary)
-    }
-
-    async fn install_binary(&self, _: &dyn DapDelegate) -> Result<()> {
-        bail!("Install or fetch not implemented for lldb debug adapter (yet)")
     }
 
     async fn fetch_binary(

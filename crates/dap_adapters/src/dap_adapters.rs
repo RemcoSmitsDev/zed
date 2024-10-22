@@ -15,7 +15,7 @@ use async_trait::async_trait;
 use dap::{
     adapters::{
         create_stdio_client, create_tcp_client, DapDelegate, DebugAdapter, DebugAdapterBinary,
-        DebugAdapterName,
+        DebugAdapterDownloadKind, DebugAdapterName, GithubRepo,
     },
     client::TransportParams,
 };

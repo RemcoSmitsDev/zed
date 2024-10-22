@@ -24,6 +24,10 @@ impl DebugAdapter for CustomDebugAdapter {
         DebugAdapterName(Self::ADAPTER_NAME.into())
     }
 
+    fn download_kind(&self) -> DebugAdapterDownloadKind {
+        DebugAdapterDownloadKind::Custom
+    }
+
     async fn connect(
         &self,
         adapter_binary: &DebugAdapterBinary,
