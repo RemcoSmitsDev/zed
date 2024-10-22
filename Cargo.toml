@@ -161,12 +161,10 @@ members = [
     "extensions/ruff",
     "extensions/slash-commands-example",
     "extensions/snippets",
-    "extensions/svelte",
     "extensions/terraform",
     "extensions/test-extension",
     "extensions/toml",
     "extensions/uiua",
-    "extensions/vue",
     "extensions/zig",
 
     #
@@ -174,6 +172,7 @@ members = [
     #
 
     "tooling/xtask",
+    "crates/debugger_tools",
 ]
 default-members = ["crates/zed"]
 
@@ -209,6 +208,7 @@ dap = { path = "crates/dap" }
 dap_adapters = { path = "crates/dap_adapters" }
 db = { path = "crates/db" }
 debugger_ui = { path = "crates/debugger_ui" }
+debugger_tools = { path = "crates/debugger_tools" }
 dev_server_projects = { path = "crates/dev_server_projects" }
 diagnostics = { path = "crates/diagnostics" }
 editor = { path = "crates/editor" }
@@ -355,6 +355,7 @@ ctor = "0.2.6"
 dashmap = "6.0"
 derive_more = "0.99.17"
 dirs = "4.0"
+ec4rs = "1.1"
 emojis = "0.6.1"
 env_logger = "0.11"
 exec = "0.3.1"
@@ -397,7 +398,14 @@ pulldown-cmark = { version = "0.12.0", default-features = false }
 rand = "0.8.5"
 regex = "1.5"
 repair_json = "0.1.0"
-reqwest = { git = "https://github.com/zed-industries/reqwest.git", rev = "fd110f6998da16bbca97b6dddda9be7827c50e29", default-features = false, features = ["charset", "http2", "macos-system-configuration", "rustls-tls-native-roots", "stream"]}
+reqwest = { git = "https://github.com/zed-industries/reqwest.git", rev = "fd110f6998da16bbca97b6dddda9be7827c50e29", default-features = false, features = [
+    "charset",
+    "http2",
+    "macos-system-configuration",
+    "rustls-tls-native-roots",
+    "socks",
+    "stream",
+] }
 rsa = "0.9.6"
 runtimelib = { version = "0.15", default-features = false, features = [
     "async-dispatcher-runtime",

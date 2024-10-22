@@ -4,23 +4,18 @@ mod lldb;
 mod php;
 mod python;
 
+use anyhow::{anyhow, bail, Context, Result};
+use async_trait::async_trait;
 use custom::CustomDebugAdapter;
+use dap::adapters::{
+    DapDelegate, DebugAdapter, DebugAdapterBinary, DebugAdapterDownloadKind, DebugAdapterName,
+    GithubRepo,
+};
+use http_client::github::latest_github_release;
 use javascript::JsDebugAdapter;
 use lldb::LldbDebugAdapter;
 use php::PhpDebugAdapter;
 use python::PythonDebugAdapter;
-
-use anyhow::{anyhow, bail, Context, Result};
-use async_trait::async_trait;
-use dap::{
-    adapters::{
-        create_stdio_client, create_tcp_client, DapDelegate, DebugAdapter, DebugAdapterBinary,
-        DebugAdapterDownloadKind, DebugAdapterName, GithubRepo,
-    },
-    client::TransportParams,
-};
-use gpui::AsyncAppContext;
-use http_client::github::latest_github_release;
 use serde_json::{json, Value};
 use smol::{
     fs::{self, File},

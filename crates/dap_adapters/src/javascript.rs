@@ -1,3 +1,5 @@
+use dap::transport::{TcpTransport, Transport};
+
 use crate::*;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -19,26 +21,18 @@ impl DebugAdapter for JsDebugAdapter {
     }
 
     fn download_kind(&self) -> DebugAdapterDownloadKind {
-        let repo_name = "microsoft".to_string();
-        let repo_owner = "vscode-js-debug".to_string();
         DebugAdapterDownloadKind::Github(GithubRepo {
-            repo_name,
-            repo_owner,
+            repo_name: "vscode-js-debug".into(),
+            repo_owner: "microsoft".into(),
         })
     }
 
-    async fn connect(
-        &self,
-        adapter_binary: &DebugAdapterBinary,
-        cx: &mut AsyncAppContext,
-    ) -> Result<TransportParams> {
-        let host = TCPHost {
+    fn transport(&self) -> Box<dyn Transport> {
+        Box::new(TcpTransport::new(TCPHost {
             port: Some(8133),
             host: None,
-            delay: Some(1000),
-        };
-
-        create_tcp_client(host, adapter_binary, cx).await
+            timeout: None,
+        }))
     }
 
     async fn fetch_binary(

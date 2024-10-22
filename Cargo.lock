@@ -412,6 +412,7 @@ dependencies = [
  "parking_lot",
  "paths",
  "picker",
+ "pretty_assertions",
  "project",
  "proto",
  "rand 0.8.5",
@@ -3359,6 +3360,7 @@ dependencies = [
  "serde",
  "serde_json",
  "settings",
+ "smallvec",
  "smol",
  "task",
  "util",
@@ -3383,7 +3385,6 @@ dependencies = [
  "dap",
  "fs",
  "futures 0.3.30",
- "gpui",
  "http_client",
  "paths",
  "serde",
@@ -3464,6 +3465,19 @@ dependencies = [
  "libc",
  "libdbus-sys",
  "winapi",
+]
+
+[[package]]
+name = "debugger_tools"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dap",
+ "editor",
+ "futures 0.3.30",
+ "gpui",
+ "project",
+ "workspace",
 ]
 
 [[package]]
@@ -3726,6 +3740,12 @@ name = "dyn-clone"
 version = "1.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d6ef0072f8a535281e4876be788938b528e9a1d43900b82c2569af7da799125"
+
+[[package]]
+name = "ec4rs"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acf65d056c7da9c971c2847ce250fd1f0f9659d5718845c3ec0ad95f5668352c"
 
 [[package]]
 name = "ecdsa"
@@ -6289,6 +6309,7 @@ dependencies = [
  "clock",
  "collections",
  "ctor",
+ "ec4rs",
  "env_logger",
  "futures 0.3.30",
  "fuzzy",
@@ -8554,6 +8575,7 @@ dependencies = [
  "terminal",
  "text",
  "unindent",
+ "url",
  "util",
  "which 6.0.3",
  "windows 0.58.0",
@@ -9056,6 +9078,7 @@ dependencies = [
  "futures 0.3.30",
  "fuzzy",
  "gpui",
+ "itertools 0.13.0",
  "language",
  "log",
  "menu",
@@ -9199,6 +9222,7 @@ name = "remote"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "collections",
  "fs",
  "futures 0.3.30",
@@ -9230,6 +9254,8 @@ dependencies = [
  "env_logger",
  "fs",
  "futures 0.3.30",
+ "git",
+ "git_hosting_providers",
  "gpui",
  "http_client",
  "language",
@@ -9381,6 +9407,7 @@ dependencies = [
  "system-configuration 0.6.1",
  "tokio",
  "tokio-rustls 0.26.0",
+ "tokio-socks",
  "tokio-util",
  "tower-service",
  "url",
@@ -10378,6 +10405,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "collections",
+ "ec4rs",
  "fs",
  "futures 0.3.30",
  "gpui",
@@ -12081,6 +12109,7 @@ dependencies = [
  "futures-io",
  "futures-util",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]
@@ -14687,6 +14716,7 @@ dependencies = [
  "command_palette_hooks",
  "copilot",
  "db",
+ "debugger_tools",
  "debugger_ui",
  "dev_server_projects",
  "diagnostics",
@@ -14821,7 +14851,7 @@ dependencies = [
 
 [[package]]
 name = "zed_elixir"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "zed_extension_api 0.1.0",
 ]
@@ -14946,13 +14976,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "zed_svelte"
-version = "0.2.0"
-dependencies = [
- "zed_extension_api 0.1.0",
-]
-
-[[package]]
 name = "zed_terraform"
 version = "0.1.1"
 dependencies = [
@@ -14977,14 +15000,6 @@ dependencies = [
 name = "zed_uiua"
 version = "0.0.1"
 dependencies = [
- "zed_extension_api 0.1.0",
-]
-
-[[package]]
-name = "zed_vue"
-version = "0.1.0"
-dependencies = [
- "serde",
  "zed_extension_api 0.1.0",
 ]
 

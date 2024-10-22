@@ -1,5 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use dap::transport::{StdioTransport, Transport};
 use task::DebugAdapterConfig;
 
 use crate::*;
@@ -28,12 +29,8 @@ impl DebugAdapter for LldbDebugAdapter {
         })
     }
 
-    async fn connect(
-        &self,
-        adapter_binary: &DebugAdapterBinary,
-        _: &mut AsyncAppContext,
-    ) -> Result<TransportParams> {
-        create_stdio_client(adapter_binary)
+    fn transport(&self) -> Box<dyn Transport> {
+        Box::new(StdioTransport::new())
     }
 
     async fn fetch_binary(

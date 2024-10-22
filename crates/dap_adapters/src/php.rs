@@ -1,3 +1,5 @@
+use dap::transport::{TcpTransport, Transport};
+
 use crate::*;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -27,18 +29,12 @@ impl DebugAdapter for PhpDebugAdapter {
         })
     }
 
-    async fn connect(
-        &self,
-        adapter_binary: &DebugAdapterBinary,
-        cx: &mut AsyncAppContext,
-    ) -> Result<TransportParams> {
-        let host = TCPHost {
+    fn transport(&self) -> Box<dyn Transport> {
+        Box::new(TcpTransport::new(TCPHost {
             port: Some(8132),
             host: None,
-            delay: Some(1000),
-        };
-
-        create_tcp_client(host, adapter_binary, cx).await
+            timeout: None,
+        }))
     }
 
     async fn fetch_binary(

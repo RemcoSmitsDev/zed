@@ -11,7 +11,7 @@ pub(crate) mod windows_only_instance;
 pub use app_menus::*;
 use assistant::PromptBuilder;
 use breadcrumbs::Breadcrumbs;
-use client::ZED_URL_SCHEME;
+use client::{zed_urls, ZED_URL_SCHEME};
 use collections::VecDeque;
 use command_palette_hooks::CommandPaletteFilter;
 use debugger_ui::debugger_panel::DebugPanel;
@@ -424,8 +424,7 @@ pub fn initialize_workspace(
             )
             .register_action(
                 |_: &mut Workspace, _: &OpenAccountSettings, cx: &mut ViewContext<Workspace>| {
-                    let server_url = &client::ClientSettings::get_global(cx).server_url;
-                    cx.open_url(&format!("{server_url}/account"));
+                    cx.open_url(&zed_urls::account_url(cx));
                 },
             )
             .register_action(
@@ -599,6 +598,8 @@ fn initialize_pane(workspace: &Workspace, pane: &View<Pane>, cx: &mut ViewContex
             toolbar.add_item(project_search_bar, cx);
             let lsp_log_item = cx.new_view(|_| language_tools::LspLogToolbarItemView::new());
             toolbar.add_item(lsp_log_item, cx);
+            let dap_log_item = cx.new_view(|_| debugger_tools::DapLogToolbarItemView::new());
+            toolbar.add_item(dap_log_item, cx);
             let syntax_tree_item =
                 cx.new_view(|_| language_tools::SyntaxTreeToolbarItemView::new());
             toolbar.add_item(syntax_tree_item, cx);

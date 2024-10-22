@@ -1,3 +1,5 @@
+use dap::transport::{StdioTransport, Transport};
+
 use crate::*;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -25,12 +27,8 @@ impl DebugAdapter for PythonDebugAdapter {
         })
     }
 
-    async fn connect(
-        &self,
-        adapter_binary: &DebugAdapterBinary,
-        _: &mut AsyncAppContext,
-    ) -> Result<TransportParams> {
-        create_stdio_client(adapter_binary)
+    fn transport(&self) -> Box<dyn Transport> {
+        Box::new(StdioTransport::new())
     }
 
     async fn fetch_binary(

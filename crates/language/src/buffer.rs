@@ -20,6 +20,7 @@ use anyhow::{anyhow, Context, Result};
 use async_watch as watch;
 use clock::Lamport;
 pub use clock::ReplicaId;
+use collections::HashMap;
 use futures::channel::oneshot;
 use gpui::{
     AnyElement, AppContext, Context as _, EventEmitter, HighlightStyle, Model, ModelContext,
@@ -36,6 +37,7 @@ use smallvec::SmallVec;
 use smol::future::yield_now;
 use std::{
     any::Any,
+    borrow::Cow,
     cell::Cell,
     cmp::{self, Ordering, Reverse},
     collections::BTreeMap,
@@ -910,10 +912,8 @@ impl Buffer {
         self.apply_ops([operation.clone()], cx);
 
         if let Some(timestamp) = operation_to_undo {
-            let operation = self
-                .text
-                .undo_operations([(timestamp, u32::MAX)].into_iter().collect());
-            self.send_operation(Operation::Buffer(operation), true, cx);
+            let counts = [(timestamp, u32::MAX)].into_iter().collect();
+            self.undo_operations(counts, cx);
         }
 
         self.diff_base_version += 1;
@@ -2331,6 +2331,18 @@ impl Buffer {
         undone
     }
 
+    pub fn undo_operations(
+        &mut self,
+        counts: HashMap<Lamport, u32>,
+        cx: &mut ModelContext<Buffer>,
+    ) {
+        let was_dirty = self.is_dirty();
+        let operation = self.text.undo_operations(counts);
+        let old_version = self.version.clone();
+        self.send_operation(Operation::Buffer(operation), true, cx);
+        self.did_edit(&old_version, was_dirty, cx);
+    }
+
     /// Manually redoes a specific transaction in the buffer's redo history.
     pub fn redo(&mut self, cx: &mut ModelContext<Self>) -> Option<TransactionId> {
         let was_dirty = self.is_dirty();
@@ -2479,7 +2491,11 @@ impl BufferSnapshot {
     /// Returns [`IndentSize`] for a given position that respects user settings
     /// and language preferences.
     pub fn language_indent_size_at<T: ToOffset>(&self, position: T, cx: &AppContext) -> IndentSize {
-        let settings = language_settings(self.language_at(position), self.file(), cx);
+        let settings = language_settings(
+            self.language_at(position).map(|l| l.name()),
+            self.file(),
+            cx,
+        );
         if settings.hard_tabs {
             IndentSize::tab()
         } else {
@@ -2812,11 +2828,15 @@ impl BufferSnapshot {
 
     /// Returns the settings for the language at the given location.
     pub fn settings_at<'a, D: ToOffset>(
-        &self,
+        &'a self,
         position: D,
         cx: &'a AppContext,
-    ) -> &'a LanguageSettings {
-        language_settings(self.language_at(position), self.file.as_ref(), cx)
+    ) -> Cow<'a, LanguageSettings> {
+        language_settings(
+            self.language_at(position).map(|l| l.name()),
+            self.file.as_ref(),
+            cx,
+        )
     }
 
     pub fn char_classifier_at<T: ToOffset>(&self, point: T) -> CharClassifier {
@@ -3518,7 +3538,8 @@ impl BufferSnapshot {
         ignore_disabled_for_language: bool,
         cx: &AppContext,
     ) -> Vec<IndentGuide> {
-        let language_settings = language_settings(self.language(), self.file.as_ref(), cx);
+        let language_settings =
+            language_settings(self.language().map(|l| l.name()), self.file.as_ref(), cx);
         let settings = language_settings.indent_guides;
         if !ignore_disabled_for_language && !settings.enabled {
             return Vec::new();
