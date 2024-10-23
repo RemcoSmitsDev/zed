@@ -40,6 +40,7 @@ pub struct DebugAdapterBinary {
     pub command: String,
     pub arguments: Option<Vec<OsString>>,
     pub envs: Option<HashMap<String, String>>,
+    pub version: String,
 }
 
 pub struct AdapterVersion {
@@ -154,13 +155,19 @@ pub trait DebugAdapter: 'static + Send + Sync {
     ) -> Result<DebugAdapterBinary> {
         // TODO Debugger: Check if a user already has one installed
         log::info!("Getting latest version of debug adapter {}", self.name());
-        let version = self.fetch_latest_adapter_version(delegate).await?;
+        let version = self.fetch_latest_adapter_version(delegate).await.ok();
 
         let mut binary = self.get_installed_binary(delegate, config).await;
 
-        if binary.is_err() {
-            self.install_binary(version, delegate).await?;
+        if let Some(version) = version {
+            if binary
+                .as_ref()
+                .is_ok_and(|binary| binary.version == version.tag_name)
+            {
+                return binary;
+            }
 
+            self.install_binary(version, delegate).await?;
             binary = self.get_installed_binary(delegate, config).await;
         }
 

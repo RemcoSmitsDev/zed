@@ -53,6 +53,7 @@ impl DebugAdapter for CustomDebugAdapter {
                 .clone()
                 .map(|args| args.iter().map(OsString::from).collect()),
             envs: self.custom_args.envs.clone(),
+            version: "Custom daps".to_string(),
         })
     }
 

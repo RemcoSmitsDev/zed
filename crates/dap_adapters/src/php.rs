@@ -56,6 +56,13 @@ impl DebugAdapter for PhpDebugAdapter {
         .await
         .ok_or_else(|| anyhow!("Couldn't find javascript dap directory"))?;
 
+        let version = adapter_path
+            .file_name()
+            .and_then(|file_name| file_name.to_str())
+            .and_then(|file_name| file_name.strip_prefix("vscode-php-debug_"))
+            .ok_or_else(|| anyhow!("Javascript debug adapter has invalid file name"))?
+            .to_string();
+
         Ok(DebugAdapterBinary {
             command: node_runtime
                 .binary_path()
@@ -67,6 +74,7 @@ impl DebugAdapter for PhpDebugAdapter {
                 "--server=8132".into(),
             ]),
             envs: None,
+            version,
         })
     }
 

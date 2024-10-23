@@ -58,10 +58,18 @@ impl DebugAdapter for PythonDebugAdapter {
         .await
         .ok_or_else(|| anyhow!("Debugpy directory not found"))?;
 
+        let version = adapter_path
+            .file_name()
+            .and_then(|file_name| file_name.to_str())
+            .and_then(|file_name| file_name.strip_prefix("debugpy_"))
+            .ok_or_else(|| anyhow!("Javascript debug adapter has invalid file name"))?
+            .to_string();
+
         Ok(DebugAdapterBinary {
             command: "python3".to_string(),
             arguments: Some(vec![debugpy_dir.join(Self::ADAPTER_PATH).into()]),
             envs: None,
+            version,
         })
     }
 
