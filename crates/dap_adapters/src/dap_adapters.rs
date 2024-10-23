@@ -4,24 +4,18 @@ mod lldb;
 mod php;
 mod python;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use custom::CustomDebugAdapter;
 use dap::adapters::{
-    DapDelegate, DebugAdapter, DebugAdapterBinary, DebugAdapterDownloadKind, DebugAdapterName,
-    GithubRepo,
+    self, DapDelegate, DebugAdapter, DebugAdapterBinary, DebugAdapterName, GithubRepo,
 };
-use http_client::github::latest_github_release;
 use javascript::JsDebugAdapter;
 use lldb::LldbDebugAdapter;
 use php::PhpDebugAdapter;
 use python::PythonDebugAdapter;
 use serde_json::{json, Value};
-use smol::{
-    fs::{self, File},
-    process,
-};
-use std::{fmt::Debug, process::Stdio};
+use std::fmt::Debug;
 use task::{CustomArgs, DebugAdapterConfig, DebugAdapterKind, DebugConnectionType, TCPHost};
 
 pub fn build_adapter(adapter_config: &DebugAdapterConfig) -> Result<Box<dyn DebugAdapter>> {

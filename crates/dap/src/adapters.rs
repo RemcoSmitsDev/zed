@@ -6,7 +6,13 @@ use http_client::{github::latest_github_release, HttpClient};
 use node_runtime::NodeRuntime;
 use serde_json::Value;
 use smol::{self, fs::File, process};
-use std::{collections::HashMap, ffi::OsString, fmt::Debug, path::Path, sync::Arc};
+use std::{
+    collections::HashMap,
+    ffi::OsString,
+    fmt::Debug,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use task::DebugAdapterConfig;
 
 pub trait DapDelegate {
@@ -36,22 +42,13 @@ pub struct DebugAdapterBinary {
     pub envs: Option<HashMap<String, String>>,
 }
 
-pub enum DebugAdapterDownloadKind {
-    Github(GithubRepo),
-    Custom,
-}
-
-async fn download_adapter_from_github(
+pub async fn download_adapter_from_github(
     adapter_name: DebugAdapterName,
     github_repo: GithubRepo,
     delegate: &dyn DapDelegate,
-) -> Result<()> {
+) -> Result<PathBuf> {
     let adapter_path = paths::debug_adapters_dir().join(&adapter_name);
     let fs = delegate.fs();
-
-    if fs.is_dir(adapter_path.as_path()).await {
-        return Ok(());
-    }
 
     if let Some(http_client) = delegate.http_client() {
         if !adapter_path.exists() {
@@ -91,12 +88,13 @@ async fn download_adapter_from_github(
             .ok_or_else(|| anyhow!("Unzipped directory not found"));
 
             let file_name = file_name?;
+            let downloaded_path = adapter_path
+                .join(format!("{}_{}", adapter_name, release.tag_name))
+                .to_owned();
 
             fs.rename(
                 file_name.as_path(),
-                adapter_path
-                    .join(format!("{}_{}", adapter_name, release.tag_name))
-                    .as_path(),
+                downloaded_path.as_path(),
                 Default::default(),
             )
             .await?;
@@ -106,7 +104,7 @@ async fn download_adapter_from_github(
             //     Err(anyhow!("failed to unzip downloaded dap archive"))?;
             // }
 
-            return Ok(());
+            return Ok(downloaded_path);
         }
     }
 
@@ -124,8 +122,6 @@ pub trait DebugAdapter: 'static + Send + Sync {
         "".to_string()
     }
 
-    fn download_kind(&self) -> DebugAdapterDownloadKind;
-
     fn name(&self) -> DebugAdapterName;
 
     fn transport(&self) -> Box<dyn Transport>;
@@ -133,17 +129,7 @@ pub trait DebugAdapter: 'static + Send + Sync {
     /// Installs the binary for the debug adapter.
     /// This method is called when the adapter binary is not found or needs to be updated.
     /// It should download and install the necessary files for the debug adapter to function.
-    async fn install_binary(&self, delegate: &dyn DapDelegate) -> Result<()> {
-        let adapter_name = self.name();
-        let download_kind = self.download_kind();
-
-        match download_kind {
-            DebugAdapterDownloadKind::Github(github_repo) => {
-                download_adapter_from_github(adapter_name, github_repo, delegate).await
-            }
-            DebugAdapterDownloadKind::Custom => Ok(()),
-        }
-    }
+    async fn install_binary(&self, delegate: &dyn DapDelegate) -> Result<()>;
 
     async fn fetch_binary(
         &self,

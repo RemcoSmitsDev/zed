@@ -20,17 +20,19 @@ impl DebugAdapter for PythonDebugAdapter {
         DebugAdapterName(Self::ADAPTER_NAME.into())
     }
 
-    fn download_kind(&self) -> DebugAdapterDownloadKind {
-        DebugAdapterDownloadKind::Github(GithubRepo {
-            repo_name: "debugpy".to_string(),
-            repo_owner: "microsoft".to_string(),
-        })
-    }
-
     fn transport(&self) -> Box<dyn Transport> {
         Box::new(StdioTransport::new())
     }
 
+    async fn install_binary(&self, delegate: &dyn DapDelegate) -> Result<()> {
+        let github_repo = GithubRepo {
+            repo_name: "debugpy".into(),
+            repo_owner: "microsoft".into(),
+        };
+
+        adapters::download_adapter_from_github(self.name(), github_repo, delegate).await?;
+        Ok(())
+    }
     async fn fetch_binary(
         &self,
         _: &dyn DapDelegate,

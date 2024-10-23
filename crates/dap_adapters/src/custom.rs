@@ -25,10 +25,6 @@ impl DebugAdapter for CustomDebugAdapter {
         DebugAdapterName(Self::ADAPTER_NAME.into())
     }
 
-    fn download_kind(&self) -> DebugAdapterDownloadKind {
-        DebugAdapterDownloadKind::Custom
-    }
-
     fn transport(&self) -> Box<dyn Transport> {
         match &self.custom_args.connection {
             DebugConnectionType::STDIO => Box::new(StdioTransport::new()),

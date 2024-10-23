@@ -22,15 +22,12 @@ impl DebugAdapter for LldbDebugAdapter {
         DebugAdapterName(Self::ADAPTER_NAME.into())
     }
 
-    fn download_kind(&self) -> DebugAdapterDownloadKind {
-        DebugAdapterDownloadKind::Github(GithubRepo {
-            repo_name: "llvm-project".to_string(),
-            repo_owner: "llvm".to_string(),
-        })
-    }
-
     fn transport(&self) -> Box<dyn Transport> {
         Box::new(StdioTransport::new())
+    }
+
+    async fn install_binary(&self, _delegate: &dyn DapDelegate) -> Result<()> {
+        bail!("Install binary is not support for install_binary (yet)")
     }
 
     async fn fetch_binary(
