@@ -32,11 +32,15 @@ impl DebugAdapter for CustomDebugAdapter {
         }
     }
 
-    async fn install_binary(&self, _: &dyn DapDelegate) -> Result<()> {
+    async fn fetch_latest_adapter_version(&self, _: &dyn DapDelegate) -> Result<AdapterVersion> {
+        bail!("Custom debug adapters don't have latest versions")
+    }
+
+    async fn install_binary(&self, _: AdapterVersion, _: &dyn DapDelegate) -> Result<()> {
         Ok(())
     }
 
-    async fn fetch_binary(
+    async fn get_installed_binary(
         &self,
         _: &dyn DapDelegate,
         _: &DebugAdapterConfig,

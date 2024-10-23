@@ -28,7 +28,19 @@ impl DebugAdapter for PhpDebugAdapter {
         }))
     }
 
-    async fn fetch_binary(
+    async fn fetch_latest_adapter_version(
+        &self,
+        delegate: &dyn DapDelegate,
+    ) -> Result<AdapterVersion> {
+        let github_repo = GithubRepo {
+            repo_name: "vscode-php-debug".to_string(),
+            repo_owner: "xdebug".to_string(),
+        };
+
+        adapters::fetch_latest_adapter_version_from_github(github_repo, delegate).await
+    }
+
+    async fn get_installed_binary(
         &self,
         delegate: &dyn DapDelegate,
         _: &DebugAdapterConfig,
@@ -58,14 +70,13 @@ impl DebugAdapter for PhpDebugAdapter {
         })
     }
 
-    async fn install_binary(&self, delegate: &dyn DapDelegate) -> Result<()> {
-        let github_repo = GithubRepo {
-            repo_name: "vscode-php-debug".to_string(),
-            repo_owner: "xdebug".to_string(),
-        };
-
+    async fn install_binary(
+        &self,
+        version: AdapterVersion,
+        delegate: &dyn DapDelegate,
+    ) -> Result<()> {
         let adapter_path =
-            adapters::download_adapter_from_github(self.name(), github_repo, delegate).await?;
+            adapters::download_adapter_from_github(self.name(), version, delegate).await?;
 
         let _ = delegate
             .node_runtime()

@@ -24,16 +24,28 @@ impl DebugAdapter for PythonDebugAdapter {
         Box::new(StdioTransport::new())
     }
 
-    async fn install_binary(&self, delegate: &dyn DapDelegate) -> Result<()> {
+    async fn fetch_latest_adapter_version(
+        &self,
+        delegate: &dyn DapDelegate,
+    ) -> Result<AdapterVersion> {
         let github_repo = GithubRepo {
             repo_name: "debugpy".into(),
             repo_owner: "microsoft".into(),
         };
 
-        adapters::download_adapter_from_github(self.name(), github_repo, delegate).await?;
+        adapters::fetch_latest_adapter_version_from_github(github_repo, delegate).await
+    }
+
+    async fn install_binary(
+        &self,
+        version: AdapterVersion,
+        delegate: &dyn DapDelegate,
+    ) -> Result<()> {
+        adapters::download_adapter_from_github(self.name(), version, delegate).await?;
         Ok(())
     }
-    async fn fetch_binary(
+
+    async fn get_installed_binary(
         &self,
         _: &dyn DapDelegate,
         _: &DebugAdapterConfig,

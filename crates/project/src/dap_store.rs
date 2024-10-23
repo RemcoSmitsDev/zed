@@ -251,21 +251,10 @@ impl DapStore {
                     .log_err()?,
             );
 
-            let mut binary = adapter.fetch_binary(&adapter_delegate, &config).await.ok();
-
-            if binary.is_none() {
-                let _ = adapter
-                    .install_binary(&adapter_delegate)
-                    .await
-                    .context("Failed to install debug adapter binary")
-                    .log_err()?;
-
-                binary = adapter
-                    .fetch_binary(&adapter_delegate, &config)
-                    .await
-                    .context("Failed to get debug adapter binary")
-                    .log_err();
-            }
+            let binary = adapter
+                .get_binary(&adapter_delegate, &config)
+                .await
+                .log_err()?;
 
             let mut request_args = json!({});
             if let Some(config_args) = config.initialize_args.clone() {
@@ -282,7 +271,7 @@ impl DapStore {
 
             client
                 .start(
-                    &binary?,
+                    &binary,
                     move |message, cx| {
                         dap_store
                             .update(cx, |_, cx| {
