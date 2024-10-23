@@ -1,11 +1,11 @@
 use crate::transport::Transport;
 use ::fs::Fs;
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use http_client::{github::latest_github_release, HttpClient};
 use node_runtime::NodeRuntime;
 use serde_json::Value;
-use smol::{self, fs::File, process};
+use smol::{self, fs::File, lock::Mutex, process};
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsString,
@@ -20,8 +20,10 @@ pub trait DapDelegate {
     fn http_client(&self) -> Option<Arc<dyn HttpClient>>;
     fn node_runtime(&self) -> Option<NodeRuntime>;
     fn fs(&self) -> Arc<dyn Fs>;
+    fn cached_binaries(&self) -> Arc<Mutex<HashMap<DebugAdapterName, DebugAdapterBinary>>>;
 }
 
+#[derive(PartialEq, Eq, Hash, Debug)]
 pub struct DebugAdapterName(pub Arc<str>);
 
 impl Deref for DebugAdapterName {
@@ -185,7 +187,11 @@ pub trait DebugAdapter: 'static + Send + Sync {
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
     ) -> Result<DebugAdapterBinary> {
-        // TODO Debugger: Check if a user already has one installed
+        if let Some(binary) = delegate.cached_binaries().lock().await.get(&self.name()) {
+            log::info!("Using cached debug adapter binary {}", self.name());
+            return Ok(binary.clone());
+        }
+
         log::info!("Getting latest version of debug adapter {}", self.name());
         let version = self.fetch_latest_adapter_version(delegate).await.ok();
 
@@ -196,14 +202,30 @@ pub trait DebugAdapter: 'static + Send + Sync {
                 .as_ref()
                 .is_ok_and(|binary| binary.version == version.tag_name)
             {
-                return binary;
+                let binary = binary?;
+
+                delegate
+                    .cached_binaries()
+                    .lock_arc()
+                    .await
+                    .insert(self.name(), binary.clone());
+
+                return Ok(binary);
             }
 
             self.install_binary(version, delegate).await?;
             binary = self.get_installed_binary(delegate, config).await;
         }
 
-        binary
+        let binary = binary?;
+
+        delegate
+            .cached_binaries()
+            .lock_arc()
+            .await
+            .insert(self.name(), binary.clone());
+
+        Ok(binary)
     }
 
     fn transport(&self) -> Box<dyn Transport>;
