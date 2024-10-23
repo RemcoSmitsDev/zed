@@ -50,6 +50,7 @@ pub enum DapStoreEvent {
         client_id: DebugAdapterClientId,
         message: Message,
     },
+    Notification(String),
 }
 
 pub enum DebugAdapterClientState {
