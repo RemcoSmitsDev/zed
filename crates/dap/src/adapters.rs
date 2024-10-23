@@ -91,66 +91,69 @@ pub async fn download_adapter_from_github(
 
     let asset_name = format!("{}_{}.zip", &adapter_name, github_version.tag_name);
     let zip_path = adapter_path.join(&asset_name);
+    fs.remove_file(
+        zip_path.as_path(),
+        fs::RemoveOptions {
+            recursive: true,
+            ignore_if_not_exists: true,
+        },
+    )
+    .await?;
 
-    if smol::fs::metadata(&zip_path).await.is_err() {
-        let mut response = http_client
-            .get(&github_version.url, Default::default(), true)
-            .await
-            .context("Error downloading release")?;
-
-        let mut file = File::create(&zip_path).await?;
-        futures::io::copy(response.body_mut(), &mut file).await?;
-
-        let old_files: HashSet<_> =
-            util::fs::collect_matching(&adapter_path.as_path(), |file_path| {
-                file_path != zip_path.as_path()
-            })
-            .await
-            .into_iter()
-            .filter_map(|file_path| {
-                file_path
-                    .file_name()
-                    .and_then(|f| f.to_str())
-                    .map(|f| f.to_string())
-            })
-            .collect();
-
-        let _unzip_status = process::Command::new("unzip")
-            .current_dir(&adapter_path)
-            .arg(&zip_path)
-            .output()
-            .await?
-            .status;
-
-        let file_name = util::fs::find_file_name_in_dir(&adapter_path.as_path(), |file_name| {
-            !file_name.ends_with(".zip") && !old_files.contains(file_name)
-        })
+    let mut response = http_client
+        .get(&github_version.url, Default::default(), true)
         .await
-        .ok_or_else(|| anyhow!("Unzipped directory not found"));
+        .context("Error downloading release")?;
 
-        let file_name = file_name?;
-        let downloaded_path = adapter_path
-            .join(format!("{}_{}", adapter_name, github_version.tag_name))
-            .to_owned();
+    let mut file = File::create(&zip_path).await?;
+    futures::io::copy(response.body_mut(), &mut file).await?;
 
-        fs.rename(
-            file_name.as_path(),
-            downloaded_path.as_path(),
-            Default::default(),
-        )
-        .await?;
+    let old_files: HashSet<_> = util::fs::collect_matching(&adapter_path.as_path(), |file_path| {
+        file_path != zip_path.as_path()
+    })
+    .await
+    .into_iter()
+    .filter_map(|file_path| {
+        file_path
+            .file_name()
+            .and_then(|f| f.to_str())
+            .map(|f| f.to_string())
+    })
+    .collect();
 
-        util::fs::remove_matching(&adapter_path, |entry| entry != version_dir).await;
+    let _unzip_status = process::Command::new("unzip")
+        .current_dir(&adapter_path)
+        .arg(&zip_path)
+        .output()
+        .await?
+        .status;
 
-        // if !unzip_status.success() {
-        //     dbg!(unzip_status);
-        //     Err(anyhow!("failed to unzip downloaded dap archive"))?;
-        // }
+    let file_name = util::fs::find_file_name_in_dir(&adapter_path.as_path(), |file_name| {
+        !file_name.ends_with(".zip") && !old_files.contains(file_name)
+    })
+    .await
+    .ok_or_else(|| anyhow!("Unzipped directory not found"));
 
-        return Ok(downloaded_path);
-    }
+    let file_name = file_name?;
+    let downloaded_path = adapter_path
+        .join(format!("{}_{}", adapter_name, github_version.tag_name))
+        .to_owned();
 
-    bail!("Install failed to download & counldn't preinstalled dap")
+    fs.rename(
+        file_name.as_path(),
+        downloaded_path.as_path(),
+        Default::default(),
+    )
+    .await?;
+
+    util::fs::remove_matching(&adapter_path, |entry| entry != version_dir).await;
+
+    // if !unzip_status.success() {
+    //     dbg!(unzip_status);
+    //     Err(anyhow!("failed to unzip downloaded dap archive"))?;
+    // }
+
+    Ok(downloaded_path)
 }
 
 pub async fn fetch_latest_adapter_version_from_github(
