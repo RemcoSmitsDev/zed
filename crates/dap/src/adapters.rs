@@ -176,10 +176,6 @@ pub async fn fetch_latest_adapter_version_from_github(
 
 #[async_trait(?Send)]
 pub trait DebugAdapter: 'static + Send + Sync {
-    fn id(&self) -> String {
-        "".to_string()
-    }
-
     fn name(&self) -> DebugAdapterName;
 
     async fn get_binary(
