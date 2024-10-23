@@ -33,7 +33,7 @@ impl DebugAdapter for JsDebugAdapter {
         delegate: &dyn DapDelegate,
     ) -> Result<AdapterVersion> {
         let github_repo = GithubRepo {
-            repo_name: "vscode-js-debug".to_string(),
+            repo_name: Self::ADAPTER_NAME.into(),
             repo_owner: "microsoft".to_string(),
         };
 
@@ -50,8 +50,10 @@ impl DebugAdapter for JsDebugAdapter {
             .ok_or(anyhow!("Couldn't get npm runtime"))?;
 
         let adapter_path = paths::debug_adapters_dir().join(self.name());
+        let file_name_prefix = format!("{}_", self.name());
+
         let adapter_path = util::fs::find_file_name_in_dir(adapter_path.as_path(), |file_name| {
-            file_name.starts_with("vscode-js-debug_")
+            file_name.starts_with(&file_name_prefix)
         })
         .await
         .ok_or_else(|| anyhow!("Couldn't find javascript dap directory"))?;
@@ -59,7 +61,7 @@ impl DebugAdapter for JsDebugAdapter {
         let version = adapter_path
             .file_name()
             .and_then(|file_name| file_name.to_str())
-            .and_then(|file_name| file_name.strip_prefix("vscode-js-debug_"))
+            .and_then(|file_name| file_name.strip_prefix(&file_name_prefix))
             .ok_or_else(|| anyhow!("Javascript debug adapter has invalid file name"))?
             .to_string();
 

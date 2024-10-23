@@ -29,7 +29,7 @@ impl DebugAdapter for PythonDebugAdapter {
         delegate: &dyn DapDelegate,
     ) -> Result<AdapterVersion> {
         let github_repo = GithubRepo {
-            repo_name: "debugpy".into(),
+            repo_name: Self::ADAPTER_NAME.into(),
             repo_owner: "microsoft".into(),
         };
 
@@ -51,9 +51,10 @@ impl DebugAdapter for PythonDebugAdapter {
         _: &DebugAdapterConfig,
     ) -> Result<DebugAdapterBinary> {
         let adapter_path = paths::debug_adapters_dir().join(self.name());
+        let file_name_prefix = format!("{}_", self.name());
 
         let debugpy_dir = util::fs::find_file_name_in_dir(adapter_path.as_path(), |file_name| {
-            file_name.starts_with("debugpy_")
+            file_name.starts_with(&file_name_prefix)
         })
         .await
         .ok_or_else(|| anyhow!("Debugpy directory not found"))?;
@@ -61,7 +62,7 @@ impl DebugAdapter for PythonDebugAdapter {
         let version = adapter_path
             .file_name()
             .and_then(|file_name| file_name.to_str())
-            .and_then(|file_name| file_name.strip_prefix("debugpy_"))
+            .and_then(|file_name| file_name.strip_prefix(&file_name_prefix))
             .ok_or_else(|| anyhow!("Javascript debug adapter has invalid file name"))?
             .to_string();
 

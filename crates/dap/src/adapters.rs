@@ -10,6 +10,7 @@ use std::{
     collections::HashMap,
     ffi::OsString,
     fmt::Debug,
+    ops::Deref,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -22,6 +23,20 @@ pub trait DapDelegate {
 }
 
 pub struct DebugAdapterName(pub Arc<str>);
+
+impl Deref for DebugAdapterName {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl AsRef<str> for DebugAdapterName {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
 
 impl AsRef<Path> for DebugAdapterName {
     fn as_ref(&self) -> &Path {
