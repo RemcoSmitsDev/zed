@@ -59,11 +59,11 @@ impl DebugAdapter for PythonDebugAdapter {
         .await
         .ok_or_else(|| anyhow!("Debugpy directory not found"))?;
 
-        let version = adapter_path
+        let version = debugpy_dir
             .file_name()
             .and_then(|file_name| file_name.to_str())
             .and_then(|file_name| file_name.strip_prefix(&file_name_prefix))
-            .ok_or_else(|| anyhow!("Javascript debug adapter has invalid file name"))?
+            .ok_or_else(|| anyhow!("Python debug adapter has invalid file name"))?
             .to_string();
 
         Ok(DebugAdapterBinary {

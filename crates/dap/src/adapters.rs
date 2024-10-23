@@ -7,7 +7,7 @@ use node_runtime::NodeRuntime;
 use serde_json::Value;
 use smol::{self, fs::File, process};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ffi::OsString,
     fmt::Debug,
     ops::Deref,
@@ -101,6 +101,20 @@ pub async fn download_adapter_from_github(
         let mut file = File::create(&zip_path).await?;
         futures::io::copy(response.body_mut(), &mut file).await?;
 
+        let old_files: HashSet<_> =
+            util::fs::collect_matching(&adapter_path.as_path(), |file_path| {
+                file_path != zip_path.as_path()
+            })
+            .await
+            .into_iter()
+            .filter_map(|file_path| {
+                file_path
+                    .file_name()
+                    .and_then(|f| f.to_str())
+                    .map(|f| f.to_string())
+            })
+            .collect();
+
         let _unzip_status = process::Command::new("unzip")
             .current_dir(&adapter_path)
             .arg(&zip_path)
@@ -109,7 +123,7 @@ pub async fn download_adapter_from_github(
             .status;
 
         let file_name = util::fs::find_file_name_in_dir(&adapter_path.as_path(), |file_name| {
-            file_name.contains(&adapter_name.to_string())
+            !file_name.ends_with(".zip") && !old_files.contains(file_name)
         })
         .await
         .ok_or_else(|| anyhow!("Unzipped directory not found"));

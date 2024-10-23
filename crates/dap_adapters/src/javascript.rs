@@ -56,7 +56,7 @@ impl DebugAdapter for JsDebugAdapter {
             file_name.starts_with(&file_name_prefix)
         })
         .await
-        .ok_or_else(|| anyhow!("Couldn't find javascript dap directory"))?;
+        .ok_or_else(|| anyhow!("Couldn't find Javascript dap directory"))?;
 
         let version = adapter_path
             .file_name()

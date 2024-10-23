@@ -56,13 +56,13 @@ impl DebugAdapter for PhpDebugAdapter {
             file_name.starts_with(&file_name_prefix)
         })
         .await
-        .ok_or_else(|| anyhow!("Couldn't find javascript dap directory"))?;
+        .ok_or_else(|| anyhow!("Couldn't find Php dap directory"))?;
 
         let version = adapter_path
             .file_name()
             .and_then(|file_name| file_name.to_str())
             .and_then(|file_name| file_name.strip_prefix(&file_name_prefix))
-            .ok_or_else(|| anyhow!("Javascript debug adapter has invalid file name"))?
+            .ok_or_else(|| anyhow!("Php debug adapter has invalid file name"))?
             .to_string();
 
         Ok(DebugAdapterBinary {
