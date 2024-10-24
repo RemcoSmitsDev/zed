@@ -25,7 +25,7 @@ use dap_adapters::build_adapter;
 use fs::Fs;
 use gpui::{EventEmitter, Model, ModelContext, Task};
 use http_client::HttpClient;
-use language::{Buffer, BufferSnapshot};
+use language::{Buffer, BufferSnapshot, LanguageRegistry};
 use node_runtime::NodeRuntime;
 use serde_json::{json, Value};
 use settings::WorktreeId;
@@ -73,6 +73,7 @@ pub struct DapStore {
     active_debug_line: Option<(ProjectPath, DebugPosition)>,
     http_client: Option<Arc<dyn HttpClient>>,
     node_runtime: Option<NodeRuntime>,
+    _languages: Arc<LanguageRegistry>,
     fs: Arc<dyn Fs>,
 }
 
@@ -83,6 +84,7 @@ impl DapStore {
         http_client: Option<Arc<dyn HttpClient>>,
         node_runtime: Option<NodeRuntime>,
         fs: Arc<dyn Fs>,
+        _languages: Arc<LanguageRegistry>,
         cx: &mut ModelContext<Self>,
     ) -> Self {
         cx.on_app_quit(Self::shutdown_clients).detach();
@@ -96,6 +98,7 @@ impl DapStore {
             next_client_id: Default::default(),
             http_client,
             node_runtime,
+            _languages,
             fs,
         }
     }

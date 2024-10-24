@@ -80,6 +80,7 @@ pub struct LanguageRegistry {
     language_server_download_dir: Option<Arc<Path>>,
     executor: BackgroundExecutor,
     lsp_binary_status_tx: LspBinaryStatusSender,
+    _dap_binary_status_tx: DapBinaryStatusSender,
 }
 
 struct LanguageRegistryState {
@@ -115,6 +116,15 @@ pub enum LanguageServerBinaryStatus {
     CheckingForUpdate,
     Downloading,
     Failed { error: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DapServerBinaryStatus {
+    _None,
+    _Starting,
+    _CheckingForUpdate,
+    _Downloading,
+    _Failed { error: String },
 }
 
 #[derive(Clone)]
@@ -200,6 +210,10 @@ struct LspBinaryStatusSender {
     txs: Arc<Mutex<Vec<mpsc::UnboundedSender<(LanguageServerName, LanguageServerBinaryStatus)>>>>,
 }
 
+#[derive(Clone, Default)]
+struct DapBinaryStatusSender {
+    _txs: Arc<Mutex<Vec<mpsc::UnboundedSender<(LanguageServerName, DapServerBinaryStatus)>>>>,
+}
 impl LanguageRegistry {
     pub fn new(executor: BackgroundExecutor) -> Self {
         let this = Self {
@@ -222,6 +236,7 @@ impl LanguageRegistry {
             }),
             language_server_download_dir: None,
             lsp_binary_status_tx: Default::default(),
+            _dap_binary_status_tx: Default::default(),
             executor,
         };
         this.add(PLAIN_TEXT.clone());

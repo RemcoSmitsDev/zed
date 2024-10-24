@@ -625,6 +625,7 @@ impl Project {
                     Some(client.http_client()),
                     Some(node.clone()),
                     fs.clone(),
+                    languages.clone(),
                     cx,
                 )
             });
@@ -790,6 +791,7 @@ impl Project {
                     Some(client.http_client()),
                     Some(node.clone()),
                     fs.clone(),
+                    languages.clone(),
                     cx,
                 )
             });
@@ -957,8 +959,15 @@ impl Project {
             BufferStore::remote(worktree_store.clone(), client.clone().into(), remote_id, cx)
         })?;
 
-        let dap_store =
-            cx.new_model(|cx| DapStore::new(Some(client.http_client()), None, fs.clone(), cx))?;
+        let dap_store = cx.new_model(|cx| {
+            DapStore::new(
+                Some(client.http_client()),
+                None,
+                fs.clone(),
+                languages.clone(),
+                cx,
+            )
+        })?;
 
         let lsp_store = cx.new_model(|cx| {
             let mut lsp_store = LspStore::new_remote(
