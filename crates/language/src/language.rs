@@ -68,7 +68,7 @@ pub use buffer::Operation;
 pub use buffer::*;
 pub use diagnostic_set::DiagnosticEntry;
 pub use language_registry::{
-    AvailableLanguage, LanguageNotFound, LanguageQueries, LanguageRegistry,
+    AvailableLanguage, DapServerBinaryStatus, LanguageNotFound, LanguageQueries, LanguageRegistry,
     LanguageServerBinaryStatus, QUERY_FILENAME_PREFIXES,
 };
 pub use lsp::LanguageServerId;

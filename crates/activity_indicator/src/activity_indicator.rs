@@ -8,7 +8,8 @@ use gpui::{
     StatefulInteractiveElement, Styled, Transformation, View, ViewContext, VisualContext as _,
 };
 use language::{
-    LanguageRegistry, LanguageServerBinaryStatus, LanguageServerId, LanguageServerName,
+    DapServerBinaryStatus, LanguageRegistry, LanguageServerBinaryStatus, LanguageServerId,
+    LanguageServerName,
 };
 use project::{EnvironmentErrorMessage, LanguageServerProgress, Project, WorktreeId};
 use smallvec::SmallVec;
@@ -25,11 +26,21 @@ pub enum Event {
     },
 }
 
+enum Status {
+    Lsp(LspStatus),
+    Dap(DapStatus),
+}
+
 pub struct ActivityIndicator {
-    statuses: Vec<LspStatus>,
+    statuses: Vec<Status>,
     project: Model<Project>,
     auto_updater: Option<Model<AutoUpdater>>,
     context_menu_handle: PopoverMenuHandle<ContextMenu>,
+}
+
+struct DapStatus {
+    name: LanguageServerName,
+    status: DapServerBinaryStatus,
 }
 
 struct LspStatus {
@@ -62,14 +73,34 @@ impl ActivityIndicator {
             cx.spawn(|this, mut cx| async move {
                 while let Some((name, status)) = status_events.next().await {
                     this.update(&mut cx, |this, cx| {
-                        this.statuses.retain(|s| s.name != name);
-                        this.statuses.push(LspStatus { name, status });
+                        this.statuses.retain(|s| match s {
+                            Status::Lsp(s) => s.name != name,
+                            Status::Dap(_) => true,
+                        });
+                        this.statuses.push(Status::Lsp(LspStatus { name, status }));
                         cx.notify();
                     })?;
                 }
                 anyhow::Ok(())
             })
             .detach();
+
+            let mut status_events = languages.dap_server_binary_statuses();
+            cx.spawn(|this, mut cx| async move {
+                while let Some((name, status)) = status_events.next().await {
+                    this.update(&mut cx, |this, cx| {
+                        this.statuses.retain(|s| match s {
+                            Status::Lsp(_) => true,
+                            Status::Dap(s) => s.name != name,
+                        });
+                        this.statuses.push(Status::Dap(DapStatus { name, status }));
+                        cx.notify();
+                    })?;
+                }
+                anyhow::Ok(())
+            })
+            .detach();
+
             cx.observe(&project, |_, _, cx| cx.notify()).detach();
 
             if let Some(auto_updater) = auto_updater.as_ref() {
@@ -124,15 +155,28 @@ impl ActivityIndicator {
     }
 
     fn show_error_message(&mut self, _: &ShowErrorMessage, cx: &mut ViewContext<Self>) {
-        self.statuses.retain(|status| {
-            if let LanguageServerBinaryStatus::Failed { error } = &status.status {
-                cx.emit(Event::ShowError {
-                    lsp_name: status.name.clone(),
-                    error: error.clone(),
-                });
-                false
-            } else {
-                true
+        self.statuses.retain(|status| match status {
+            Status::Lsp(status) => {
+                if let LanguageServerBinaryStatus::Failed { error } = &status.status {
+                    cx.emit(Event::ShowError {
+                        lsp_name: status.name.clone(),
+                        error: error.clone(),
+                    });
+                    false
+                } else {
+                    true
+                }
+            }
+            Status::Dap(status) => {
+                if let DapServerBinaryStatus::Failed { error } = &status.status {
+                    cx.emit(Event::ShowError {
+                        lsp_name: status.name.clone(),
+                        error: error.clone(),
+                    });
+                    false
+                } else {
+                    true
+                }
             }
         });
 
@@ -250,13 +294,26 @@ impl ActivityIndicator {
         let mut checking_for_update = SmallVec::<[_; 3]>::new();
         let mut failed = SmallVec::<[_; 3]>::new();
         for status in &self.statuses {
-            match status.status {
-                LanguageServerBinaryStatus::CheckingForUpdate => {
-                    checking_for_update.push(status.name.clone())
-                }
-                LanguageServerBinaryStatus::Downloading => downloading.push(status.name.clone()),
-                LanguageServerBinaryStatus::Failed { .. } => failed.push(status.name.clone()),
-                LanguageServerBinaryStatus::None => {}
+            match status {
+                Status::Lsp(status) => match status.status {
+                    LanguageServerBinaryStatus::CheckingForUpdate => {
+                        checking_for_update.push(status.name.clone())
+                    }
+                    LanguageServerBinaryStatus::Downloading => {
+                        downloading.push(status.name.clone())
+                    }
+                    LanguageServerBinaryStatus::Failed { .. } => failed.push(status.name.clone()),
+                    LanguageServerBinaryStatus::None => {}
+                },
+                Status::Dap(status) => match status.status {
+                    DapServerBinaryStatus::CheckingForUpdate => {
+                        checking_for_update.push(status.name.clone())
+                    }
+                    DapServerBinaryStatus::Downloading => downloading.push(status.name.clone()),
+                    DapServerBinaryStatus::Failed { .. } => failed.push(status.name.clone()),
+                    DapServerBinaryStatus::None => {}
+                    DapServerBinaryStatus::Starting => {}
+                },
             }
         }
 
@@ -281,8 +338,12 @@ impl ActivityIndicator {
                     )
                 ),
                 on_click: Some(Arc::new(move |this, cx| {
-                    this.statuses
-                        .retain(|status| !downloading.contains(&status.name));
+                    this.statuses.retain(|status| {
+                        !downloading.contains(match &status {
+                            Status::Lsp(s) => &s.name,
+                            Status::Dap(s) => &s.name,
+                        })
+                    });
                     this.dismiss_error_message(&DismissErrorMessage, cx)
                 })),
             });
@@ -309,8 +370,12 @@ impl ActivityIndicator {
                     ),
                 ),
                 on_click: Some(Arc::new(move |this, cx| {
-                    this.statuses
-                        .retain(|status| !checking_for_update.contains(&status.name));
+                    this.statuses.retain(|status| {
+                        !checking_for_update.contains(match &status {
+                            Status::Lsp(s) => &s.name,
+                            Status::Dap(s) => &s.name,
+                        })
+                    });
                     this.dismiss_error_message(&DismissErrorMessage, cx)
                 })),
             });
