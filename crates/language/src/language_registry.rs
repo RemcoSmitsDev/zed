@@ -886,6 +886,14 @@ impl LanguageRegistry {
         self.lsp_binary_status_tx.send(server_name, status);
     }
 
+    pub fn update_dap_status(
+        &self,
+        server_name: LanguageServerName,
+        status: DapServerBinaryStatus,
+    ) {
+        self.dap_binary_status_tx.send(server_name, status);
+    }
+
     pub fn next_language_server_id(&self) -> LanguageServerId {
         self.state.write().next_language_server_id()
     }
@@ -1068,7 +1076,7 @@ impl DapBinaryStatusSender {
         rx
     }
 
-    fn _send(&self, name: LanguageServerName, status: DapServerBinaryStatus) {
+    fn send(&self, name: LanguageServerName, status: DapServerBinaryStatus) {
         let mut txs = self.txs.lock();
         txs.retain(|tx| tx.unbounded_send((name.clone(), status.clone())).is_ok());
     }
