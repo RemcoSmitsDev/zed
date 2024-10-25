@@ -95,7 +95,7 @@ impl StackFrameList {
     }
 
     pub fn invalidate(&mut self, cx: &mut ViewContext<Self>) {
-        self.fetch_stack_frames(false, cx);
+        self.fetch_stack_frames(true, cx);
     }
 
     fn fetch_stack_frames(&mut self, go_to_stack_frame: bool, cx: &mut ViewContext<Self>) {
