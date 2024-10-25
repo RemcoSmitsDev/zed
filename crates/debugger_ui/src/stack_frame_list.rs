@@ -33,6 +33,7 @@ pub struct StackFrameList {
     workspace: WeakView<Workspace>,
     client_id: DebugAdapterClientId,
     _subscriptions: Vec<Subscription>,
+    fetch_stack_frames_task: Option<Task<Result<()>>>,
 }
 
 impl StackFrameList {
@@ -65,6 +66,7 @@ impl StackFrameList {
             client_id: *client_id,
             workspace: workspace.clone(),
             dap_store: dap_store.clone(),
+            fetch_stack_frames_task: None,
             stack_frames: Default::default(),
             current_stack_frame_id: Default::default(),
         }
@@ -86,23 +88,22 @@ impl StackFrameList {
     ) {
         match event {
             Stopped { go_to_stack_frame } => {
-                self.fetch_stack_frames(*go_to_stack_frame, cx)
-                    .detach_and_log_err(cx);
+                self.fetch_stack_frames(*go_to_stack_frame, cx);
             }
             _ => {}
         }
     }
 
-    fn fetch_stack_frames(
-        &self,
-        go_to_stack_frame: bool,
-        cx: &mut ViewContext<Self>,
-    ) -> Task<Result<()>> {
+    pub fn invalidate(&mut self, cx: &mut ViewContext<Self>) {
+        self.fetch_stack_frames(false, cx);
+    }
+
+    fn fetch_stack_frames(&mut self, go_to_stack_frame: bool, cx: &mut ViewContext<Self>) {
         let task = self.dap_store.update(cx, |store, cx| {
             store.stack_frames(&self.client_id, self.thread_id, cx)
         });
 
-        cx.spawn(|this, mut cx| async move {
+        self.fetch_stack_frames_task = Some(cx.spawn(|this, mut cx| async move {
             let mut stack_frames = task.await?;
 
             let task = this.update(&mut cx, |this, cx| {
@@ -129,8 +130,11 @@ impl StackFrameList {
                 task.await?;
             }
 
-            Ok(())
-        })
+            this.update(&mut cx, |this, cx| {
+                this.fetch_stack_frames_task.take();
+                cx.notify();
+            })
+        }));
     }
 
     pub fn go_to_stack_frame(&mut self, cx: &mut ViewContext<Self>) -> Task<Result<()>> {
