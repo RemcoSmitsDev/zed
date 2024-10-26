@@ -44,22 +44,23 @@ pub enum DebugAdapterKind {
     /// Use debugpy
     Python,
     /// Use vscode-php-debug
-    PHP,
+    PHP(TCPHost),
     /// Use vscode-js-debug
-    Javascript,
+    Javascript(TCPHost),
     /// Use lldb
     Lldb,
 }
 
-impl std::fmt::Display for DebugAdapterKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
+impl DebugAdapterKind {
+    /// Returns the display name for the adapter kind
+    pub fn diplay_name(&self) -> &str {
+        match self {
             Self::Custom(_) => "Custom",
             Self::Python => "Python",
-            Self::PHP => "PHP",
-            Self::Javascript => "JavaScript",
+            Self::PHP(_) => "PHP",
+            Self::Javascript(_) => "JavaScript",
             Self::Lldb => "LLDB",
-        })
+        }
     }
 }
 
