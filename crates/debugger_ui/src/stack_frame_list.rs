@@ -109,9 +109,13 @@ impl StackFrameList {
             let task = this.update(&mut cx, |this, cx| {
                 std::mem::swap(&mut this.stack_frames, &mut stack_frames);
 
+                let previous_stack_frame_id = this.current_stack_frame_id;
                 if let Some(stack_frame) = this.stack_frames.first() {
                     this.current_stack_frame_id = stack_frame.id;
-                    cx.emit(StackFrameListEvent::SelectedStackFrameChanged);
+
+                    if previous_stack_frame_id != this.current_stack_frame_id {
+                        cx.emit(StackFrameListEvent::SelectedStackFrameChanged);
+                    }
                 }
 
                 this.list.reset(this.stack_frames.len());
