@@ -472,8 +472,6 @@ impl VariableList {
                 this.build_entries(true, true, cx);
 
                 this.fetch_variables_task.take();
-
-                cx.notify();
             })
         }));
     }
@@ -592,13 +590,13 @@ impl VariableList {
         });
 
         let Some(state) = self.set_variable_state.take() else {
-            return self.build_entries(false, true, cx);
+            return;
         };
 
         if new_variable_value == state.value
             || state.stack_frame_id != self.stack_frame_list.read(cx).current_stack_frame_id()
         {
-            return self.build_entries(false, true, cx);
+            return cx.notify();
         }
 
         let client_id = self.client_id;

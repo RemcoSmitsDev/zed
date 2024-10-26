@@ -130,9 +130,8 @@ impl StackFrameList {
                 task.await?;
             }
 
-            this.update(&mut cx, |this, cx| {
+            this.update(&mut cx, |this, _| {
                 this.fetch_stack_frames_task.take();
-                cx.notify();
             })
         }));
     }
