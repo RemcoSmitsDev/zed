@@ -16,10 +16,16 @@ impl Default for DebugConnectionType {
 #[derive(Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
 pub struct TCPHost {
     /// The port that the debug adapter is listening on
+    ///
+    /// Default: We will try to find an open port
     pub port: Option<u16>,
     /// The host that the debug adapter is listening too
+    ///
+    /// Default: 127.0.0.1
     pub host: Option<Ipv4Addr>,
-    /// The max amount of time to connect to a tcp DAP before returning an error
+    /// The max amount of time in milliseconds to connect to a tcp DAP before returning an error
+    ///
+    /// Default: 2000ms
     pub timeout: Option<u64>,
 }
 
