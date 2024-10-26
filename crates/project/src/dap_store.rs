@@ -253,6 +253,7 @@ impl DapStore {
             let dap_store = this.clone();
             let adapter = Arc::new(
                 build_adapter(&config)
+                    .await
                     .context("Creating debug adapter")
                     .log_err()?,
             );

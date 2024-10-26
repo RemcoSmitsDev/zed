@@ -23,6 +23,13 @@ pub struct TCPHost {
     pub timeout: Option<u64>,
 }
 
+impl TCPHost {
+    /// Get the host or fallback to the default host
+    pub fn host(&self) -> Ipv4Addr {
+        self.host.unwrap_or_else(|| Ipv4Addr::new(127, 0, 0, 1))
+    }
+}
+
 /// Represents the type that will determine which request to call on the debug adapter
 #[derive(Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "lowercase")]
