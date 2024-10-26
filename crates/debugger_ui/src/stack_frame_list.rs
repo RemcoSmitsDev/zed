@@ -158,18 +158,20 @@ impl StackFrameList {
             return Task::ready(Err(anyhow!("Project path not found")));
         };
 
-        self.dap_store.update(cx, |store, cx| {
-            store.set_active_debug_line(&project_path, row, column, cx);
-        });
-
         cx.spawn({
             let workspace = self.workspace.clone();
-            move |_, mut cx| async move {
+            move |this, mut cx| async move {
                 let task = workspace.update(&mut cx, |workspace, cx| {
-                    workspace.open_path_preview(project_path, None, false, true, cx)
+                    workspace.open_path_preview(project_path.clone(), None, false, true, cx)
                 })?;
 
                 let editor = task.await?.downcast::<Editor>().unwrap();
+
+                this.update(&mut cx, |this, cx| {
+                    this.dap_store.update(cx, |store, cx| {
+                        store.set_active_debug_line(&project_path, row, column, cx);
+                    })
+                })?;
 
                 workspace.update(&mut cx, |_, cx| {
                     editor.update(cx, |editor, cx| editor.go_to_active_debug_line(cx))
