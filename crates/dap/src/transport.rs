@@ -6,6 +6,7 @@ use dap_types::{
 };
 use futures::{select, AsyncBufRead, AsyncReadExt as _, AsyncWrite, FutureExt as _};
 use gpui::AsyncAppContext;
+use settings::Settings as _;
 use smallvec::SmallVec;
 use smol::{
     channel::{unbounded, Receiver, Sender},
@@ -23,7 +24,7 @@ use std::{
 };
 use task::TCPHost;
 
-use crate::adapters::DebugAdapterBinary;
+use crate::{adapters::DebugAdapterBinary, debugger_settings::DebuggerSettings};
 
 pub type IoHandler = Box<dyn Send + FnMut(IoKind, &str)>;
 
@@ -373,8 +374,6 @@ pub struct TcpTransport {
 }
 
 impl TcpTransport {
-    const DEFAULT_TIMEOUT: u64 = 2000;
-
     pub fn new(host: Ipv4Addr, port: u16, timeout: Option<u64>) -> Self {
         Self {
             port,
@@ -425,7 +424,10 @@ impl Transport for TcpTransport {
 
         let address = SocketAddrV4::new(self.host, self.port);
 
-        let timeout = self.timeout.unwrap_or(Self::DEFAULT_TIMEOUT);
+        let timeout = self.timeout.unwrap_or_else(|| {
+            cx.update(|cx| DebuggerSettings::get_global(cx).timeout)
+                .unwrap_or(2000u64)
+        });
 
         let (rx, tx) = select! {
             _ = cx.background_executor().timer(Duration::from_millis(timeout)).fuse() => {
