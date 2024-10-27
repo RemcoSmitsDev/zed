@@ -1,7 +1,7 @@
 use crate::ProjectPath;
 use anyhow::{anyhow, Context as _, Result};
 use collections::HashSet;
-use dap::adapters::{DapDelegate, DapStatus, DebugAdapterBinary, DebugAdapterName};
+use dap::adapters::{DapStatus, DebugAdapterBinary, DebugAdapterName};
 use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 use dap::messages::{Message, Response};
 use dap::requests::{
@@ -26,7 +26,7 @@ use fs::Fs;
 use gpui::{EventEmitter, Model, ModelContext, SharedString, Task};
 use http_client::HttpClient;
 use language::{
-    Buffer, BufferSnapshot, DapServerBinaryStatus, LanguageRegistry, LanguageServerName,
+    Buffer, BufferSnapshot, LanguageRegistry, LanguageServerBinaryStatus, LanguageServerName,
 };
 use node_runtime::NodeRuntime;
 use serde_json::{json, Value};
@@ -267,8 +267,6 @@ impl DapStore {
                 .get_binary(&adapter_delegate, &config)
                 .await
                 .log_err()?;
-
-            adapter_delegate.update_status(adapter.name(), DapStatus::Starting);
 
             let mut request_args = json!({});
             if let Some(config_args) = config.initialize_args.clone() {
@@ -1283,11 +1281,10 @@ impl dap::adapters::DapDelegate for DapAdapterDelegate {
     fn update_status(&self, dap_name: DebugAdapterName, status: dap::adapters::DapStatus) {
         let name = SharedString::from(dap_name.to_string());
         let status = match status {
-            DapStatus::None => DapServerBinaryStatus::None,
-            DapStatus::Starting => DapServerBinaryStatus::Starting,
-            DapStatus::Downloading => DapServerBinaryStatus::Downloading,
-            DapStatus::Failed { error } => DapServerBinaryStatus::Failed { error },
-            DapStatus::CheckingForUpdate => DapServerBinaryStatus::CheckingForUpdate,
+            DapStatus::None => LanguageServerBinaryStatus::None,
+            DapStatus::Downloading => LanguageServerBinaryStatus::Downloading,
+            DapStatus::Failed { error } => LanguageServerBinaryStatus::Failed { error },
+            DapStatus::CheckingForUpdate => LanguageServerBinaryStatus::CheckingForUpdate,
         };
 
         self.languages

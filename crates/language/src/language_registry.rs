@@ -118,15 +118,6 @@ pub enum LanguageServerBinaryStatus {
     Failed { error: String },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum DapServerBinaryStatus {
-    None,
-    Starting,
-    CheckingForUpdate,
-    Downloading,
-    Failed { error: String },
-}
-
 #[derive(Clone)]
 pub struct AvailableLanguage {
     id: LanguageId,
@@ -889,7 +880,7 @@ impl LanguageRegistry {
     pub fn update_dap_status(
         &self,
         server_name: LanguageServerName,
-        status: DapServerBinaryStatus,
+        status: LanguageServerBinaryStatus,
     ) {
         self.dap_binary_status_tx.send(server_name, status);
     }
@@ -951,7 +942,7 @@ impl LanguageRegistry {
 
     pub fn dap_server_binary_statuses(
         &self,
-    ) -> mpsc::UnboundedReceiver<(LanguageServerName, DapServerBinaryStatus)> {
+    ) -> mpsc::UnboundedReceiver<(LanguageServerName, LanguageServerBinaryStatus)> {
         self.dap_binary_status_tx.subscribe()
     }
 
@@ -1066,17 +1057,19 @@ impl LanguageRegistryState {
 
 #[derive(Clone, Default)]
 struct DapBinaryStatusSender {
-    txs: Arc<Mutex<Vec<mpsc::UnboundedSender<(LanguageServerName, DapServerBinaryStatus)>>>>,
+    txs: Arc<Mutex<Vec<mpsc::UnboundedSender<(LanguageServerName, LanguageServerBinaryStatus)>>>>,
 }
 
 impl DapBinaryStatusSender {
-    fn subscribe(&self) -> mpsc::UnboundedReceiver<(LanguageServerName, DapServerBinaryStatus)> {
+    fn subscribe(
+        &self,
+    ) -> mpsc::UnboundedReceiver<(LanguageServerName, LanguageServerBinaryStatus)> {
         let (tx, rx) = mpsc::unbounded();
         self.txs.lock().push(tx);
         rx
     }
 
-    fn send(&self, name: LanguageServerName, status: DapServerBinaryStatus) {
+    fn send(&self, name: LanguageServerName, status: LanguageServerBinaryStatus) {
         let mut txs = self.txs.lock();
         txs.retain(|tx| tx.unbounded_send((name.clone(), status.clone())).is_ok());
     }

@@ -19,7 +19,6 @@ use task::DebugAdapterConfig;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DapStatus {
     None,
-    Starting,
     CheckingForUpdate,
     Downloading,
     Failed { error: String },
