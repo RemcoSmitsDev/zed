@@ -1,6 +1,6 @@
 use crate::ProjectPath;
 use anyhow::{anyhow, Context as _, Result};
-use dap::adapters::DebugAdapterName;
+use dap::adapters::{DapStatus, DebugAdapterName};
 use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 use dap::messages::{Message, Response};
 use dap::requests::{
@@ -22,9 +22,11 @@ use dap::{
 };
 use dap_adapters::build_adapter;
 use fs::Fs;
-use gpui::{EventEmitter, Model, ModelContext, Task};
+use gpui::{EventEmitter, Model, ModelContext, SharedString, Task};
 use http_client::HttpClient;
-use language::{Buffer, BufferSnapshot};
+use language::{
+    Buffer, BufferSnapshot, LanguageRegistry, LanguageServerBinaryStatus, LanguageServerName,
+};
 use node_runtime::NodeRuntime;
 use serde_json::{json, Value};
 use settings::WorktreeId;
@@ -72,6 +74,7 @@ pub struct DapStore {
     active_debug_line: Option<(ProjectPath, DebugPosition)>,
     http_client: Option<Arc<dyn HttpClient>>,
     node_runtime: Option<NodeRuntime>,
+    languages: Arc<LanguageRegistry>,
     fs: Arc<dyn Fs>,
 }
 
@@ -82,6 +85,7 @@ impl DapStore {
         http_client: Option<Arc<dyn HttpClient>>,
         node_runtime: Option<NodeRuntime>,
         fs: Arc<dyn Fs>,
+        _languages: Arc<LanguageRegistry>,
         cx: &mut ModelContext<Self>,
     ) -> Self {
         cx.on_app_quit(Self::shutdown_clients).detach();
@@ -95,6 +99,7 @@ impl DapStore {
             next_client_id: Default::default(),
             http_client,
             node_runtime,
+            languages: _languages,
             fs,
         }
     }
@@ -247,6 +252,7 @@ impl DapStore {
             self.node_runtime.clone(),
             self.fs.clone(),
             self.updated_adapters.clone(),
+            self.languages.clone(),
         );
         let start_client_task = cx.spawn(|this, mut cx| async move {
             let dap_store = this.clone();
@@ -1234,6 +1240,7 @@ pub struct DapAdapterDelegate {
     http_client: Option<Arc<dyn HttpClient>>,
     node_runtime: Option<NodeRuntime>,
     udpated_adapters: Arc<Mutex<HashSet<DebugAdapterName>>>,
+    languages: Arc<LanguageRegistry>,
 }
 
 impl DapAdapterDelegate {
@@ -1242,12 +1249,14 @@ impl DapAdapterDelegate {
         node_runtime: Option<NodeRuntime>,
         fs: Arc<dyn Fs>,
         udpated_adapters: Arc<Mutex<HashSet<DebugAdapterName>>>,
+        languages: Arc<LanguageRegistry>,
     ) -> Self {
         Self {
             fs,
             http_client,
             node_runtime,
             udpated_adapters,
+            languages,
         }
     }
 }
@@ -1267,5 +1276,18 @@ impl dap::adapters::DapDelegate for DapAdapterDelegate {
 
     fn updated_adapters(&self) -> Arc<Mutex<HashSet<DebugAdapterName>>> {
         self.udpated_adapters.clone()
+    }
+
+    fn update_status(&self, dap_name: DebugAdapterName, status: dap::adapters::DapStatus) {
+        let name = SharedString::from(dap_name.to_string());
+        let status = match status {
+            DapStatus::None => LanguageServerBinaryStatus::None,
+            DapStatus::Downloading => LanguageServerBinaryStatus::Downloading,
+            DapStatus::Failed { error } => LanguageServerBinaryStatus::Failed { error },
+            DapStatus::CheckingForUpdate => LanguageServerBinaryStatus::CheckingForUpdate,
+        };
+
+        self.languages
+            .update_dap_status(LanguageServerName(name), status);
     }
 }
