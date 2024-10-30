@@ -1,6 +1,6 @@
 use crate::attach_modal::AttachModal;
 use crate::debugger_panel_item::DebugPanelItem;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use collections::{BTreeMap, HashMap};
 use command_palette_hooks::CommandPaletteFilter;
 use dap::client::{DebugAdapterClientId, ThreadStatus};
@@ -389,8 +389,13 @@ impl DebugPanel {
         client_id: &DebugAdapterClientId,
         cx: &mut ViewContext<Self>,
     ) {
+        let Some(client) = self.dap_store.read(cx).client_by_id(&client_id) else {
+            return;
+        };
+
         let client_id = client_id.clone();
         let workspace = self.workspace.clone();
+        let request_type = client.config().request;
         cx.spawn(|this, mut cx| async move {
             let task = this.update(&mut cx, |this, cx| {
                 this.dap_store
@@ -399,14 +404,7 @@ impl DebugPanel {
 
             task.await?;
 
-            let Some(client) = this.update(&mut cx, |this, cx| {
-                this.dap_store.read(cx).client_by_id(&client_id)
-            })?
-            else {
-                return Err(anyhow!("Failed to find client"));
-            };
-
-            match client.config().request {
+            match request_type {
                 DebugRequestType::Launch => {
                     let task = this.update(&mut cx, |this, cx| {
                         this.dap_store
