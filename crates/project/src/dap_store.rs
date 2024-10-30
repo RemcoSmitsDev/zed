@@ -412,7 +412,7 @@ impl DapStore {
             return Task::ready(Ok(Vec::default()));
         }
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             Ok(client
                 .request::<Modules>(ModulesArguments {
                     start_module: None,
@@ -441,7 +441,7 @@ impl DapStore {
             return Task::ready(Ok(Vec::default()));
         }
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             Ok(client
                 .request::<LoadedSources>(LoadedSourcesArguments {})
                 .await?
@@ -459,7 +459,7 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Client was not found")));
         };
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             Ok(client
                 .request::<StackTrace>(StackTraceArguments {
                     thread_id,
@@ -482,7 +482,7 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Client was not found")));
         };
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             Ok(client
                 .request::<Scopes>(ScopesArguments {
                     frame_id: stack_frame_id,
@@ -503,7 +503,7 @@ impl DapStore {
 
         let capabilities = self.capabilities_by_id(client_id);
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             let support_configuration_done_request = capabilities
                 .supports_configuration_done_request
                 .unwrap_or_default();
@@ -558,7 +558,7 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Could not found client")));
         };
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             if success {
                 client
                     .send_message(Message::Response(Response {
@@ -596,7 +596,7 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Could not found client")));
         };
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             client
                 .request::<Continue>(ContinueArguments {
                     thread_id,
@@ -628,7 +628,7 @@ impl DapStore {
             .supports_stepping_granularity
             .unwrap_or_default();
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             client
                 .request::<Next>(NextArguments {
                     thread_id,
@@ -659,7 +659,7 @@ impl DapStore {
             .supports_stepping_granularity
             .unwrap_or_default();
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             client
                 .request::<StepIn>(StepInArguments {
                     thread_id,
@@ -691,7 +691,7 @@ impl DapStore {
             .supports_stepping_granularity
             .unwrap_or_default();
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             client
                 .request::<StepOut>(StepOutArguments {
                     thread_id,
@@ -712,7 +712,7 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Could not found client")));
         };
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             Ok(client
                 .request::<Variables>(VariablesArguments {
                     variables_reference,
@@ -738,7 +738,7 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Could not found client")));
         };
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             client
                 .request::<Evaluate>(EvaluateArguments {
                     expression: expression.clone(),
@@ -765,7 +765,7 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Could not found client")));
         };
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             Ok(client
                 .request::<Completions>(CompletionsArguments {
                     frame_id: Some(stack_frame_id),
@@ -798,7 +798,7 @@ impl DapStore {
             .supports_set_expression
             .unwrap_or_default();
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             if let Some(evaluate_name) = supports_set_expression.then(|| evaluate_name).flatten() {
                 client
                     .request::<SetExpression>(SetExpressionArguments {
@@ -833,7 +833,8 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Could not found client")));
         };
 
-        cx.spawn(|_, _| async move { client.request::<Pause>(PauseArguments { thread_id }).await })
+        cx.background_executor()
+            .spawn(async move { client.request::<Pause>(PauseArguments { thread_id }).await })
     }
 
     pub fn terminate_threads(
@@ -852,7 +853,7 @@ impl DapStore {
             .supports_terminate_threads_request
             .unwrap_or_default()
         {
-            cx.spawn(|_, _| async move {
+            cx.background_executor().spawn(async move {
                 client
                     .request::<TerminateThreads>(TerminateThreadsArguments { thread_ids })
                     .await
@@ -871,7 +872,7 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Could not found client")));
         };
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             client
                 .request::<Disconnect>(DisconnectArguments {
                     restart: Some(false),
@@ -945,9 +946,7 @@ impl DapStore {
 
         let capabilities = self.capabilities.remove(client_id);
 
-        cx.notify();
-
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             let client = match client {
                 DebugAdapterClientState::Starting(task) => task.await,
                 DebugAdapterClientState::Running(client) => Some(client),
@@ -1012,7 +1011,7 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Could not found client")));
         };
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             client
                 .request::<SetBreakpoints>(SetBreakpointsArguments {
                     source: Source {
