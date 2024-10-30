@@ -187,11 +187,7 @@ pub async fn fetch_latest_adapter_version_from_github(
 pub trait DebugAdapter: 'static + Send + Sync {
     fn name(&self) -> DebugAdapterName;
 
-    async fn get_binary(
-        &self,
-        delegate: &dyn DapDelegate,
-        config: &DebugAdapterConfig,
-    ) -> Result<DebugAdapterBinary> {
+    async fn get_binary(&self, delegate: &dyn DapDelegate) -> Result<DebugAdapterBinary> {
         if delegate
             .updated_adapters()
             .lock()
@@ -200,14 +196,14 @@ pub trait DebugAdapter: 'static + Send + Sync {
         {
             log::info!("Using cached debug adapter binary {}", self.name());
 
-            return self.get_installed_binary(delegate, config).await;
+            return self.get_installed_binary(delegate).await;
         }
 
         log::info!("Getting latest version of debug adapter {}", self.name());
         delegate.update_status(self.name(), DapStatus::CheckingForUpdate);
         let version = self.fetch_latest_adapter_version(delegate).await.ok();
 
-        let mut binary = self.get_installed_binary(delegate, config).await;
+        let mut binary = self.get_installed_binary(delegate).await;
 
         if let Some(version) = version {
             if binary
@@ -225,7 +221,7 @@ pub trait DebugAdapter: 'static + Send + Sync {
 
             delegate.update_status(self.name(), DapStatus::Downloading);
             self.install_binary(version, delegate).await?;
-            binary = self.get_installed_binary(delegate, config).await;
+            binary = self.get_installed_binary(delegate).await;
         } else {
             log::error!(
                 "Failed getting latest version of debug adapter {}",
@@ -260,11 +256,7 @@ pub trait DebugAdapter: 'static + Send + Sync {
         delegate: &dyn DapDelegate,
     ) -> Result<()>;
 
-    async fn get_installed_binary(
-        &self,
-        delegate: &dyn DapDelegate,
-        config: &DebugAdapterConfig,
-    ) -> Result<DebugAdapterBinary>;
+    async fn get_installed_binary(&self, delegate: &dyn DapDelegate) -> Result<DebugAdapterBinary>;
 
     /// Should return base configuration to make the debug adapter work
     fn request_args(&self, config: &DebugAdapterConfig) -> Value;

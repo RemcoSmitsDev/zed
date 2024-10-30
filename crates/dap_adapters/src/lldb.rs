@@ -25,11 +25,7 @@ impl DebugAdapter for LldbDebugAdapter {
         Box::new(StdioTransport::new())
     }
 
-    async fn get_binary(
-        &self,
-        _: &dyn DapDelegate,
-        _: &DebugAdapterConfig,
-    ) -> Result<DebugAdapterBinary> {
+    async fn get_binary(&self, _: &dyn DapDelegate) -> Result<DebugAdapterBinary> {
         #[cfg(target_os = "macos")]
         {
             let output = std::process::Command::new("xcrun")
@@ -64,11 +60,7 @@ impl DebugAdapter for LldbDebugAdapter {
         bail!("Fetch latest adapter version not implemented for lldb (yet)")
     }
 
-    async fn get_installed_binary(
-        &self,
-        _: &dyn DapDelegate,
-        _: &DebugAdapterConfig,
-    ) -> Result<DebugAdapterBinary> {
+    async fn get_installed_binary(&self, _: &dyn DapDelegate) -> Result<DebugAdapterBinary> {
         bail!("LLDB debug adapter cannot be installed")
     }
 

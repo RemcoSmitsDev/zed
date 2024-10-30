@@ -254,7 +254,7 @@ impl DapStore {
                         .context("Creating debug adapter")?,
                 );
 
-                let binary = match adapter.get_binary(adapter_delegate.as_ref(), &config).await {
+                let binary = match adapter.get_binary(adapter_delegate.as_ref()).await {
                     Err(error) => {
                         adapter_delegate.update_status(
                             adapter.name(),

@@ -53,11 +53,7 @@ impl DebugAdapter for PythonDebugAdapter {
         Ok(())
     }
 
-    async fn get_installed_binary(
-        &self,
-        _: &dyn DapDelegate,
-        _: &DebugAdapterConfig,
-    ) -> Result<DebugAdapterBinary> {
+    async fn get_installed_binary(&self, _: &dyn DapDelegate) -> Result<DebugAdapterBinary> {
         let adapter_path = paths::debug_adapters_dir().join(self.name());
         let file_name_prefix = format!("{}_", self.name());
 

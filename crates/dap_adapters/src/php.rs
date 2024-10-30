@@ -44,11 +44,7 @@ impl DebugAdapter for PhpDebugAdapter {
         adapters::fetch_latest_adapter_version_from_github(github_repo, delegate).await
     }
 
-    async fn get_installed_binary(
-        &self,
-        delegate: &dyn DapDelegate,
-        _: &DebugAdapterConfig,
-    ) -> Result<DebugAdapterBinary> {
+    async fn get_installed_binary(&self, delegate: &dyn DapDelegate) -> Result<DebugAdapterBinary> {
         let node_runtime = delegate
             .node_runtime()
             .ok_or(anyhow!("Couldn't get npm runtime"))?;
