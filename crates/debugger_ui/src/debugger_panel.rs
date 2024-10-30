@@ -661,7 +661,10 @@ impl DebugPanel {
         }
 
         self.dap_store.update(cx, |store, cx| {
-            if restart_args.is_some() {
+            if restart_args
+                .as_ref()
+                .is_some_and(|v| v.as_bool().unwrap_or(true))
+            {
                 store
                     .restart(&client_id, restart_args, cx)
                     .detach_and_log_err(cx);
