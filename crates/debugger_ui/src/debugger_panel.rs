@@ -393,7 +393,7 @@ impl DebugPanel {
             return;
         };
 
-        let client_id = client_id.clone();
+        let client_id = *client_id;
         let workspace = self.workspace.clone();
         let request_type = client.config().request;
         cx.spawn(|this, mut cx| async move {

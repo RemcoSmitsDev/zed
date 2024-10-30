@@ -130,17 +130,15 @@ impl PickerDelegate for AttachModalDelegate {
 
                         let processes = processes
                             .into_iter()
-                            .filter_map(|(pid, process)| {
-                                Some(Candidate {
-                                    pid: pid.as_u32(),
-                                    name: process.name().to_string_lossy().into_owned(),
-                                    command: process
-                                        .cmd()
-                                        .iter()
-                                        .map(|s| s.to_string_lossy())
-                                        .collect::<Vec<_>>()
-                                        .join(" "),
-                                })
+                            .map(|(pid, process)| Candidate {
+                                pid: pid.as_u32(),
+                                name: process.name().to_string_lossy().into_owned(),
+                                command: process
+                                    .cmd()
+                                    .iter()
+                                    .map(|s| s.to_string_lossy())
+                                    .collect::<Vec<_>>()
+                                    .join(" "),
                             })
                             .collect::<Vec<_>>();
 
