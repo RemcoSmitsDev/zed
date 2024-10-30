@@ -595,30 +595,21 @@ impl DapStore {
         };
 
         cx.background_executor().spawn(async move {
-            if success {
-                client
-                    .send_message(Message::Response(Response {
-                        seq,
-                        request_seq: seq,
-                        success: true,
-                        command: RunInTerminal::COMMAND.to_string(),
-                        body: Some(serde_json::to_value(RunInTerminalResponse {
+            client
+                .send_message(Message::Response(Response {
+                    seq,
+                    request_seq: seq,
+                    success,
+                    command: RunInTerminal::COMMAND.to_string(),
+                    body: match success {
+                        true => Some(serde_json::to_value(RunInTerminalResponse {
                             process_id: Some(std::process::id() as u64),
                             shell_process_id: shell_pid,
                         })?),
-                    }))
-                    .await
-            } else {
-                client
-                    .send_message(Message::Response(Response {
-                        seq,
-                        request_seq: seq,
-                        success: false,
-                        command: RunInTerminal::COMMAND.to_string(),
-                        body: Some(serde_json::to_value(ErrorResponse { error: None })?),
-                    }))
-                    .await
-            }
+                        false => Some(serde_json::to_value(ErrorResponse { error: None })?),
+                    },
+                }))
+                .await
         })
     }
 
