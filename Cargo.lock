@@ -8939,13 +8939,9 @@ dependencies = [
  "client",
  "clock",
  "collections",
-<<<<<<< HEAD
  "dap",
  "dap_adapters",
- "env_logger",
-=======
  "env_logger 0.11.5",
->>>>>>> main
  "fs",
  "futures 0.3.30",
  "fuzzy",
