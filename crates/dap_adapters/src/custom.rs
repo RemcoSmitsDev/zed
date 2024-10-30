@@ -39,11 +39,7 @@ impl DebugAdapter for CustomDebugAdapter {
         self.transport.clone_box()
     }
 
-    async fn get_binary(
-        &self,
-        _: &dyn DapDelegate,
-        _: &DebugAdapterConfig,
-    ) -> Result<DebugAdapterBinary> {
+    async fn get_binary(&self, _: &dyn DapDelegate) -> Result<DebugAdapterBinary> {
         Ok(DebugAdapterBinary {
             command: self.custom_args.command.clone(),
             arguments: self
@@ -64,11 +60,7 @@ impl DebugAdapter for CustomDebugAdapter {
         bail!("Custom debug adapters cannot be installed")
     }
 
-    async fn get_installed_binary(
-        &self,
-        _: &dyn DapDelegate,
-        _: &DebugAdapterConfig,
-    ) -> Result<DebugAdapterBinary> {
+    async fn get_installed_binary(&self, _: &dyn DapDelegate) -> Result<DebugAdapterBinary> {
         bail!("Custom debug adapters cannot be installed")
     }
 

@@ -8,6 +8,7 @@ use workspace::{
     Workspace,
 };
 
+mod attach_modal;
 mod console;
 pub mod debugger_panel;
 mod debugger_panel_item;

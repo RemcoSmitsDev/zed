@@ -14,6 +14,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+use sysinfo::{Pid, Process};
 use task::DebugAdapterConfig;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -260,4 +261,12 @@ pub trait DebugAdapter: 'static + Send + Sync {
 
     /// Should return base configuration to make the debug adapter work
     fn request_args(&self, config: &DebugAdapterConfig) -> Value;
+
+    /// Filters out the processes that the adapter can attach to for debugging
+    fn attach_processes<'a>(
+        &self,
+        _: &'a HashMap<Pid, Process>,
+    ) -> Option<Vec<(&'a Pid, &'a Process)>> {
+        None
+    }
 }

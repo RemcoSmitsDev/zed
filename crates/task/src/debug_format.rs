@@ -36,6 +36,14 @@ impl TCPHost {
     }
 }
 
+/// Represents the attach request information of the debug adapter
+#[derive(Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
+pub struct AttachConfig {
+    /// The processId to attach to, if left empty we will show a process picker
+    #[serde(default)]
+    pub process_id: Option<u32>,
+}
+
 /// Represents the type that will determine which request to call on the debug adapter
 #[derive(Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -44,7 +52,8 @@ pub enum DebugRequestType {
     #[default]
     Launch,
     /// Call the `attach` request on the debug adapter
-    Attach,
+    #[serde(untagged)]
+    Attach(AttachConfig),
 }
 
 /// The Debug adapter to use
@@ -101,7 +110,7 @@ pub struct DebugAdapterConfig {
     pub kind: DebugAdapterKind,
     /// The type of connection the adapter should use
     /// The type of request that should be called on the debug adapter
-    #[serde(default)]
+    #[serde(default, flatten)]
     pub request: DebugRequestType,
     /// The program that you trying to debug
     pub program: Option<String>,

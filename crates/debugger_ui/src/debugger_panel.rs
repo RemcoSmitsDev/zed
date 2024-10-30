@@ -1,5 +1,6 @@
+use crate::attach_modal::AttachModal;
 use crate::debugger_panel_item::DebugPanelItem;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use collections::{BTreeMap, HashMap};
 use command_palette_hooks::CommandPaletteFilter;
 use dap::client::{DebugAdapterClientId, ThreadStatus};
@@ -22,6 +23,7 @@ use settings::Settings;
 use std::any::TypeId;
 use std::path::PathBuf;
 use std::u64;
+use task::DebugRequestType;
 use terminal_view::terminal_panel::TerminalPanel;
 use ui::prelude::*;
 use workspace::{
@@ -98,6 +100,9 @@ impl DebugPanel {
                 cx.subscribe(&pane, Self::handle_pane_event),
                 cx.subscribe(&project, {
                     move |this: &mut Self, _, event, cx| match event {
+                        project::Event::DebugClientStarted(client_id) => {
+                            this.handle_debug_client_started(client_id, cx);
+                        }
                         project::Event::DebugClientEvent { message, client_id } => match message {
                             Message::Event(event) => {
                                 this.handle_debug_client_events(client_id, event, cx);
@@ -255,7 +260,11 @@ impl DebugPanel {
         let args = if let Some(args) = request_args {
             serde_json::from_value(args.clone()).ok()
         } else {
-            None
+            return;
+        };
+
+        let Some(args) = args else {
+            return;
         };
 
         self.dap_store.update(cx, |store, cx| {
@@ -375,6 +384,60 @@ impl DebugPanel {
         .detach_and_log_err(cx);
     }
 
+    fn handle_debug_client_started(
+        &self,
+        client_id: &DebugAdapterClientId,
+        cx: &mut ViewContext<Self>,
+    ) {
+        let client_id = client_id.clone();
+        let workspace = self.workspace.clone();
+        cx.spawn(|this, mut cx| async move {
+            let task = this.update(&mut cx, |this, cx| {
+                this.dap_store
+                    .update(cx, |store, cx| store.initialize(&client_id, cx))
+            })?;
+
+            task.await?;
+
+            let Some(client) = this.update(&mut cx, |this, cx| {
+                this.dap_store.read(cx).client_by_id(&client_id)
+            })?
+            else {
+                return Err(anyhow!("Failed to find client"));
+            };
+
+            match client.config().request {
+                DebugRequestType::Launch => {
+                    let task = this.update(&mut cx, |this, cx| {
+                        this.dap_store
+                            .update(cx, |store, cx| store.launch(&client_id, cx))
+                    });
+
+                    task?.await
+                }
+                DebugRequestType::Attach(config) => {
+                    if let Some(process_id) = config.process_id {
+                        let task = this.update(&mut cx, |this, cx| {
+                            this.dap_store
+                                .update(cx, |store, cx| store.attach(&client_id, process_id, cx))
+                        })?;
+
+                        task.await
+                    } else {
+                        this.update(&mut cx, |this, cx| {
+                            workspace.update(cx, |workspace, cx| {
+                                workspace.toggle_modal(cx, |cx| {
+                                    AttachModal::new(&client_id, this.dap_store.clone(), cx)
+                                })
+                            })
+                        })?
+                    }
+                }
+            }
+        })
+        .detach_and_log_err(cx);
+    }
+
     fn handle_debug_client_events(
         &mut self,
         client_id: &DebugAdapterClientId,
@@ -461,7 +524,7 @@ impl DebugPanel {
             .dap_store
             .read(cx)
             .client_by_id(client_id)
-            .map(|c| c.config().kind)
+            .map(|client| client.config().kind)
         else {
             return; // this can never happen
         };
