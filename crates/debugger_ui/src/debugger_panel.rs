@@ -20,6 +20,7 @@ use project::terminals::TerminalKind;
 use serde_json::Value;
 use settings::Settings;
 use std::any::TypeId;
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::u64;
 use terminal_view::terminal_panel::TerminalPanel;
@@ -68,6 +69,7 @@ pub struct DebugPanel {
     show_did_not_stop_warning: bool,
     _subscriptions: Vec<Subscription>,
     thread_states: BTreeMap<(DebugAdapterClientId, u64), Model<ThreadState>>,
+    message_queue: BTreeMap<DebugAdapterClientId, VecDeque<OutputEvent>>,
 }
 
 impl DebugPanel {
@@ -143,6 +145,7 @@ impl DebugPanel {
                 thread_states: Default::default(),
                 workspace: workspace.weak_handle(),
                 dap_store: project.read(cx).dap_store(),
+                message_queue: Default::default(),
             }
         })
     }
@@ -514,6 +517,12 @@ impl DebugPanel {
 
                             pane.add_item(Box::new(tab), true, true, None, cx);
                         });
+
+                        if let Some(mut message_queue) = this.message_queue.remove(&client_id) {
+                            while let Some(output) = message_queue.pop_front() {
+                                cx.emit(DebugPanelEvent::Output((client_id, output)));
+                            }
+                        }
                     }
 
                     let go_to_stack_frame = if let Some(item) = this.pane.read(cx).active_item() {
@@ -618,7 +627,25 @@ impl DebugPanel {
         event: &OutputEvent,
         cx: &mut ViewContext<Self>,
     ) {
-        cx.emit(DebugPanelEvent::Output((*client_id, event.clone())));
+        let existing_item = self
+            .pane
+            .read(cx)
+            .items()
+            .filter_map(|item| item.downcast::<DebugPanelItem>())
+            .any(|item| {
+                let item = item.read(cx);
+
+                item.client_id() == *client_id
+            });
+
+        if existing_item {
+            cx.emit(DebugPanelEvent::Output((*client_id, event.clone())));
+        } else {
+            self.message_queue
+                .entry(client_id.clone())
+                .or_default()
+                .push_back(event.clone());
+        }
     }
 
     fn handle_module_event(
