@@ -52,13 +52,12 @@ pub enum DebugRequestType {
     #[default]
     Launch,
     /// Call the `attach` request on the debug adapter
-    #[serde(untagged)]
     Attach(AttachConfig),
 }
 
 /// The Debug adapter to use
 #[derive(Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase", tag = "adapter")]
 pub enum DebugAdapterKind {
     /// Manually setup starting a debug adapter
     /// The argument within is used to start the DAP
@@ -108,7 +107,7 @@ pub struct DebugAdapterConfig {
     #[serde(flatten)]
     pub kind: DebugAdapterKind,
     /// The type of request that should be called on the debug adapter
-    #[serde(flatten)]
+    #[serde(default, flatten)]
     pub request: DebugRequestType,
     /// The program that you trying to debug
     pub program: Option<String>,
@@ -134,7 +133,7 @@ pub struct DebugTaskDefinition {
     /// Program to run the debugger on
     program: Option<String>,
     /// The type of request that should be called on the debug adapter
-    #[serde(flatten)]
+    #[serde(default)]
     request_type: DebugRequestType,
     /// The adapter to run
     #[serde(flatten)]
