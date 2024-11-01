@@ -65,7 +65,7 @@ pub enum DebugAdapterKind {
     /// Use debugpy
     Python(TCPHost),
     /// Use vscode-php-debug
-    PHP(TCPHost),
+    Php(TCPHost),
     /// Use vscode-js-debug
     Javascript(TCPHost),
     /// Use lldb
@@ -78,7 +78,7 @@ impl DebugAdapterKind {
         match self {
             Self::Custom(_) => "Custom",
             Self::Python(_) => "Python",
-            Self::PHP(_) => "PHP",
+            Self::Php(_) => "PHP",
             Self::Javascript(_) => "JavaScript",
             Self::Lldb => "LLDB",
         }
