@@ -197,7 +197,7 @@ impl PickerDelegate for AttachModalDelegate {
                 self.candidates.as_ref().map(|candidates| &candidates[ix])
             });
         let Some(candidate) = candidate else {
-            return;
+            return cx.emit(DismissEvent);
         };
 
         self.dap_store.update(cx, |store, cx| {
