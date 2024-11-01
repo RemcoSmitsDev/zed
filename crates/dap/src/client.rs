@@ -3,7 +3,6 @@ use crate::{
     transport::{IoKind, LogKind, TransportDelegate},
 };
 use anyhow::{anyhow, Result};
-
 use dap_types::{
     messages::{Message, Response},
     requests::Request,

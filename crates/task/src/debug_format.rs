@@ -46,7 +46,7 @@ pub struct AttachConfig {
 
 /// Represents the type that will determine which request to call on the debug adapter
 #[derive(Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase", tag = "request")]
 pub enum DebugRequestType {
     /// Call the `launch` request on the debug adapter
     #[default]
@@ -58,7 +58,7 @@ pub enum DebugRequestType {
 
 /// The Debug adapter to use
 #[derive(Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
-#[serde(rename_all = "lowercase", tag = "kind")]
+#[serde(rename_all = "lowercase")]
 pub enum DebugAdapterKind {
     /// Manually setup starting a debug adapter
     /// The argument within is used to start the DAP
@@ -104,13 +104,11 @@ pub struct CustomArgs {
 #[derive(Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct DebugAdapterConfig {
-    /// Unique id of for the debug adapter,
-    /// that will be send with the `initialize` request
+    /// The type of adapter you want to use
     #[serde(flatten)]
     pub kind: DebugAdapterKind,
-    /// The type of connection the adapter should use
     /// The type of request that should be called on the debug adapter
-    #[serde(default, flatten)]
+    #[serde(flatten)]
     pub request: DebugRequestType,
     /// The program that you trying to debug
     pub program: Option<String>,
@@ -131,15 +129,16 @@ pub enum DebugConnectionType {
 #[derive(Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct DebugTaskDefinition {
-    /// Name of the debug tasks
+    /// Name of the debug task
     label: String,
     /// Program to run the debugger on
     program: Option<String>,
-    /// Launch | Request depending on the session the adapter should be ran as
-    #[serde(default)]
-    session_type: DebugRequestType,
+    /// The type of request that should be called on the debug adapter
+    #[serde(flatten)]
+    request_type: DebugRequestType,
     /// The adapter to run
-    adapter: DebugAdapterKind,
+    #[serde(flatten)]
+    kind: DebugAdapterKind,
     /// Additional initialization arguments to be sent on DAP initialization
     initialize_args: Option<serde_json::Value>,
 }
@@ -148,8 +147,8 @@ impl DebugTaskDefinition {
     fn to_zed_format(self) -> anyhow::Result<TaskTemplate> {
         let command = "".to_string();
         let task_type = TaskType::Debug(DebugAdapterConfig {
-            kind: self.adapter,
-            request: self.session_type,
+            kind: self.kind,
+            request: self.request_type,
             program: self.program,
             initialize_args: self.initialize_args,
         });

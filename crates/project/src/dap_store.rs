@@ -238,6 +238,7 @@ impl DapStore {
     }
 
     pub fn start_client(&mut self, config: DebugAdapterConfig, cx: &mut ModelContext<Self>) {
+        dbg!(&config);
         let client_id = self.next_client_id();
         let adapter_delegate = self.delegate.clone();
         let start_client_task = cx.spawn(|this, mut cx| async move {
