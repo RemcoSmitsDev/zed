@@ -147,7 +147,7 @@ impl DebugTaskDefinition {
             kind: self.adapter,
             request: self.session_type,
             program: self.program,
-            cwd: None,
+            cwd: self.cwd.clone().map(PathBuf::from),
             initialize_args: self.initialize_args,
         });
 
