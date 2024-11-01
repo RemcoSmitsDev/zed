@@ -133,8 +133,8 @@ pub struct DebugTaskDefinition {
     /// Program to run the debugger on
     program: Option<String>,
     /// The type of request that should be called on the debug adapter
-    #[serde(default)]
-    request_type: DebugRequestType,
+    #[serde(default, flatten)]
+    request: DebugRequestType,
     /// The adapter to run
     #[serde(flatten)]
     kind: DebugAdapterKind,
@@ -147,7 +147,7 @@ impl DebugTaskDefinition {
         let command = "".to_string();
         let task_type = TaskType::Debug(DebugAdapterConfig {
             kind: self.kind,
-            request: self.request_type,
+            request: self.request,
             program: self.program,
             initialize_args: self.initialize_args,
         });
