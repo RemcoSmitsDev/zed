@@ -95,6 +95,7 @@ mod deserialization_tests {
             kind: DebugAdapterKind::Python(TCPHost::default()),
             request: crate::DebugRequestType::Launch,
             program: Some("main".to_string()),
+            cwd: None,
             initialize_args: None,
         };
         let json = json!({
@@ -130,6 +131,8 @@ pub enum RevealStrategy {
     /// Always show the terminal pane, add and focus the corresponding task's tab in it.
     #[default]
     Always,
+    /// Always show the terminal pane, add the task's tab in it, but don't focus it.
+    NoFocus,
     /// Do not change terminal pane focus, but still add/reuse the task's tab there.
     Never,
 }

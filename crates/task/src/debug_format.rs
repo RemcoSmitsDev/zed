@@ -2,6 +2,7 @@ use schemars::{gen::SchemaSettings, JsonSchema};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
+use std::path::PathBuf;
 use util::ResultExt;
 
 use crate::{TaskTemplate, TaskTemplates, TaskType};
@@ -111,6 +112,8 @@ pub struct DebugAdapterConfig {
     pub request: DebugRequestType,
     /// The program that you trying to debug
     pub program: Option<String>,
+    /// The current working directory of your project
+    pub cwd: Option<PathBuf>,
     /// Additional initialization arguments to be sent on DAP initialization
     pub initialize_args: Option<serde_json::Value>,
 }
@@ -132,6 +135,8 @@ pub struct DebugTaskDefinition {
     label: String,
     /// Program to run the debugger on
     program: Option<String>,
+    /// The current working directory of your project
+    cwd: Option<String>,
     /// The type of request that should be called on the debug adapter
     #[serde(default, flatten)]
     request: DebugRequestType,
@@ -145,10 +150,13 @@ pub struct DebugTaskDefinition {
 impl DebugTaskDefinition {
     fn to_zed_format(self) -> anyhow::Result<TaskTemplate> {
         let command = "".to_string();
+        let cwd = self.cwd.clone().map(PathBuf::from).take_if(|p| p.exists());
+
         let task_type = TaskType::Debug(DebugAdapterConfig {
             kind: self.kind,
             request: self.request,
             program: self.program,
+            cwd: cwd.clone(),
             initialize_args: self.initialize_args,
         });
 
@@ -159,6 +167,7 @@ impl DebugTaskDefinition {
             command,
             args,
             task_type,
+            cwd: if cwd.is_some() { self.cwd } else { None },
             ..Default::default()
         })
     }
