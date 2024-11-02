@@ -407,6 +407,9 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Client was not found")));
         };
 
+        // update the process id on the config, so when the `startDebugging` reverse request
+        // comes in we send another `attach` request with the already selected PID
+        // If we don't do this the user has to select the process twice if the adapter sends a `startDebugging` request
         client.set_process_id(pid);
 
         let config = client.config();

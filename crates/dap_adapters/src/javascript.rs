@@ -134,7 +134,7 @@ impl DebugAdapter for JsDebugAdapter {
         };
 
         json!({
-            "program": config.program.clone(),
+            "program": config.program,
             "type": "pwa-node",
             "request": match config.request {
                 DebugRequestType::Launch => "launch",

@@ -34,9 +34,9 @@ pub struct DebugAdapterClientId(pub usize);
 pub struct DebugAdapterClient {
     id: DebugAdapterClientId,
     sequence_count: AtomicU64,
-    config: Arc<Mutex<DebugAdapterConfig>>,
     adapter: Arc<Box<dyn DebugAdapter>>,
     transport_delegate: TransportDelegate,
+    config: Arc<Mutex<DebugAdapterConfig>>,
 }
 
 impl DebugAdapterClient {
