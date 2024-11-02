@@ -251,6 +251,12 @@ impl DapStore {
                         .context("Creating debug adapter")?,
                 );
 
+                if !adapter.supports_attach()
+                    && matches!(config.request, DebugRequestType::Attach(_))
+                {
+                    return Err(anyhow!("Debug adapter does not support `attach` request"));
+                }
+
                 let path = cx.update(|cx| {
                     let name = LanguageServerName::from(adapter.name().as_ref());
 

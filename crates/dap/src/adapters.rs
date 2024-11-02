@@ -312,6 +312,12 @@ pub trait DebugAdapter: 'static + Send + Sync {
     /// Should return base configuration to make the debug adapter work
     fn request_args(&self, config: &DebugAdapterConfig) -> Value;
 
+    /// Whether the adapter supports `attach` request,
+    /// if not support and the request is selected we will show an error message
+    fn supports_attach(&self) -> bool {
+        false
+    }
+
     /// Filters out the processes that the adapter can attach to for debugging
     fn attach_processes<'a>(
         &self,
