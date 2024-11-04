@@ -793,6 +793,7 @@ impl LocalSettingsKind {
         match proto_kind {
             proto::LocalSettingsKind::Settings => Self::Settings,
             proto::LocalSettingsKind::Tasks => Self::Tasks,
+            proto::LocalSettingsKind::DebugTasks => Self::DebugTasks,
             proto::LocalSettingsKind::Editorconfig => Self::Editorconfig,
         }
     }
@@ -801,6 +802,7 @@ impl LocalSettingsKind {
         match self {
             Self::Settings => proto::LocalSettingsKind::Settings,
             Self::Tasks => proto::LocalSettingsKind::Tasks,
+            Self::DebugTasks => proto::LocalSettingsKind::DebugTasks,
             Self::Editorconfig => proto::LocalSettingsKind::Editorconfig,
         }
     }

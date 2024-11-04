@@ -3,9 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use util::ResultExt;
 
-use crate::{TaskTemplate, TaskTemplates, TaskType};
+use crate::{ResolvedTask, TaskContext};
 
 impl Default for DebugConnectionType {
     fn default() -> Self {
@@ -101,14 +100,11 @@ pub struct CustomArgs {
 }
 
 /// Represents the configuration for the debug adapter
-#[derive(Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
-#[serde(rename_all = "snake_case")]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct DebugAdapterConfig {
     /// The type of adapter you want to use
-    #[serde(flatten)]
     pub kind: DebugAdapterKind,
     /// The type of request that should be called on the debug adapter
-    #[serde(default, flatten)]
     pub request: DebugRequestType,
     /// The program that you trying to debug
     pub program: Option<String>,
@@ -130,55 +126,52 @@ pub enum DebugConnectionType {
 
 #[derive(Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
-pub struct DebugTaskDefinition {
+pub struct DebugTaskTemplate {
     /// Name of the debug task
-    label: String,
+    pub label: String,
     /// Program to run the debugger on
-    program: Option<String>,
+    pub program: Option<String>,
     /// The current working directory of your project
-    cwd: Option<String>,
+    pub cwd: Option<String>,
     /// The type of request that should be called on the debug adapter
     #[serde(default, flatten)]
-    request: DebugRequestType,
+    pub request: DebugRequestType,
     /// The adapter to run
     #[serde(flatten)]
-    kind: DebugAdapterKind,
+    pub kind: DebugAdapterKind,
     /// Additional initialization arguments to be sent on DAP initialization
-    initialize_args: Option<serde_json::Value>,
+    pub initialize_args: Option<serde_json::Value>,
 }
 
-impl DebugTaskDefinition {
-    fn to_zed_format(self) -> anyhow::Result<TaskTemplate> {
-        let command = "".to_string();
-        let cwd = self.cwd.clone().map(PathBuf::from).take_if(|p| p.exists());
+impl DebugTaskTemplate {
+    pub fn resolve_task(&self, id_base: &str, _cx: &TaskContext) -> Option<ResolvedTask> {
+        dbg!(id_base);
+        // let program = match &self.task_type {
+        //     TaskType::Script => None,
+        //     TaskType::Debug(adapter_config) => {
+        //         if let Some(program) = &adapter_config.program {
+        //             Some(substitute_all_template_variables_in_str(
+        //                 program,
+        //                 &task_variables,
+        //                 &variable_names,
+        //                 &mut substituted_variables,
+        //             )?)
+        //         } else {
+        //             None
+        //         }
+        //     }
+        // };
 
-        let task_type = TaskType::Debug(DebugAdapterConfig {
-            kind: self.kind,
-            request: self.request,
-            program: self.program,
-            cwd: cwd.clone(),
-            initialize_args: self.initialize_args,
-        });
-
-        let args: Vec<String> = Vec::new();
-
-        Ok(TaskTemplate {
-            label: self.label,
-            command,
-            args,
-            task_type,
-            cwd: if cwd.is_some() { self.cwd } else { None },
-            ..Default::default()
-        })
+        None
     }
 }
 
 /// A group of Debug Tasks defined in a JSON file.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(transparent)]
-pub struct DebugTaskFile(pub Vec<DebugTaskDefinition>);
+pub struct DebugTemplates(pub Vec<DebugTaskTemplate>);
 
-impl DebugTaskFile {
+impl DebugTemplates {
     /// Generates JSON schema of Tasks JSON template format.
     pub fn generate_json_schema() -> serde_json_lenient::Value {
         let schema = SchemaSettings::draft07()
@@ -187,19 +180,5 @@ impl DebugTaskFile {
             .into_root_schema_for::<Self>();
 
         serde_json_lenient::to_value(schema).unwrap()
-    }
-}
-
-impl TryFrom<DebugTaskFile> for TaskTemplates {
-    type Error = anyhow::Error;
-
-    fn try_from(value: DebugTaskFile) -> Result<Self, Self::Error> {
-        let templates = value
-            .0
-            .into_iter()
-            .filter_map(|debug_definition| debug_definition.to_zed_format().log_err())
-            .collect();
-
-        Ok(Self(templates))
     }
 }

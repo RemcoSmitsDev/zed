@@ -1221,13 +1221,15 @@ impl Project {
 
     pub fn start_debug_adapter_client_from_task(
         &mut self,
-        debug_task: task::ResolvedTask,
+        resolved_task: task::ResolvedTask,
         cx: &mut ModelContext<Self>,
     ) {
-        if let Some(adapter_config) = debug_task.debug_adapter_config() {
-            self.dap_store.update(cx, |store, cx| {
-                store.start_client(adapter_config, cx);
-            });
+        if let Some(resolved) = resolved_task.resolved {
+            if let Some(adapter_config) = resolved.as_debug() {
+                self.dap_store.update(cx, |store, cx| {
+                    store.start_client(adapter_config, cx);
+                });
+            }
         }
     }
 

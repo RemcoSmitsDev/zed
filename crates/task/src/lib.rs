@@ -7,6 +7,7 @@ mod task_template;
 mod vscode_format;
 
 use collections::{hash_map, HashMap, HashSet};
+use debug_format::DebugTaskTemplate;
 use gpui::SharedString;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -16,11 +17,9 @@ use std::str::FromStr;
 
 pub use debug_format::{
     AttachConfig, CustomArgs, DebugAdapterConfig, DebugAdapterKind, DebugConnectionType,
-    DebugRequestType, DebugTaskFile, TCPHost,
+    DebugRequestType, DebugTemplates, TCPHost,
 };
-pub use task_template::{
-    HideStrategy, RevealStrategy, TaskModal, TaskTemplate, TaskTemplates, TaskType,
-};
+pub use task_template::{HideStrategy, RevealStrategy, TaskModal, TaskTemplate, TaskTemplates};
 pub use vscode_format::VsCodeTaskFile;
 
 /// Task identifier, unique within the application.
@@ -58,8 +57,70 @@ pub struct SpawnInTerminal {
     pub hide: HideStrategy,
     /// Which shell to use when spawning the task.
     pub shell: Shell,
-    /// Tells debug tasks which program to debug
-    pub program: Option<String>,
+}
+
+/// Template kind `script` or `debug`
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub enum TemplateType {
+    /// Script task template for running commands
+    Task(TaskTemplate),
+    /// Debug task template for running debug adapters
+    Debug(DebugTaskTemplate),
+}
+
+impl TemplateType {
+    /// resolves the task for the underlying template
+    pub fn resolve_task(&self, id_base: &str, cx: &TaskContext) -> Option<ResolvedTask> {
+        match self {
+            TemplateType::Task(task_template) => task_template.resolve_task(id_base, cx),
+            TemplateType::Debug(debug_task_template) => {
+                debug_task_template.resolve_task(id_base, cx)
+            }
+        }
+    }
+
+    /// gives the label for the underlying template
+    pub fn label(&self) -> String {
+        match self {
+            TemplateType::Task(task_template) => task_template.label.clone(),
+            TemplateType::Debug(debug_task_template) => debug_task_template.label.clone(),
+        }
+    }
+}
+
+/// Resolved values from task/debug template
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Resolved {
+    /// Resolved task for running commands
+    Task(SpawnInTerminal),
+    /// Resolved debug task for running debug adapters
+    Debug(DebugAdapterConfig),
+}
+
+impl Resolved {
+    /// Return the resolved value of the task
+    pub fn as_task(&self) -> Option<SpawnInTerminal> {
+        match self {
+            Resolved::Task(task) => Some(task.clone()),
+            Resolved::Debug(_) => None,
+        }
+    }
+
+    /// Return the resolved value of the debug task
+    pub fn as_debug(&self) -> Option<DebugAdapterConfig> {
+        match self {
+            Resolved::Task(_) => None,
+            Resolved::Debug(config) => Some(config.clone()),
+        }
+    }
+
+    /// gives the label for the underlying resolved task
+    pub fn label(&self) -> &str {
+        match self {
+            Resolved::Task(task) => task.label.as_str(),
+            Resolved::Debug(debug_task) => debug_task.kind.display_name(),
+        }
+    }
 }
 
 /// A final form of the [`TaskTemplate`], that got resolved with a particualar [`TaskContext`] and now is ready to spawn the actual task.
@@ -72,46 +133,20 @@ pub struct ResolvedTask {
     /// so it's impossible to determine the id equality without more context in a generic case.
     pub id: TaskId,
     /// A template the task got resolved from.
-    original_task: TaskTemplate,
+    original_task: TemplateType,
     /// Full, unshortened label of the task after all resolutions are made.
     pub resolved_label: String,
     /// Variables that were substituted during the task template resolution.
     substituted_variables: HashSet<VariableName>,
     /// Further actions that need to take place after the resolved task is spawned,
     /// with all task variables resolved.
-    pub resolved: Option<SpawnInTerminal>,
+    pub resolved: Option<Resolved>,
 }
 
 impl ResolvedTask {
     /// A task template before the resolution.
-    pub fn original_task(&self) -> &TaskTemplate {
+    pub fn original_task(&self) -> &TemplateType {
         &self.original_task
-    }
-
-    /// Get the task type that determines what this task is used for
-    /// And where is it shown in the UI
-    pub fn task_type(&self) -> TaskType {
-        self.original_task.task_type.clone()
-    }
-
-    /// Get the configuration for the debug adapter that should be used for this task.
-    pub fn debug_adapter_config(&self) -> Option<DebugAdapterConfig> {
-        match self.original_task.task_type.clone() {
-            TaskType::Script => None,
-            TaskType::Debug(mut adapter_config) => {
-                let (cwd, program) = match &self.resolved {
-                    None => (adapter_config.cwd, adapter_config.program),
-                    Some(spawn_in_terminal) => (
-                        spawn_in_terminal.cwd.clone(),
-                        spawn_in_terminal.program.clone(),
-                    ),
-                };
-
-                adapter_config.program = program;
-                adapter_config.cwd = cwd;
-                Some(adapter_config)
-            }
-        }
     }
 
     /// Variables that were substituted during the task template resolution.
@@ -123,7 +158,7 @@ impl ResolvedTask {
     pub fn display_label(&self) -> &str {
         self.resolved
             .as_ref()
-            .map(|resolved| resolved.label.as_str())
+            .map(|resolved| resolved.label())
             .unwrap_or_else(|| self.resolved_label.as_str())
     }
 }

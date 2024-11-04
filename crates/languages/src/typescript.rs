@@ -18,18 +18,18 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use task::{TaskTemplate, TaskTemplates, VariableName};
+use task::{TaskTemplate, TaskTemplates, TemplateType, VariableName};
 use util::{fs::remove_matching, maybe, ResultExt};
 
 pub(super) fn typescript_task_context() -> ContextProviderWithTasks {
     ContextProviderWithTasks::new(TaskTemplates(vec![
-        TaskTemplate {
+        TemplateType::Task(TaskTemplate {
             label: "jest file test".to_owned(),
             command: "npx jest".to_owned(),
             args: vec![VariableName::File.template_value()],
             ..TaskTemplate::default()
-        },
-        TaskTemplate {
+        }),
+        TemplateType::Task(TaskTemplate {
             label: "jest test $ZED_SYMBOL".to_owned(),
             command: "npx jest".to_owned(),
             args: vec![
@@ -39,8 +39,8 @@ pub(super) fn typescript_task_context() -> ContextProviderWithTasks {
             ],
             tags: vec!["ts-test".into(), "js-test".into(), "tsx-test".into()],
             ..TaskTemplate::default()
-        },
-        TaskTemplate {
+        }),
+        TemplateType::Task(TaskTemplate {
             label: "execute selection $ZED_SELECTED_TEXT".to_owned(),
             command: "node".to_owned(),
             args: vec![
@@ -48,7 +48,7 @@ pub(super) fn typescript_task_context() -> ContextProviderWithTasks {
                 format!("\"{}\"", VariableName::SelectedText.template_value()),
             ],
             ..TaskTemplate::default()
-        },
+        }),
     ]))
 }
 

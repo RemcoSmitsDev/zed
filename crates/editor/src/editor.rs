@@ -105,7 +105,7 @@ pub use proposed_changes_editor::{
     ProposedChangeLocation, ProposedChangesEditor, ProposedChangesEditorToolbar,
 };
 use similar::{ChangeTag, TextDiff};
-use task::{ResolvedTask, TaskTemplate, TaskVariables};
+use task::{ResolvedTask, TaskTemplate, TaskVariables, TemplateType};
 
 pub use lsp::CompletionContext;
 use lsp::{
@@ -5753,7 +5753,9 @@ impl Editor {
             let (task_source_kind, mut resolved_task) = tasks.resolve(&context).next()?;
 
             let resolved = resolved_task.resolved.as_mut()?;
-            resolved.reveal = reveal_strategy;
+            if let Some(mut resolved_task) = resolved.as_task() {
+                resolved_task.reveal = reveal_strategy;
+            }
 
             workspace
                 .update(&mut cx, |workspace, cx| {
@@ -9601,7 +9603,13 @@ impl Editor {
                 Some((
                     (runnable.buffer_id, row),
                     RunnableTasks {
-                        templates: tasks,
+                        templates: tasks
+                            .into_iter()
+                            .filter_map(|(kind, template)| match template {
+                                TemplateType::Task(task_template) => Some((kind, task_template)),
+                                TemplateType::Debug(_) => None,
+                            })
+                            .collect::<Vec<_>>(),
                         offset: MultiBufferOffset(runnable.run_range.start),
                         context_range,
                         column: point.column,
@@ -9616,7 +9624,7 @@ impl Editor {
         project: &Model<Project>,
         runnable: &mut Runnable,
         cx: &WindowContext<'_>,
-    ) -> Vec<(TaskSourceKind, TaskTemplate)> {
+    ) -> Vec<(TaskSourceKind, TemplateType)> {
         let (inventory, worktree_id, file) = project.read_with(cx, |project, cx| {
             let (worktree_id, file) = project
                 .buffer_for_id(runnable.buffer, cx)
@@ -9647,8 +9655,12 @@ impl Editor {
                             cx,
                         )
                     })
-                    .filter(move |(_, template)| {
-                        template.tags.iter().any(|source_tag| source_tag == &tag)
+                    .filter(move |(_, template)| match template {
+                        TemplateType::Task(task_template) => task_template
+                            .tags
+                            .iter()
+                            .any(|source_tag| source_tag == &tag),
+                        TemplateType::Debug(_) => false,
                     })
             })
             .sorted_by_key(|(kind, _)| kind.to_owned())

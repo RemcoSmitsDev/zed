@@ -580,6 +580,7 @@ enum LocalSettingsKind {
     Settings = 0;
     Tasks = 1;
     Editorconfig = 2;
+    DebugTasks = 3;
 }
 
 message CreateProjectEntry {

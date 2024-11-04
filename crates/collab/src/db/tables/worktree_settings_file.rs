@@ -30,6 +30,8 @@ pub enum LocalSettingsKind {
     Settings,
     #[sea_orm(string_value = "tasks")]
     Tasks,
+    #[sea_orm(string_value = "debug_tasks")]
+    DebugTasks,
     #[sea_orm(string_value = "editorconfig")]
     Editorconfig,
 }

@@ -15,7 +15,8 @@ use itertools::Itertools;
 use language::{ContextProvider, File, Language, Location};
 use settings::{parse_json_with_comments, SettingsLocation};
 use task::{
-    ResolvedTask, TaskContext, TaskId, TaskTemplate, TaskTemplates, TaskVariables, VariableName,
+    ResolvedTask, TaskContext, TaskId, TaskTemplate, TaskTemplates, TaskVariables, TemplateType,
+    VariableName,
 };
 use text::{Point, ToPoint};
 use util::{post_inc, NumericPrefixWithSuffix, ResultExt as _};
@@ -88,7 +89,7 @@ impl Inventory {
         language: Option<Arc<Language>>,
         worktree: Option<WorktreeId>,
         cx: &AppContext,
-    ) -> Vec<(TaskSourceKind, TaskTemplate)> {
+    ) -> Vec<(TaskSourceKind, TemplateType)> {
         let task_source_kind = language.as_ref().map(|language| TaskSourceKind::Language {
             name: language.name().0,
         });
@@ -238,7 +239,7 @@ impl Inventory {
     fn templates_from_settings(
         &self,
         worktree: Option<WorktreeId>,
-    ) -> impl '_ + Iterator<Item = (TaskSourceKind, TaskTemplate)> {
+    ) -> impl '_ + Iterator<Item = (TaskSourceKind, TemplateType)> {
         self.templates_from_settings
             .global
             .clone()
@@ -249,7 +250,7 @@ impl Inventory {
                         id_base: Cow::Borrowed("global tasks.json"),
                         abs_path: paths::tasks_file().clone(),
                     },
-                    template,
+                    TemplateType::Task(template),
                 )
             })
             .chain(worktree.into_iter().flat_map(|worktree| {
@@ -270,7 +271,7 @@ impl Inventory {
                                     "local worktree tasks from directory {directory:?}"
                                 )),
                             },
-                            template.clone(),
+                            TemplateType::Task(template.clone()),
                         )
                     })
             }))
@@ -361,6 +362,7 @@ fn task_variables_preference(task: &ResolvedTask) -> Reverse<usize> {
 mod test_inventory {
     use gpui::{Model, TestAppContext};
     use itertools::Itertools;
+
     use task::TaskContext;
     use worktree::WorktreeId;
 
@@ -377,7 +379,7 @@ mod test_inventory {
             inventory
                 .list_tasks(None, None, worktree, cx)
                 .into_iter()
-                .map(|(_, task)| task.label)
+                .map(|(_, task)| task.label())
                 .sorted()
                 .collect()
         })
@@ -392,7 +394,7 @@ mod test_inventory {
             let (task_source_kind, task) = inventory
                 .list_tasks(None, None, None, cx)
                 .into_iter()
-                .find(|(_, task)| task.label == task_name)
+                .find(|(_, task)| task.label() == task_name.to_string())
                 .unwrap_or_else(|| panic!("Failed to find task with name {task_name}"));
             let id_base = task_source_kind.to_id_base();
             inventory.task_scheduled(
@@ -831,7 +833,7 @@ mod tests {
         });
         used.into_iter()
             .chain(current)
-            .map(|(_, task)| task.original_task().label.clone())
+            .map(|(_, task)| task.original_task().label().clone())
             .collect()
     }
 
