@@ -1,6 +1,6 @@
 use project::TaskSourceKind;
 use remote::ConnectionState;
-use task::{ResolvedTask, TaskContext, TaskTemplate};
+use task::{ResolvedTask, TaskContext, TemplateType};
 use ui::ViewContext;
 
 use crate::Workspace;
@@ -8,7 +8,7 @@ use crate::Workspace;
 pub fn schedule_task(
     workspace: &Workspace,
     task_source_kind: TaskSourceKind,
-    task_to_resolve: &TaskTemplate,
+    task_to_resolve: &TemplateType,
     task_cx: &TaskContext,
     omit_history: bool,
     cx: &mut ViewContext<'_, Workspace>,
@@ -46,19 +46,21 @@ pub fn schedule_resolved_task(
     omit_history: bool,
     cx: &mut ViewContext<'_, Workspace>,
 ) {
-    if let Some(spawn_in_terminal) = resolved_task.resolved.take() {
-        if !omit_history {
-            resolved_task.resolved = Some(spawn_in_terminal.clone());
-            workspace.project().update(cx, |project, cx| {
-                if let Some(task_inventory) =
-                    project.task_store().read(cx).task_inventory().cloned()
-                {
-                    task_inventory.update(cx, |inventory, _| {
-                        inventory.task_scheduled(task_source_kind, resolved_task);
-                    })
-                }
-            });
+    if let Some(resolved) = resolved_task.resolved.take() {
+        if let Some(spawn_in_terminal) = resolved.as_task() {
+            if !omit_history {
+                resolved_task.resolved = Some(resolved.clone());
+                workspace.project().update(cx, |project, cx| {
+                    if let Some(task_inventory) =
+                        project.task_store().read(cx).task_inventory().cloned()
+                    {
+                        task_inventory.update(cx, |inventory, _| {
+                            inventory.task_scheduled(task_source_kind, resolved_task);
+                        })
+                    }
+                });
+            }
+            cx.emit(crate::Event::SpawnTask(Box::new(spawn_in_terminal)));
         }
-        cx.emit(crate::Event::SpawnTask(Box::new(spawn_in_terminal)));
     }
 }

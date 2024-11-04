@@ -26,7 +26,7 @@ use std::{
     str::FromStr,
     sync::{Arc, OnceLock},
 };
-use task::{TaskTemplate, TaskTemplates, VariableName};
+use task::{TaskTemplate, TaskTemplates, TemplateType, VariableName};
 use util::{fs::remove_matching, maybe, ResultExt};
 
 const SERVER_PATH: &str =
@@ -38,20 +38,20 @@ const PACKAGE_JSON_SCHEMA: &str = include_str!("json/schemas/package.json");
 
 pub(super) fn json_task_context() -> ContextProviderWithTasks {
     ContextProviderWithTasks::new(TaskTemplates(vec![
-        TaskTemplate {
+        TemplateType::Task(TaskTemplate {
             label: "package script $ZED_CUSTOM_script".to_owned(),
             command: "npm --prefix $ZED_DIRNAME run".to_owned(),
             args: vec![VariableName::Custom("script".into()).template_value()],
             tags: vec!["package-script".into()],
             ..TaskTemplate::default()
-        },
-        TaskTemplate {
+        }),
+        TemplateType::Task(TaskTemplate {
             label: "composer script $ZED_CUSTOM_script".to_owned(),
             command: "composer -d $ZED_DIRNAME".to_owned(),
             args: vec![VariableName::Custom("script".into()).template_value()],
             tags: vec!["composer-script".into()],
             ..TaskTemplate::default()
-        },
+        }),
     ]))
 }
 
@@ -86,7 +86,7 @@ impl JsonLspAdapter {
             cx,
         );
         let tasks_schema = task::TaskTemplates::generate_json_schema();
-        let debug_schema = task::DebugTaskFile::generate_json_schema();
+        let debug_schema = task::DebugTemplates::generate_json_schema();
         let tsconfig_schema = serde_json::Value::from_str(TSCONFIG_SCHEMA).unwrap();
         let package_json_schema = serde_json::Value::from_str(PACKAGE_JSON_SCHEMA).unwrap();
 

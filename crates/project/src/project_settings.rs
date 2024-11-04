@@ -19,7 +19,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use task::{DebugTaskFile, TaskTemplates, VsCodeTaskFile};
+use task::{DebugTemplates, TaskTemplates, TemplateType, VsCodeTaskFile};
 use util::ResultExt;
 use worktree::{PathChange, UpdatedEntriesSet, Worktree, WorktreeId};
 
@@ -436,7 +436,7 @@ impl SettingsObserver {
                     // Debug task file name has to be unique because it will overwrite tasks
                     // from .zed/tasks.json file if it is not (It was also being overwritten too)
                     Arc::from(settings_dir.join("debug").as_path()),
-                    LocalSettingsKind::Tasks,
+                    LocalSettingsKind::DebugTasks,
                 )
             } else if path.ends_with(EDITORCONFIG_NAME) {
                 let Some(settings_dir) = path.parent().map(Arc::from) else {
@@ -484,16 +484,18 @@ impl SettingsObserver {
                                         )
                                     })
                                 } else if abs_path.ends_with(local_debug_file_relative_path()) {
-                                    let debug_tasks_content = parse_json_with_comments::<DebugTaskFile>(&content).with_context(|| {
+                                    let debug_tasks_content = parse_json_with_comments::<DebugTemplates>(&content).with_context(|| {
                                         format!("Parsing Zed debug tasks, file {abs_path:?}")
                                     })?;
 
-                                    let zed_debug_tasks = TaskTemplates::try_from(debug_tasks_content)
+                                    let zed_debug_tasks = DebugTemplates::try_from(debug_tasks_content)
                                         .with_context(|| {
-                                            format!("Converting zed debugger tasks into Zed tasks, file {abs_path:?}")
+                                            format!("Converting zed debugger tasks, file {abs_path:?}")
                                         })?;
 
-                                    serde_json::to_string(&zed_debug_tasks).with_context(|| {
+                                    let templates = zed_debug_tasks.0.into_iter().map(|template| TemplateType::Debug(template)).collect::<Vec<_>>();
+
+                                    serde_json::to_string(&TaskTemplates(templates)).with_context(|| {
                                         format!(
                                             "serializing Zed debug tasks into JSON, file {abs_path:?}"
                                         )
@@ -573,18 +575,20 @@ impl SettingsObserver {
                             }
                         }
                     }),
-                LocalSettingsKind::Tasks => task_store.update(cx, |task_store, cx| {
-                    task_store
-                        .update_user_tasks(
-                            Some(SettingsLocation {
-                                worktree_id,
-                                path: directory.as_ref(),
-                            }),
-                            file_content.as_deref(),
-                            cx,
-                        )
-                        .log_err();
-                }),
+                LocalSettingsKind::Tasks | LocalSettingsKind::DebugTasks => {
+                    task_store.update(cx, |task_store, cx| {
+                        task_store
+                            .update_user_tasks(
+                                Some(SettingsLocation {
+                                    worktree_id,
+                                    path: directory.as_ref(),
+                                }),
+                                file_content.as_deref(),
+                                cx,
+                            )
+                            .log_err();
+                    })
+                }
             };
 
             if let Some(downstream_client) = &self.downstream_client {
@@ -606,6 +610,7 @@ pub fn local_settings_kind_from_proto(kind: proto::LocalSettingsKind) -> LocalSe
     match kind {
         proto::LocalSettingsKind::Settings => LocalSettingsKind::Settings,
         proto::LocalSettingsKind::Tasks => LocalSettingsKind::Tasks,
+        proto::LocalSettingsKind::DebugTasks => LocalSettingsKind::DebugTasks,
         proto::LocalSettingsKind::Editorconfig => LocalSettingsKind::Editorconfig,
     }
 }
@@ -614,6 +619,7 @@ pub fn local_settings_kind_to_proto(kind: LocalSettingsKind) -> proto::LocalSett
     match kind {
         LocalSettingsKind::Settings => proto::LocalSettingsKind::Settings,
         LocalSettingsKind::Tasks => proto::LocalSettingsKind::Tasks,
+        LocalSettingsKind::DebugTasks => proto::LocalSettingsKind::DebugTasks,
         LocalSettingsKind::Editorconfig => proto::LocalSettingsKind::Editorconfig,
     }
 }

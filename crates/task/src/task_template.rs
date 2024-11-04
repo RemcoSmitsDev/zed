@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use util::{truncate_and_remove_front, ResultExt};
 
 use crate::{
-    debug_format::DebugAdapterConfig, ResolvedTask, Shell, SpawnInTerminal, TaskContext, TaskId,
+    Resolved, ResolvedTask, Shell, SpawnInTerminal, TaskContext, TaskId, TemplateType,
     VariableName, ZED_VARIABLE_NAME_PREFIX,
 };
 
@@ -51,68 +51,12 @@ pub struct TaskTemplate {
     /// * `on_success` — hide the terminal tab on task success only, otherwise behaves similar to `always`.
     #[serde(default)]
     pub hide: HideStrategy,
-    /// If this task should start a debugger or not
-    #[serde(default)]
-    pub task_type: TaskType,
     /// Represents the tags which this template attaches to. Adding this removes this task from other UI.
     #[serde(default)]
     pub tags: Vec<String>,
     /// Which shell to use when spawning the task.
     #[serde(default)]
     pub shell: Shell,
-}
-
-/// Represents the type of task that is being ran
-#[derive(Default, Deserialize, Serialize, Eq, PartialEq, JsonSchema, Clone, Debug)]
-#[serde(rename_all = "snake_case", tag = "type")]
-pub enum TaskType {
-    /// Act like a typically task that runs commands
-    #[default]
-    Script,
-    /// This task starts the debugger for a language
-    Debug(DebugAdapterConfig),
-}
-
-#[cfg(test)]
-mod deserialization_tests {
-    use crate::{DebugAdapterKind, TCPHost};
-
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn deserialize_task_type_script() {
-        let json = json!({"type": "script"});
-
-        let task_type: TaskType =
-            serde_json::from_value(json).expect("Failed to deserialize TaskType::Script");
-        assert_eq!(task_type, TaskType::Script);
-    }
-
-    #[test]
-    fn deserialize_task_type_debug() {
-        let adapter_config = DebugAdapterConfig {
-            kind: DebugAdapterKind::Python(TCPHost::default()),
-            request: crate::DebugRequestType::Launch,
-            program: Some("main".to_string()),
-            cwd: None,
-            initialize_args: None,
-        };
-        let json = json!({
-            "type": "debug",
-            "adapter": "python",
-            "request": "launch",
-            "program": "main"
-        });
-
-        let task_type: TaskType =
-            serde_json::from_value(json).expect("Failed to deserialize TaskType::Debug");
-        if let TaskType::Debug(config) = task_type {
-            assert_eq!(config, adapter_config);
-        } else {
-            panic!("Expected TaskType::Debug");
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -152,7 +96,8 @@ pub enum HideStrategy {
 
 /// A group of Tasks defined in a JSON file.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct TaskTemplates(pub Vec<TaskTemplate>);
+#[serde(transparent)]
+pub struct TaskTemplates(pub Vec<TemplateType>);
 
 impl TaskTemplates {
     /// Generates JSON schema of Tasks JSON template format.
@@ -174,9 +119,7 @@ impl TaskTemplate {
     /// Every [`ResolvedTask`] gets a [`TaskId`], based on the `id_base` (to avoid collision with various task sources),
     /// and hashes of its template and [`TaskContext`], see [`ResolvedTask`] fields' documentation for more details.
     pub fn resolve_task(&self, id_base: &str, cx: &TaskContext) -> Option<ResolvedTask> {
-        if self.label.trim().is_empty()
-            || (self.command.trim().is_empty() && matches!(self.task_type, TaskType::Script))
-        {
+        if self.label.trim().is_empty() || self.command.trim().is_empty() {
             return None;
         }
 
@@ -243,22 +186,6 @@ impl TaskTemplate {
             &mut substituted_variables,
         )?;
 
-        let program = match &self.task_type {
-            TaskType::Script => None,
-            TaskType::Debug(adapter_config) => {
-                if let Some(program) = &adapter_config.program {
-                    Some(substitute_all_template_variables_in_str(
-                        program,
-                        &task_variables,
-                        &variable_names,
-                        &mut substituted_variables,
-                    )?)
-                } else {
-                    None
-                }
-            }
-        };
-
         let task_hash = to_hex_hash(self)
             .context("hashing task template")
             .log_err()?;
@@ -290,9 +217,9 @@ impl TaskTemplate {
         Some(ResolvedTask {
             id: id.clone(),
             substituted_variables,
-            original_task: self.clone(),
+            original_task: crate::TemplateType::Task(self.clone()),
             resolved_label: full_label.clone(),
-            resolved: Some(SpawnInTerminal {
+            resolved: Some(Resolved::Task(SpawnInTerminal {
                 id,
                 cwd,
                 full_label,
@@ -313,8 +240,7 @@ impl TaskTemplate {
                 reveal: self.reveal,
                 hide: self.hide,
                 shell: self.shell.clone(),
-                program,
-            }),
+            })),
         })
     }
 }
@@ -425,7 +351,7 @@ fn substitute_all_template_variables_in_map(
 mod tests {
     use std::{borrow::Cow, path::Path};
 
-    use crate::{TaskVariables, VariableName};
+    use crate::{TaskVariables, TemplateType, VariableName};
 
     use super::*;
 
@@ -478,12 +404,18 @@ mod tests {
                 .resolve_task(TEST_ID_BASE, task_cx)
                 .unwrap_or_else(|| panic!("failed to resolve task {task_without_cwd:?}"));
             assert_substituted_variables(&resolved_task, Vec::new());
-            resolved_task
+            let resolved_task = resolved_task
                 .resolved
                 .clone()
                 .unwrap_or_else(|| {
                     panic!("failed to get resolve data for resolved task. Template: {task_without_cwd:?} Resolved: {resolved_task:?}")
-                })
+                });
+
+            if let Some(task) = resolved_task.as_task() {
+                return task;
+            }
+
+            panic!("Failed to resolve to the correct resolved task. Template: {task_without_cwd:?} Resolved: {resolved_task:?}")
         };
 
         let cx = TaskContext {
@@ -617,7 +549,8 @@ mod tests {
             }
 
             assert_eq!(
-                resolved_task.original_task, task_with_all_variables,
+                resolved_task.original_task,
+                TemplateType::Task(task_with_all_variables.clone()),
                 "Resolved task should store its template without changes"
             );
             assert_eq!(
@@ -634,6 +567,11 @@ mod tests {
                 .resolved
                 .as_ref()
                 .expect("should have resolved a spawn in terminal task");
+
+            let Some(spawn_in_terminal) = spawn_in_terminal.as_task() else {
+                panic!("Failed to resolve to the correct task");
+            };
+
             assert_eq!(
                 spawn_in_terminal.label,
                 format!(
@@ -687,6 +625,7 @@ mod tests {
         for i in 0..all_variables.len() {
             let mut not_all_variables = all_variables.to_vec();
             let removed_variable = not_all_variables.remove(i);
+
             let resolved_task_attempt = task_with_all_variables.resolve_task(
                 TEST_ID_BASE,
                 &TaskContext {
@@ -712,6 +651,11 @@ mod tests {
             .unwrap();
         assert_substituted_variables(&resolved_task, Vec::new());
         let resolved = resolved_task.resolved.unwrap();
+
+        let Some(resolved) = resolved.as_task() else {
+            panic!("Failed to resolve to the correct task");
+        };
+
         assert_eq!(resolved.label, task.label);
         assert_eq!(resolved.command, task.command);
         assert_eq!(resolved.args, task.args);
@@ -881,6 +825,10 @@ mod tests {
             .unwrap()
             .resolved
             .unwrap();
+
+        let Some(resolved) = resolved.as_task() else {
+            panic!("Failed to resolve to the correct task");
+        };
 
         assert_eq!(resolved.env["TASK_ENV_VAR1"], "TASK_ENV_VAR1_VALUE");
         assert_eq!(resolved.env["TASK_ENV_VAR2"], "env_var_2 1234 5678");

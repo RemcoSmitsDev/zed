@@ -268,6 +268,9 @@ async fn test_managing_project_specific_settings(cx: &mut gpui::TestAppContext) 
         .into_iter()
         .map(|(source_kind, task)| {
             let resolved = task.resolved.unwrap();
+            let Some(resolved) = resolved.as_task() else {
+                panic!("Failed to resolve to the correct task");
+            };
             (
                 source_kind,
                 task.resolved_label,
@@ -341,6 +344,9 @@ async fn test_managing_project_specific_settings(cx: &mut gpui::TestAppContext) 
         .into_iter()
         .map(|(source_kind, task)| {
             let resolved = task.resolved.unwrap();
+            let Some(resolved) = resolved.as_task() else {
+                panic!("Failed to resolve to the correct task");
+            };
             (
                 source_kind,
                 task.resolved_label,

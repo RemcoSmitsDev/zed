@@ -3,7 +3,7 @@ use editor::{tasks::task_context, Editor};
 use gpui::{AppContext, Task as AsyncTask, ViewContext, WindowContext};
 use modal::TasksModal;
 use project::{Location, WorktreeId};
-use task::TaskModal;
+use task::{TaskModal, TemplateType};
 use workspace::tasks::schedule_task;
 use workspace::{tasks::schedule_resolved_task, Workspace};
 
@@ -32,13 +32,15 @@ pub fn init(cx: &mut AppContext) {
                         })
                     {
                         if action.reevaluate_context {
-                            let mut original_task = last_scheduled_task.original_task().clone();
-                            if let Some(allow_concurrent_runs) = action.allow_concurrent_runs {
-                                original_task.allow_concurrent_runs = allow_concurrent_runs;
-                            }
-                            if let Some(use_new_terminal) = action.use_new_terminal {
-                                original_task.use_new_terminal = use_new_terminal;
-                            }
+                            let original_task = last_scheduled_task.original_task().clone();
+                            if let TemplateType::Task(mut original_task) = original_task.clone() {
+                                if let Some(allow_concurrent_runs) = action.allow_concurrent_runs {
+                                    original_task.allow_concurrent_runs = allow_concurrent_runs;
+                                }
+                                if let Some(use_new_terminal) = action.use_new_terminal {
+                                    original_task.use_new_terminal = use_new_terminal;
+                                }
+                            };
                             let context_task = task_context(workspace, cx);
                             cx.spawn(|workspace, mut cx| async move {
                                 let task_context = context_task.await;
@@ -58,11 +60,15 @@ pub fn init(cx: &mut AppContext) {
                             .detach()
                         } else {
                             if let Some(resolved) = last_scheduled_task.resolved.as_mut() {
-                                if let Some(allow_concurrent_runs) = action.allow_concurrent_runs {
-                                    resolved.allow_concurrent_runs = allow_concurrent_runs;
-                                }
-                                if let Some(use_new_terminal) = action.use_new_terminal {
-                                    resolved.use_new_terminal = use_new_terminal;
+                                if let Some(mut resolved) = resolved.as_task() {
+                                    if let Some(allow_concurrent_runs) =
+                                        action.allow_concurrent_runs
+                                    {
+                                        resolved.allow_concurrent_runs = allow_concurrent_runs;
+                                    }
+                                    if let Some(use_new_terminal) = action.use_new_terminal {
+                                        resolved.use_new_terminal = use_new_terminal;
+                                    }
                                 }
                             }
 
@@ -159,8 +165,9 @@ fn spawn_task_with_name(
 
         let did_spawn = workspace
             .update(&mut cx, |workspace, cx| {
-                let (task_source_kind, target_task) =
-                    tasks.into_iter().find(|(_, task)| task.label == name)?;
+                let (task_source_kind, target_task) = tasks
+                    .into_iter()
+                    .find(|(_, task)| task.label() == name.as_str())?;
                 schedule_task(
                     workspace,
                     task_source_kind,

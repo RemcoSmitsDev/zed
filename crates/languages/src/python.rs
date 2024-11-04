@@ -15,6 +15,7 @@ use pet_core::python_environment::PythonEnvironmentKind;
 use pet_core::Configuration;
 use project::lsp_store::language_server_settings;
 use serde_json::Value;
+use task::TemplateType;
 
 use std::{
     any::Any,
@@ -302,19 +303,19 @@ impl ContextProvider for PythonContextProvider {
         _: &AppContext,
     ) -> Option<TaskTemplates> {
         Some(TaskTemplates(vec![
-            TaskTemplate {
+            TemplateType::Task(TaskTemplate {
                 label: "execute selection".to_owned(),
                 command: "python3".to_owned(),
                 args: vec!["-c".to_owned(), VariableName::SelectedText.template_value()],
                 ..TaskTemplate::default()
-            },
-            TaskTemplate {
+            }),
+            TemplateType::Task(TaskTemplate {
                 label: format!("run '{}'", VariableName::File.template_value()),
                 command: "python3".to_owned(),
                 args: vec![VariableName::File.template_value()],
                 ..TaskTemplate::default()
-            },
-            TaskTemplate {
+            }),
+            TemplateType::Task(TaskTemplate {
                 label: format!("unittest '{}'", VariableName::File.template_value()),
                 command: "python3".to_owned(),
                 args: vec![
@@ -323,8 +324,8 @@ impl ContextProvider for PythonContextProvider {
                     VariableName::File.template_value(),
                 ],
                 ..TaskTemplate::default()
-            },
-            TaskTemplate {
+            }),
+            TemplateType::Task(TaskTemplate {
                 label: "unittest $ZED_CUSTOM_PYTHON_UNITTEST_TARGET".to_owned(),
                 command: "python3".to_owned(),
                 args: vec![
@@ -337,7 +338,7 @@ impl ContextProvider for PythonContextProvider {
                     "python-unittest-method".to_owned(),
                 ],
                 ..TaskTemplate::default()
-            },
+            }),
         ]))
     }
 }

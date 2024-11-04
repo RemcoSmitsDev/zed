@@ -207,6 +207,7 @@ impl FromStr for Editorconfig {
 pub enum LocalSettingsKind {
     Settings,
     Tasks,
+    DebugTasks,
     Editorconfig,
 }
 
@@ -600,7 +601,7 @@ impl SettingsStore {
                 .map(|content| content.trim())
                 .filter(|content| !content.is_empty()),
         ) {
-            (LocalSettingsKind::Tasks, _) => {
+            (LocalSettingsKind::Tasks, _) | (LocalSettingsKind::DebugTasks, _) => {
                 return Err(InvalidSettingsError::Tasks {
                     message: "Attempted to submit tasks into the settings store".to_string(),
                 })

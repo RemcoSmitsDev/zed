@@ -9,7 +9,7 @@ use gpui::{
 };
 use picker::{highlighted_match_with_paths::HighlightedText, Picker, PickerDelegate};
 use project::{task_store::TaskStore, TaskSourceKind};
-use task::{ResolvedTask, TaskContext, TaskId, TaskModal, TaskTemplate, TaskType};
+use task::{ResolvedTask, TaskContext, TaskId, TaskModal, TaskTemplate, TemplateType};
 use ui::{
     div, h_flex, v_flex, ActiveTheme, Button, ButtonCommon, ButtonSize, Clickable, Color,
     FluentBuilder as _, Icon, IconButton, IconButtonShape, IconName, IconSize, IntoElement,
@@ -311,8 +311,8 @@ impl PickerDelegate for TasksModalDelegate {
 
         self.workspace
             .update(cx, |workspace, cx| {
-                match task.task_type() {
-                    TaskType::Script => schedule_resolved_task(
+                match task.original_task() {
+                    TemplateType::Task(_) => schedule_resolved_task(
                         workspace,
                         task_source_kind,
                         task,
@@ -321,7 +321,7 @@ impl PickerDelegate for TasksModalDelegate {
                     ),
                     // TODO: Should create a schedule_resolved_debug_task function
                     // This would allow users to access to debug history and other issues
-                    TaskType::Debug(_) => workspace.project().update(cx, |project, cx| {
+                    TemplateType::Debug(_) => workspace.project().update(cx, |project, cx| {
                         project.start_debug_adapter_client_from_task(task, cx)
                     }),
                 };
@@ -346,19 +346,21 @@ impl PickerDelegate for TasksModalDelegate {
         let template = resolved_task.original_task();
         let display_label = resolved_task.display_label();
 
-        let mut tooltip_label_text = if display_label != &template.label {
+        let mut tooltip_label_text = if display_label != template.label().as_str() {
             resolved_task.resolved_label.clone()
         } else {
             String::new()
         };
         if let Some(resolved) = resolved_task.resolved.as_ref() {
-            if resolved.command_label != display_label
-                && resolved.command_label != resolved_task.resolved_label
-            {
-                if !tooltip_label_text.trim().is_empty() {
-                    tooltip_label_text.push('\n');
+            if let Some(resolved) = resolved.as_task() {
+                if resolved.command_label != display_label
+                    && resolved.command_label != resolved_task.resolved_label
+                {
+                    if !tooltip_label_text.trim().is_empty() {
+                        tooltip_label_text.push('\n');
+                    }
+                    tooltip_label_text.push_str(&resolved.command_label);
                 }
-                tooltip_label_text.push_str(&resolved.command_label);
             }
         }
         let tooltip_label = if tooltip_label_text.trim().is_empty() {
@@ -453,7 +455,7 @@ impl PickerDelegate for TasksModalDelegate {
         let task_index = self.matches.get(self.selected_index())?.candidate_id;
         let tasks = self.candidates.as_ref()?;
         let (_, task) = tasks.get(task_index)?;
-        Some(task.resolved.as_ref()?.command_label.clone())
+        Some(task.resolved.as_ref()?.as_task()?.command_label.clone())
     }
 
     fn confirm_input(&mut self, omit_history_entry: bool, cx: &mut ViewContext<Picker<Self>>) {
@@ -463,8 +465,8 @@ impl PickerDelegate for TasksModalDelegate {
 
         self.workspace
             .update(cx, |workspace, cx| {
-                match task.task_type() {
-                    TaskType::Script => schedule_resolved_task(
+                match task.original_task() {
+                    TemplateType::Task(_) => schedule_resolved_task(
                         workspace,
                         task_source_kind,
                         task,
@@ -473,7 +475,7 @@ impl PickerDelegate for TasksModalDelegate {
                     ),
                     // TODO: Should create a schedule_resolved_debug_task function
                     // This would allow users to access to debug history and other issues
-                    TaskType::Debug(_) => workspace.project().update(cx, |project, cx| {
+                    TemplateType::Debug(_) => workspace.project().update(cx, |project, cx| {
                         project.start_debug_adapter_client_from_task(task, cx)
                     }),
                 };
@@ -589,14 +591,21 @@ fn string_match_candidates<'a>(
 ) -> Vec<StringMatchCandidate> {
     candidates
         .enumerate()
-        .filter(|(_, (_, candidate))| match candidate.task_type() {
-            TaskType::Script => task_modal_type == TaskModal::ScriptModal,
-            TaskType::Debug(_) => task_modal_type == TaskModal::DebugModal,
-        })
-        .map(|(index, (_, candidate))| StringMatchCandidate {
-            id: index,
-            char_bag: candidate.resolved_label.chars().collect(),
-            string: candidate.display_label().to_owned(),
+        .filter_map(|(index, (_, candidate))| {
+            let task_type = match candidate.original_task() {
+                TemplateType::Task(_) => TaskModal::ScriptModal,
+                TemplateType::Debug(_) => TaskModal::DebugModal,
+            };
+
+            if task_type != task_modal_type {
+                return None;
+            }
+
+            Some(StringMatchCandidate {
+                id: index,
+                char_bag: candidate.resolved_label.chars().collect(),
+                string: candidate.display_label().to_owned(),
+            })
         })
         .collect()
 }
@@ -904,21 +913,21 @@ mod tests {
                 )
                 .with_context_provider(Some(Arc::new(
                     ContextProviderWithTasks::new(TaskTemplates(vec![
-                        TaskTemplate {
+                        TemplateType::Task(TaskTemplate {
                             label: "Task without variables".to_string(),
                             command: "npm run clean".to_string(),
                             ..TaskTemplate::default()
-                        },
-                        TaskTemplate {
+                        }),
+                        TemplateType::Task(TaskTemplate {
                             label: "TypeScript task from file $ZED_FILE".to_string(),
                             command: "npm run build".to_string(),
                             ..TaskTemplate::default()
-                        },
-                        TaskTemplate {
+                        }),
+                        TemplateType::Task(TaskTemplate {
                             label: "Another task from file $ZED_FILE".to_string(),
                             command: "npm run lint".to_string(),
                             ..TaskTemplate::default()
-                        },
+                        }),
                     ])),
                 ))),
             ));
@@ -935,11 +944,13 @@ mod tests {
                     None,
                 )
                 .with_context_provider(Some(Arc::new(
-                    ContextProviderWithTasks::new(TaskTemplates(vec![TaskTemplate {
-                        label: "Rust task".to_string(),
-                        command: "cargo check".into(),
-                        ..TaskTemplate::default()
-                    }])),
+                    ContextProviderWithTasks::new(TaskTemplates(vec![TemplateType::Task(
+                        TaskTemplate {
+                            label: "Rust task".to_string(),
+                            command: "cargo check".into(),
+                            ..TaskTemplate::default()
+                        },
+                    )])),
                 ))),
             ));
         });

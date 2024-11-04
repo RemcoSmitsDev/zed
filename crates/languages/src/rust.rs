@@ -17,7 +17,7 @@ use std::{
     sync::Arc,
     sync::LazyLock,
 };
-use task::{TaskTemplate, TaskTemplates, TaskVariables, VariableName};
+use task::{TaskTemplate, TaskTemplates, TaskVariables, TemplateType, VariableName};
 use util::{fs::remove_matching, maybe, ResultExt};
 
 use crate::language_settings::language_settings;
@@ -436,7 +436,7 @@ impl ContextProvider for RustContextProvider {
             vec!["run".into()]
         };
         Some(TaskTemplates(vec![
-            TaskTemplate {
+            TemplateType::Task(TaskTemplate {
                 label: format!(
                     "cargo check -p {}",
                     RUST_PACKAGE_TASK_VARIABLE.template_value(),
@@ -449,15 +449,15 @@ impl ContextProvider for RustContextProvider {
                 ],
                 cwd: Some("$ZED_DIRNAME".to_owned()),
                 ..TaskTemplate::default()
-            },
-            TaskTemplate {
+            }),
+            TemplateType::Task(TaskTemplate {
                 label: "cargo check --workspace --all-targets".into(),
                 command: "cargo".into(),
                 args: vec!["check".into(), "--workspace".into(), "--all-targets".into()],
                 cwd: Some("$ZED_DIRNAME".to_owned()),
                 ..TaskTemplate::default()
-            },
-            TaskTemplate {
+            }),
+            TemplateType::Task(TaskTemplate {
                 label: format!(
                     "cargo test -p {} {} -- --nocapture",
                     RUST_PACKAGE_TASK_VARIABLE.template_value(),
@@ -475,8 +475,8 @@ impl ContextProvider for RustContextProvider {
                 tags: vec!["rust-test".to_owned()],
                 cwd: Some("$ZED_DIRNAME".to_owned()),
                 ..TaskTemplate::default()
-            },
-            TaskTemplate {
+            }),
+            TemplateType::Task(TaskTemplate {
                 label: format!(
                     "cargo test -p {} {}",
                     RUST_PACKAGE_TASK_VARIABLE.template_value(),
@@ -492,8 +492,8 @@ impl ContextProvider for RustContextProvider {
                 tags: vec!["rust-mod-test".to_owned()],
                 cwd: Some("$ZED_DIRNAME".to_owned()),
                 ..TaskTemplate::default()
-            },
-            TaskTemplate {
+            }),
+            TemplateType::Task(TaskTemplate {
                 label: format!(
                     "cargo run -p {} --bin {}",
                     RUST_PACKAGE_TASK_VARIABLE.template_value(),
@@ -510,8 +510,8 @@ impl ContextProvider for RustContextProvider {
                 cwd: Some("$ZED_DIRNAME".to_owned()),
                 tags: vec!["rust-main".to_owned()],
                 ..TaskTemplate::default()
-            },
-            TaskTemplate {
+            }),
+            TemplateType::Task(TaskTemplate {
                 label: format!(
                     "cargo test -p {}",
                     RUST_PACKAGE_TASK_VARIABLE.template_value()
@@ -524,21 +524,21 @@ impl ContextProvider for RustContextProvider {
                 ],
                 cwd: Some("$ZED_DIRNAME".to_owned()),
                 ..TaskTemplate::default()
-            },
-            TaskTemplate {
+            }),
+            TemplateType::Task(TaskTemplate {
                 label: "cargo run".into(),
                 command: "cargo".into(),
                 args: run_task_args,
                 cwd: Some("$ZED_DIRNAME".to_owned()),
                 ..TaskTemplate::default()
-            },
-            TaskTemplate {
+            }),
+            TemplateType::Task(TaskTemplate {
                 label: "cargo clean".into(),
                 command: "cargo".into(),
                 args: vec!["clean".into()],
                 cwd: Some("$ZED_DIRNAME".to_owned()),
                 ..TaskTemplate::default()
-            },
+            }),
         ]))
     }
 }
