@@ -122,6 +122,7 @@ pub enum DebugConnectionType {
     STDIO,
 }
 
+/// This struct represent a user created debug task
 #[derive(Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct DebugTaskDefinition {
@@ -141,7 +142,8 @@ pub struct DebugTaskDefinition {
 }
 
 impl DebugTaskDefinition {
-    fn to_zed_format(self) -> anyhow::Result<TaskTemplate> {
+    /// Translate from debug definition to a task template
+    pub fn to_zed_format(self) -> anyhow::Result<TaskTemplate> {
         let command = "".to_string();
         let task_type = TaskType::Debug(DebugAdapterConfig {
             kind: self.adapter,
