@@ -654,8 +654,10 @@ impl Render for DebugPanelItem {
                                     IconName::DebugIgnoreBreakpoints,
                                 )
                                 .icon_size(IconSize::Small)
-                                .when(self.ignore_breakpoints, |this| {
-                                    this.icon_color(Color::Debugger)
+                                .icon_color(if self.ignore_breakpoints {
+                                    Color::Success
+                                } else {
+                                    Color::Error
                                 })
                                 .on_click(cx.listener(|this, _, cx| {
                                     this.ignore_breakpoints(cx);
