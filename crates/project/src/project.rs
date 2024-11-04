@@ -1304,6 +1304,55 @@ impl Project {
         result
     }
 
+    pub fn ignore_breakpoints(
+        &self,
+        client_id: &DebugAdapterClientId,
+        ignore: bool,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<()> {
+        let tasks = self.dap_store.update(cx, |store, cx| {
+            let mut tasks = Vec::new();
+
+            for (project_path, breakpoints) in store.breakpoints() {
+                let Some((buffer, buffer_path)) = maybe!({
+                    let buffer = self
+                        .buffer_store
+                        .read_with(cx, |store, cx| store.get_by_path(project_path, cx))?;
+
+                    let buffer = buffer.read(cx);
+                    let project_path = buffer.project_path(cx)?;
+                    let worktree = self.worktree_for_id(project_path.clone().worktree_id, cx)?;
+                    Some((
+                        buffer,
+                        worktree.read(cx).absolutize(&project_path.path).ok()?,
+                    ))
+                }) else {
+                    continue;
+                };
+
+                tasks.push(store.send_breakpoints(
+                    client_id,
+                    Arc::from(buffer_path),
+                    if ignore {
+                        Vec::default()
+                    } else {
+                        breakpoints
+                            .iter()
+                            .map(|bp| bp.to_source_breakpoint(buffer))
+                            .collect::<Vec<_>>()
+                    },
+                    cx,
+                ));
+            }
+
+            tasks
+        });
+
+        cx.background_executor().spawn(async move {
+            join_all(tasks).await;
+        })
+    }
+
     /// Sends updated breakpoint information of one file to all active debug adapters
     ///
     /// This function is called whenever a breakpoint is toggled, and it doesn't need
