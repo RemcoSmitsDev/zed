@@ -1,16 +1,15 @@
-use crate::project_settings::ProjectSettings;
-use crate::ProjectPath;
+use crate::{project_settings::ProjectSettings, ProjectEnvironment, ProjectPath};
 use anyhow::{anyhow, Context as _, Result};
 use dap::adapters::{DapDelegate, DapStatus, DebugAdapterName};
-use dap::client::{DebugAdapterClient, DebugAdapterClientId};
-use dap::messages::{Message, Response};
-use dap::requests::{
-    Attach, Completions, ConfigurationDone, Continue, Disconnect, Evaluate, Initialize, Launch,
-    LoadedSources, Modules, Next, Pause, Request as _, Restart, RunInTerminal, Scopes,
-    SetBreakpoints, SetExpression, SetVariable, StackTrace, StartDebugging, StepIn, StepOut,
-    Terminate, TerminateThreads, Variables,
-};
 use dap::{
+    client::{DebugAdapterClient, DebugAdapterClientId},
+    messages::{Message, Response},
+    requests::{
+        Attach, Completions, ConfigurationDone, Continue, Disconnect, Evaluate, Initialize, Launch,
+        LoadedSources, Modules, Next, Pause, Request as _, Restart, RunInTerminal, Scopes,
+        SetBreakpoints, SetExpression, SetVariable, StackTrace, StartDebugging, StepIn, StepOut,
+        Terminate, TerminateThreads, Variables,
+    },
     AttachRequestArguments, Capabilities, CompletionItem, CompletionsArguments,
     ConfigurationDoneArguments, ContinueArguments, DisconnectArguments, ErrorResponse,
     EvaluateArguments, EvaluateArgumentsContext, EvaluateResponse, InitializeRequestArguments,
@@ -34,6 +33,7 @@ use settings::{Settings, WorktreeId};
 use smol::lock::Mutex;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    ffi::OsStr,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
     sync::{
@@ -72,6 +72,7 @@ pub struct DapStore {
     breakpoints: BTreeMap<ProjectPath, HashSet<Breakpoint>>,
     active_debug_line: Option<(ProjectPath, DebugPosition)>,
     capabilities: HashMap<DebugAdapterClientId, Capabilities>,
+    _environment: Model<ProjectEnvironment>,
     clients: HashMap<DebugAdapterClientId, DebugAdapterClientState>,
 }
 
@@ -83,6 +84,7 @@ impl DapStore {
         node_runtime: Option<NodeRuntime>,
         fs: Arc<dyn Fs>,
         languages: Arc<LanguageRegistry>,
+        environment: Model<ProjectEnvironment>,
         cx: &mut ModelContext<Self>,
     ) -> Self {
         cx.on_app_quit(Self::shutdown_clients).detach();
@@ -98,7 +100,9 @@ impl DapStore {
                 node_runtime.clone(),
                 fs.clone(),
                 languages.clone(),
+                environment.clone(),
             )),
+            _environment: environment,
         }
     }
 
@@ -1305,6 +1309,7 @@ pub struct DapAdapterDelegate {
     node_runtime: Option<NodeRuntime>,
     updated_adapters: Arc<Mutex<HashSet<DebugAdapterName>>>,
     languages: Arc<LanguageRegistry>,
+    _environment: Model<ProjectEnvironment>,
 }
 
 impl DapAdapterDelegate {
@@ -1313,6 +1318,7 @@ impl DapAdapterDelegate {
         node_runtime: Option<NodeRuntime>,
         fs: Arc<dyn Fs>,
         languages: Arc<LanguageRegistry>,
+        environment: Model<ProjectEnvironment>,
     ) -> Self {
         Self {
             fs,
@@ -1320,6 +1326,7 @@ impl DapAdapterDelegate {
             http_client,
             node_runtime,
             updated_adapters: Default::default(),
+            _environment: environment,
         }
     }
 }
@@ -1352,5 +1359,9 @@ impl dap::adapters::DapDelegate for DapAdapterDelegate {
 
         self.languages
             .update_dap_status(LanguageServerName(name), status);
+    }
+
+    fn which(&self, command: &OsStr) -> Option<PathBuf> {
+        which::which(command).ok()
     }
 }

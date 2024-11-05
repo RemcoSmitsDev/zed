@@ -9,7 +9,7 @@ use serde_json::Value;
 use smol::{self, fs::File, lock::Mutex, process};
 use std::{
     collections::{HashMap, HashSet},
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     fmt::Debug,
     ops::Deref,
     path::{Path, PathBuf},
@@ -32,6 +32,7 @@ pub trait DapDelegate {
     fn fs(&self) -> Arc<dyn Fs>;
     fn updated_adapters(&self) -> Arc<Mutex<HashSet<DebugAdapterName>>>;
     fn update_status(&self, dap_name: DebugAdapterName, status: DapStatus);
+    fn which(&self, command: &OsStr) -> Option<PathBuf>;
 }
 
 #[derive(PartialEq, Eq, Hash, Debug)]
