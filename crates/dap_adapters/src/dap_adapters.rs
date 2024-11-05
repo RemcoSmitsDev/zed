@@ -1,4 +1,5 @@
 mod custom;
+mod go;
 mod javascript;
 mod lldb;
 mod php;
