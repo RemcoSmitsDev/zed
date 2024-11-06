@@ -1063,7 +1063,9 @@ impl DapStore {
                 .request::<SetBreakpoints>(SetBreakpointsArguments {
                     source: Source {
                         path: Some(String::from(absolute_file_path.to_string_lossy())),
-                        name: None,
+                        name: absolute_file_path
+                            .file_stem()
+                            .map(|stem| stem.to_string_lossy().to_string()),
                         source_reference: None,
                         presentation_hint: None,
                         origin: None,
