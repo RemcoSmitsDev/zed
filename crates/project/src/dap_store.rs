@@ -1,5 +1,7 @@
 use crate::{project_settings::ProjectSettings, ProjectEnvironment, ProjectPath};
 use anyhow::{anyhow, Context as _, Result};
+use async_trait::async_trait;
+use collections::HashMap;
 use dap::adapters::{DapDelegate, DapStatus, DebugAdapterName};
 use dap::{
     client::{DebugAdapterClient, DebugAdapterClientId},
@@ -22,6 +24,8 @@ use dap::{
 };
 use dap_adapters::build_adapter;
 use fs::Fs;
+use futures::future::Shared;
+use futures::FutureExt;
 use gpui::{EventEmitter, Model, ModelContext, SharedString, Task};
 use http_client::HttpClient;
 use language::{
@@ -32,7 +36,7 @@ use serde_json::Value;
 use settings::{Settings, WorktreeId};
 use smol::lock::Mutex;
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashSet},
     ffi::OsStr,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
@@ -68,11 +72,11 @@ pub struct DebugPosition {
 
 pub struct DapStore {
     next_client_id: AtomicUsize,
-    delegate: Arc<DapAdapterDelegate>,
+    delegate: DapAdapterDelegate,
     breakpoints: BTreeMap<ProjectPath, HashSet<Breakpoint>>,
     active_debug_line: Option<(ProjectPath, DebugPosition)>,
     capabilities: HashMap<DebugAdapterClientId, Capabilities>,
-    _environment: Model<ProjectEnvironment>,
+    environment: Model<ProjectEnvironment>,
     clients: HashMap<DebugAdapterClientId, DebugAdapterClientState>,
 }
 
@@ -89,21 +93,39 @@ impl DapStore {
     ) -> Self {
         cx.on_app_quit(Self::shutdown_clients).detach();
 
+        let load_shell_env_task = Task::ready(None).shared();
+
         Self {
             active_debug_line: None,
             clients: Default::default(),
             breakpoints: Default::default(),
             capabilities: HashMap::default(),
             next_client_id: Default::default(),
-            delegate: Arc::new(DapAdapterDelegate::new(
+            delegate: DapAdapterDelegate::new(
                 http_client.clone(),
                 node_runtime.clone(),
                 fs.clone(),
                 languages.clone(),
-                environment.clone(),
-            )),
-            _environment: environment,
+                load_shell_env_task,
+            ),
+            environment,
         }
+    }
+
+    pub fn delegate(
+        &self,
+        cwd: &Option<PathBuf>,
+        cx: &mut ModelContext<Self>,
+    ) -> Arc<DapAdapterDelegate> {
+        let worktree_abs_path = cwd.as_ref().map(|p| Arc::from(p.as_path()));
+        let task = self.environment.update(cx, |env, cx| {
+            env.get_environment(None, worktree_abs_path, cx)
+        });
+
+        let mut delegate = self.delegate.clone();
+        delegate.refresh_shell_env_task(task);
+
+        Arc::new(delegate)
     }
 
     pub fn next_client_id(&self) -> DebugAdapterClientId {
@@ -244,7 +266,7 @@ impl DapStore {
 
     pub fn start_client(&mut self, config: DebugAdapterConfig, cx: &mut ModelContext<Self>) {
         let client_id = self.next_client_id();
-        let adapter_delegate = self.delegate.clone();
+        let adapter_delegate = self.delegate(&config.cwd, cx);
 
         let start_client_task = cx.spawn(|this, mut cx| async move {
             let dap_store = this.clone();
@@ -284,8 +306,13 @@ impl DapStore {
 
                         return Err(error);
                     }
-                    Ok(binary) => {
+                    Ok(mut binary) => {
                         adapter_delegate.update_status(adapter.name(), DapStatus::None);
+
+                        let shell_env = adapter_delegate.shell_env().await;
+                        let mut envs = binary.envs.unwrap_or_default();
+                        envs.extend(shell_env);
+                        binary.envs = Some(envs);
 
                         binary
                     }
@@ -1309,7 +1336,7 @@ pub struct DapAdapterDelegate {
     node_runtime: Option<NodeRuntime>,
     updated_adapters: Arc<Mutex<HashSet<DebugAdapterName>>>,
     languages: Arc<LanguageRegistry>,
-    _environment: Model<ProjectEnvironment>,
+    load_shell_env_task: Shared<Task<Option<HashMap<String, String>>>>,
 }
 
 impl DapAdapterDelegate {
@@ -1318,19 +1345,27 @@ impl DapAdapterDelegate {
         node_runtime: Option<NodeRuntime>,
         fs: Arc<dyn Fs>,
         languages: Arc<LanguageRegistry>,
-        environment: Model<ProjectEnvironment>,
+        load_shell_env_task: Shared<Task<Option<HashMap<String, String>>>>,
     ) -> Self {
         Self {
             fs,
             languages,
             http_client,
             node_runtime,
+            load_shell_env_task,
             updated_adapters: Default::default(),
-            _environment: environment,
         }
+    }
+
+    pub(crate) fn refresh_shell_env_task(
+        &mut self,
+        load_shell_env_task: Shared<Task<Option<HashMap<String, String>>>>,
+    ) {
+        self.load_shell_env_task = load_shell_env_task;
     }
 }
 
+#[async_trait(?Send)]
 impl dap::adapters::DapDelegate for DapAdapterDelegate {
     fn http_client(&self) -> Option<Arc<dyn HttpClient>> {
         self.http_client.clone()
@@ -1363,5 +1398,10 @@ impl dap::adapters::DapDelegate for DapAdapterDelegate {
 
     fn which(&self, command: &OsStr) -> Option<PathBuf> {
         which::which(command).ok()
+    }
+
+    async fn shell_env(&self) -> HashMap<String, String> {
+        let task = self.load_shell_env_task.clone();
+        task.await.unwrap_or_default()
     }
 }

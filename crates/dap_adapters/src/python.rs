@@ -87,7 +87,7 @@ impl DebugAdapter for PythonDebugAdapter {
             None => adapter_info?,
         };
 
-        let python_cmds = vec![
+        let python_cmds = [
             OsStr::new("python3"),
             OsStr::new("python"),
             OsStr::new("py"),
