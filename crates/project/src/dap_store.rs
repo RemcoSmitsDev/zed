@@ -396,8 +396,8 @@ impl DapStore {
                     supports_memory_references: Some(true),
                     supports_progress_reporting: Some(false),
                     supports_invalidated_event: Some(false),
-                    lines_start_at1: Some(false),
-                    columns_start_at1: Some(false),
+                    lines_start_at1: Some(true),
+                    columns_start_at1: Some(true),
                     supports_memory_event: Some(false),
                     supports_args_can_be_interpreted_by_shell: Some(false),
                     supports_start_debugging_request: Some(true),
@@ -1232,14 +1232,19 @@ impl Breakpoint {
     pub fn to_source_breakpoint(&self, buffer: &Buffer) -> SourceBreakpoint {
         let line = self
             .active_position
-            .map(|position| buffer.summary_for_anchor::<Point>(&position).row)
-            .unwrap_or(self.cache_position) as u64;
+            .map(|position| buffer.summary_for_anchor::<Point>(&position).row + 1)
+            .unwrap_or(self.cache_position + 1) as u64;
+
+        let log_message = match &self.kind {
+            BreakpointKind::Standard => None,
+            BreakpointKind::Log(message) => Some(message.clone().to_string()),
+        };
 
         SourceBreakpoint {
             line,
             condition: None,
             hit_condition: None,
-            log_message: None,
+            log_message,
             column: None,
             mode: None,
         }
@@ -1319,7 +1324,7 @@ impl SerializedBreakpoint {
         };
 
         SourceBreakpoint {
-            line: self.position as u64,
+            line: self.position as u64 + 1u64,
             condition: None,
             hit_condition: None,
             log_message,
