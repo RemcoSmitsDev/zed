@@ -75,12 +75,12 @@ impl DebugAdapter for GoDebugAdapter {
             .and_then(|p| p.to_str().map(|p| p.to_string()))
             .ok_or(anyhow!("Dlv not found in path"))?;
 
-        let client_address = format!("--client-addr {}:{}", self.host, self.port);
+        let ip_address = format!("{}:{}", self.host, self.port);
         let version = "N/A".into();
 
         Ok(DebugAdapterBinary {
             command: delve_path,
-            arguments: Some(vec!["dap".into(), client_address.into()]),
+            arguments: Some(vec!["dap".into(), "--listen".into(), ip_address.into()]),
             cwd: config.cwd.clone(),
             envs: None,
             version,
