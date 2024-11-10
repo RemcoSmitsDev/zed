@@ -1422,14 +1422,16 @@ impl Project {
         };
 
         self.dap_store.update(cx, |store, cx| {
-            store.toggle_breakpoint_for_buffer(
-                &project_path,
-                breakpoint,
-                buffer_path,
-                buffer.read(cx).snapshot(),
-                edit_action,
-                cx,
-            );
+            store
+                .toggle_breakpoint_for_buffer(
+                    &project_path,
+                    breakpoint,
+                    buffer_path,
+                    buffer.read(cx).snapshot(),
+                    edit_action,
+                    cx,
+                )
+                .detach_and_log_err(cx);
         });
     }
 

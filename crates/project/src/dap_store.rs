@@ -1072,7 +1072,7 @@ impl DapStore {
         buffer_snapshot: BufferSnapshot,
         edit_action: BreakpointEditAction,
         cx: &mut ModelContext<Self>,
-    ) {
+    ) -> Task<Result<()>> {
         let breakpoint_set = self.breakpoints.entry(project_path.clone()).or_default();
 
         match edit_action {
@@ -1090,7 +1090,6 @@ impl DapStore {
         cx.notify();
 
         self.send_changed_breakpoints(project_path, buffer_path, buffer_snapshot, cx)
-            .detach_and_log_err(cx);
     }
 
     pub fn send_breakpoints(
