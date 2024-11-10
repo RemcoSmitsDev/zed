@@ -168,7 +168,6 @@ impl DebugPanelItem {
             stack_frame_list,
             loaded_source_list,
             client_id: *client_id,
-
             client_kind: client_kind.clone(),
             active_thread_item: ThreadItem::Variables,
         }
