@@ -650,16 +650,13 @@ impl Render for DebugPanelItem {
                             .child(
                                 IconButton::new(
                                     "debug-ignore-breakpoints",
-                                    IconName::DebugIgnoreBreakpoints,
-                                )
-                                .icon_size(IconSize::Small)
-                                .icon_color(
                                     if self.dap_store.read(cx).ignore_breakpoints(&self.client_id) {
-                                        Color::Success
+                                        IconName::DebugIgnoreBreakpoints
                                     } else {
-                                        Color::Error
+                                        IconName::DebugBreakpoint
                                     },
                                 )
+                                .icon_size(IconSize::Small)
                                 .on_click(cx.listener(|this, _, cx| {
                                     this.ignore_breakpoints(cx);
                                 }))
