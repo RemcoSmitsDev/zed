@@ -479,12 +479,12 @@ impl DebugPanelItem {
         });
     }
 
-    pub fn ignore_breakpoints(&mut self, cx: &mut ViewContext<Self>) {
+    pub fn toggle_ignore_breakpoints(&mut self, cx: &mut ViewContext<Self>) {
         self.workspace
             .update(cx, |workspace, cx| {
                 workspace.project().update(cx, |project, cx| {
                     project
-                        .ignore_breakpoints(&self.client_id, cx)
+                        .toggle_ignore_breakpoints(&self.client_id, cx)
                         .detach_and_log_err(cx);
                 })
             })
@@ -658,7 +658,7 @@ impl Render for DebugPanelItem {
                                 )
                                 .icon_size(IconSize::Small)
                                 .on_click(cx.listener(|this, _, cx| {
-                                    this.ignore_breakpoints(cx);
+                                    this.toggle_ignore_breakpoints(cx);
                                 }))
                                 .disabled(
                                     thread_status == ThreadStatus::Exited

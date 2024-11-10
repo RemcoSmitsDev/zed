@@ -1343,7 +1343,7 @@ impl Project {
         result
     }
 
-    pub fn ignore_breakpoints(
+    pub fn toggle_ignore_breakpoints(
         &self,
         client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,

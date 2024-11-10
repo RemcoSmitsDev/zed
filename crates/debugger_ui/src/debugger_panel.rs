@@ -174,6 +174,7 @@ impl DebugPanel {
                         TypeId::of::<Disconnect>(),
                         TypeId::of::<Pause>(),
                         TypeId::of::<Restart>(),
+                        TypeId::of::<DisableBreakpoints>(),
                     ];
 
                     if has_active_session {
