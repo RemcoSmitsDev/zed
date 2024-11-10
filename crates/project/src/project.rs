@@ -1243,7 +1243,13 @@ impl Project {
                 .collect::<Vec<_>>();
 
             tasks.push(self.dap_store.update(cx, |store, cx| {
-                store.send_breakpoints(client_id, abs_path, source_breakpoints, cx)
+                store.send_breakpoints(
+                    client_id,
+                    abs_path,
+                    source_breakpoints,
+                    store.ignore_breakpoints(client_id),
+                    cx,
+                )
             }));
         }
 
@@ -1340,10 +1346,11 @@ impl Project {
     pub fn ignore_breakpoints(
         &self,
         client_id: &DebugAdapterClientId,
-        ignore: bool,
         cx: &mut ModelContext<Self>,
-    ) -> Task<()> {
+    ) -> Task<Result<()>> {
         let tasks = self.dap_store.update(cx, |store, cx| {
+            store.toggle_ignore_breakpoints(client_id);
+
             let mut tasks = Vec::new();
 
             for (project_path, breakpoints) in store.breakpoints() {
@@ -1363,26 +1370,27 @@ impl Project {
                     continue;
                 };
 
-                tasks.push(store.send_breakpoints(
-                    client_id,
-                    Arc::from(buffer_path),
-                    if ignore {
-                        Vec::default()
-                    } else {
+                tasks.push(
+                    store.send_breakpoints(
+                        client_id,
+                        Arc::from(buffer_path),
                         breakpoints
-                            .iter()
-                            .map(|bp| bp.to_source_breakpoint(buffer))
-                            .collect::<Vec<_>>()
-                    },
-                    cx,
-                ));
+                            .into_iter()
+                            .map(|breakpoint| breakpoint.to_source_breakpoint(buffer))
+                            .collect::<Vec<_>>(),
+                        store.ignore_breakpoints(client_id),
+                        cx,
+                    ),
+                );
             }
 
             tasks
         });
 
         cx.background_executor().spawn(async move {
-            join_all(tasks).await;
+            try_join_all(tasks).await?;
+
+            Ok(())
         })
     }
 

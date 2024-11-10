@@ -42,7 +42,6 @@ enum ThreadItem {
 pub struct DebugPanelItem {
     thread_id: u64,
     console: View<Console>,
-    ignore_breakpoints: bool,
     focus_handle: FocusHandle,
     dap_store: Model<DapStore>,
     output_editor: View<Editor>,
@@ -169,7 +168,7 @@ impl DebugPanelItem {
             stack_frame_list,
             loaded_source_list,
             client_id: *client_id,
-            ignore_breakpoints: false,
+
             client_kind: client_kind.clone(),
             active_thread_item: ThreadItem::Variables,
         }
@@ -481,12 +480,12 @@ impl DebugPanelItem {
     }
 
     pub fn ignore_breakpoints(&mut self, cx: &mut ViewContext<Self>) {
-        self.ignore_breakpoints = !self.ignore_breakpoints;
-
         self.workspace
             .update(cx, |workspace, cx| {
                 workspace.project().update(cx, |project, cx| {
-                    project.ignore_breakpoints(&self.client_id, self.ignore_breakpoints, cx)
+                    project
+                        .ignore_breakpoints(&self.client_id, cx)
+                        .detach_and_log_err(cx);
                 })
             })
             .ok();
@@ -654,11 +653,13 @@ impl Render for DebugPanelItem {
                                     IconName::DebugIgnoreBreakpoints,
                                 )
                                 .icon_size(IconSize::Small)
-                                .icon_color(if self.ignore_breakpoints {
-                                    Color::Success
-                                } else {
-                                    Color::Error
-                                })
+                                .icon_color(
+                                    if self.dap_store.read(cx).ignore_breakpoints(&self.client_id) {
+                                        Color::Success
+                                    } else {
+                                        Color::Error
+                                    },
+                                )
                                 .on_click(cx.listener(|this, _, cx| {
                                     this.ignore_breakpoints(cx);
                                 }))
