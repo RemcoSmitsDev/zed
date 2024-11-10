@@ -1,16 +1,17 @@
-use crate::project_settings::ProjectSettings;
-use crate::ProjectPath;
+use crate::{project_settings::ProjectSettings, ProjectEnvironment, ProjectPath};
 use anyhow::{anyhow, Context as _, Result};
+use async_trait::async_trait;
+use collections::HashMap;
 use dap::adapters::{DapDelegate, DapStatus, DebugAdapterName};
-use dap::client::{DebugAdapterClient, DebugAdapterClientId};
-use dap::messages::{Message, Response};
-use dap::requests::{
-    Attach, Completions, ConfigurationDone, Continue, Disconnect, Evaluate, Initialize, Launch,
-    LoadedSources, Modules, Next, Pause, Request as _, Restart, RunInTerminal, Scopes,
-    SetBreakpoints, SetExpression, SetVariable, StackTrace, StartDebugging, StepIn, StepOut,
-    Terminate, TerminateThreads, Variables,
-};
 use dap::{
+    client::{DebugAdapterClient, DebugAdapterClientId},
+    messages::{Message, Response},
+    requests::{
+        Attach, Completions, ConfigurationDone, Continue, Disconnect, Evaluate, Initialize, Launch,
+        LoadedSources, Modules, Next, Pause, Request as _, Restart, RunInTerminal, Scopes,
+        SetBreakpoints, SetExpression, SetVariable, StackTrace, StartDebugging, StepIn, StepOut,
+        Terminate, TerminateThreads, Variables,
+    },
     AttachRequestArguments, Capabilities, CompletionItem, CompletionsArguments,
     ConfigurationDoneArguments, ContinueArguments, DisconnectArguments, ErrorResponse,
     EvaluateArguments, EvaluateArgumentsContext, EvaluateResponse, InitializeRequestArguments,
@@ -23,6 +24,8 @@ use dap::{
 };
 use dap_adapters::build_adapter;
 use fs::Fs;
+use futures::future::Shared;
+use futures::FutureExt;
 use gpui::{EventEmitter, Model, ModelContext, SharedString, Task};
 use http_client::HttpClient;
 use language::{
@@ -33,7 +36,8 @@ use serde_json::Value;
 use settings::{Settings, WorktreeId};
 use smol::lock::Mutex;
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashSet},
+    ffi::OsStr,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
     sync::{
@@ -68,24 +72,30 @@ pub struct DebugPosition {
 
 pub struct DapStore {
     next_client_id: AtomicUsize,
-    delegate: Arc<DapAdapterDelegate>,
+    delegate: DapAdapterDelegate,
     breakpoints: BTreeMap<ProjectPath, HashSet<Breakpoint>>,
     active_debug_line: Option<(ProjectPath, DebugPosition)>,
     capabilities: HashMap<DebugAdapterClientId, Capabilities>,
+    environment: Model<ProjectEnvironment>,
     clients: HashMap<DebugAdapterClientId, DebugAdapterClientState>,
 }
 
 impl EventEmitter<DapStoreEvent> for DapStore {}
 
 impl DapStore {
+    const INDEX_STARTS_AT_ONE: bool = true;
+
     pub fn new(
         http_client: Option<Arc<dyn HttpClient>>,
         node_runtime: Option<NodeRuntime>,
         fs: Arc<dyn Fs>,
         languages: Arc<LanguageRegistry>,
+        environment: Model<ProjectEnvironment>,
         cx: &mut ModelContext<Self>,
     ) -> Self {
         cx.on_app_quit(Self::shutdown_clients).detach();
+
+        let load_shell_env_task = Task::ready(None).shared();
 
         Self {
             active_debug_line: None,
@@ -93,13 +103,31 @@ impl DapStore {
             breakpoints: Default::default(),
             capabilities: HashMap::default(),
             next_client_id: Default::default(),
-            delegate: Arc::new(DapAdapterDelegate::new(
+            delegate: DapAdapterDelegate::new(
                 http_client.clone(),
                 node_runtime.clone(),
                 fs.clone(),
                 languages.clone(),
-            )),
+                load_shell_env_task,
+            ),
+            environment,
         }
+    }
+
+    pub fn delegate(
+        &self,
+        cwd: &Option<PathBuf>,
+        cx: &mut ModelContext<Self>,
+    ) -> Arc<DapAdapterDelegate> {
+        let worktree_abs_path = cwd.as_ref().map(|p| Arc::from(p.as_path()));
+        let task = self.environment.update(cx, |env, cx| {
+            env.get_environment(None, worktree_abs_path, cx)
+        });
+
+        let mut delegate = self.delegate.clone();
+        delegate.refresh_shell_env_task(task);
+
+        Arc::new(delegate)
     }
 
     pub fn next_client_id(&self) -> DebugAdapterClientId {
@@ -213,7 +241,7 @@ impl DapStore {
                 .or_default()
                 .insert(Breakpoint {
                     active_position: None,
-                    cache_position: serialize_breakpoint.position.saturating_sub(1u32),
+                    cache_position: serialize_breakpoint.position,
                     kind: serialize_breakpoint.kind,
                 });
         }
@@ -240,7 +268,7 @@ impl DapStore {
 
     pub fn start_client(&mut self, config: DebugAdapterConfig, cx: &mut ModelContext<Self>) {
         let client_id = self.next_client_id();
-        let adapter_delegate = self.delegate.clone();
+        let adapter_delegate = self.delegate(&config.cwd, cx);
 
         let start_client_task = cx.spawn(|this, mut cx| async move {
             let dap_store = this.clone();
@@ -280,8 +308,13 @@ impl DapStore {
 
                         return Err(error);
                     }
-                    Ok(binary) => {
+                    Ok(mut binary) => {
                         adapter_delegate.update_status(adapter.name(), DapStatus::None);
+
+                        let shell_env = adapter_delegate.shell_env().await;
+                        let mut envs = binary.envs.unwrap_or_default();
+                        envs.extend(shell_env);
+                        binary.envs = Some(envs);
 
                         binary
                     }
@@ -365,8 +398,8 @@ impl DapStore {
                     supports_memory_references: Some(true),
                     supports_progress_reporting: Some(false),
                     supports_invalidated_event: Some(false),
-                    lines_start_at1: Some(false),
-                    columns_start_at1: Some(false),
+                    lines_start_at1: Some(Self::INDEX_STARTS_AT_ONE),
+                    columns_start_at1: Some(Self::INDEX_STARTS_AT_ONE),
                     supports_memory_event: Some(false),
                     supports_args_can_be_interpreted_by_shell: Some(false),
                     supports_start_debugging_request: Some(true),
@@ -1051,12 +1084,16 @@ impl DapStore {
         &self,
         client_id: &DebugAdapterClientId,
         absolute_file_path: Arc<Path>,
-        breakpoints: Vec<SourceBreakpoint>,
+        mut breakpoints: Vec<SourceBreakpoint>,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some(client) = self.client_by_id(client_id) else {
             return Task::ready(Err(anyhow!("Could not found client")));
         };
+
+        if Self::INDEX_STARTS_AT_ONE {
+            breakpoints.iter_mut().for_each(|bp| bp.line += 1u64)
+        }
 
         cx.background_executor().spawn(async move {
             client
@@ -1206,11 +1243,16 @@ impl Breakpoint {
             .map(|position| buffer.summary_for_anchor::<Point>(&position).row)
             .unwrap_or(self.cache_position) as u64;
 
+        let log_message = match &self.kind {
+            BreakpointKind::Standard => None,
+            BreakpointKind::Log(message) => Some(message.clone().to_string()),
+        };
+
         SourceBreakpoint {
             line,
             condition: None,
             hit_condition: None,
-            log_message: None,
+            log_message,
             column: None,
             mode: None,
         }
@@ -1261,7 +1303,7 @@ impl Breakpoint {
             Some(buffer) => SerializedBreakpoint {
                 position: self
                     .active_position
-                    .map(|position| buffer.summary_for_anchor::<Point>(&position).row + 1u32)
+                    .map(|position| buffer.summary_for_anchor::<Point>(&position).row)
                     .unwrap_or(self.cache_position),
                 path,
                 kind: self.kind.clone(),
@@ -1307,6 +1349,7 @@ pub struct DapAdapterDelegate {
     node_runtime: Option<NodeRuntime>,
     updated_adapters: Arc<Mutex<HashSet<DebugAdapterName>>>,
     languages: Arc<LanguageRegistry>,
+    load_shell_env_task: Shared<Task<Option<HashMap<String, String>>>>,
 }
 
 impl DapAdapterDelegate {
@@ -1315,17 +1358,27 @@ impl DapAdapterDelegate {
         node_runtime: Option<NodeRuntime>,
         fs: Arc<dyn Fs>,
         languages: Arc<LanguageRegistry>,
+        load_shell_env_task: Shared<Task<Option<HashMap<String, String>>>>,
     ) -> Self {
         Self {
             fs,
             languages,
             http_client,
             node_runtime,
+            load_shell_env_task,
             updated_adapters: Default::default(),
         }
     }
+
+    pub(crate) fn refresh_shell_env_task(
+        &mut self,
+        load_shell_env_task: Shared<Task<Option<HashMap<String, String>>>>,
+    ) {
+        self.load_shell_env_task = load_shell_env_task;
+    }
 }
 
+#[async_trait(?Send)]
 impl dap::adapters::DapDelegate for DapAdapterDelegate {
     fn http_client(&self) -> Option<Arc<dyn HttpClient>> {
         self.http_client.clone()
@@ -1354,5 +1407,14 @@ impl dap::adapters::DapDelegate for DapAdapterDelegate {
 
         self.languages
             .update_dap_status(LanguageServerName(name), status);
+    }
+
+    fn which(&self, command: &OsStr) -> Option<PathBuf> {
+        which::which(command).ok()
+    }
+
+    async fn shell_env(&self) -> HashMap<String, String> {
+        let task = self.load_shell_env_task.clone();
+        task.await.unwrap_or_default()
     }
 }

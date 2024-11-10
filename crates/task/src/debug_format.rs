@@ -47,7 +47,7 @@ pub struct AttachConfig {
 
 /// Represents the type that will determine which request to call on the debug adapter
 #[derive(Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
-#[serde(rename_all = "lowercase", tag = "request")]
+#[serde(rename_all = "lowercase")]
 pub enum DebugRequestType {
     /// Call the `launch` request on the debug adapter
     #[default]
@@ -69,6 +69,8 @@ pub enum DebugAdapterKind {
     Php(TCPHost),
     /// Use vscode-js-debug
     Javascript(TCPHost),
+    /// Use delve
+    Go(TCPHost),
     /// Use lldb
     Lldb,
 }
@@ -82,6 +84,7 @@ impl DebugAdapterKind {
             Self::Php(_) => "PHP",
             Self::Javascript(_) => "JavaScript",
             Self::Lldb => "LLDB",
+            Self::Go(_) => "Go",
         }
     }
 }
@@ -108,7 +111,7 @@ pub struct DebugAdapterConfig {
     #[serde(flatten)]
     pub kind: DebugAdapterKind,
     /// The type of request that should be called on the debug adapter
-    #[serde(default, flatten)]
+    #[serde(default)]
     pub request: DebugRequestType,
     /// The program that you trying to debug
     pub program: Option<String>,
@@ -128,27 +131,29 @@ pub enum DebugConnectionType {
     STDIO,
 }
 
+/// This struct represent a user created debug task
 #[derive(Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct DebugTaskDefinition {
+    /// The adapter to run
+    #[serde(flatten)]
+    kind: DebugAdapterKind,
+    /// The type of request that should be called on the debug adapter
+    #[serde(default)]
+    request: DebugRequestType,
     /// Name of the debug task
     label: String,
     /// Program to run the debugger on
     program: Option<String>,
     /// The current working directory of your project
     cwd: Option<String>,
-    /// The type of request that should be called on the debug adapter
-    #[serde(default, flatten)]
-    request: DebugRequestType,
-    /// The adapter to run
-    #[serde(flatten)]
-    kind: DebugAdapterKind,
     /// Additional initialization arguments to be sent on DAP initialization
     initialize_args: Option<serde_json::Value>,
 }
 
 impl DebugTaskDefinition {
-    fn to_zed_format(self) -> anyhow::Result<TaskTemplate> {
+    /// Translate from debug definition to a task template
+    pub fn to_zed_format(self) -> anyhow::Result<TaskTemplate> {
         let command = "".to_string();
         let cwd = self.cwd.clone().map(PathBuf::from).take_if(|p| p.exists());
 

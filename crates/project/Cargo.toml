@@ -44,6 +44,7 @@ language.workspace = true
 log.workspace = true
 lsp.workspace = true
 node_runtime.workspace = true
+image.workspace = true
 parking_lot.workspace = true
 pathdiff.workspace = true
 paths.workspace = true
@@ -72,6 +73,7 @@ text.workspace = true
 util.workspace = true
 url.workspace = true
 which.workspace = true
+fancy-regex.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows.workspace = true

@@ -73,8 +73,18 @@ impl HeadlessProject {
             store
         });
 
-        let dap_store =
-            cx.new_model(|cx| DapStore::new(None, None, fs.clone(), languages.clone(), cx));
+        let environment = project::ProjectEnvironment::new(&worktree_store, None, cx);
+
+        let dap_store = cx.new_model(|cx| {
+            DapStore::new(
+                None,
+                None,
+                fs.clone(),
+                languages.clone(),
+                environment.clone(),
+                cx,
+            )
+        });
         let buffer_store = cx.new_model(|cx| {
             let mut buffer_store =
                 BufferStore::local(worktree_store.clone(), dap_store.clone(), cx);
@@ -83,7 +93,7 @@ impl HeadlessProject {
         });
         let prettier_store = cx.new_model(|cx| {
             PrettierStore::new(
-                node_runtime,
+                node_runtime.clone(),
                 fs.clone(),
                 languages.clone(),
                 worktree_store.clone(),
@@ -91,7 +101,6 @@ impl HeadlessProject {
             )
         });
 
-        let environment = project::ProjectEnvironment::new(&worktree_store, None, cx);
         let task_store = cx.new_model(|cx| {
             let mut task_store = TaskStore::local(
                 fs.clone(),
@@ -113,8 +122,14 @@ impl HeadlessProject {
             observer.shared(SSH_PROJECT_ID, session.clone().into(), cx);
             observer
         });
-        let toolchain_store =
-            cx.new_model(|cx| ToolchainStore::local(languages.clone(), worktree_store.clone(), cx));
+        let toolchain_store = cx.new_model(|cx| {
+            ToolchainStore::local(
+                languages.clone(),
+                worktree_store.clone(),
+                environment.clone(),
+                cx,
+            )
+        });
         let lsp_store = cx.new_model(|cx| {
             let mut lsp_store = LspStore::new_local(
                 buffer_store.clone(),
@@ -124,7 +139,7 @@ impl HeadlessProject {
                 toolchain_store.clone(),
                 environment,
                 languages.clone(),
-                http_client,
+                http_client.clone(),
                 fs.clone(),
                 cx,
             );

@@ -52,7 +52,7 @@ pub struct TaskTemplate {
     #[serde(default)]
     pub hide: HideStrategy,
     /// If this task should start a debugger or not
-    #[serde(default)]
+    #[serde(default, skip)]
     pub task_type: TaskType,
     /// Represents the tags which this template attaches to. Adding this removes this task from other UI.
     #[serde(default)]
@@ -101,7 +101,6 @@ mod deserialization_tests {
         let json = json!({
             "type": "debug",
             "adapter": "python",
-            "request": "launch",
             "program": "main"
         });
 
