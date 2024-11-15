@@ -691,7 +691,7 @@ impl DebugPanel {
         cx: &mut ViewContext<Self>,
     ) {
         self.message_queue
-            .entry(client_id.clone())
+            .entry(*client_id)
             .or_default()
             .push_back(event.clone());
 
