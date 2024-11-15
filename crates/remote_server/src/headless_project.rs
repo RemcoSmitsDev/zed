@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use fs::Fs;
-use gpui::{AppContext, AsyncAppContext, Context, Model, ModelContext, PromptLevel};
+use gpui::{AppContext, AsyncAppContext, Context as _, Model, ModelContext, PromptLevel};
 use http_client::HttpClient;
 use language::{proto::serialize_operation, Buffer, BufferEvent, LanguageRegistry};
 use node_runtime::NodeRuntime;
@@ -11,7 +11,7 @@ use project::{
     search::SearchQuery,
     task_store::TaskStore,
     worktree_store::WorktreeStore,
-    LspStore, LspStoreEvent, PrettierStore, ProjectPath, WorktreeId,
+    LspStore, LspStoreEvent, PrettierStore, ProjectPath, ToolchainStore, WorktreeId,
 };
 use remote::ssh_session::ChannelClient;
 use rpc::{
@@ -73,8 +73,18 @@ impl HeadlessProject {
             store
         });
 
-        let dap_store =
-            cx.new_model(|cx| DapStore::new(None, None, fs.clone(), languages.clone(), cx));
+        let environment = project::ProjectEnvironment::new(&worktree_store, None, cx);
+
+        let dap_store = cx.new_model(|cx| {
+            DapStore::new(
+                None,
+                None,
+                fs.clone(),
+                languages.clone(),
+                environment.clone(),
+                cx,
+            )
+        });
         let buffer_store = cx.new_model(|cx| {
             let mut buffer_store =
                 BufferStore::local(worktree_store.clone(), dap_store.clone(), cx);
@@ -83,7 +93,7 @@ impl HeadlessProject {
         });
         let prettier_store = cx.new_model(|cx| {
             PrettierStore::new(
-                node_runtime,
+                node_runtime.clone(),
                 fs.clone(),
                 languages.clone(),
                 worktree_store.clone(),
@@ -91,7 +101,6 @@ impl HeadlessProject {
             )
         });
 
-        let environment = project::ProjectEnvironment::new(&worktree_store, None, cx);
         let task_store = cx.new_model(|cx| {
             let mut task_store = TaskStore::local(
                 fs.clone(),
@@ -113,15 +122,24 @@ impl HeadlessProject {
             observer.shared(SSH_PROJECT_ID, session.clone().into(), cx);
             observer
         });
+        let toolchain_store = cx.new_model(|cx| {
+            ToolchainStore::local(
+                languages.clone(),
+                worktree_store.clone(),
+                environment.clone(),
+                cx,
+            )
+        });
         let lsp_store = cx.new_model(|cx| {
             let mut lsp_store = LspStore::new_local(
                 buffer_store.clone(),
                 worktree_store.clone(),
                 dap_store.clone(),
                 prettier_store.clone(),
+                toolchain_store.clone(),
                 environment,
                 languages.clone(),
-                http_client,
+                http_client.clone(),
                 fs.clone(),
                 cx,
             );
@@ -149,10 +167,11 @@ impl HeadlessProject {
         session.subscribe_to_entity(SSH_PROJECT_ID, &cx.handle());
         session.subscribe_to_entity(SSH_PROJECT_ID, &lsp_store);
         session.subscribe_to_entity(SSH_PROJECT_ID, &task_store);
+        session.subscribe_to_entity(SSH_PROJECT_ID, &toolchain_store);
         session.subscribe_to_entity(SSH_PROJECT_ID, &settings_observer);
 
         client.add_request_handler(cx.weak_model(), Self::handle_list_remote_directory);
-        client.add_request_handler(cx.weak_model(), Self::handle_check_file_exists);
+        client.add_request_handler(cx.weak_model(), Self::handle_get_path_metadata);
         client.add_request_handler(cx.weak_model(), Self::handle_shutdown_remote_server);
         client.add_request_handler(cx.weak_model(), Self::handle_ping);
 
@@ -172,6 +191,7 @@ impl HeadlessProject {
         SettingsObserver::init(&client);
         LspStore::init(&client);
         TaskStore::init(Some(&client));
+        ToolchainStore::init(&client);
 
         HeadlessProject {
             session: client,
@@ -526,18 +546,20 @@ impl HeadlessProject {
         Ok(proto::ListRemoteDirectoryResponse { entries })
     }
 
-    pub async fn handle_check_file_exists(
+    pub async fn handle_get_path_metadata(
         this: Model<Self>,
-        envelope: TypedEnvelope<proto::CheckFileExists>,
+        envelope: TypedEnvelope<proto::GetPathMetadata>,
         cx: AsyncAppContext,
-    ) -> Result<proto::CheckFileExistsResponse> {
+    ) -> Result<proto::GetPathMetadataResponse> {
         let fs = cx.read_model(&this, |this, _| this.fs.clone())?;
         let expanded = shellexpand::tilde(&envelope.payload.path).to_string();
 
-        let exists = fs.is_file(&PathBuf::from(expanded.clone())).await;
+        let metadata = fs.metadata(&PathBuf::from(expanded.clone())).await?;
+        let is_dir = metadata.map(|metadata| metadata.is_dir).unwrap_or(false);
 
-        Ok(proto::CheckFileExistsResponse {
-            exists,
+        Ok(proto::GetPathMetadataResponse {
+            exists: metadata.is_some(),
+            is_dir,
             path: expanded,
         })
     }

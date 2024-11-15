@@ -61,6 +61,7 @@ pub trait Settings: 'static + Send + Sync {
         anyhow::anyhow!("missing default")
     }
 
+    #[track_caller]
     fn register(cx: &mut AppContext)
     where
         Self: Sized,
@@ -205,8 +206,14 @@ impl FromStr for Editorconfig {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum LocalSettingsKind {
     Settings,
-    Tasks,
+    Tasks(TaskKind),
     Editorconfig,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum TaskKind {
+    Debug,
+    Script,
 }
 
 impl Global for SettingsStore {}
@@ -271,6 +278,7 @@ impl SettingsStore {
     pub fn register_setting<T: Settings>(&mut self, cx: &mut AppContext) {
         let setting_type_id = TypeId::of::<T>();
         let entry = self.setting_values.entry(setting_type_id);
+
         if matches!(entry, hash_map::Entry::Occupied(_)) {
             return;
         }
@@ -598,7 +606,7 @@ impl SettingsStore {
                 .map(|content| content.trim())
                 .filter(|content| !content.is_empty()),
         ) {
-            (LocalSettingsKind::Tasks, _) => {
+            (LocalSettingsKind::Tasks(_), _) => {
                 return Err(InvalidSettingsError::Tasks {
                     message: "Attempted to submit tasks into the settings store".to_string(),
                 })
@@ -744,7 +752,7 @@ impl SettingsStore {
         };
 
         let settings = SchemaSettings::draft07().with(|settings| {
-            settings.option_add_null_type = false;
+            settings.option_add_null_type = true;
         });
         let mut generator = SchemaGenerator::new(settings);
         let mut combined_schema = RootSchema::default();

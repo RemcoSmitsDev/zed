@@ -109,13 +109,8 @@ impl StackFrameList {
             let task = this.update(&mut cx, |this, cx| {
                 std::mem::swap(&mut this.stack_frames, &mut stack_frames);
 
-                let previous_stack_frame_id = this.current_stack_frame_id;
                 if let Some(stack_frame) = this.stack_frames.first() {
                     this.current_stack_frame_id = stack_frame.id;
-
-                    if previous_stack_frame_id != this.current_stack_frame_id {
-                        cx.emit(StackFrameListEvent::SelectedStackFrameChanged);
-                    }
                 }
 
                 this.list.reset(this.stack_frames.len());
@@ -159,6 +154,7 @@ impl StackFrameList {
         };
 
         cx.spawn({
+            let client_id = self.client_id;
             let workspace = self.workspace.clone();
             move |this, mut cx| async move {
                 let task = workspace.update(&mut cx, |workspace, cx| {
@@ -169,7 +165,7 @@ impl StackFrameList {
 
                 this.update(&mut cx, |this, cx| {
                     this.dap_store.update(cx, |store, cx| {
-                        store.set_active_debug_line(&project_path, row, column, cx);
+                        store.set_active_debug_line(&client_id, &project_path, row, column, cx);
                     })
                 })?;
 

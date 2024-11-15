@@ -975,7 +975,7 @@ impl Render for TerminalView {
         div()
             .size_full()
             .relative()
-            .track_focus(&self.focus_handle)
+            .track_focus(&self.focus_handle(cx))
             .key_context(self.dispatch_context(cx))
             .on_action(cx.listener(TerminalView::send_text))
             .on_action(cx.listener(TerminalView::send_keystroke))
@@ -1129,6 +1129,10 @@ impl Item for TerminalView {
 
     fn has_conflict(&self, _cx: &AppContext) -> bool {
         false
+    }
+
+    fn is_singleton(&self, _cx: &AppContext) -> bool {
+        true
     }
 
     fn as_searchable(&self, handle: &View<Self>) -> Option<Box<dyn SearchableItemHandle>> {

@@ -2,18 +2,20 @@ use crate::transport::Transport;
 use ::fs::Fs;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
+use gpui::SharedString;
 use http_client::{github::latest_github_release, HttpClient};
 use node_runtime::NodeRuntime;
 use serde_json::Value;
 use smol::{self, fs::File, lock::Mutex, process};
 use std::{
     collections::{HashMap, HashSet},
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     fmt::Debug,
     ops::Deref,
     path::{Path, PathBuf},
     sync::Arc,
 };
+use sysinfo::{Pid, Process};
 use task::DebugAdapterConfig;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,12 +26,15 @@ pub enum DapStatus {
     Failed { error: String },
 }
 
+#[async_trait(?Send)]
 pub trait DapDelegate {
     fn http_client(&self) -> Option<Arc<dyn HttpClient>>;
     fn node_runtime(&self) -> Option<NodeRuntime>;
     fn fs(&self) -> Arc<dyn Fs>;
     fn updated_adapters(&self) -> Arc<Mutex<HashSet<DebugAdapterName>>>;
     fn update_status(&self, dap_name: DebugAdapterName, status: DapStatus);
+    fn which(&self, command: &OsStr) -> Option<PathBuf>;
+    async fn shell_env(&self) -> collections::HashMap<String, String>;
 }
 
 #[derive(PartialEq, Eq, Hash, Debug)]
@@ -61,11 +66,18 @@ impl std::fmt::Display for DebugAdapterName {
     }
 }
 
+impl From<DebugAdapterName> for SharedString {
+    fn from(name: DebugAdapterName) -> Self {
+        SharedString::from(name.0)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DebugAdapterBinary {
     pub command: String,
     pub arguments: Option<Vec<OsString>>,
     pub envs: Option<HashMap<String, String>>,
+    pub cwd: Option<PathBuf>,
     pub version: String,
 }
 
@@ -191,7 +203,39 @@ pub trait DebugAdapter: 'static + Send + Sync {
         &self,
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
+        adapter_path: Option<PathBuf>,
     ) -> Result<DebugAdapterBinary> {
+        if let Some(adapter_path) = adapter_path {
+            if adapter_path.exists() {
+                log::info!(
+                    "Using adapter path from settings\n debug adapter name: {}\n adapter_path: {:?}",
+                    self.name(),
+                    &adapter_path,
+                );
+
+                let binary = self
+                    .get_installed_binary(delegate, &config, Some(adapter_path))
+                    .await;
+
+                if binary.is_ok() {
+                    return binary;
+                } else {
+                    log::info!(
+                        "Failed to get debug adapter path from user's setting.\n adapter_name: {}",
+                        self.name()
+                    );
+                }
+            } else {
+                log::warn!(
+                    r#"User downloaded adapter path does not exist
+                    Debug Adapter: {},
+                    User Adapter Path: {:?}"#,
+                    self.name(),
+                    &adapter_path
+                )
+            }
+        }
+
         if delegate
             .updated_adapters()
             .lock()
@@ -200,14 +244,14 @@ pub trait DebugAdapter: 'static + Send + Sync {
         {
             log::info!("Using cached debug adapter binary {}", self.name());
 
-            return self.get_installed_binary(delegate, config).await;
+            return self.get_installed_binary(delegate, &config, None).await;
         }
 
         log::info!("Getting latest version of debug adapter {}", self.name());
         delegate.update_status(self.name(), DapStatus::CheckingForUpdate);
         let version = self.fetch_latest_adapter_version(delegate).await.ok();
 
-        let mut binary = self.get_installed_binary(delegate, config).await;
+        let mut binary = self.get_installed_binary(delegate, &config, None).await;
 
         if let Some(version) = version {
             if binary
@@ -225,7 +269,8 @@ pub trait DebugAdapter: 'static + Send + Sync {
 
             delegate.update_status(self.name(), DapStatus::Downloading);
             self.install_binary(version, delegate).await?;
-            binary = self.get_installed_binary(delegate, config).await;
+
+            binary = self.get_installed_binary(delegate, &config, None).await;
         } else {
             log::error!(
                 "Failed getting latest version of debug adapter {}",
@@ -264,8 +309,23 @@ pub trait DebugAdapter: 'static + Send + Sync {
         &self,
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
+        user_installed_path: Option<PathBuf>,
     ) -> Result<DebugAdapterBinary>;
 
     /// Should return base configuration to make the debug adapter work
     fn request_args(&self, config: &DebugAdapterConfig) -> Value;
+
+    /// Whether the adapter supports `attach` request,
+    /// if not support and the request is selected we will show an error message
+    fn supports_attach(&self) -> bool {
+        false
+    }
+
+    /// Filters out the processes that the adapter can attach to for debugging
+    fn attach_processes<'a>(
+        &self,
+        _: &'a HashMap<Pid, Process>,
+    ) -> Option<Vec<(&'a Pid, &'a Process)>> {
+        None
+    }
 }

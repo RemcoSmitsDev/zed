@@ -19,10 +19,10 @@ use gpui::{
 use project::dap_store::DapStore;
 use settings::Settings;
 use task::DebugAdapterKind;
-use ui::WindowContext;
 use ui::{prelude::*, Tooltip};
+use ui::{Indicator, WindowContext};
 use workspace::item::{Item, ItemEvent};
-use workspace::Workspace;
+use workspace::{ItemHandle, Workspace};
 
 #[derive(Debug)]
 pub enum DebugPanelItemEvent {
@@ -42,6 +42,7 @@ enum ThreadItem {
 pub struct DebugPanelItem {
     thread_id: u64,
     console: View<Console>,
+    show_console_indicator: bool,
     focus_handle: FocusHandle,
     dap_store: Model<DapStore>,
     output_editor: View<Editor>,
@@ -134,8 +135,8 @@ impl DebugPanelItem {
             cx.subscribe(
                 &stack_frame_list,
                 move |this: &mut Self, _, event: &StackFrameListEvent, cx| match event {
-                    StackFrameListEvent::SelectedStackFrameChanged => this.clear_highlights(cx),
-                    _ => {}
+                    StackFrameListEvent::SelectedStackFrameChanged
+                    | StackFrameListEvent::StackFramesUpdated => this.clear_highlights(cx),
                 },
             ),
         ];
@@ -156,6 +157,7 @@ impl DebugPanelItem {
 
         Self {
             console,
+            show_console_indicator: false,
             thread_id,
             dap_store,
             workspace,
@@ -254,6 +256,10 @@ impl DebugPanelItem {
                 self.console.update(cx, |console, cx| {
                     console.add_message(&event.output, cx);
                 });
+
+                if !matches!(self.active_thread_item, ThreadItem::Console) {
+                    self.show_console_indicator = true;
+                }
             }
             _ => {
                 self.output_editor.update(cx, |editor, cx| {
@@ -261,8 +267,6 @@ impl DebugPanelItem {
                     editor.move_to_end(&editor::actions::MoveToEnd, cx);
                     editor.insert(format!("{}\n", &event.output.trim_end()).as_str(), cx);
                     editor.set_read_only(true);
-
-                    cx.notify();
                 });
             }
         }
@@ -310,6 +314,10 @@ impl DebugPanelItem {
 
         self.update_thread_state_status(ThreadStatus::Stopped, cx);
 
+        self.dap_store.update(cx, |store, cx| {
+            store.remove_active_debug_line_for_client(client_id, cx);
+        });
+
         cx.emit(DebugPanelItemEvent::Close);
     }
 
@@ -323,6 +331,10 @@ impl DebugPanelItem {
         }
 
         self.update_thread_state_status(ThreadStatus::Exited, cx);
+
+        self.dap_store.update(cx, |store, cx| {
+            store.remove_active_debug_line_for_client(client_id, cx);
+        });
 
         cx.emit(DebugPanelItemEvent::Close);
     }
@@ -353,19 +365,23 @@ impl DebugPanelItem {
     }
 
     fn clear_highlights(&self, cx: &mut ViewContext<Self>) {
-        self.workspace
-            .update(cx, |workspace, cx| {
-                let editor_views = workspace
-                    .items_of_type::<Editor>(cx)
-                    .collect::<Vec<View<Editor>>>();
+        if let Some((_, project_path, _)) = self.dap_store.read(cx).active_debug_line() {
+            self.workspace
+                .update(cx, |workspace, cx| {
+                    let editor = workspace
+                        .items_of_type::<Editor>(cx)
+                        .find(|editor| Some(project_path.clone()) == editor.project_path(cx));
 
-                for editor_view in editor_views {
-                    editor_view.update(cx, |editor, _| {
-                        editor.clear_row_highlights::<editor::DebugCurrentRowHighlight>();
-                    });
-                }
-            })
-            .ok();
+                    if let Some(editor) = editor {
+                        editor.update(cx, |editor, cx| {
+                            editor.clear_row_highlights::<editor::DebugCurrentRowHighlight>();
+
+                            cx.notify();
+                        });
+                    }
+                })
+                .ok();
+        }
     }
 
     pub fn go_to_current_stack_frame(&self, cx: &mut ViewContext<Self>) {
@@ -382,6 +398,9 @@ impl DebugPanelItem {
         thread_item: ThreadItem,
         cx: &mut ViewContext<Self>,
     ) -> AnyElement {
+        let has_indicator =
+            matches!(thread_item, ThreadItem::Console) && self.show_console_indicator;
+
         div()
             .id(label.clone())
             .px_2()
@@ -391,9 +410,17 @@ impl DebugPanelItem {
             .when(self.active_thread_item == thread_item, |this| {
                 this.border_color(cx.theme().colors().border)
             })
-            .child(Button::new(label.clone(), label.clone()))
+            .child(
+                h_flex()
+                    .child(Button::new(label.clone(), label.clone()))
+                    .when(has_indicator, |this| this.child(Indicator::dot())),
+            )
             .on_click(cx.listener(move |this, _, cx| {
                 this.active_thread_item = thread_item.clone();
+
+                if matches!(this.active_thread_item, ThreadItem::Console) {
+                    this.show_console_indicator = false;
+                }
 
                 cx.notify();
             }))
@@ -476,6 +503,18 @@ impl DebugPanelItem {
                 .disconnect_client(&self.client_id, cx)
                 .detach_and_log_err(cx);
         });
+    }
+
+    pub fn toggle_ignore_breakpoints(&mut self, cx: &mut ViewContext<Self>) {
+        self.workspace
+            .update(cx, |workspace, cx| {
+                workspace.project().update(cx, |project, cx| {
+                    project
+                        .toggle_ignore_breakpoints(&self.client_id, cx)
+                        .detach_and_log_err(cx);
+                })
+            })
+            .ok();
     }
 }
 
@@ -633,6 +672,25 @@ impl Render for DebugPanelItem {
                                             || thread_status == ThreadStatus::Ended,
                                     )
                                     .tooltip(move |cx| Tooltip::text("Disconnect", cx)),
+                            )
+                            .child(
+                                IconButton::new(
+                                    "debug-ignore-breakpoints",
+                                    if self.dap_store.read(cx).ignore_breakpoints(&self.client_id) {
+                                        IconName::DebugIgnoreBreakpoints
+                                    } else {
+                                        IconName::DebugBreakpoint
+                                    },
+                                )
+                                .icon_size(IconSize::Small)
+                                .on_click(cx.listener(|this, _, cx| {
+                                    this.toggle_ignore_breakpoints(cx);
+                                }))
+                                .disabled(
+                                    thread_status == ThreadStatus::Exited
+                                        || thread_status == ThreadStatus::Ended,
+                                )
+                                .tooltip(move |cx| Tooltip::text("Ignore breakpoints", cx)),
                             ),
                     )
                     .child(

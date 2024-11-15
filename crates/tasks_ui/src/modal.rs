@@ -319,7 +319,6 @@ impl PickerDelegate for TasksModalDelegate {
                         omit_history_entry,
                         cx,
                     ),
-                    // TODO: Should create a schedule_resolved_debug_task function
                     // This would allow users to access to debug history and other issues
                     TaskType::Debug(_) => workspace.project().update(cx, |project, cx| {
                         project.start_debug_adapter_client_from_task(task, cx)
@@ -445,7 +444,11 @@ impl PickerDelegate for TasksModalDelegate {
         )
     }
 
-    fn confirm_completion(&self, _: String) -> Option<String> {
+    fn confirm_completion(
+        &mut self,
+        _: String,
+        _: &mut ViewContext<Picker<Self>>,
+    ) -> Option<String> {
         let task_index = self.matches.get(self.selected_index())?.candidate_id;
         let tasks = self.candidates.as_ref()?;
         let (_, task) = tasks.get(task_index)?;

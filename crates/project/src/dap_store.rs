@@ -1,38 +1,42 @@
-use crate::ProjectPath;
+use crate::{project_settings::ProjectSettings, ProjectEnvironment, ProjectPath};
 use anyhow::{anyhow, Context as _, Result};
+use async_trait::async_trait;
+use collections::HashMap;
 use dap::adapters::{DapDelegate, DapStatus, DebugAdapterName};
-use dap::client::{DebugAdapterClient, DebugAdapterClientId};
-use dap::messages::{Message, Response};
-use dap::requests::{
-    Attach, Completions, ConfigurationDone, Continue, Disconnect, Evaluate, Initialize, Launch,
-    LoadedSources, Modules, Next, Pause, Request as _, RunInTerminal, Scopes, SetBreakpoints,
-    SetExpression, SetVariable, StackTrace, StartDebugging, StepIn, StepOut, Terminate,
-    TerminateThreads, Variables,
-};
 use dap::{
+    client::{DebugAdapterClient, DebugAdapterClientId},
+    messages::{Message, Response},
+    requests::{
+        Attach, Completions, ConfigurationDone, Continue, Disconnect, Evaluate, Initialize, Launch,
+        LoadedSources, Modules, Next, Pause, Request as _, Restart, RunInTerminal, Scopes,
+        SetBreakpoints, SetExpression, SetVariable, StackTrace, StartDebugging, StepIn, StepOut,
+        Terminate, TerminateThreads, Variables,
+    },
     AttachRequestArguments, Capabilities, CompletionItem, CompletionsArguments,
     ConfigurationDoneArguments, ContinueArguments, DisconnectArguments, ErrorResponse,
     EvaluateArguments, EvaluateArgumentsContext, EvaluateResponse, InitializeRequestArguments,
     InitializeRequestArgumentsPathFormat, LaunchRequestArguments, LoadedSourcesArguments, Module,
-    ModulesArguments, NextArguments, PauseArguments, RunInTerminalResponse, Scope, ScopesArguments,
-    SetBreakpointsArguments, SetExpressionArguments, SetVariableArguments, Source,
-    SourceBreakpoint, StackFrame, StackTraceArguments, StartDebuggingRequestArguments,
-    StepInArguments, StepOutArguments, SteppingGranularity, TerminateArguments,
-    TerminateThreadsArguments, Variable, VariablesArguments,
+    ModulesArguments, NextArguments, PauseArguments, RestartArguments, RunInTerminalResponse,
+    Scope, ScopesArguments, SetBreakpointsArguments, SetExpressionArguments, SetVariableArguments,
+    Source, SourceBreakpoint, StackFrame, StackTraceArguments, StartDebuggingRequestArguments,
+    StartDebuggingRequestArgumentsRequest, StepInArguments, StepOutArguments, SteppingGranularity,
+    TerminateArguments, TerminateThreadsArguments, Variable, VariablesArguments,
 };
 use dap_adapters::build_adapter;
 use fs::Fs;
+use futures::future::Shared;
+use futures::FutureExt;
 use gpui::{EventEmitter, Model, ModelContext, SharedString, Task};
 use http_client::HttpClient;
-use language::{
-    Buffer, BufferSnapshot, LanguageRegistry, LanguageServerBinaryStatus, LanguageServerName,
-};
+use language::{Buffer, BufferSnapshot, LanguageRegistry, LanguageServerBinaryStatus};
+use lsp::LanguageServerName;
 use node_runtime::NodeRuntime;
-use serde_json::{json, Value};
-use settings::WorktreeId;
+use serde_json::Value;
+use settings::{Settings, WorktreeId};
 use smol::lock::Mutex;
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashSet},
+    ffi::OsStr,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
     sync::{
@@ -40,9 +44,9 @@ use std::{
         Arc,
     },
 };
-use task::{DebugAdapterConfig, DebugRequestType};
+use task::{AttachConfig, DebugAdapterConfig, DebugRequestType};
 use text::Point;
-use util::{maybe, merge_json_value_into, ResultExt};
+use util::{maybe, merge_json_value_into, ResultExt as _};
 
 pub enum DapStoreEvent {
     DebugClientStarted(DebugAdapterClientId),
@@ -67,24 +71,31 @@ pub struct DebugPosition {
 
 pub struct DapStore {
     next_client_id: AtomicUsize,
-    delegate: Arc<DapAdapterDelegate>,
+    delegate: DapAdapterDelegate,
+    ignore_breakpoints: HashSet<DebugAdapterClientId>,
     breakpoints: BTreeMap<ProjectPath, HashSet<Breakpoint>>,
-    active_debug_line: Option<(ProjectPath, DebugPosition)>,
+    active_debug_line: Option<(DebugAdapterClientId, ProjectPath, DebugPosition)>,
     capabilities: HashMap<DebugAdapterClientId, Capabilities>,
+    environment: Model<ProjectEnvironment>,
     clients: HashMap<DebugAdapterClientId, DebugAdapterClientState>,
 }
 
 impl EventEmitter<DapStoreEvent> for DapStore {}
 
 impl DapStore {
+    const INDEX_STARTS_AT_ONE: bool = true;
+
     pub fn new(
         http_client: Option<Arc<dyn HttpClient>>,
         node_runtime: Option<NodeRuntime>,
         fs: Arc<dyn Fs>,
         languages: Arc<LanguageRegistry>,
+        environment: Model<ProjectEnvironment>,
         cx: &mut ModelContext<Self>,
     ) -> Self {
         cx.on_app_quit(Self::shutdown_clients).detach();
+
+        let load_shell_env_task = Task::ready(None).shared();
 
         Self {
             active_debug_line: None,
@@ -92,13 +103,32 @@ impl DapStore {
             breakpoints: Default::default(),
             capabilities: HashMap::default(),
             next_client_id: Default::default(),
-            delegate: Arc::new(DapAdapterDelegate::new(
+            ignore_breakpoints: Default::default(),
+            delegate: DapAdapterDelegate::new(
                 http_client.clone(),
                 node_runtime.clone(),
                 fs.clone(),
                 languages.clone(),
-            )),
+                load_shell_env_task,
+            ),
+            environment,
         }
+    }
+
+    pub fn delegate(
+        &self,
+        cwd: &Option<PathBuf>,
+        cx: &mut ModelContext<Self>,
+    ) -> Arc<DapAdapterDelegate> {
+        let worktree_abs_path = cwd.as_ref().map(|p| Arc::from(p.as_path()));
+        let task = self.environment.update(cx, |env, cx| {
+            env.get_environment(None, worktree_abs_path, cx)
+        });
+
+        let mut delegate = self.delegate.clone();
+        delegate.refresh_shell_env_task(task);
+
+        Arc::new(delegate)
     }
 
     pub fn next_client_id(&self) -> DebugAdapterClientId {
@@ -139,28 +169,62 @@ impl DapStore {
         }
     }
 
-    pub fn active_debug_line(&self) -> Option<(ProjectPath, DebugPosition)> {
+    pub fn active_debug_line(&self) -> Option<(DebugAdapterClientId, ProjectPath, DebugPosition)> {
         self.active_debug_line.clone()
     }
 
     pub fn set_active_debug_line(
         &mut self,
+        client_id: &DebugAdapterClientId,
         project_path: &ProjectPath,
         row: u32,
         column: u32,
         cx: &mut ModelContext<Self>,
     ) {
-        self.active_debug_line = Some((project_path.clone(), DebugPosition { row, column }));
+        self.active_debug_line = Some((
+            *client_id,
+            project_path.clone(),
+            DebugPosition { row, column },
+        ));
 
         cx.notify();
+    }
+
+    pub fn remove_active_debug_line_for_client(
+        &mut self,
+        client_id: &DebugAdapterClientId,
+        cx: &mut ModelContext<Self>,
+    ) {
+        if let Some(active_line) = &self.active_debug_line {
+            if active_line.0 == *client_id {
+                self.active_debug_line.take();
+                cx.notify();
+            }
+        }
     }
 
     pub fn remove_active_debug_line(&mut self) {
         self.active_debug_line.take();
     }
 
+    pub fn on_file_rename(&mut self, old_project_path: ProjectPath, new_project_path: ProjectPath) {
+        if let Some(breakpoints) = self.breakpoints.remove(&old_project_path) {
+            self.breakpoints.insert(new_project_path, breakpoints);
+        }
+    }
+
     pub fn breakpoints(&self) -> &BTreeMap<ProjectPath, HashSet<Breakpoint>> {
         &self.breakpoints
+    }
+
+    pub fn ignore_breakpoints(&self, client_id: &DebugAdapterClientId) -> bool {
+        self.ignore_breakpoints.contains(client_id)
+    }
+
+    pub fn toggle_ignore_breakpoints(&mut self, client_id: &DebugAdapterClientId) {
+        if !self.ignore_breakpoints.remove(client_id) {
+            self.ignore_breakpoints.insert(*client_id);
+        }
     }
 
     pub fn breakpoint_at_row(
@@ -212,7 +276,7 @@ impl DapStore {
                 .or_default()
                 .insert(Breakpoint {
                     active_position: None,
-                    cache_position: serialize_breakpoint.position.saturating_sub(1u32),
+                    cache_position: serialize_breakpoint.position,
                     kind: serialize_breakpoint.kind,
                 });
         }
@@ -237,24 +301,38 @@ impl DapStore {
         }
     }
 
-    pub fn start_client(
-        &mut self,
-        config: DebugAdapterConfig,
-        args: Option<StartDebuggingRequestArguments>,
-        cx: &mut ModelContext<Self>,
-    ) {
+    pub fn start_client(&mut self, config: DebugAdapterConfig, cx: &mut ModelContext<Self>) {
         let client_id = self.next_client_id();
-        let adapter_delegate = self.delegate.clone();
+        let adapter_delegate = self.delegate(&config.cwd, cx);
+
         let start_client_task = cx.spawn(|this, mut cx| async move {
             let dap_store = this.clone();
             let client = maybe!(async {
                 let adapter = Arc::new(
-                    build_adapter(&config)
+                    build_adapter(&config.kind)
                         .await
                         .context("Creating debug adapter")?,
                 );
 
-                let binary = match adapter.get_binary(adapter_delegate.as_ref(), &config).await {
+                if !adapter.supports_attach()
+                    && matches!(config.request, DebugRequestType::Attach(_))
+                {
+                    return Err(anyhow!("Debug adapter does not support `attach` request"));
+                }
+
+                let path = cx.update(|cx| {
+                    let name = LanguageServerName::from(adapter.name().as_ref());
+
+                    ProjectSettings::get_global(cx)
+                        .dap
+                        .get(&name)
+                        .and_then(|s| s.path.as_ref().map(PathBuf::from))
+                })?;
+
+                let binary = match adapter
+                    .get_binary(adapter_delegate.as_ref(), &config, path)
+                    .await
+                {
                     Err(error) => {
                         adapter_delegate.update_status(
                             adapter.name(),
@@ -265,25 +343,19 @@ impl DapStore {
 
                         return Err(error);
                     }
-                    Ok(binary) => {
+                    Ok(mut binary) => {
                         adapter_delegate.update_status(adapter.name(), DapStatus::None);
+
+                        let shell_env = adapter_delegate.shell_env().await;
+                        let mut envs = binary.envs.unwrap_or_default();
+                        envs.extend(shell_env);
+                        binary.envs = Some(envs);
 
                         binary
                     }
                 };
 
-                let mut request_args = json!({});
-                if let Some(config_args) = config.initialize_args.clone() {
-                    merge_json_value_into(config_args, &mut request_args);
-                }
-
-                merge_json_value_into(adapter.request_args(&config), &mut request_args);
-
-                if let Some(args) = args {
-                    merge_json_value_into(args.configuration, &mut request_args);
-                }
-
-                let mut client = DebugAdapterClient::new(client_id, request_args, config, adapter);
+                let mut client = DebugAdapterClient::new(client_id, config, adapter, &cx);
 
                 client
                     .start(
@@ -344,7 +416,11 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not found client")));
+            return Task::ready(Err(anyhow!(
+                "Could not find client: file: {}:{}",
+                file!(),
+                line!()
+            )));
         };
 
         cx.spawn(|this, mut cx| async move {
@@ -361,8 +437,8 @@ impl DapStore {
                     supports_memory_references: Some(true),
                     supports_progress_reporting: Some(false),
                     supports_invalidated_event: Some(false),
-                    lines_start_at1: Some(false),
-                    columns_start_at1: Some(false),
+                    lines_start_at1: Some(Self::INDEX_STARTS_AT_ONE),
+                    columns_start_at1: Some(Self::INDEX_STARTS_AT_ONE),
                     supports_memory_event: Some(false),
                     supports_args_can_be_interpreted_by_shell: Some(false),
                     supports_start_debugging_request: Some(true),
@@ -373,27 +449,58 @@ impl DapStore {
                 store.capabilities.insert(client.id(), capabilities);
 
                 cx.notify();
-            })?;
+            })
+        })
+    }
 
-            // send correct request based on adapter config
-            match client.config().request {
-                DebugRequestType::Launch => {
-                    client
-                        .request::<Launch>(LaunchRequestArguments {
-                            raw: client.request_args(),
-                        })
-                        .await?
-                }
-                DebugRequestType::Attach => {
-                    client
-                        .request::<Attach>(AttachRequestArguments {
-                            raw: client.request_args(),
-                        })
-                        .await?
-                }
-            }
+    pub fn launch(
+        &mut self,
+        client_id: &DebugAdapterClientId,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<()>> {
+        let Some(client) = self.client_by_id(client_id) else {
+            return Task::ready(Err(anyhow!("Client was not found")));
+        };
 
-            Ok(())
+        let mut adapter_args = client.adapter().request_args(&client.config());
+
+        if let Some(args) = client.config().initialize_args.clone() {
+            merge_json_value_into(args, &mut adapter_args);
+        }
+
+        cx.background_executor().spawn(async move {
+            client
+                .request::<Launch>(LaunchRequestArguments { raw: adapter_args })
+                .await
+        })
+    }
+
+    pub fn attach(
+        &mut self,
+        client_id: &DebugAdapterClientId,
+        pid: u32,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<()>> {
+        let Some(client) = self.client_by_id(client_id) else {
+            return Task::ready(Err(anyhow!("Client was not found")));
+        };
+
+        // update the process id on the config, so when the `startDebugging` reverse request
+        // comes in we send another `attach` request with the already selected PID
+        // If we don't do this the user has to select the process twice if the adapter sends a `startDebugging` request
+        client.set_process_id(pid);
+
+        let config = client.config();
+        let mut adapter_args = client.adapter().request_args(&config);
+
+        if let Some(args) = config.initialize_args.clone() {
+            merge_json_value_into(args, &mut adapter_args);
+        }
+
+        cx.background_executor().spawn(async move {
+            client
+                .request::<Attach>(AttachRequestArguments { raw: adapter_args })
+                .await
         })
     }
 
@@ -412,7 +519,7 @@ impl DapStore {
             return Task::ready(Ok(Vec::default()));
         }
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             Ok(client
                 .request::<Modules>(ModulesArguments {
                     start_module: None,
@@ -441,7 +548,7 @@ impl DapStore {
             return Task::ready(Ok(Vec::default()));
         }
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             Ok(client
                 .request::<LoadedSources>(LoadedSourcesArguments {})
                 .await?
@@ -459,7 +566,7 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Client was not found")));
         };
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             Ok(client
                 .request::<StackTrace>(StackTraceArguments {
                     thread_id,
@@ -482,7 +589,7 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Client was not found")));
         };
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             Ok(client
                 .request::<Scopes>(ScopesArguments {
                     frame_id: stack_frame_id,
@@ -498,12 +605,16 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not found client")));
+            return Task::ready(Err(anyhow!(
+                "Could not find client: file: {}:{}",
+                file!(),
+                line!()
+            )));
         };
 
         let capabilities = self.capabilities_by_id(client_id);
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             let support_configuration_done_request = capabilities
                 .supports_configuration_done_request
                 .unwrap_or_default();
@@ -522,11 +633,15 @@ impl DapStore {
         &self,
         client_id: &DebugAdapterClientId,
         seq: u64,
-        args: Option<StartDebuggingRequestArguments>,
+        args: StartDebuggingRequestArguments,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not found client")));
+            return Task::ready(Err(anyhow!(
+                "Could not find client: file: {}:{}",
+                file!(),
+                line!()
+            )));
         };
 
         cx.spawn(|this, mut cx| async move {
@@ -540,8 +655,33 @@ impl DapStore {
                 }))
                 .await?;
 
+            let config = client.config();
+
             this.update(&mut cx, |store, cx| {
-                store.start_client(client.config(), args, cx);
+                store.start_client(
+                    DebugAdapterConfig {
+                        kind: config.kind.clone(),
+                        request: match args.request {
+                            StartDebuggingRequestArgumentsRequest::Launch => {
+                                DebugRequestType::Launch
+                            }
+                            StartDebuggingRequestArgumentsRequest::Attach => {
+                                DebugRequestType::Attach(
+                                    if let DebugRequestType::Attach(attach_config) = config.request
+                                    {
+                                        attach_config
+                                    } else {
+                                        AttachConfig::default()
+                                    },
+                                )
+                            }
+                        },
+                        program: config.program.clone(),
+                        cwd: config.cwd.clone(),
+                        initialize_args: Some(args.configuration),
+                    },
+                    cx,
+                );
             })
         })
     }
@@ -555,34 +695,29 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not found client")));
+            return Task::ready(Err(anyhow!(
+                "Could not find client: file: {}:{}",
+                file!(),
+                line!()
+            )));
         };
 
-        cx.spawn(|_, _| async move {
-            if success {
-                client
-                    .send_message(Message::Response(Response {
-                        seq,
-                        request_seq: seq,
-                        success: true,
-                        command: RunInTerminal::COMMAND.to_string(),
-                        body: Some(serde_json::to_value(RunInTerminalResponse {
+        cx.background_executor().spawn(async move {
+            client
+                .send_message(Message::Response(Response {
+                    seq,
+                    request_seq: seq,
+                    success,
+                    command: RunInTerminal::COMMAND.to_string(),
+                    body: match success {
+                        true => Some(serde_json::to_value(RunInTerminalResponse {
                             process_id: Some(std::process::id() as u64),
                             shell_process_id: shell_pid,
                         })?),
-                    }))
-                    .await
-            } else {
-                client
-                    .send_message(Message::Response(Response {
-                        seq,
-                        request_seq: seq,
-                        success: false,
-                        command: RunInTerminal::COMMAND.to_string(),
-                        body: Some(serde_json::to_value(ErrorResponse { error: None })?),
-                    }))
-                    .await
-            }
+                        false => Some(serde_json::to_value(ErrorResponse { error: None })?),
+                    },
+                }))
+                .await
         })
     }
 
@@ -593,10 +728,14 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not found client")));
+            return Task::ready(Err(anyhow!(
+                "Could not find client: file: {}:{}",
+                file!(),
+                line!()
+            )));
         };
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             client
                 .request::<Continue>(ContinueArguments {
                     thread_id,
@@ -616,7 +755,11 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not found client")));
+            return Task::ready(Err(anyhow!(
+                "Could not find client: file: {}:{}",
+                file!(),
+                line!()
+            )));
         };
 
         let capabilities = self.capabilities_by_id(client_id);
@@ -628,7 +771,7 @@ impl DapStore {
             .supports_stepping_granularity
             .unwrap_or_default();
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             client
                 .request::<Next>(NextArguments {
                     thread_id,
@@ -647,7 +790,11 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not found client")));
+            return Task::ready(Err(anyhow!(
+                "Could not find client: file: {}:{}",
+                file!(),
+                line!()
+            )));
         };
 
         let capabilities = self.capabilities_by_id(client_id);
@@ -659,7 +806,7 @@ impl DapStore {
             .supports_stepping_granularity
             .unwrap_or_default();
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             client
                 .request::<StepIn>(StepInArguments {
                     thread_id,
@@ -679,7 +826,11 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not found client")));
+            return Task::ready(Err(anyhow!(
+                "Could not find client: file: {}:{}",
+                file!(),
+                line!()
+            )));
         };
 
         let capabilities = self.capabilities_by_id(client_id);
@@ -691,7 +842,7 @@ impl DapStore {
             .supports_stepping_granularity
             .unwrap_or_default();
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             client
                 .request::<StepOut>(StepOutArguments {
                     thread_id,
@@ -709,10 +860,14 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<Vec<Variable>>> {
         let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not found client")));
+            return Task::ready(Err(anyhow!(
+                "Could not find client: file: {}:{}",
+                file!(),
+                line!()
+            )));
         };
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             Ok(client
                 .request::<Variables>(VariablesArguments {
                     variables_reference,
@@ -735,10 +890,14 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<EvaluateResponse>> {
         let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not found client")));
+            return Task::ready(Err(anyhow!(
+                "Could not find client: file: {}:{}",
+                file!(),
+                line!()
+            )));
         };
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             client
                 .request::<Evaluate>(EvaluateArguments {
                     expression: expression.clone(),
@@ -762,10 +921,14 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<Vec<CompletionItem>>> {
         let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not found client")));
+            return Task::ready(Err(anyhow!(
+                "Could not find client: file: {}:{}",
+                file!(),
+                line!()
+            )));
         };
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             Ok(client
                 .request::<Completions>(CompletionsArguments {
                     frame_id: Some(stack_frame_id),
@@ -790,7 +953,11 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not found client")));
+            return Task::ready(Err(anyhow!(
+                "Could not find client: file: {}:{}",
+                file!(),
+                line!()
+            )));
         };
 
         let supports_set_expression = self
@@ -798,7 +965,7 @@ impl DapStore {
             .supports_set_expression
             .unwrap_or_default();
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             if let Some(evaluate_name) = supports_set_expression.then(|| evaluate_name).flatten() {
                 client
                     .request::<SetExpression>(SetExpressionArguments {
@@ -830,10 +997,15 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not found client")));
+            return Task::ready(Err(anyhow!(
+                "Could not find client: file: {}:{}",
+                file!(),
+                line!()
+            )));
         };
 
-        cx.spawn(|_, _| async move { client.request::<Pause>(PauseArguments { thread_id }).await })
+        cx.background_executor()
+            .spawn(async move { client.request::<Pause>(PauseArguments { thread_id }).await })
     }
 
     pub fn terminate_threads(
@@ -843,7 +1015,11 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not found client")));
+            return Task::ready(Err(anyhow!(
+                "Could not find client: file: {}:{}",
+                file!(),
+                line!()
+            )));
         };
 
         let capabilities = self.capabilities_by_id(client_id);
@@ -852,7 +1028,7 @@ impl DapStore {
             .supports_terminate_threads_request
             .unwrap_or_default()
         {
-            cx.spawn(|_, _| async move {
+            cx.background_executor().spawn(async move {
                 client
                     .request::<TerminateThreads>(TerminateThreadsArguments { thread_ids })
                     .await
@@ -868,10 +1044,14 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not found client")));
+            return Task::ready(Err(anyhow!(
+                "Could not find client: file: {}:{}",
+                file!(),
+                line!()
+            )));
         };
 
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             client
                 .request::<Disconnect>(DisconnectArguments {
                     restart: Some(false),
@@ -889,31 +1069,31 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not found client")));
+            return Task::ready(Err(anyhow!(
+                "Could not find client: file: {}:{}",
+                file!(),
+                line!()
+            )));
         };
 
-        let restart_args = args.unwrap_or(Value::Null);
+        let supports_restart = self
+            .capabilities_by_id(client_id)
+            .supports_restart_request
+            .unwrap_or_default();
 
-        cx.spawn(|_, _| async move {
-            client
-                .request::<Disconnect>(DisconnectArguments {
-                    restart: Some(true),
-                    terminate_debuggee: Some(false),
-                    suspend_debuggee: Some(false),
-                })
-                .await?;
+        let raw = args.unwrap_or(Value::Null);
 
-            match client.request_type() {
-                DebugRequestType::Launch => {
-                    client
-                        .request::<Launch>(LaunchRequestArguments { raw: restart_args })
-                        .await?
-                }
-                DebugRequestType::Attach => {
-                    client
-                        .request::<Attach>(AttachRequestArguments { raw: restart_args })
-                        .await?
-                }
+        cx.background_executor().spawn(async move {
+            if supports_restart {
+                client.request::<Restart>(RestartArguments { raw }).await?;
+            } else {
+                client
+                    .request::<Disconnect>(DisconnectArguments {
+                        restart: Some(false),
+                        terminate_debuggee: Some(true),
+                        suspend_debuggee: Some(false),
+                    })
+                    .await?;
             }
 
             Ok(())
@@ -938,16 +1118,19 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some(client) = self.clients.remove(&client_id) else {
-            return Task::ready(Err(anyhow!("Could not found client")));
+            return Task::ready(Err(anyhow!(
+                "Could not find client: file: {}:{}",
+                file!(),
+                line!()
+            )));
         };
 
         cx.emit(DapStoreEvent::DebugClientStopped(*client_id));
 
+        self.ignore_breakpoints.remove(client_id);
         let capabilities = self.capabilities.remove(client_id);
 
-        cx.notify();
-
-        cx.spawn(|_, _| async move {
+        cx.background_executor().spawn(async move {
             let client = match client {
                 DebugAdapterClientState::Starting(task) => task.await,
                 DebugAdapterClientState::Running(client) => Some(client),
@@ -966,6 +1149,14 @@ impl DapStore {
                         restart: Some(false),
                     })
                     .await;
+            } else {
+                let _ = client
+                    .request::<Disconnect>(DisconnectArguments {
+                        restart: Some(false),
+                        terminate_debuggee: Some(true),
+                        suspend_debuggee: Some(false),
+                    })
+                    .await;
             }
 
             client.shutdown().await
@@ -980,7 +1171,7 @@ impl DapStore {
         buffer_snapshot: BufferSnapshot,
         edit_action: BreakpointEditAction,
         cx: &mut ModelContext<Self>,
-    ) {
+    ) -> Task<Result<()>> {
         let breakpoint_set = self.breakpoints.entry(project_path.clone()).or_default();
 
         match edit_action {
@@ -998,26 +1189,36 @@ impl DapStore {
         cx.notify();
 
         self.send_changed_breakpoints(project_path, buffer_path, buffer_snapshot, cx)
-            .detach();
     }
 
     pub fn send_breakpoints(
         &self,
         client_id: &DebugAdapterClientId,
         absolute_file_path: Arc<Path>,
-        breakpoints: Vec<SourceBreakpoint>,
+        mut breakpoints: Vec<SourceBreakpoint>,
+        ignore: bool,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not found client")));
+            return Task::ready(Err(anyhow!(
+                "Could not find client: file: {}:{}",
+                file!(),
+                line!()
+            )));
         };
 
-        cx.spawn(|_, _| async move {
+        if Self::INDEX_STARTS_AT_ONE {
+            breakpoints.iter_mut().for_each(|bp| bp.line += 1u64)
+        }
+
+        cx.background_executor().spawn(async move {
             client
                 .request::<SetBreakpoints>(SetBreakpointsArguments {
                     source: Source {
                         path: Some(String::from(absolute_file_path.to_string_lossy())),
-                        name: None,
+                        name: absolute_file_path
+                            .file_name()
+                            .map(|name| name.to_string_lossy().to_string()),
                         source_reference: None,
                         presentation_hint: None,
                         origin: None,
@@ -1025,8 +1226,8 @@ impl DapStore {
                         adapter_data: None,
                         checksums: None,
                     },
-                    breakpoints: Some(breakpoints),
-                    source_modified: None,
+                    breakpoints: Some(if ignore { Vec::default() } else { breakpoints }),
+                    source_modified: Some(false),
                     lines: None,
                 })
                 .await?;
@@ -1041,15 +1242,15 @@ impl DapStore {
         buffer_path: PathBuf,
         buffer_snapshot: BufferSnapshot,
         cx: &mut ModelContext<Self>,
-    ) -> Task<()> {
+    ) -> Task<Result<()>> {
         let clients = self.running_clients().collect::<Vec<_>>();
 
         if clients.is_empty() {
-            return Task::ready(());
+            return Task::ready(Ok(()));
         }
 
         let Some(breakpoints) = self.breakpoints.get(project_path) else {
-            return Task::ready(());
+            return Task::ready(Ok(()));
         };
 
         let source_breakpoints = breakpoints
@@ -1063,12 +1264,15 @@ impl DapStore {
                 &client.id(),
                 Arc::from(buffer_path.clone()),
                 source_breakpoints.clone(),
+                self.ignore_breakpoints(&client.id()),
                 cx,
             ))
         }
 
         cx.background_executor().spawn(async move {
-            futures::future::join_all(tasks).await;
+            futures::future::try_join_all(tasks).await?;
+
+            Ok(())
         })
     }
 }
@@ -1158,11 +1362,16 @@ impl Breakpoint {
             .map(|position| buffer.summary_for_anchor::<Point>(&position).row)
             .unwrap_or(self.cache_position) as u64;
 
+        let log_message = match &self.kind {
+            BreakpointKind::Standard => None,
+            BreakpointKind::Log(message) => Some(message.clone().to_string()),
+        };
+
         SourceBreakpoint {
             line,
             condition: None,
             hit_condition: None,
-            log_message: None,
+            log_message,
             column: None,
             mode: None,
         }
@@ -1213,7 +1422,7 @@ impl Breakpoint {
             Some(buffer) => SerializedBreakpoint {
                 position: self
                     .active_position
-                    .map(|position| buffer.summary_for_anchor::<Point>(&position).row + 1u32)
+                    .map(|position| buffer.summary_for_anchor::<Point>(&position).row)
                     .unwrap_or(self.cache_position),
                 path,
                 kind: self.kind.clone(),
@@ -1259,6 +1468,7 @@ pub struct DapAdapterDelegate {
     node_runtime: Option<NodeRuntime>,
     updated_adapters: Arc<Mutex<HashSet<DebugAdapterName>>>,
     languages: Arc<LanguageRegistry>,
+    load_shell_env_task: Shared<Task<Option<HashMap<String, String>>>>,
 }
 
 impl DapAdapterDelegate {
@@ -1267,17 +1477,27 @@ impl DapAdapterDelegate {
         node_runtime: Option<NodeRuntime>,
         fs: Arc<dyn Fs>,
         languages: Arc<LanguageRegistry>,
+        load_shell_env_task: Shared<Task<Option<HashMap<String, String>>>>,
     ) -> Self {
         Self {
             fs,
             languages,
             http_client,
             node_runtime,
+            load_shell_env_task,
             updated_adapters: Default::default(),
         }
     }
+
+    pub(crate) fn refresh_shell_env_task(
+        &mut self,
+        load_shell_env_task: Shared<Task<Option<HashMap<String, String>>>>,
+    ) {
+        self.load_shell_env_task = load_shell_env_task;
+    }
 }
 
+#[async_trait(?Send)]
 impl dap::adapters::DapDelegate for DapAdapterDelegate {
     fn http_client(&self) -> Option<Arc<dyn HttpClient>> {
         self.http_client.clone()
@@ -1306,5 +1526,14 @@ impl dap::adapters::DapDelegate for DapAdapterDelegate {
 
         self.languages
             .update_dap_status(LanguageServerName(name), status);
+    }
+
+    fn which(&self, command: &OsStr) -> Option<PathBuf> {
+        which::which(command).ok()
+    }
+
+    async fn shell_env(&self) -> HashMap<String, String> {
+        let task = self.load_shell_env_task.clone();
+        task.await.unwrap_or_default()
     }
 }

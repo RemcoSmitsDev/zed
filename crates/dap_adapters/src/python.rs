@@ -1,5 +1,6 @@
 use dap::transport::{TcpTransport, Transport};
-use std::net::Ipv4Addr;
+use std::{ffi::OsStr, net::Ipv4Addr, path::PathBuf};
+use util::maybe;
 
 use crate::*;
 
@@ -55,32 +56,63 @@ impl DebugAdapter for PythonDebugAdapter {
 
     async fn get_installed_binary(
         &self,
-        _: &dyn DapDelegate,
-        _: &DebugAdapterConfig,
+        delegate: &dyn DapDelegate,
+        config: &DebugAdapterConfig,
+        user_installed_path: Option<PathBuf>,
     ) -> Result<DebugAdapterBinary> {
         let adapter_path = paths::debug_adapters_dir().join(self.name());
         let file_name_prefix = format!("{}_", self.name());
 
-        let debugpy_dir = util::fs::find_file_name_in_dir(adapter_path.as_path(), |file_name| {
-            file_name.starts_with(&file_name_prefix)
-        })
-        .await
-        .ok_or_else(|| anyhow!("Debugpy directory not found"))?;
+        let adapter_info: Result<_> = maybe!(async {
+            let debugpy_dir =
+                util::fs::find_file_name_in_dir(adapter_path.as_path(), |file_name| {
+                    file_name.starts_with(&file_name_prefix)
+                })
+                .await
+                .ok_or_else(|| anyhow!("Debugpy directory not found"))?;
 
-        let version = debugpy_dir
-            .file_name()
-            .and_then(|file_name| file_name.to_str())
-            .and_then(|file_name| file_name.strip_prefix(&file_name_prefix))
-            .ok_or_else(|| anyhow!("Python debug adapter has invalid file name"))?
-            .to_string();
+            let version = debugpy_dir
+                .file_name()
+                .and_then(|file_name| file_name.to_str())
+                .and_then(|file_name| file_name.strip_prefix(&file_name_prefix))
+                .ok_or_else(|| anyhow!("Python debug adapter has invalid file name"))?
+                .to_string();
+
+            Ok((debugpy_dir, version))
+        })
+        .await;
+
+        let (debugpy_dir, version) = match user_installed_path {
+            Some(path) => (path, "N/A".into()),
+            None => adapter_info?,
+        };
+
+        let python_cmds = [
+            OsStr::new("python3"),
+            OsStr::new("python"),
+            OsStr::new("py"),
+        ];
+        let python_path = python_cmds
+            .iter()
+            .filter_map(|cmd| {
+                delegate
+                    .which(cmd)
+                    .and_then(|path| path.to_str().map(|str| str.to_string()))
+            })
+            .find(|_| true);
+
+        let python_path = python_path.ok_or(anyhow!(
+            "Failed to start debugger because python couldn't be found in PATH"
+        ))?;
 
         Ok(DebugAdapterBinary {
-            command: "python3".to_string(),
+            command: python_path,
             arguments: Some(vec![
                 debugpy_dir.join(Self::ADAPTER_PATH).into(),
                 format!("--port={}", self.port).into(),
                 format!("--host={}", self.host).into(),
             ]),
+            cwd: config.cwd.clone(),
             envs: None,
             version,
         })

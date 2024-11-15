@@ -1,6 +1,9 @@
-use std::net::Ipv4Addr;
-
 use dap::transport::{TcpTransport, Transport};
+use regex::Regex;
+use std::{collections::HashMap, net::Ipv4Addr};
+use sysinfo::{Pid, Process};
+use task::DebugRequestType;
+use util::maybe;
 
 use crate::*;
 
@@ -48,7 +51,8 @@ impl DebugAdapter for JsDebugAdapter {
     async fn get_installed_binary(
         &self,
         delegate: &dyn DapDelegate,
-        _: &DebugAdapterConfig,
+        config: &DebugAdapterConfig,
+        user_installed_path: Option<PathBuf>,
     ) -> Result<DebugAdapterBinary> {
         let node_runtime = delegate
             .node_runtime()
@@ -57,18 +61,29 @@ impl DebugAdapter for JsDebugAdapter {
         let adapter_path = paths::debug_adapters_dir().join(self.name());
         let file_name_prefix = format!("{}_", self.name());
 
-        let adapter_path = util::fs::find_file_name_in_dir(adapter_path.as_path(), |file_name| {
-            file_name.starts_with(&file_name_prefix)
-        })
-        .await
-        .ok_or_else(|| anyhow!("Couldn't find Javascript dap directory"))?;
+        let adapter_info: Result<_> = maybe!(async {
+            let adapter_path =
+                util::fs::find_file_name_in_dir(adapter_path.as_path(), |file_name| {
+                    file_name.starts_with(&file_name_prefix)
+                })
+                .await
+                .ok_or_else(|| anyhow!("Couldn't find Php dap directory"))?;
 
-        let version = adapter_path
-            .file_name()
-            .and_then(|file_name| file_name.to_str())
-            .and_then(|file_name| file_name.strip_prefix(&file_name_prefix))
-            .ok_or_else(|| anyhow!("Javascript debug adapter has invalid file name"))?
-            .to_string();
+            let version = adapter_path
+                .file_name()
+                .and_then(|file_name| file_name.to_str())
+                .and_then(|file_name| file_name.strip_prefix(&file_name_prefix))
+                .ok_or_else(|| anyhow!("PHP debug adapter has invalid file name"))?
+                .to_string();
+
+            Ok((adapter_path, version))
+        })
+        .await;
+
+        let (adapter_path, version) = match user_installed_path {
+            Some(path) => (path, "N/A".into()),
+            None => adapter_info?,
+        };
 
         Ok(DebugAdapterBinary {
             command: node_runtime
@@ -80,6 +95,7 @@ impl DebugAdapter for JsDebugAdapter {
                 adapter_path.join(Self::ADAPTER_PATH).into(),
                 self.port.to_string().into(),
             ]),
+            cwd: config.cwd.clone(),
             envs: None,
             version,
         })
@@ -111,9 +127,39 @@ impl DebugAdapter for JsDebugAdapter {
     }
 
     fn request_args(&self, config: &DebugAdapterConfig) -> Value {
+        let pid = if let DebugRequestType::Attach(attach_config) = &config.request {
+            attach_config.process_id
+        } else {
+            None
+        };
+
         json!({
             "program": config.program,
             "type": "pwa-node",
+            "request": match config.request {
+                DebugRequestType::Launch => "launch",
+                DebugRequestType::Attach(_) => "attach",
+            },
+            "processId": pid,
+            "cwd": config.cwd,
         })
+    }
+
+    fn supports_attach(&self) -> bool {
+        true
+    }
+
+    fn attach_processes<'a>(
+        &self,
+        processes: &'a HashMap<Pid, Process>,
+    ) -> Option<Vec<(&'a Pid, &'a Process)>> {
+        let regex = Regex::new(r"(?i)^(?:node|bun|iojs)(?:$|\b)").unwrap();
+
+        Some(
+            processes
+                .iter()
+                .filter(|(_, process)| regex.is_match(&process.name().to_string_lossy()))
+                .collect::<Vec<_>>(),
+        )
     }
 }

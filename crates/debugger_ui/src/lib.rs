@@ -4,10 +4,11 @@ use gpui::AppContext;
 use settings::Settings;
 use ui::ViewContext;
 use workspace::{
-    Continue, Pause, Restart, Start, StepInto, StepOut, StepOver, Stop, StopDebugAdapters,
-    Workspace,
+    Continue, Pause, Restart, ShutdownDebugAdapters, Start, StepInto, StepOut, StepOver, Stop,
+    ToggleIgnoreBreakpoints, Workspace,
 };
 
+mod attach_modal;
 mod console;
 pub mod debugger_panel;
 mod debugger_panel_item;
@@ -28,7 +29,7 @@ pub fn init(cx: &mut AppContext) {
                 .register_action(|workspace: &mut Workspace, _: &Start, cx| {
                     tasks_ui::toggle_modal(workspace, task::TaskModal::DebugModal, cx).detach();
                 })
-                .register_action(|workspace: &mut Workspace, _: &StopDebugAdapters, cx| {
+                .register_action(|workspace: &mut Workspace, _: &ShutdownDebugAdapters, cx| {
                     workspace.project().update(cx, |project, cx| {
                         project.dap_store().update(cx, |store, cx| {
                             store.shutdown_clients(cx).detach();
@@ -101,6 +102,19 @@ pub fn init(cx: &mut AppContext) {
                         active_item.update(cx, |item, cx| item.restart_client(cx))
                     });
                 })
+                .register_action(
+                    |workspace: &mut Workspace, _: &ToggleIgnoreBreakpoints, cx| {
+                        let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
+
+                        debug_panel.update(cx, |panel, cx| {
+                            let Some(active_item) = panel.active_debug_panel_item(cx) else {
+                                return;
+                            };
+
+                            active_item.update(cx, |item, cx| item.toggle_ignore_breakpoints(cx))
+                        });
+                    },
+                )
                 .register_action(|workspace: &mut Workspace, _: &Pause, cx| {
                     let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
 

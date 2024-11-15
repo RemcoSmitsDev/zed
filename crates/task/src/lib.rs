@@ -15,8 +15,8 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 pub use debug_format::{
-    CustomArgs, DebugAdapterConfig, DebugAdapterKind, DebugConnectionType, DebugRequestType,
-    DebugTaskFile, TCPHost,
+    AttachConfig, CustomArgs, DebugAdapterConfig, DebugAdapterKind, DebugConnectionType,
+    DebugRequestType, DebugTaskDefinition, DebugTaskFile, TCPHost,
 };
 pub use task_template::{
     HideStrategy, RevealStrategy, TaskModal, TaskTemplate, TaskTemplates, TaskType,
@@ -99,12 +99,16 @@ impl ResolvedTask {
         match self.original_task.task_type.clone() {
             TaskType::Script => None,
             TaskType::Debug(mut adapter_config) => {
-                let program = match &self.resolved {
-                    None => adapter_config.program,
-                    Some(spawn_in_terminal) => spawn_in_terminal.program.clone(),
+                let (cwd, program) = match &self.resolved {
+                    None => (adapter_config.cwd, adapter_config.program),
+                    Some(spawn_in_terminal) => (
+                        spawn_in_terminal.cwd.clone(),
+                        spawn_in_terminal.program.clone(),
+                    ),
                 };
 
                 adapter_config.program = program;
+                adapter_config.cwd = cwd;
                 Some(adapter_config)
             }
         }
