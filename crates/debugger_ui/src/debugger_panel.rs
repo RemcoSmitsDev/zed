@@ -580,9 +580,9 @@ impl DebugPanel {
                             pane.add_item(Box::new(tab), true, true, None, cx);
                         });
 
-                        if let Some(mut message_queue) = this.message_queue.remove(&client_id) {
-                            while let Some(output) = message_queue.pop_front() {
-                                cx.emit(DebugPanelEvent::Output((client_id, output)));
+                        if let Some(message_queue) = this.message_queue.get(&client_id) {
+                            while let Some(output) = message_queue.iter().next() {
+                                cx.emit(DebugPanelEvent::Output((client_id, output.clone())));
                             }
                         }
                     }
