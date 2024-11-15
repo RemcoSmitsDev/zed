@@ -71,8 +71,8 @@ pub struct DebugPanel {
     workspace: WeakView<Workspace>,
     show_did_not_stop_warning: bool,
     _subscriptions: Vec<Subscription>,
+    message_queue: HashMap<DebugAdapterClientId, VecDeque<OutputEvent>>,
     thread_states: BTreeMap<(DebugAdapterClientId, u64), Model<ThreadState>>,
-    message_queue: BTreeMap<DebugAdapterClientId, VecDeque<OutputEvent>>,
 }
 
 impl DebugPanel {
@@ -132,6 +132,7 @@ impl DebugPanel {
                         project::Event::DebugClientStopped(client_id) => {
                             cx.emit(DebugPanelEvent::ClientStopped(*client_id));
 
+                            this.message_queue.remove(client_id);
                             this.thread_states
                                 .retain(|&(client_id_, _), _| client_id_ != *client_id);
 
@@ -149,9 +150,9 @@ impl DebugPanel {
                 focus_handle: cx.focus_handle(),
                 show_did_not_stop_warning: false,
                 thread_states: Default::default(),
+                message_queue: Default::default(),
                 workspace: workspace.weak_handle(),
                 dap_store: project.read(cx).dap_store(),
-                message_queue: Default::default(),
             }
         })
     }
@@ -689,25 +690,12 @@ impl DebugPanel {
         event: &OutputEvent,
         cx: &mut ViewContext<Self>,
     ) {
-        let existing_item = self
-            .pane
-            .read(cx)
-            .items()
-            .filter_map(|item| item.downcast::<DebugPanelItem>())
-            .any(|item| {
-                let item = item.read(cx);
+        self.message_queue
+            .entry(client_id.clone())
+            .or_default()
+            .push_back(event.clone());
 
-                item.client_id() == *client_id
-            });
-
-        if existing_item {
-            cx.emit(DebugPanelEvent::Output((*client_id, event.clone())));
-        } else {
-            self.message_queue
-                .entry(client_id.clone())
-                .or_default()
-                .push_back(event.clone());
-        }
+        cx.emit(DebugPanelEvent::Output((*client_id, event.clone())));
     }
 
     fn handle_module_event(
