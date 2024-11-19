@@ -1,6 +1,7 @@
 use crate::{project_settings::ProjectSettings, ProjectEnvironment, ProjectPath};
 use anyhow::{anyhow, Context as _, Result};
 use async_trait::async_trait;
+use client::Client;
 use collections::HashMap;
 use dap::adapters::{DapDelegate, DapStatus, DebugAdapterName};
 use dap::{
@@ -26,11 +27,15 @@ use dap_adapters::build_adapter;
 use fs::Fs;
 use futures::future::Shared;
 use futures::FutureExt;
-use gpui::{EventEmitter, Model, ModelContext, SharedString, Task};
+use gpui::{AsyncAppContext, EventEmitter, Model, ModelContext, SharedString, Task};
 use http_client::HttpClient;
-use language::{Buffer, BufferSnapshot, LanguageRegistry, LanguageServerBinaryStatus};
+use language::{
+    proto::{deserialize_anchor, serialize_anchor as serialize_text_anchor},
+    Buffer, BufferSnapshot, LanguageRegistry, LanguageServerBinaryStatus,
+};
 use lsp::LanguageServerName;
 use node_runtime::NodeRuntime;
+use rpc::{proto, AnyProtoClient, TypedEnvelope};
 use serde_json::Value;
 use settings::{Settings, WorktreeId};
 use smol::lock::Mutex;
@@ -56,6 +61,7 @@ pub enum DapStoreEvent {
         message: Message,
     },
     Notification(String),
+    BreakpointsChanged,
 }
 
 pub enum DebugAdapterClientState {
@@ -70,14 +76,15 @@ pub struct DebugPosition {
 }
 
 pub struct DapStore {
+    client: Option<Arc<Client>>,
     next_client_id: AtomicUsize,
     delegate: DapAdapterDelegate,
+    environment: Model<ProjectEnvironment>,
     ignore_breakpoints: HashSet<DebugAdapterClientId>,
     breakpoints: BTreeMap<ProjectPath, HashSet<Breakpoint>>,
-    active_debug_line: Option<(DebugAdapterClientId, ProjectPath, DebugPosition)>,
     capabilities: HashMap<DebugAdapterClientId, Capabilities>,
-    environment: Model<ProjectEnvironment>,
     clients: HashMap<DebugAdapterClientId, DebugAdapterClientState>,
+    active_debug_line: Option<(DebugAdapterClientId, ProjectPath, DebugPosition)>,
 }
 
 impl EventEmitter<DapStoreEvent> for DapStore {}
@@ -85,8 +92,12 @@ impl EventEmitter<DapStoreEvent> for DapStore {}
 impl DapStore {
     const INDEX_STARTS_AT_ONE: bool = true;
 
+    pub fn init(client: &AnyProtoClient) {
+        client.add_model_message_handler(DapStore::handle_synchronize_breakpoints);
+    }
+
     pub fn new(
-        http_client: Option<Arc<dyn HttpClient>>,
+        client: Option<Arc<Client>>,
         node_runtime: Option<NodeRuntime>,
         fs: Arc<dyn Fs>,
         languages: Arc<LanguageRegistry>,
@@ -95,23 +106,24 @@ impl DapStore {
     ) -> Self {
         cx.on_app_quit(Self::shutdown_clients).detach();
 
-        let load_shell_env_task = Task::ready(None).shared();
-
         Self {
+            environment,
+            client: client.clone(),
             active_debug_line: None,
             clients: Default::default(),
             breakpoints: Default::default(),
             capabilities: HashMap::default(),
             next_client_id: Default::default(),
-            ignore_breakpoints: Default::default(),
             delegate: DapAdapterDelegate::new(
-                http_client.clone(),
+                client
+                    .clone()
+                    .map(|client| client.http_client() as Arc<dyn HttpClient>),
                 node_runtime.clone(),
                 fs.clone(),
                 languages.clone(),
-                load_shell_env_task,
+                Task::ready(None).shared(),
             ),
-            environment,
+            ignore_breakpoints: Default::default(),
         }
     }
 
@@ -1164,8 +1176,42 @@ impl DapStore {
         })
     }
 
+    async fn handle_synchronize_breakpoints(
+        this: Model<Self>,
+        envelope: TypedEnvelope<proto::SynchronizeBreakpoints>,
+        mut cx: AsyncAppContext,
+    ) -> Result<()> {
+        let project_path = ProjectPath::from_proto(
+            envelope
+                .payload
+                .project_path
+                .context("Invalid Breakpoint call")?,
+        );
+
+        this.update(&mut cx, |store, cx| {
+            let breakpoints = envelope
+                .payload
+                .breakpoints
+                .into_iter()
+                .filter_map(Breakpoint::from_proto)
+                .collect::<HashSet<_>>();
+
+            if breakpoints.is_empty() {
+                store.breakpoints.remove(&project_path);
+            } else {
+                store.breakpoints.insert(project_path, breakpoints);
+            }
+
+            cx.emit(DapStoreEvent::BreakpointsChanged);
+
+            cx.notify();
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn toggle_breakpoint_for_buffer(
         &mut self,
+        project_id: Option<u64>,
         project_path: &ProjectPath,
         breakpoint: Breakpoint,
         buffer_path: PathBuf,
@@ -1188,6 +1234,21 @@ impl DapStore {
         }
 
         cx.notify();
+
+        if let Some(project_id) = project_id {
+            if let Some(proto_client) = self.client.as_ref() {
+                proto_client
+                    .send(client::proto::SynchronizeBreakpoints {
+                        project_id,
+                        project_path: Some(project_path.to_proto()),
+                        breakpoints: breakpoint_set
+                            .iter()
+                            .filter_map(|breakpoint| breakpoint.to_proto())
+                            .collect(),
+                    })
+                    .log_err();
+            }
+        }
 
         self.send_changed_breakpoints(project_path, buffer_path, buffer_snapshot, cx)
     }
@@ -1434,6 +1495,34 @@ impl Breakpoint {
                 kind: self.kind.clone(),
             },
         }
+    }
+
+    pub fn to_proto(&self) -> Option<client::proto::Breakpoint> {
+        Some(client::proto::Breakpoint {
+            position: Some(serialize_text_anchor(&self.active_position?)),
+            kind: match self.kind {
+                BreakpointKind::Standard => proto::BreakpointKind::Standard.into(),
+                BreakpointKind::Log(_) => proto::BreakpointKind::Log.into(),
+            },
+            message: if let BreakpointKind::Log(message) = &self.kind {
+                Some(message.to_string())
+            } else {
+                None
+            },
+        })
+    }
+
+    pub fn from_proto(breakpoint: client::proto::Breakpoint) -> Option<Self> {
+        Some(Self {
+            active_position: deserialize_anchor(breakpoint.position.clone()?),
+            cache_position: 0,
+            kind: match proto::BreakpointKind::from_i32(breakpoint.kind) {
+                Some(proto::BreakpointKind::Log) => {
+                    BreakpointKind::Log(breakpoint.message.clone().unwrap_or_default().into())
+                }
+                None | Some(proto::BreakpointKind::Standard) => BreakpointKind::Standard,
+            },
+        })
     }
 }
 

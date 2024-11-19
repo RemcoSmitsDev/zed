@@ -516,6 +516,7 @@ enum EntitySubscription {
     WorktreeStore(PendingEntitySubscription<WorktreeStore>),
     LspStore(PendingEntitySubscription<LspStore>),
     SettingsObserver(PendingEntitySubscription<SettingsObserver>),
+    DapStore(PendingEntitySubscription<DapStore>),
 }
 
 #[derive(Clone)]
@@ -611,6 +612,7 @@ impl Project {
         SettingsObserver::init(&client);
         TaskStore::init(Some(&client));
         ToolchainStore::init(&client);
+        DapStore::init(&client);
     }
 
     pub fn local(
@@ -635,7 +637,7 @@ impl Project {
 
             let dap_store = cx.new_model(|cx| {
                 DapStore::new(
-                    Some(client.http_client()),
+                    Some(client.clone()),
                     Some(node.clone()),
                     fs.clone(),
                     languages.clone(),
@@ -829,7 +831,7 @@ impl Project {
 
             let dap_store = cx.new_model(|cx| {
                 DapStore::new(
-                    Some(client.http_client()),
+                    Some(client.clone()),
                     Some(node.clone()),
                     fs.clone(),
                     languages.clone(),
@@ -898,6 +900,7 @@ impl Project {
             ssh.subscribe_to_entity(SSH_PROJECT_ID, &this.buffer_store);
             ssh.subscribe_to_entity(SSH_PROJECT_ID, &this.worktree_store);
             ssh.subscribe_to_entity(SSH_PROJECT_ID, &this.lsp_store);
+            ssh.subscribe_to_entity(SSH_PROJECT_ID, &this.dap_store);
             ssh.subscribe_to_entity(SSH_PROJECT_ID, &this.settings_observer);
 
             ssh_proto.add_model_message_handler(Self::handle_create_buffer_for_peer);
@@ -912,6 +915,7 @@ impl Project {
             SettingsObserver::init(&ssh_proto);
             TaskStore::init(Some(&ssh_proto));
             ToolchainStore::init(&ssh_proto);
+            DapStore::init(&ssh_proto);
 
             this
         })
@@ -955,6 +959,7 @@ impl Project {
             EntitySubscription::SettingsObserver(
                 client.subscribe_to_entity::<SettingsObserver>(remote_id)?,
             ),
+            EntitySubscription::DapStore(client.subscribe_to_entity::<DapStore>(remote_id)?),
         ];
         let response = client
             .request_envelope(proto::JoinProject {
@@ -977,7 +982,7 @@ impl Project {
     #[allow(clippy::too_many_arguments)]
     async fn from_join_project_response(
         response: TypedEnvelope<proto::JoinProjectResponse>,
-        subscriptions: [EntitySubscription; 5],
+        subscriptions: [EntitySubscription; 6],
         client: Arc<Client>,
         run_tasks: bool,
         user_store: Model<UserStore>,
@@ -1002,7 +1007,7 @@ impl Project {
 
         let dap_store = cx.new_model(|cx| {
             DapStore::new(
-                Some(client.http_client()),
+                Some(client.clone()),
                 None,
                 fs.clone(),
                 languages.clone(),
@@ -1097,7 +1102,7 @@ impl Project {
                     remote_id,
                     replica_id,
                 },
-                dap_store,
+                dap_store: dap_store.clone(),
                 buffers_needing_diff: Default::default(),
                 git_diff_debouncer: DebouncedDelay::new(),
                 terminals: Terminals {
@@ -1133,6 +1138,9 @@ impl Project {
                 EntitySubscription::Project(subscription) => subscription.set_model(&this, &mut cx),
                 EntitySubscription::LspStore(subscription) => {
                     subscription.set_model(&lsp_store, &mut cx)
+                }
+                EntitySubscription::DapStore(subscription) => {
+                    subscription.set_model(&dap_store, &mut cx)
                 }
             })
             .collect::<Vec<_>>();
@@ -1430,6 +1438,7 @@ impl Project {
         self.dap_store.update(cx, |store, cx| {
             store
                 .toggle_breakpoint_for_buffer(
+                    self.remote_id(),
                     &project_path,
                     breakpoint,
                     buffer_path,
@@ -1857,6 +1866,9 @@ impl Project {
             self.client
                 .subscribe_to_entity(project_id)?
                 .set_model(&self.lsp_store, &mut cx.to_async()),
+            self.client
+                .subscribe_to_entity(project_id)?
+                .set_model(&self.dap_store, &mut cx.to_async()),
             self.client
                 .subscribe_to_entity(project_id)?
                 .set_model(&self.settings_observer, &mut cx.to_async()),
@@ -2410,10 +2422,15 @@ impl Project {
                     message: message.clone(),
                 });
             }
-            DapStoreEvent::Notification(message) => cx.emit(Event::Toast {
-                notification_id: "dap".into(),
-                message: message.clone(),
-            }),
+            DapStoreEvent::Notification(message) => {
+                cx.emit(Event::Toast {
+                    notification_id: "dap".into(),
+                    message: message.clone(),
+                });
+            }
+            DapStoreEvent::BreakpointsChanged => {
+                cx.notify();
+            }
         }
     }
 

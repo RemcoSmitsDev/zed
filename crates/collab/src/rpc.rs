@@ -406,7 +406,10 @@ impl Server {
                         app_state.config.openai_api_key.clone(),
                     )
                 }
-            });
+            })
+            .add_message_handler(
+                broadcast_project_message_from_host::<proto::SynchronizeBreakpoints>,
+            );
 
         Arc::new(server)
     }
