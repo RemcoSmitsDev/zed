@@ -636,9 +636,9 @@ impl Project {
             let environment = ProjectEnvironment::new(&worktree_store, env, cx);
 
             let dap_store = cx.new_model(|cx| {
-                DapStore::new(
-                    Some(client.clone()),
-                    Some(node.clone()),
+                DapStore::new_local(
+                    client.http_client(),
+                    node.clone(),
                     fs.clone(),
                     languages.clone(),
                     environment.clone(),
@@ -829,16 +829,8 @@ impl Project {
             });
             cx.subscribe(&lsp_store, Self::on_lsp_store_event).detach();
 
-            let dap_store = cx.new_model(|cx| {
-                DapStore::new(
-                    Some(client.clone()),
-                    Some(node.clone()),
-                    fs.clone(),
-                    languages.clone(),
-                    environment.clone(),
-                    cx,
-                )
-            });
+            let dap_store =
+                cx.new_model(|cx| DapStore::new_remote(SSH_PROJECT_ID, client.clone().into(), cx));
 
             cx.subscribe(&ssh, Self::on_ssh_event).detach();
             cx.observe(&ssh, |_, _, cx| cx.notify()).detach();
@@ -1005,16 +997,8 @@ impl Project {
 
         let environment = cx.update(|cx| ProjectEnvironment::new(&worktree_store, None, cx))?;
 
-        let dap_store = cx.new_model(|cx| {
-            DapStore::new(
-                Some(client.clone()),
-                None,
-                fs.clone(),
-                languages.clone(),
-                environment.clone(),
-                cx,
-            )
-        })?;
+        let dap_store =
+            cx.new_model(|cx| DapStore::new_remote(remote_id, client.clone().into(), cx))?;
 
         let lsp_store = cx.new_model(|cx| {
             let mut lsp_store = LspStore::new_remote(
@@ -1438,7 +1422,6 @@ impl Project {
         self.dap_store.update(cx, |store, cx| {
             store
                 .toggle_breakpoint_for_buffer(
-                    self.remote_id(),
                     &project_path,
                     breakpoint,
                     buffer_path,
@@ -1883,6 +1866,9 @@ impl Project {
         self.lsp_store.update(cx, |lsp_store, cx| {
             lsp_store.shared(project_id, self.client.clone().into(), cx)
         });
+        self.dap_store.update(cx, |dap_store, cx| {
+            dap_store.shared(project_id, self.client.clone().into(), cx);
+        });
         self.task_store.update(cx, |task_store, cx| {
             task_store.shared(project_id, self.client.clone().into(), cx);
         });
@@ -1969,6 +1955,9 @@ impl Project {
             });
             self.task_store.update(cx, |task_store, cx| {
                 task_store.unshared(cx);
+            });
+            self.dap_store.update(cx, |dap_store, cx| {
+                dap_store.unshared(cx);
             });
             self.settings_observer.update(cx, |settings_observer, cx| {
                 settings_observer.unshared(cx);
