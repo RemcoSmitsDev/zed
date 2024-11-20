@@ -2377,8 +2377,9 @@ enum BreakpointKind {
 
 message Breakpoint {
     Anchor position = 1;
-    BreakpointKind kind = 2;
-    optional string message = 3;
+    uint32 cached_position = 2;
+    BreakpointKind kind = 3;
+    optional string message = 4;
 }
 
 message SynchronizeBreakpoints {

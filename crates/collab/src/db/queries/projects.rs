@@ -1,4 +1,5 @@
 use anyhow::Context as _;
+use std::collections::{HashMap, HashSet};
 use util::ResultExt;
 
 use super::*;
@@ -719,6 +720,28 @@ impl Database {
             }
         }
 
+        let mut breakpoints: HashMap<proto::ProjectPath, HashSet<proto::Breakpoint>> =
+            HashMap::default();
+
+        let db_breakpoints = project.find_related(breakpoints::Entity).all(tx).await?;
+
+        for breakpoint in db_breakpoints.iter() {
+            let project_path = proto::ProjectPath {
+                worktree_id: breakpoint.worktree_id as u64,
+                path: breakpoint.path.clone(),
+            };
+
+            breakpoints
+                .entry(project_path)
+                .or_default()
+                .insert(proto::Breakpoint {
+                    position: None,
+                    cached_position: breakpoint.position as u32,
+                    kind: breakpoint.kind as i32,
+                    message: breakpoint.log_message.clone(),
+                });
+        }
+
         // Populate language servers.
         let language_servers = project
             .find_related(language_server::Entity)
@@ -746,6 +769,7 @@ impl Database {
                     worktree_id: None,
                 })
                 .collect(),
+            breakpoints,
         };
         Ok((project, replica_id as ReplicaId))
     }

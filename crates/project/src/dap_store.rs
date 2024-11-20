@@ -344,7 +344,7 @@ impl DapStore {
                 .or_default()
                 .insert(Breakpoint {
                     active_position: None,
-                    cache_position: serialize_breakpoint.position,
+                    cached_position: serialize_breakpoint.position,
                     kind: serialize_breakpoint.kind,
                 });
         }
@@ -357,7 +357,7 @@ impl DapStore {
     ) {
         if let Some(breakpoint_set) = self.breakpoints.remove(project_path) {
             let breakpoint_iter = breakpoint_set.into_iter().map(|mut bp| {
-                bp.cache_position = bp.point_for_buffer(&buffer).row;
+                bp.cached_position = bp.point_for_buffer(&buffer).row;
                 bp.active_position = None;
                 bp
             });
@@ -1410,7 +1410,7 @@ impl Hash for BreakpointKind {
 #[derive(Clone, Debug)]
 pub struct Breakpoint {
     pub active_position: Option<text::Anchor>,
-    pub cache_position: u32,
+    pub cached_position: u32,
     pub kind: BreakpointKind,
 }
 
@@ -1421,7 +1421,7 @@ pub struct Breakpoint {
 impl PartialEq for Breakpoint {
     fn eq(&self, other: &Self) -> bool {
         match (&self.active_position, &other.active_position) {
-            (None, None) => self.cache_position == other.cache_position,
+            (None, None) => self.cached_position == other.cached_position,
             (None, Some(_)) => false,
             (Some(_), None) => false,
             (Some(self_position), Some(other_position)) => self_position == other_position,
@@ -1436,7 +1436,7 @@ impl Hash for Breakpoint {
         if self.active_position.is_some() {
             self.active_position.hash(state);
         } else {
-            self.cache_position.hash(state);
+            self.cached_position.hash(state);
         }
     }
 }
@@ -1446,7 +1446,7 @@ impl Breakpoint {
         let line = self
             .active_position
             .map(|position| buffer.summary_for_anchor::<Point>(&position).row)
-            .unwrap_or(self.cache_position) as u64;
+            .unwrap_or(self.cached_position) as u64;
 
         let log_message = match &self.kind {
             BreakpointKind::Standard => None,
@@ -1466,27 +1466,27 @@ impl Breakpoint {
     pub fn set_active_position(&mut self, buffer: &Buffer) {
         if self.active_position.is_none() {
             self.active_position =
-                Some(buffer.breakpoint_anchor(Point::new(self.cache_position, 0)));
+                Some(buffer.breakpoint_anchor(Point::new(self.cached_position, 0)));
         }
     }
 
     pub fn point_for_buffer(&self, buffer: &Buffer) -> Point {
         self.active_position
             .map(|position| buffer.summary_for_anchor::<Point>(&position))
-            .unwrap_or(Point::new(self.cache_position, 0))
+            .unwrap_or(Point::new(self.cached_position, 0))
     }
 
     pub fn point_for_buffer_snapshot(&self, buffer_snapshot: &BufferSnapshot) -> Point {
         self.active_position
             .map(|position| buffer_snapshot.summary_for_anchor::<Point>(&position))
-            .unwrap_or(Point::new(self.cache_position, 0))
+            .unwrap_or(Point::new(self.cached_position, 0))
     }
 
     pub fn source_for_snapshot(&self, snapshot: &BufferSnapshot) -> SourceBreakpoint {
         let line = self
             .active_position
             .map(|position| snapshot.summary_for_anchor::<Point>(&position).row)
-            .unwrap_or(self.cache_position) as u64;
+            .unwrap_or(self.cached_position) as u64;
 
         let log_message = match &self.kind {
             BreakpointKind::Standard => None,
@@ -1509,12 +1509,12 @@ impl Breakpoint {
                 position: self
                     .active_position
                     .map(|position| buffer.summary_for_anchor::<Point>(&position).row)
-                    .unwrap_or(self.cache_position),
+                    .unwrap_or(self.cached_position),
                 path,
                 kind: self.kind.clone(),
             },
             None => SerializedBreakpoint {
-                position: self.cache_position,
+                position: self.cached_position,
                 path,
                 kind: self.kind.clone(),
             },
@@ -1523,7 +1523,12 @@ impl Breakpoint {
 
     pub fn to_proto(&self) -> Option<client::proto::Breakpoint> {
         Some(client::proto::Breakpoint {
-            position: Some(serialize_text_anchor(&self.active_position?)),
+            position: if let Some(position) = &self.active_position {
+                Some(serialize_text_anchor(position))
+            } else {
+                None
+            },
+            cached_position: self.cached_position,
             kind: match self.kind {
                 BreakpointKind::Standard => proto::BreakpointKind::Standard.into(),
                 BreakpointKind::Log(_) => proto::BreakpointKind::Log.into(),
@@ -1538,8 +1543,12 @@ impl Breakpoint {
 
     pub fn from_proto(breakpoint: client::proto::Breakpoint) -> Option<Self> {
         Some(Self {
-            active_position: deserialize_anchor(breakpoint.position.clone()?),
-            cache_position: 0,
+            active_position: if let Some(position) = breakpoint.position.clone() {
+                deserialize_anchor(position)
+            } else {
+                None
+            },
+            cached_position: breakpoint.cached_position,
             kind: match proto::BreakpointKind::from_i32(breakpoint.kind) {
                 Some(proto::BreakpointKind::Log) => {
                     BreakpointKind::Log(breakpoint.message.clone().unwrap_or_default().into())
