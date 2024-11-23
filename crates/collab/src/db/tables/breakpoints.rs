@@ -10,9 +10,22 @@ pub struct Model {
     pub id: i64,
     pub worktree_id: i64,
     pub path: String,
-    pub kind: i64,
+    pub kind: BreakpointKind,
     pub log_message: Option<String>,
     pub position: u64,
+}
+
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum, Default, Hash, serde::Serialize,
+)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::None)")]
+#[serde(rename_all = "snake_case")]
+pub enum BreakpointKind {
+    #[default]
+    #[sea_orm(string_value = "standard")]
+    Standard,
+    #[sea_orm(string_value = "log")]
+    Log,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

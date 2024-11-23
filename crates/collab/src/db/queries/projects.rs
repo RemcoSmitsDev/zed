@@ -737,7 +737,12 @@ impl Database {
                 .insert(proto::Breakpoint {
                     position: None,
                     cached_position: breakpoint.position as u32,
-                    kind: breakpoint.kind as i32,
+                    kind: match breakpoint.kind {
+                        breakpoints::BreakpointKind::Standard => {
+                            proto::BreakpointKind::Standard.into()
+                        }
+                        breakpoints::BreakpointKind::Log => proto::BreakpointKind::Log.into(),
+                    },
                     message: breakpoint.log_message.clone(),
                 });
         }
