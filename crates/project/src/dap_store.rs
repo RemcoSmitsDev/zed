@@ -1354,10 +1354,6 @@ impl DapStore {
 
     pub fn unshared(&mut self, cx: &mut ModelContext<Self>) {
         self.downstream_client.take();
-        self.breakpoints.clear();
-        self.capabilities.clear();
-        self.ignore_breakpoints.clear();
-        self.active_debug_line.take();
 
         cx.notify();
     }
