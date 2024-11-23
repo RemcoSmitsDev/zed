@@ -1,5 +1,5 @@
 use anyhow::Context as _;
-use std::collections::{HashMap, HashSet};
+use collections::{HashMap, HashSet};
 use util::ResultExt;
 
 use super::*;
