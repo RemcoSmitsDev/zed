@@ -479,10 +479,10 @@ impl Database {
 
     pub async fn update_breakpoints(
         &self,
-        project_id: ProjectId,
         connection_id: ConnectionId,
         update: &proto::SynchronizeBreakpoints,
     ) -> Result<TransactionGuard<HashSet<ConnectionId>>> {
+        let project_id = ProjectId::from_proto(update.project_id);
         self.project_transaction(project_id, |tx| async move {
             let project_path = update
                 .project_path
@@ -525,11 +525,8 @@ impl Database {
                 .await?;
             }
 
-            let ids = self
-                .internal_project_connection_ids(project_id, connection_id, true, &tx)
-                .await?;
-
-            Ok(ids)
+            self.internal_project_connection_ids(project_id, connection_id, true, &tx)
+                .await
         })
         .await
     }
