@@ -407,9 +407,7 @@ impl Server {
                     )
                 }
             })
-            .add_message_handler(
-                broadcast_project_message_from_host::<proto::SynchronizeBreakpoints>,
-            );
+            .add_message_handler(update_breakpoints);
 
         Arc::new(server)
     }
@@ -2075,6 +2073,29 @@ async fn update_language_server(
     broadcast(
         Some(session.connection_id),
         project_connection_ids.iter().copied(),
+        |connection_id| {
+            session
+                .peer
+                .forward_send(session.connection_id, connection_id, request.clone())
+        },
+    );
+    Ok(())
+}
+
+/// Notify other participants that breakpoints have changed.
+async fn update_breakpoints(
+    request: proto::SynchronizeBreakpoints,
+    session: Session,
+) -> Result<()> {
+    let guest_connection_ids = session
+        .db()
+        .await
+        .update_breakpoints(&request, session.connection_id)
+        .await?;
+
+    broadcast(
+        Some(session.connection_id),
+        guest_connection_ids.iter().copied(),
         |connection_id| {
             session
                 .peer

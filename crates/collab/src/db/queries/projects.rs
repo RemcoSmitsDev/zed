@@ -477,6 +477,63 @@ impl Database {
         .await
     }
 
+    pub async fn update_breakpoints(
+        &self,
+        update: &proto::SynchronizeBreakpoints,
+        connection: ConnectionId,
+    ) -> Result<TransactionGuard<Vec<ConnectionId>>> {
+        let project_id = ProjectId::from_proto(update.project_id);
+        self.project_transaction(project_id, |tx| async move {
+            // Ensure the update comes from the host.
+            let project = project::Entity::find_by_id(project_id)
+                .one(&*tx)
+                .await?
+                .ok_or_else(|| anyhow!("no such project"))?;
+
+            if project.host_connection()? != connection {
+                return Err(anyhow!("can't update a project hosted by someone else"))?;
+            }
+
+            let project_path = update
+                .project_path
+                .as_ref()
+                .ok_or_else(|| anyhow!("invalid project path"))?;
+
+            // remove all existing breakpoints
+            breakpoints::Entity::delete_many()
+                .filter(breakpoints::Column::ProjectId.eq(project.id))
+                .exec(&*tx)
+                .await?;
+
+            if !update.breakpoints.is_empty() {
+                breakpoints::Entity::insert_many(update.breakpoints.iter().map(|breakpoint| {
+                    breakpoints::ActiveModel {
+                        id: ActiveValue::NotSet,
+                        project_id: ActiveValue::Set(project_id),
+                        worktree_id: ActiveValue::Set(project_path.worktree_id as i64),
+                        path: ActiveValue::Set(project_path.path.clone()),
+                        kind: match proto::BreakpointKind::from_i32(breakpoint.kind) {
+                            Some(proto::BreakpointKind::Log) => {
+                                ActiveValue::Set(breakpoints::BreakpointKind::Log)
+                            }
+                            Some(proto::BreakpointKind::Standard) => {
+                                ActiveValue::Set(breakpoints::BreakpointKind::Standard)
+                            }
+                            None => ActiveValue::Set(breakpoints::BreakpointKind::Standard),
+                        },
+                        log_message: ActiveValue::Set(breakpoint.message.clone()),
+                        position: ActiveValue::Set(breakpoint.cached_position as u64),
+                    }
+                }))
+                .exec(&*tx)
+                .await?;
+            }
+
+            self.project_guest_connection_ids(project_id, &tx).await
+        })
+        .await
+    }
+
     /// Updates the worktree settings for the given connection.
     pub async fn update_worktree_settings(
         &self,
