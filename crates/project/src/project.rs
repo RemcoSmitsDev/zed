@@ -1924,6 +1924,9 @@ impl Project {
         self.lsp_store.update(cx, |lsp_store, _| {
             lsp_store.set_language_server_statuses_from_proto(message.language_servers)
         });
+        self.dap_store.update(cx, |dap_store, cx| {
+            dap_store.set_breakpoints_from_proto(message.breakpoints, cx);
+        });
         self.enqueue_buffer_ordered_message(BufferOrderedMessage::Resync)
             .unwrap();
         cx.emit(Event::Rejoined);

@@ -5,14 +5,14 @@ use sea_orm::entity::prelude::*;
 #[sea_orm(table_name = "breakpoints")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub project_id: ProjectId,
+    pub id: i32,
     #[sea_orm(primary_key)]
-    pub id: i64,
+    pub project_id: ProjectId,
     pub worktree_id: i64,
     pub path: String,
     pub kind: BreakpointKind,
     pub log_message: Option<String>,
-    pub position: u64,
+    pub position: i32,
 }
 
 #[derive(

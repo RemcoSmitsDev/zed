@@ -479,25 +479,21 @@ impl Database {
 
     pub async fn update_breakpoints(
         &self,
+        project_id: ProjectId,
+        connection_id: ConnectionId,
         update: &proto::SynchronizeBreakpoints,
-        connection: ConnectionId,
-    ) -> Result<TransactionGuard<Vec<ConnectionId>>> {
-        let project_id = ProjectId::from_proto(update.project_id);
+    ) -> Result<TransactionGuard<HashSet<ConnectionId>>> {
         self.project_transaction(project_id, |tx| async move {
+            let project_path = update
+                .project_path
+                .as_ref()
+                .ok_or_else(|| anyhow!("invalid project path"))?;
+
             // Ensure the update comes from the host.
             let project = project::Entity::find_by_id(project_id)
                 .one(&*tx)
                 .await?
                 .ok_or_else(|| anyhow!("no such project"))?;
-
-            if project.host_connection()? != connection {
-                return Err(anyhow!("can't update a project hosted by someone else"))?;
-            }
-
-            let project_path = update
-                .project_path
-                .as_ref()
-                .ok_or_else(|| anyhow!("invalid project path"))?;
 
             // remove all existing breakpoints
             breakpoints::Entity::delete_many()
@@ -522,14 +518,18 @@ impl Database {
                             None => ActiveValue::Set(breakpoints::BreakpointKind::Standard),
                         },
                         log_message: ActiveValue::Set(breakpoint.message.clone()),
-                        position: ActiveValue::Set(breakpoint.cached_position as u64),
+                        position: ActiveValue::Set(breakpoint.cached_position as i32),
                     }
                 }))
-                .exec(&*tx)
+                .exec_without_returning(&*tx)
                 .await?;
             }
 
-            self.project_guest_connection_ids(project_id, &tx).await
+            let ids = self
+                .internal_project_connection_ids(project_id, connection_id, true, &tx)
+                .await?;
+
+            Ok(ids)
         })
         .await
     }
@@ -1059,39 +1059,50 @@ impl Database {
         exclude_dev_server: bool,
     ) -> Result<TransactionGuard<HashSet<ConnectionId>>> {
         self.project_transaction(project_id, |tx| async move {
-            let project = project::Entity::find_by_id(project_id)
-                .one(&*tx)
-                .await?
-                .ok_or_else(|| anyhow!("no such project"))?;
-
-            let mut collaborators = project_collaborator::Entity::find()
-                .filter(project_collaborator::Column::ProjectId.eq(project_id))
-                .stream(&*tx)
-                .await?;
-
-            let mut connection_ids = HashSet::default();
-            if let Some(host_connection) = project.host_connection().log_err() {
-                if !exclude_dev_server {
-                    connection_ids.insert(host_connection);
-                }
-            }
-
-            while let Some(collaborator) = collaborators.next().await {
-                let collaborator = collaborator?;
-                connection_ids.insert(collaborator.connection());
-            }
-
-            if connection_ids.contains(&connection_id)
-                || Some(connection_id) == project.host_connection().ok()
-            {
-                Ok(connection_ids)
-            } else {
-                Err(anyhow!(
-                    "can only send project updates to a project you're in"
-                ))?
-            }
+            self.internal_project_connection_ids(project_id, connection_id, exclude_dev_server, &tx)
+                .await
         })
         .await
+    }
+
+    async fn internal_project_connection_ids(
+        &self,
+        project_id: ProjectId,
+        connection_id: ConnectionId,
+        exclude_dev_server: bool,
+        tx: &DatabaseTransaction,
+    ) -> Result<HashSet<ConnectionId>> {
+        let project = project::Entity::find_by_id(project_id)
+            .one(&*tx)
+            .await?
+            .ok_or_else(|| anyhow!("no such project"))?;
+
+        let mut collaborators = project_collaborator::Entity::find()
+            .filter(project_collaborator::Column::ProjectId.eq(project_id))
+            .stream(&*tx)
+            .await?;
+
+        let mut connection_ids = HashSet::default();
+        if let Some(host_connection) = project.host_connection().log_err() {
+            if !exclude_dev_server {
+                connection_ids.insert(host_connection);
+            }
+        }
+
+        while let Some(collaborator) = collaborators.next().await {
+            let collaborator = collaborator?;
+            connection_ids.insert(collaborator.connection());
+        }
+
+        if connection_ids.contains(&connection_id)
+            || Some(connection_id) == project.host_connection().ok()
+        {
+            Ok(connection_ids)
+        } else {
+            Err(anyhow!(
+                "can only send project updates to a project you're in"
+            ))?
+        }
     }
 
     async fn project_guest_connection_ids(

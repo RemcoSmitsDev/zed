@@ -1174,6 +1174,31 @@ impl DapStore {
         })
     }
 
+    pub fn set_breakpoints_from_proto(
+        &mut self,
+        breakpoints: Vec<proto::SynchronizeBreakpoints>,
+        cx: &mut ModelContext<Self>,
+    ) {
+        self.breakpoints.clear();
+
+        for project_breakpoints in breakpoints {
+            let Some(project_path) = project_breakpoints.project_path else {
+                continue;
+            };
+
+            self.breakpoints.insert(
+                ProjectPath::from_proto(project_path),
+                project_breakpoints
+                    .breakpoints
+                    .into_iter()
+                    .filter_map(Breakpoint::from_proto)
+                    .collect::<HashSet<_>>(),
+            );
+        }
+
+        cx.notify();
+    }
+
     async fn handle_synchronize_breakpoints(
         this: Model<Self>,
         envelope: TypedEnvelope<proto::SynchronizeBreakpoints>,

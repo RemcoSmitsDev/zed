@@ -2087,10 +2087,11 @@ async fn update_breakpoints(
     request: proto::SynchronizeBreakpoints,
     session: Session,
 ) -> Result<()> {
+    let project_id = ProjectId::from_proto(request.project_id);
     let guest_connection_ids = session
         .db()
         .await
-        .update_breakpoints(&request, session.connection_id)
+        .update_breakpoints(project_id, session.connection_id, &request)
         .await?;
 
     broadcast(
