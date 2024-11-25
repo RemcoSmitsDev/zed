@@ -552,6 +552,7 @@ message JoinProjectResponse {
     repeated LanguageServer language_servers = 4;
     ChannelRole role = 6;
     reserved 7;
+    repeated SynchronizeBreakpoints breakpoints = 8;
 }
 
 message LeaveProject {

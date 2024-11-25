@@ -1842,6 +1842,18 @@ fn join_project_internal(
             .trace_err();
     }
 
+    let breakpoints = project
+        .breakpoints
+        .iter()
+        .map(
+            |(project_path, breakpoint_set)| proto::SynchronizeBreakpoints {
+                project_id: project.id.0 as u64,
+                breakpoints: breakpoint_set.iter().map(|bp| bp.clone()).collect(),
+                project_path: Some(project_path.clone()),
+            },
+        )
+        .collect();
+
     // First, we send the metadata associated with each worktree.
     response.send(proto::JoinProjectResponse {
         project_id: project.id.0 as u64,
@@ -1850,6 +1862,7 @@ fn join_project_internal(
         collaborators: collaborators.clone(),
         language_servers: project.language_servers.clone(),
         role: project.role.into(),
+        breakpoints,
     })?;
 
     for (worktree_id, worktree) in mem::take(&mut project.worktrees) {
