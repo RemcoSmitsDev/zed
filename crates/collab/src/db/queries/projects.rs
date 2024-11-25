@@ -1070,13 +1070,13 @@ impl Database {
         tx: &DatabaseTransaction,
     ) -> Result<HashSet<ConnectionId>> {
         let project = project::Entity::find_by_id(project_id)
-            .one(&*tx)
+            .one(tx)
             .await?
             .ok_or_else(|| anyhow!("no such project"))?;
 
         let mut collaborators = project_collaborator::Entity::find()
             .filter(project_collaborator::Column::ProjectId.eq(project_id))
-            .stream(&*tx)
+            .stream(tx)
             .await?;
 
         let mut connection_ids = HashSet::default();
