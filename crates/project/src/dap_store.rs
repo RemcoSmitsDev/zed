@@ -145,24 +145,8 @@ impl DapStore {
     pub fn new_remote(
         project_id: u64,
         upstream_client: AnyProtoClient,
-        breakpoints: Option<Vec<proto::SynchronizeBreakpoints>>,
         _: &mut ModelContext<Self>,
     ) -> Self {
-        let breakpoints = match breakpoints {
-            Some(breakpoints) => breakpoints
-                .into_iter()
-                .filter_map(|sync_bp| {
-                    let set = sync_bp
-                        .breakpoints
-                        .into_iter()
-                        .filter_map(Breakpoint::from_proto)
-                        .collect();
-                    Some((ProjectPath::from_proto(sync_bp.project_path?), set))
-                })
-                .collect(),
-            None => Default::default(),
-        };
-
         Self {
             mode: DapStoreMode::Remote(RemoteDapStore {
                 upstream_client: Some(upstream_client),
@@ -171,7 +155,7 @@ impl DapStore {
             downstream_client: None,
             active_debug_line: None,
             clients: HashMap::default(),
-            breakpoints,
+            breakpoints: Default::default(),
             capabilities: HashMap::default(),
             next_client_id: Default::default(),
             ignore_breakpoints: Default::default(),
