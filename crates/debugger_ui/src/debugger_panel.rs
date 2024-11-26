@@ -1,6 +1,7 @@
 use crate::{attach_modal::AttachModal, debugger_panel_item::DebugPanelItem};
 
 use anyhow::Result;
+use client::proto;
 use collections::{BTreeMap, HashMap};
 use command_palette_hooks::CommandPaletteFilter;
 use dap::{
@@ -54,6 +55,26 @@ pub struct ThreadState {
     // we update this value only once we stopped,
     // we will use this to indicated if we should show a warning when debugger thread was exited
     pub stopped: bool,
+}
+
+impl ThreadState {
+    pub fn from_proto(thread_state: proto::DebuggerThreadState) -> Self {
+        let status = ThreadStatus::from_proto(thread_state.thread_status());
+
+        Self {
+            status,
+            stopped: thread_state.stopped,
+        }
+    }
+
+    pub fn to_proto(self) -> proto::DebuggerThreadState {
+        let status = self.status.to_proto();
+
+        proto::DebuggerThreadState {
+            thread_status: status,
+            stopped: self.stopped,
+        }
+    }
 }
 
 pub struct DebugPanel {

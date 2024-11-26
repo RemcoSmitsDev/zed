@@ -3,6 +3,7 @@ use crate::{
     transport::{IoKind, LogKind, TransportDelegate},
 };
 use anyhow::{anyhow, Result};
+use client::proto;
 use dap_types::{
     messages::{Message, Response},
     requests::Request,
@@ -29,6 +30,26 @@ pub enum ThreadStatus {
     Stopped,
     Exited,
     Ended,
+}
+
+impl ThreadStatus {
+    pub fn from_proto(status: proto::DebuggerThreadStatus) -> Self {
+        match status {
+            proto::DebuggerThreadStatus::Running => Self::Running,
+            proto::DebuggerThreadStatus::Stopped => Self::Stopped,
+            proto::DebuggerThreadStatus::Exited => Self::Exited,
+            proto::DebuggerThreadStatus::Ended => Self::Ended,
+        }
+    }
+
+    pub fn to_proto(self) -> i32 {
+        match self {
+            Self::Running => 0,
+            Self::Stopped => 1,
+            Self::Exited => 2,
+            Self::Ended => 3,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

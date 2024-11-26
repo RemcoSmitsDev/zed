@@ -1738,8 +1738,28 @@ message View {
 
     message DebugPanel {
         string context_id = 1;
+        uint64 client_id = 2;
+        // DebuggerModuleList module_list = 3;
+        DebuggerThreadState thread_state = 4;
     }
 }
+
+
+message DebuggerThreadState {
+    DebuggerThreadStatus thread_status = 1;
+    bool stopped = 2;
+}
+
+enum DebuggerThreadStatus {
+    Running = 0;
+    Stopped = 1;
+    Exited = 2;
+    Ended = 3;
+}
+
+// message DebuggerModuleList {
+//     repeated Module modules = 1;
+// }
 
 message Collaborator {
     PeerId peer_id = 1;
