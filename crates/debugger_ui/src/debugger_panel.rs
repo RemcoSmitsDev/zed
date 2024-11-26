@@ -1,13 +1,13 @@
-use crate::attach_modal::AttachModal;
-use crate::debugger_panel_item::DebugPanelItem;
+use crate::{attach_modal::AttachModal, debugger_panel_item::DebugPanelItem};
+
 use anyhow::Result;
 use collections::{BTreeMap, HashMap};
 use command_palette_hooks::CommandPaletteFilter;
-use dap::client::{DebugAdapterClientId, ThreadStatus};
-use dap::debugger_settings::DebuggerSettings;
-use dap::messages::{Events, Message};
-use dap::requests::{Request, RunInTerminal, StartDebugging};
 use dap::{
+    client::{DebugAdapterClientId, ThreadStatus},
+    debugger_settings::DebuggerSettings,
+    messages::{Events, Message},
+    requests::{Request, RunInTerminal, StartDebugging},
     Capabilities, CapabilitiesEvent, ContinuedEvent, ExitedEvent, LoadedSourceEvent, ModuleEvent,
     OutputEvent, RunInTerminalRequestArguments, StoppedEvent, TerminatedEvent, ThreadEvent,
     ThreadEventReason,
@@ -16,24 +16,17 @@ use gpui::{
     actions, Action, AppContext, AsyncWindowContext, EventEmitter, FocusHandle, FocusableView,
     FontWeight, Model, Subscription, Task, View, ViewContext, WeakView,
 };
-use project::dap_store::DapStore;
-use project::terminals::TerminalKind;
+use project::{dap_store::DapStore, terminals::TerminalKind};
 use serde_json::Value;
 use settings::Settings;
-use std::any::TypeId;
-use std::collections::VecDeque;
-use std::path::PathBuf;
-use std::u64;
+use std::{any::TypeId, collections::VecDeque, path::PathBuf, u64};
 use task::DebugRequestType;
 use terminal_view::terminal_panel::TerminalPanel;
 use ui::prelude::*;
 use workspace::{
     dock::{DockPosition, Panel, PanelEvent},
-    Workspace,
-};
-use workspace::{
     pane, Continue, Disconnect, Pane, Pause, Restart, Start, StepInto, StepOut, StepOver, Stop,
-    ToggleIgnoreBreakpoints,
+    ToggleIgnoreBreakpoints, Workspace,
 };
 
 pub enum DebugPanelEvent {

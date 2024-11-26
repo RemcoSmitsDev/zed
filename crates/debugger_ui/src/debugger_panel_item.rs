@@ -5,9 +5,10 @@ use crate::module_list::ModuleList;
 use crate::stack_frame_list::{StackFrameList, StackFrameListEvent};
 use crate::variable_list::VariableList;
 
-use dap::client::{DebugAdapterClientId, ThreadStatus};
-use dap::debugger_settings::DebuggerSettings;
+use client::proto::{self, PeerId};
 use dap::{
+    client::{DebugAdapterClientId, ThreadStatus},
+    debugger_settings::DebuggerSettings,
     Capabilities, ContinuedEvent, LoadedSourceEvent, ModuleEvent, OutputEvent, OutputEventCategory,
     StoppedEvent, ThreadEvent,
 };
@@ -19,10 +20,11 @@ use gpui::{
 use project::dap_store::DapStore;
 use settings::Settings;
 use task::DebugAdapterKind;
-use ui::{prelude::*, Tooltip};
-use ui::{Indicator, WindowContext};
-use workspace::item::{Item, ItemEvent};
-use workspace::{ItemHandle, Workspace};
+use ui::{prelude::*, Indicator, Tooltip, WindowContext};
+use workspace::{
+    item::{Item, ItemEvent},
+    FollowableItem, ItemHandle, ViewId, Workspace,
+};
 
 #[derive(Debug)]
 pub enum DebugPanelItemEvent {
@@ -41,6 +43,7 @@ enum ThreadItem {
 
 pub struct DebugPanelItem {
     thread_id: u64,
+    remote_id: Option<ViewId>,
     console: View<Console>,
     show_console_indicator: bool,
     focus_handle: FocusHandle,
@@ -159,6 +162,7 @@ impl DebugPanelItem {
             console,
             show_console_indicator: false,
             thread_id,
+            remote_id: None,
             dap_store,
             workspace,
             module_list,
@@ -561,6 +565,59 @@ impl Item for DebugPanelItem {
             DebugPanelItemEvent::Close => f(ItemEvent::CloseItem),
             DebugPanelItemEvent::Stopped { .. } => {}
         }
+    }
+}
+
+impl FollowableItem for DebugPanelItem {
+    fn remote_id(&self) -> Option<workspace::ViewId> {
+        self.remote_id
+    }
+
+    fn to_state_proto(&self, _cx: &WindowContext) -> Option<proto::view::Variant> {
+        todo!()
+    }
+
+    fn from_state_proto(
+        _project: View<Workspace>,
+        _id: ViewId,
+        _state: &mut Option<proto::view::Variant>,
+        _cx: &mut WindowContext,
+    ) -> Option<gpui::Task<gpui::Result<View<Self>>>> {
+        todo!()
+    }
+
+    fn add_event_to_update_proto(
+        &self,
+        _event: &Self::Event,
+        _update: &mut Option<proto::update_view::Variant>,
+        _cx: &WindowContext,
+    ) -> bool {
+        todo!()
+    }
+
+    fn apply_update_proto(
+        &mut self,
+        _project: &Model<project::Project>,
+        _message: proto::update_view::Variant,
+        _cx: &mut ViewContext<Self>,
+    ) -> gpui::Task<gpui::Result<()>> {
+        todo!()
+    }
+
+    fn set_leader_peer_id(&mut self, _leader_peer_id: Option<PeerId>, _cx: &mut ViewContext<Self>) {
+        todo!()
+    }
+
+    fn to_follow_event(_event: &Self::Event) -> Option<workspace::item::FollowEvent> {
+        todo!()
+    }
+
+    fn dedup(&self, _existing: &Self, _cx: &WindowContext) -> Option<workspace::item::Dedup> {
+        todo!()
+    }
+
+    fn is_project_item(&self, _cx: &WindowContext) -> bool {
+        true
     }
 }
 
