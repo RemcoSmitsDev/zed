@@ -3,7 +3,6 @@ use std::path::Path;
 use anyhow::{anyhow, Result};
 use dap::client::DebugAdapterClientId;
 use dap::StackFrame;
-use editor::Editor;
 use gpui::{
     list, AnyElement, EventEmitter, FocusHandle, ListState, Subscription, Task, View, WeakView,
 };
