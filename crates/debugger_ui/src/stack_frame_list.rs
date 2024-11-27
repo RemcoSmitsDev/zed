@@ -155,11 +155,11 @@ impl StackFrameList {
             let client_id = self.client_id;
             let workspace = self.workspace.clone();
             move |this, mut cx| async move {
-                let task = workspace.update(&mut cx, |workspace, cx| {
-                    workspace.open_path_preview(project_path.clone(), None, false, true, cx)
-                })?;
-
-                let _editor = task.await?.downcast::<Editor>().unwrap();
+                workspace
+                    .update(&mut cx, |workspace, cx| {
+                        workspace.open_path_preview(project_path.clone(), None, false, true, cx)
+                    })?
+                    .await?;
 
                 this.update(&mut cx, |this, cx| {
                     this.dap_store.update(cx, |store, cx| {
