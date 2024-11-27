@@ -159,16 +159,12 @@ impl StackFrameList {
                     workspace.open_path_preview(project_path.clone(), None, false, true, cx)
                 })?;
 
-                let editor = task.await?.downcast::<Editor>().unwrap();
+                let _editor = task.await?.downcast::<Editor>().unwrap();
 
                 this.update(&mut cx, |this, cx| {
                     this.dap_store.update(cx, |store, cx| {
                         store.set_active_debug_line(&client_id, &project_path, row, cx);
                     })
-                })?;
-
-                workspace.update(&mut cx, |_, cx| {
-                    editor.update(cx, |editor, cx| editor.go_to_active_debug_line(cx))
                 })
             }
         })
