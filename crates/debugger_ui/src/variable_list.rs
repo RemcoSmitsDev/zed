@@ -100,21 +100,24 @@ impl ScopeVariableIndex {
     }
 }
 
+type StackFrameId = u64;
+type ScopeId = u64;
+
 pub struct VariableList {
     list: ListState,
     focus_handle: FocusHandle,
     dap_store: Model<DapStore>,
     open_entries: Vec<OpenEntry>,
     client_id: DebugAdapterClientId,
-    scopes: HashMap<u64, Vec<Scope>>,
+    scopes: HashMap<StackFrameId, Vec<Scope>>,
     set_variable_editor: View<Editor>,
     _subscriptions: Vec<Subscription>,
     stack_frame_list: View<StackFrameList>,
     set_variable_state: Option<SetVariableState>,
-    entries: HashMap<u64, Vec<VariableListEntry>>,
+    entries: HashMap<StackFrameId, Vec<VariableListEntry>>,
     fetch_variables_task: Option<Task<Result<()>>>,
     // (stack_frame_id, scope_id) -> VariableIndex
-    variables: BTreeMap<(u64, u64), ScopeVariableIndex>,
+    variables: BTreeMap<(StackFrameId, ScopeId), ScopeVariableIndex>,
     open_context_menu: Option<(View<ContextMenu>, Point<Pixels>, Subscription)>,
 }
 
