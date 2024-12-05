@@ -14,15 +14,13 @@ use dap::{
 };
 use editor::Editor;
 use gpui::{
-    AnyElement, AppContext, EventEmitter, FocusHandle, FocusableView, Model, Subscription, View,
-    WeakView,
+    AnyElement, AppContext, EventEmitter, FocusHandle, FocusableView, Model, Subscription, Task,
+    View, WeakView,
 };
 use project::dap_store::DapStore;
-use rpc::proto::SetDebuggerPanelItem;
 use settings::Settings;
-use std::sync::Arc;
-use task::DebugAdapterKind;
 use ui::{prelude::*, Indicator, Tooltip, WindowContext};
+use workspace::item;
 use workspace::{
     item::{Item, ItemEvent},
     FollowableItem, ItemHandle, ViewId, Workspace,
@@ -41,6 +39,28 @@ enum ThreadItem {
     Modules,
     Output,
     Variables,
+}
+
+impl ThreadItem {
+    fn to_proto(&self) -> proto::DebuggerThreadItem {
+        match self {
+            ThreadItem::Console => proto::DebuggerThreadItem::Console,
+            ThreadItem::LoadedSource => proto::DebuggerThreadItem::LoadedSource,
+            ThreadItem::Modules => proto::DebuggerThreadItem::Modules,
+            ThreadItem::Output => proto::DebuggerThreadItem::Output,
+            ThreadItem::Variables => proto::DebuggerThreadItem::Variables,
+        }
+    }
+
+    fn from_proto(active_thread_item: proto::DebuggerThreadItem) -> Self {
+        match active_thread_item {
+            proto::DebuggerThreadItem::Console => ThreadItem::Console,
+            proto::DebuggerThreadItem::LoadedSource => ThreadItem::LoadedSource,
+            proto::DebuggerThreadItem::Modules => ThreadItem::Modules,
+            proto::DebuggerThreadItem::Output => ThreadItem::Output,
+            proto::DebuggerThreadItem::Variables => ThreadItem::Variables,
+        }
+    }
 }
 
 pub struct DebugPanelItem {
@@ -579,23 +599,38 @@ impl FollowableItem for DebugPanelItem {
     }
 
     fn to_state_proto(&self, _cx: &WindowContext) -> Option<proto::view::Variant> {
-        todo!()
+        dbg!("Into to state proto");
+        Some(proto::view::Variant::DebugPanel(proto::view::DebugPanel {
+            project_id: 1,
+            client_id: self.client_id.to_proto(),
+            thread_id: self.thread_id,
+            console: None,
+            modules: Default::default(),
+            active_thread_item: self.active_thread_item.to_proto().into(),
+            thread_state: None,
+            variable_list: None,
+        }))
     }
 
     fn from_state_proto(
         workspace: View<Workspace>,
-        id: ViewId,
+        remote_id: ViewId,
         state: &mut Option<proto::view::Variant>,
         cx: &mut WindowContext,
     ) -> Option<gpui::Task<gpui::Result<View<Self>>>> {
+        dbg!("In from state proto 3pm ish");
         let proto::view::Variant::DebugPanel(_) = state.as_ref()? else {
+            dbg!(state.as_ref());
+            dbg!("In from state proto NONE case");
             return None;
         };
         let Some(proto::view::Variant::DebugPanel(state)) = state.take() else {
             unreachable!()
         };
 
-        let (project, debug_panel) = workspace.update(cx, |workspace, cx| {
+        dbg!("from state proto with debug panel");
+
+        let (_project, debug_panel) = workspace.update(cx, |workspace, cx| {
             Some((
                 workspace.project().clone(),
                 workspace.panel::<DebugPanel>(cx)?,
@@ -610,13 +645,11 @@ impl FollowableItem for DebugPanelItem {
             )
         });
 
-        // Some(cx.spawn(|this, mut cx| async move {
-        //     this.update(&mut cx, |this, cx| {
-        //         // this.thread_list.from_proto();
-        //         // this.variable_list.from_proto();
-        //     })
-        // }))
-        todo!()
+        debug_panel_item.update(cx, |debug_panel_item, _| {
+            debug_panel_item.remote_id = Some(remote_id);
+        });
+
+        Some(Task::ready(Ok(debug_panel_item)))
     }
 
     fn add_event_to_update_proto(
@@ -634,19 +667,27 @@ impl FollowableItem for DebugPanelItem {
         _message: proto::update_view::Variant,
         _cx: &mut ViewContext<Self>,
     ) -> gpui::Task<gpui::Result<()>> {
-        todo!()
+        dbg!("apply update from proto");
+
+        Task::ready(Ok(()))
     }
 
     fn set_leader_peer_id(&mut self, _leader_peer_id: Option<PeerId>, _cx: &mut ViewContext<Self>) {
-        todo!()
+        dbg!("set leader peer id");
     }
 
     fn to_follow_event(_event: &Self::Event) -> Option<workspace::item::FollowEvent> {
-        todo!()
+        dbg!("to follow event");
+
+        None
     }
 
-    fn dedup(&self, _existing: &Self, _cx: &WindowContext) -> Option<workspace::item::Dedup> {
-        todo!()
+    fn dedup(&self, existing: &Self, _cx: &WindowContext) -> Option<workspace::item::Dedup> {
+        if existing.client_id == self.client_id && existing.thread_id == self.thread_id {
+            Some(item::Dedup::KeepExisting)
+        } else {
+            None
+        }
     }
 
     fn is_project_item(&self, _cx: &WindowContext) -> bool {

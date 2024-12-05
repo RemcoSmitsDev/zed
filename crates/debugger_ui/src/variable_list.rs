@@ -12,7 +12,7 @@ use gpui::{
 };
 use menu::Confirm;
 use project::dap_store::DapStore;
-use rpc::proto::{self, envelope::Payload, SetDebuggerPanelItem};
+use rpc::proto::{self, SetDebuggerPanelItem};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,

@@ -867,6 +867,10 @@ impl Panel for DebugPanel {
         self.size = size.unwrap();
     }
 
+    fn remote_id() -> Option<proto::PanelId> {
+        Some(proto::PanelId::DebugPanel)
+    }
+
     fn icon(&self, _cx: &WindowContext) -> Option<IconName> {
         Some(IconName::Debug)
     }
