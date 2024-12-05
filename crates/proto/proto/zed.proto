@@ -1760,11 +1760,20 @@ message View {
         repeated VariableListEntries entries = 5;
     }
 
+    message DebuggerConsole {
+        Editor console = 1;
+        Editor query_bar = 2;
+    }
+
     message DebugPanel {
         string context_id = 1;
         uint64 client_id = 2;
-        // DebuggerModuleList module_list = 3;
-        DebuggerThreadState thread_state = 4;
+        DebuggerConsole console = 3;
+        Editor output_editor = 4;
+        repeated DapModule modules = 5;
+        DebuggerThreadItem active_thread_item = 6;
+        DebuggerThreadState thread_state = 7;
+        DebuggerVariableList variable_list = 8;
     }
 }
 
@@ -1833,6 +1842,34 @@ enum DapSourcePresentationHint {
     Emphasize = 2;
     Deemphasize = 3;
     SourceUnknown = 4;
+}
+
+message DapModule {
+    DapModuleId id = 1;
+    string name = 2;
+    optional string path = 3;
+    optional bool is_optimized = 4;
+    optional bool is_user_code = 5;
+    optional string version = 6;
+    optional string symbol_status = 7;
+    optional string symbol_file_path = 8;
+    optional string date_time_stamp = 9;
+    optional string address_range = 10;
+}
+
+message DapModuleId {
+    oneof id {
+        uint32 number = 1;
+        string string = 2;
+    }
+}
+
+enum DebuggerThreadItem {
+    Console = 0;
+    LoadedSource = 1;
+    Modules = 2;
+    Output = 3;
+    Variables = 4;
 }
 
 message DebuggerSetVariableState {
