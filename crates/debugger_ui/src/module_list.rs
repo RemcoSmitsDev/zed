@@ -14,25 +14,28 @@ pub struct ModuleList {
 }
 
 fn modules_from_state(modules: Vec<DapModule>) -> Vec<Module> {
-    modules.into_iter().filter_map(|dap_mod| {
-        let id = match dap_mod.id?.id? {
-            rpc::proto::dap_module_id::Id::String(string) => ModuleId::String(string),
-            rpc::proto::dap_module_id::Id::Number(num) => ModuleId::Number(num),
-        };
+    modules
+        .into_iter()
+        .filter_map(|dap_mod| {
+            let id = match dap_mod.id?.id? {
+                rpc::proto::dap_module_id::Id::String(string) => ModuleId::String(string),
+                rpc::proto::dap_module_id::Id::Number(num) => ModuleId::Number(num),
+            };
 
-        Some(Module {
-            id,
-            name: dap_mod.name,
-            path: dap_mod.path,
-            is_optimized: dap_mod.is_optimized,
-            is_user_code: dap_mod.is_user_code,
-            version: dap_mod.version,
-            symbol_status: dap_mod.symbol_status,
-            symbol_file_path: dap_mod.symbol_file_path,
-            date_time_stamp: dap_mod.date_time_stamp,
-            address_range: dap_mod.address_range,
+            Some(Module {
+                id,
+                name: dap_mod.name,
+                path: dap_mod.path,
+                is_optimized: dap_mod.is_optimized,
+                is_user_code: dap_mod.is_user_code,
+                version: dap_mod.version,
+                symbol_status: dap_mod.symbol_status,
+                symbol_file_path: dap_mod.symbol_file_path,
+                date_time_stamp: dap_mod.date_time_stamp,
+                address_range: dap_mod.address_range,
+            })
         })
-    }).collect()
+        .collect()
 }
 
 impl ModuleList {
@@ -64,34 +67,10 @@ impl ModuleList {
         this
     }
 
-    pub(crate) fn from_proto(
-        dap_store: Model<DapStore>,
-        client_id: &DebugAdapterClientId,
-        modules: Vec<DapModule>,
-        cx: &mut ViewContext<Self>,
-    ) -> Self {
-        let weakview = cx.view().downgrade();
-        let focus_handle = cx.focus_handle();
-
-        let list = ListState::new(
-            modules.len(),
-            gpui::ListAlignment::Top,
-            px(1000.),
-            move |ix, cx| {
-                weakview
-                    .upgrade()
-                    .map(|view| view.update(cx, |this, cx| this.render_entry(ix, cx)))
-                    .unwrap_or(div().into_any())
-            },
-        );
-
-        Self {
-            list,
-            dap_store,
-            focus_handle,
-            client_id: *client_id,
-            modules: modules.into_iter().map(|mod| Mo),
-        }
+    pub(crate) fn set_from_proto(&mut self, modules: Vec<DapModule>, cx: &mut ViewContext<Self>) {
+        self.list.reset(modules.len());
+        self.modules = modules_from_state(modules);
+        cx.notify();
     }
 
     pub fn on_module_event(&mut self, event: &ModuleEvent, cx: &mut ViewContext<Self>) {

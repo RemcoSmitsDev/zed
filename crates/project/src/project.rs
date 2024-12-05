@@ -250,7 +250,6 @@ pub enum Event {
     LanguageNotFound(Model<Buffer>),
     DebugClientStarted(DebugAdapterClientId),
     DebugClientStopped(DebugAdapterClientId),
-    SetDebugClient(SetDebuggerPanelItem),
     ActiveDebugLineChanged,
     DebugClientEvent {
         client_id: DebugAdapterClientId,

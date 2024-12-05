@@ -1740,7 +1740,14 @@ message View {
     }
 
     message DebugPanel {
-
+        uint64 project_id = 1;
+        uint64 client_id = 2;
+        uint64 thread_id = 3;
+        DebuggerConsole console = 4;
+        repeated DapModule modules = 5;
+        DebuggerThreadItem active_thread_item = 6;
+        DebuggerThreadState thread_state = 7;
+        DebuggerVariableList variable_list = 8;
     }
 }
 

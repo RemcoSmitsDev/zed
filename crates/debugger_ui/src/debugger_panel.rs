@@ -14,11 +14,11 @@ use dap::{
     ThreadEventReason,
 };
 use gpui::{
-    actions, Action, AppContext, AsyncAppContext, AsyncWindowContext, EventEmitter, FocusHandle,
-    FocusableView, FontWeight, Model, Subscription, Task, View, ViewContext, WeakView,
+    actions, Action, AppContext, AsyncWindowContext, EventEmitter, FocusHandle, FocusableView,
+    FontWeight, Model, Subscription, Task, View, ViewContext, WeakView,
 };
 use project::{dap_store::DapStore, terminals::TerminalKind};
-use rpc::{AnyProtoClient, TypedEnvelope};
+use rpc::AnyProtoClient;
 use serde_json::Value;
 use settings::Settings;
 use std::{any::TypeId, collections::VecDeque, path::PathBuf, u64};
@@ -154,9 +154,6 @@ impl DebugPanel {
                                 .retain(|&(client_id_, _), _| client_id_ != *client_id);
 
                             cx.notify();
-                        }
-                        project::Event::SetDebugClient(set_debug_client) => {
-                            this.handle_set_debug_panel_item(set_debug_client, cx);
                         }
                         _ => {}
                     }
@@ -551,6 +548,8 @@ impl DebugPanel {
 
         let client_id = *client_id;
 
+        let client_name = SharedString::from(client_kind.display_name().to_string());
+
         cx.spawn({
             let event = event.clone();
             |this, mut cx| async move {
@@ -581,13 +580,13 @@ impl DebugPanel {
                         let debug_panel = cx.view().clone();
                         this.pane.update(cx, |pane, cx| {
                             let tab = cx.new_view(|cx| {
-                                DebugPanelItem::local(
+                                DebugPanelItem::new(
                                     debug_panel,
                                     this.workspace.clone(),
                                     this.dap_store.clone(),
                                     thread_state.clone(),
                                     &client_id,
-                                    &client_kind,
+                                    client_name,
                                     thread_id,
                                     cx,
                                 )
@@ -745,14 +744,12 @@ impl DebugPanel {
         cx.emit(DebugPanelEvent::CapabilitiesChanged(*client_id));
     }
 
-    pub(crate) fn handle_set_debug_panel_item(
-        &mut self,
-        payload: &proto::SetDebuggerPanelItem,
-        cx: &mut ViewContext<Self>,
-    ) -> Result<()> {
-        let client_id = DebugAdapterClientId(payload.client_id as usize);
-        let thread_id = payload.thread_id;
-
+    pub fn open_remote_debug_panel_item(
+        &self,
+        client_id: DebugAdapterClientId,
+        thread_id: u64,
+        cx: &mut ViewContext<DebugPanel>,
+    ) -> View<DebugPanelItem> {
         let existing_item = self.pane.read(cx).items().find_map(|item| {
             let item = item.downcast::<DebugPanelItem>()?;
             let item_ref = item.read(cx);
@@ -764,28 +761,30 @@ impl DebugPanel {
             }
         });
 
-        match existing_item {
-            // Some(item) => item.handle_set_debug_panel(payload),
-            Some(_) => {}
-            None => {
-                if !existing_item.is_none() {
-                    self.pane.update(cx, |pane, cx| {
-                        let tab = cx.new_view(|cx| {
-                            DebugPanelItem::remote(
-                                self.workspace.clone(),
-                                self.dap_store.clone(),
-                                payload,
-                                cx,
-                            )
-                        });
-
-                        pane.add_item(Box::new(tab), true, true, None, cx);
-                    });
-                }
-            }
+        if let Some(existing_item) = existing_item {
+            return existing_item;
         }
 
-        Ok(())
+        let debug_panel = cx.view().clone();
+
+        let debug_panel_item = cx.new_view(|cx| {
+            DebugPanelItem::new(
+                debug_panel,
+                self.workspace.clone(),
+                self.dap_store.clone(),
+                cx.new_model(|_| Default::default()), // change this
+                &client_id,
+                SharedString::from("test"), // change this
+                thread_id,
+                cx,
+            )
+        });
+
+        self.pane.update(cx, |pane, cx| {
+            pane.add_item(Box::new(debug_panel_item.clone()), true, true, None, cx);
+        });
+
+        debug_panel_item
     }
 
     fn render_did_not_stop_warning(&self, cx: &mut ViewContext<Self>) -> impl IntoElement {

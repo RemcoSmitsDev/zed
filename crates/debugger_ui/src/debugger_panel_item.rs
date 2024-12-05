@@ -43,20 +43,6 @@ enum ThreadItem {
     Variables,
 }
 
-#[allow(clippy::large_enum_variant)]
-enum DebugPanelItemMode {
-    Local(LocalDebugPanelItem),   // ssh host and collab host
-    Remote(RemoteDebugPanelItem), // collab guest
-}
-
-struct LocalDebugPanelItem {
-    client_kind: DebugAdapterKind,
-}
-
-struct RemoteDebugPanelItem {
-    client_name: Arc<str>,
-}
-
 pub struct DebugPanelItem {
     thread_id: u64,
     remote_id: Option<ViewId>,
@@ -66,7 +52,7 @@ pub struct DebugPanelItem {
     dap_store: Model<DapStore>,
     output_editor: View<Editor>,
     module_list: View<ModuleList>,
-    mode: DebugPanelItemMode,
+    client_name: SharedString,
     active_thread_item: ThreadItem,
     workspace: WeakView<Workspace>,
     client_id: DebugAdapterClientId,
@@ -79,13 +65,13 @@ pub struct DebugPanelItem {
 
 impl DebugPanelItem {
     #[allow(clippy::too_many_arguments)]
-    pub fn local(
+    pub fn new(
         debug_panel: View<DebugPanel>,
         workspace: WeakView<Workspace>,
         dap_store: Model<DapStore>,
         thread_state: Model<ThreadState>,
         client_id: &DebugAdapterClientId,
-        client_kind: &DebugAdapterKind,
+        client_name: SharedString,
         thread_id: u64,
         cx: &mut ViewContext<Self>,
     ) -> Self {
@@ -174,50 +160,24 @@ impl DebugPanelItem {
             editor
         });
 
-        let mode = DebugPanelItemMode::Local(LocalDebugPanelItem {
-            client_kind: client_kind.clone(),
-        });
-
         Self {
             console,
-            show_console_indicator: false,
             thread_id,
-            remote_id: None,
             dap_store,
             workspace,
+            client_name,
             module_list,
-            mode,
             thread_state,
             focus_handle,
             output_editor,
             variable_list,
             _subscriptions,
+            remote_id: None,
             stack_frame_list,
             loaded_source_list,
             client_id: *client_id,
+            show_console_indicator: false,
             active_thread_item: ThreadItem::Variables,
-        }
-    }
-
-    pub fn remote(
-        workspace: WeakView<Workspace>,
-        dap_store: Model<DapStore>,
-        payload: &SetDebuggerPanelItem,
-        cx: &mut ViewContext<Self>,
-    ) -> Self {
-        let client_id = DebugAdapterClientId(payload.client_id as usize);
-
-        let module_list = cx.new_view(|cx| {
-            ModuleList::from_proto(dap_store.clone(), &client_id, payload.modules.clone(), cx)
-        });
-
-        todo!()
-    }
-
-    fn client_display_name(&self) -> &str {
-        match &self.mode {
-            DebugPanelItemMode::Local(local) => local.client_kind.display_name(),
-            DebugPanelItemMode::Remote(remote) => remote.client_name.as_ref(),
         }
     }
 
@@ -587,23 +547,19 @@ impl Item for DebugPanelItem {
         params: workspace::item::TabContentParams,
         _: &WindowContext,
     ) -> AnyElement {
-        Label::new(format!(
-            "{} - Thread {}",
-            self.client_display_name(),
-            self.thread_id
-        ))
-        .color(if params.selected {
-            Color::Default
-        } else {
-            Color::Muted
-        })
-        .into_any_element()
+        Label::new(format!("{} - Thread {}", self.client_name, self.thread_id))
+            .color(if params.selected {
+                Color::Default
+            } else {
+                Color::Muted
+            })
+            .into_any_element()
     }
 
     fn tab_tooltip_text(&self, cx: &AppContext) -> Option<SharedString> {
         Some(SharedString::from(format!(
             "{} Thread {} - {:?}",
-            self.client_display_name(),
+            self.client_name,
             self.thread_id,
             self.thread_state.read(cx).status,
         )))
@@ -627,11 +583,33 @@ impl FollowableItem for DebugPanelItem {
     }
 
     fn from_state_proto(
-        _project: View<Workspace>,
-        _id: ViewId,
-        _state: &mut Option<proto::view::Variant>,
+        workspace: View<Workspace>,
+        id: ViewId,
+        state: &mut Option<proto::view::Variant>,
         cx: &mut WindowContext,
     ) -> Option<gpui::Task<gpui::Result<View<Self>>>> {
+        let proto::view::Variant::DebugPanel(_) = state.as_ref()? else {
+            return None;
+        };
+        let Some(proto::view::Variant::DebugPanel(state)) = state.take() else {
+            unreachable!()
+        };
+
+        let (project, debug_panel) = workspace.update(cx, |workspace, cx| {
+            Some((
+                workspace.project().clone(),
+                workspace.panel::<DebugPanel>(cx)?,
+            ))
+        })?;
+
+        let debug_panel_item = debug_panel.update(cx, |this, cx| {
+            this.open_remote_debug_panel_item(
+                DebugAdapterClientId::from_proto(state.client_id),
+                state.thread_id,
+                cx,
+            )
+        });
+
         // Some(cx.spawn(|this, mut cx| async move {
         //     this.update(&mut cx, |this, cx| {
         //         // this.thread_list.from_proto();
