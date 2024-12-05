@@ -62,17 +62,12 @@ pub enum DapStoreEvent {
     },
     Notification(String),
     BreakpointsChanged,
+    ActiveDebugLineChanged,
 }
 
 pub enum DebugAdapterClientState {
     Starting(Task<Option<Arc<DebugAdapterClient>>>),
     Running(Arc<DebugAdapterClient>),
-}
-
-#[derive(Clone, Debug)]
-pub struct DebugPosition {
-    pub row: u32,
-    pub column: u32,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -99,7 +94,7 @@ pub struct DapStore {
     breakpoints: BTreeMap<ProjectPath, HashSet<Breakpoint>>,
     capabilities: HashMap<DebugAdapterClientId, Capabilities>,
     clients: HashMap<DebugAdapterClientId, DebugAdapterClientState>,
-    active_debug_line: Option<(DebugAdapterClientId, ProjectPath, DebugPosition)>,
+    active_debug_line: Option<(DebugAdapterClientId, ProjectPath, u32)>,
 }
 
 impl EventEmitter<DapStoreEvent> for DapStore {}
@@ -109,6 +104,8 @@ impl DapStore {
 
     pub fn init(client: &AnyProtoClient) {
         client.add_model_message_handler(DapStore::handle_synchronize_breakpoints);
+        client.add_model_message_handler(DapStore::handle_set_active_debug_line);
+        client.add_model_message_handler(DapStore::handle_remove_active_debug_line);
     }
 
     pub fn new_local(
@@ -237,7 +234,7 @@ impl DapStore {
         }
     }
 
-    pub fn active_debug_line(&self) -> Option<(DebugAdapterClientId, ProjectPath, DebugPosition)> {
+    pub fn active_debug_line(&self) -> Option<(DebugAdapterClientId, ProjectPath, u32)> {
         self.active_debug_line.clone()
     }
 
@@ -246,16 +243,24 @@ impl DapStore {
         client_id: &DebugAdapterClientId,
         project_path: &ProjectPath,
         row: u32,
-        column: u32,
         cx: &mut ModelContext<Self>,
     ) {
-        self.active_debug_line = Some((
-            *client_id,
-            project_path.clone(),
-            DebugPosition { row, column },
-        ));
-
+        self.active_debug_line = Some((*client_id, project_path.clone(), row));
+        cx.emit(DapStoreEvent::ActiveDebugLineChanged);
         cx.notify();
+
+        if let Some((client, project_id)) =
+            self.upstream_client().or(self.downstream_client.clone())
+        {
+            client
+                .send(client::proto::SetActiveDebugLine {
+                    row,
+                    project_id,
+                    client_id: client_id.0 as u64,
+                    project_path: Some(project_path.to_proto()),
+                })
+                .log_err();
+        }
     }
 
     pub fn remove_active_debug_line_for_client(
@@ -266,13 +271,18 @@ impl DapStore {
         if let Some(active_line) = &self.active_debug_line {
             if active_line.0 == *client_id {
                 self.active_debug_line.take();
+                cx.emit(DapStoreEvent::ActiveDebugLineChanged);
                 cx.notify();
+
+                if let Some((client, project_id)) =
+                    self.upstream_client().or(self.downstream_client.clone())
+                {
+                    client
+                        .send(client::proto::RemoveActiveDebugLine { project_id })
+                        .log_err();
+                }
             }
         }
-    }
-
-    pub fn remove_active_debug_line(&mut self) {
-        self.active_debug_line.take();
     }
 
     pub fn on_file_rename(&mut self, old_project_path: ProjectPath, new_project_path: ProjectPath) {
@@ -704,7 +714,7 @@ impl DapStore {
         &self,
         client_id: &DebugAdapterClientId,
         seq: u64,
-        args: StartDebuggingRequestArguments,
+        args: Option<StartDebuggingRequestArguments>,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some(client) = self.client_by_id(client_id) else {
@@ -712,44 +722,59 @@ impl DapStore {
         };
 
         cx.spawn(|this, mut cx| async move {
-            client
-                .send_message(Message::Response(Response {
-                    seq,
-                    request_seq: seq,
-                    success: true,
-                    command: StartDebugging::COMMAND.to_string(),
-                    body: None,
-                }))
-                .await?;
+            if let Some(args) = args {
+                client
+                    .send_message(Message::Response(Response {
+                        seq,
+                        request_seq: seq,
+                        success: true,
+                        command: StartDebugging::COMMAND.to_string(),
+                        body: None,
+                    }))
+                    .await?;
 
-            let config = client.config();
+                this.update(&mut cx, |store, cx| {
+                    let config = client.config();
 
-            this.update(&mut cx, |store, cx| {
-                store.start_client(
-                    DebugAdapterConfig {
-                        kind: config.kind.clone(),
-                        request: match args.request {
-                            StartDebuggingRequestArgumentsRequest::Launch => {
-                                DebugRequestType::Launch
-                            }
-                            StartDebuggingRequestArgumentsRequest::Attach => {
-                                DebugRequestType::Attach(
-                                    if let DebugRequestType::Attach(attach_config) = config.request
-                                    {
-                                        attach_config
-                                    } else {
-                                        AttachConfig::default()
-                                    },
-                                )
-                            }
+                    store.start_client(
+                        DebugAdapterConfig {
+                            kind: config.kind.clone(),
+                            request: match args.request {
+                                StartDebuggingRequestArgumentsRequest::Launch => {
+                                    DebugRequestType::Launch
+                                }
+                                StartDebuggingRequestArgumentsRequest::Attach => {
+                                    DebugRequestType::Attach(
+                                        if let DebugRequestType::Attach(attach_config) =
+                                            config.request
+                                        {
+                                            attach_config
+                                        } else {
+                                            AttachConfig::default()
+                                        },
+                                    )
+                                }
+                            },
+                            program: config.program.clone(),
+                            cwd: config.cwd.clone(),
+                            initialize_args: Some(args.configuration),
                         },
-                        program: config.program.clone(),
-                        cwd: config.cwd.clone(),
-                        initialize_args: Some(args.configuration),
-                    },
-                    cx,
-                );
-            })
+                        cx,
+                    );
+                })
+            } else {
+                client
+                    .send_message(Message::Response(Response {
+                        seq,
+                        request_seq: seq,
+                        success: false,
+                        command: StartDebugging::COMMAND.to_string(),
+                        body: Some(serde_json::to_value(ErrorResponse { error: None })?),
+                    }))
+                    .await?;
+
+                Ok(())
+            }
         })
     }
 
@@ -1227,6 +1252,43 @@ impl DapStore {
 
             cx.emit(DapStoreEvent::BreakpointsChanged);
 
+            cx.notify();
+        })
+    }
+
+    async fn handle_set_active_debug_line(
+        this: Model<Self>,
+        envelope: TypedEnvelope<proto::SetActiveDebugLine>,
+        mut cx: AsyncAppContext,
+    ) -> Result<()> {
+        let project_path = ProjectPath::from_proto(
+            envelope
+                .payload
+                .project_path
+                .context("Invalid Breakpoint call")?,
+        );
+
+        this.update(&mut cx, |store, cx| {
+            store.active_debug_line = Some((
+                DebugAdapterClientId(envelope.payload.client_id as usize),
+                project_path,
+                envelope.payload.row,
+            ));
+
+            cx.emit(DapStoreEvent::ActiveDebugLineChanged);
+            cx.notify();
+        })
+    }
+
+    async fn handle_remove_active_debug_line(
+        this: Model<Self>,
+        _: TypedEnvelope<proto::RemoveActiveDebugLine>,
+        mut cx: AsyncAppContext,
+    ) -> Result<()> {
+        this.update(&mut cx, |store, cx| {
+            store.active_debug_line.take();
+
+            cx.emit(DapStoreEvent::ActiveDebugLineChanged);
             cx.notify();
         })
     }

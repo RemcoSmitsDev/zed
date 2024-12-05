@@ -3,7 +3,6 @@ use std::path::Path;
 use anyhow::{anyhow, Result};
 use dap::client::DebugAdapterClientId;
 use dap::StackFrame;
-use editor::Editor;
 use gpui::{
     list, AnyElement, EventEmitter, FocusHandle, ListState, Subscription, Task, View, WeakView,
 };
@@ -109,25 +108,20 @@ impl StackFrameList {
             let task = this.update(&mut cx, |this, cx| {
                 std::mem::swap(&mut this.stack_frames, &mut stack_frames);
 
-                if let Some(stack_frame) = this.stack_frames.first() {
-                    this.current_stack_frame_id = stack_frame.id;
-                }
-
                 this.list.reset(this.stack_frames.len());
-                cx.notify();
 
                 cx.emit(StackFrameListEvent::StackFramesUpdated);
 
-                if go_to_stack_frame {
-                    Some(this.go_to_stack_frame(cx))
-                } else {
-                    None
-                }
+                let stack_frame = this
+                    .stack_frames
+                    .first()
+                    .cloned()
+                    .ok_or_else(|| anyhow!("No stack frame found to select"))?;
+
+                anyhow::Ok(this.select_stack_frame(&stack_frame, go_to_stack_frame, cx))
             })?;
 
-            if let Some(task) = task {
-                task.await?;
-            }
+            task?.await?;
 
             this.update(&mut cx, |this, _| {
                 this.fetch_stack_frames_task.take();
@@ -135,19 +129,22 @@ impl StackFrameList {
         }));
     }
 
-    pub fn go_to_stack_frame(&mut self, cx: &mut ViewContext<Self>) -> Task<Result<()>> {
-        let stack_frame = self
-            .stack_frames
-            .iter()
-            .find(|s| s.id == self.current_stack_frame_id)
-            .cloned();
+    pub fn select_stack_frame(
+        &mut self,
+        stack_frame: &StackFrame,
+        go_to_stack_frame: bool,
+        cx: &mut ViewContext<Self>,
+    ) -> Task<Result<()>> {
+        self.current_stack_frame_id = stack_frame.id;
 
-        let Some(stack_frame) = stack_frame else {
-            return Task::ready(Ok(())); // this could never happen
+        cx.emit(StackFrameListEvent::SelectedStackFrameChanged);
+        cx.notify();
+
+        if !go_to_stack_frame {
+            return Task::ready(Ok(()));
         };
 
         let row = (stack_frame.line.saturating_sub(1)) as u32;
-        let column = (stack_frame.column.saturating_sub(1)) as u32;
 
         let Some(project_path) = self.project_path_from_stack_frame(&stack_frame, cx) else {
             return Task::ready(Err(anyhow!("Project path not found")));
@@ -157,20 +154,16 @@ impl StackFrameList {
             let client_id = self.client_id;
             let workspace = self.workspace.clone();
             move |this, mut cx| async move {
-                let task = workspace.update(&mut cx, |workspace, cx| {
-                    workspace.open_path_preview(project_path.clone(), None, false, true, cx)
-                })?;
-
-                let editor = task.await?.downcast::<Editor>().unwrap();
+                workspace
+                    .update(&mut cx, |workspace, cx| {
+                        workspace.open_path_preview(project_path.clone(), None, false, true, cx)
+                    })?
+                    .await?;
 
                 this.update(&mut cx, |this, cx| {
                     this.dap_store.update(cx, |store, cx| {
-                        store.set_active_debug_line(&client_id, &project_path, row, column, cx);
+                        store.set_active_debug_line(&client_id, &project_path, row, cx);
                     })
-                })?;
-
-                workspace.update(&mut cx, |_, cx| {
-                    editor.update(cx, |editor, cx| editor.go_to_active_debug_line(cx))
                 })
             }
         })
@@ -218,15 +211,10 @@ impl StackFrameList {
                 this.bg(cx.theme().colors().element_hover)
             })
             .on_click(cx.listener({
-                let stack_frame_id = stack_frame.id;
+                let stack_frame = stack_frame.clone();
                 move |this, _, cx| {
-                    this.current_stack_frame_id = stack_frame_id;
-
-                    this.go_to_stack_frame(cx).detach_and_log_err(cx);
-
-                    cx.notify();
-
-                    cx.emit(StackFrameListEvent::SelectedStackFrameChanged);
+                    this.select_stack_frame(&stack_frame, true, cx)
+                        .detach_and_log_err(cx);
                 }
             }))
             .hover(|s| s.bg(cx.theme().colors().element_hover).cursor_pointer())

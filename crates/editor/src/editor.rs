@@ -2047,6 +2047,8 @@ impl Editor {
                                 }
                             }
                         }
+                    } else if let project::Event::ActiveDebugLineChanged = event {
+                        editor.go_to_active_debug_line(cx);
                     }
                 }));
                 if let Some(task_inventory) = project
@@ -5587,7 +5589,7 @@ impl Editor {
         _style: &EditorStyle,
         row: DisplayRow,
         is_active: bool,
-        breakpoint: Option<Breakpoint>,
+        breakpoint: Option<&Breakpoint>,
         cx: &mut ViewContext<Self>,
     ) -> Option<IconButton> {
         let color = if breakpoint.is_some() {
@@ -5598,7 +5600,7 @@ impl Editor {
 
         let bp_kind = Arc::new(
             breakpoint
-                .map(|bp| bp.kind)
+                .map(|bp| bp.kind.clone())
                 .unwrap_or(BreakpointKind::Standard),
         );
 
@@ -10331,14 +10333,13 @@ impl Editor {
     pub fn go_to_line<T: 'static>(
         &mut self,
         row: u32,
-        column: u32,
         highlight_color: Option<Hsla>,
         cx: &mut ViewContext<Self>,
     ) {
         let snapshot = self.snapshot(cx).display_snapshot;
         let start = snapshot
             .buffer_snapshot
-            .clip_point(Point::new(row, column), Bias::Left);
+            .clip_point(Point::new(row, 0), Bias::Left);
         let end = start + Point::new(1, 0);
         let start = snapshot.buffer_snapshot.anchor_before(start);
         let end = snapshot.buffer_snapshot.anchor_before(end);
@@ -12245,13 +12246,17 @@ impl Editor {
         if let Some((_, path, position)) = dap_store.read(cx).active_debug_line() {
             if path == project_path {
                 self.go_to_line::<DebugCurrentRowHighlight>(
-                    position.row,
-                    position.column,
+                    position,
                     Some(cx.theme().colors().editor_debugger_active_line_background),
                     cx,
                 );
+
+                return;
             }
         }
+
+        self.clear_row_highlights::<DebugCurrentRowHighlight>();
+        cx.notify();
     }
 
     pub fn toggle_git_blame(&mut self, _: &ToggleGitBlame, cx: &mut ViewContext<Self>) {
