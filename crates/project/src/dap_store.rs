@@ -1,3 +1,4 @@
+use crate::project_settings::ProjectSettings;
 use crate::{ProjectEnvironment, ProjectPath};
 use anyhow::{anyhow, Context as _, Result};
 use async_trait::async_trait;
@@ -37,7 +38,7 @@ use lsp::LanguageServerName;
 use node_runtime::NodeRuntime;
 use rpc::{proto, AnyProtoClient, TypedEnvelope};
 use serde_json::Value;
-use settings::WorktreeId;
+use settings::{Settings as _, WorktreeId};
 use smol::lock::Mutex;
 use std::{
     collections::{BTreeMap, HashSet},
@@ -408,7 +409,19 @@ impl DapStore {
                     return Err(anyhow!("Debug adapter does not support `attach` request"));
                 }
 
-                let binary = match adapter.get_binary(adapter_delegate.as_ref(), &config).await {
+                let binary = cx.update(|cx| {
+                    let name = DebugAdapterName::from(adapter.name().as_ref());
+
+                    ProjectSettings::get_global(cx)
+                        .dap
+                        .get(&name)
+                        .and_then(|s| s.binary.as_ref().map(PathBuf::from))
+                })?;
+
+                let binary = match adapter
+                    .get_binary(adapter_delegate.as_ref(), &config, binary)
+                    .await
+                {
                     Err(error) => {
                         adapter_delegate.update_status(
                             adapter.name(),

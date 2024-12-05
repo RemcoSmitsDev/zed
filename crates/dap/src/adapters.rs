@@ -77,6 +77,12 @@ impl From<DebugAdapterName> for SharedString {
     }
 }
 
+impl<'a> From<&'a str> for DebugAdapterName {
+    fn from(str: &'a str) -> DebugAdapterName {
+        DebugAdapterName(str.to_string().into())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DebugAdapterBinary {
     pub command: String,
@@ -209,6 +215,7 @@ pub trait DebugAdapter: 'static + Send + Sync {
         &self,
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
+        user_installed_path: Option<PathBuf>,
     ) -> Result<DebugAdapterBinary> {
         if delegate
             .updated_adapters()
@@ -218,7 +225,11 @@ pub trait DebugAdapter: 'static + Send + Sync {
         {
             log::info!("Using cached debug adapter binary {}", self.name());
 
-            if let Some(binary) = self.get_installed_binary(delegate, &config).await.log_err() {
+            if let Some(binary) = self
+                .get_installed_binary(delegate, &config, user_installed_path.clone())
+                .await
+                .log_err()
+            {
                 return Ok(binary);
             }
 
@@ -245,7 +256,8 @@ pub trait DebugAdapter: 'static + Send + Sync {
                 .insert(self.name());
         }
 
-        self.get_installed_binary(delegate, &config).await
+        self.get_installed_binary(delegate, &config, user_installed_path)
+            .await
     }
 
     fn transport(&self) -> Box<dyn Transport>;
@@ -268,6 +280,7 @@ pub trait DebugAdapter: 'static + Send + Sync {
         &self,
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
+        user_installed_path: Option<PathBuf>,
     ) -> Result<DebugAdapterBinary>;
 
     /// Should return base configuration to make the debug adapter work

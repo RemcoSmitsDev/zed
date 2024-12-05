@@ -1,7 +1,7 @@
 use adapters::latest_github_release;
 use dap::transport::{TcpTransport, Transport};
 use regex::Regex;
-use std::{collections::HashMap, net::Ipv4Addr};
+use std::{collections::HashMap, net::Ipv4Addr, path::PathBuf};
 use sysinfo::{Pid, Process};
 use task::DebugRequestType;
 
@@ -69,20 +69,25 @@ impl DebugAdapter for JsDebugAdapter {
         &self,
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
+        user_installed_path: Option<PathBuf>,
     ) -> Result<DebugAdapterBinary> {
+        let adapter_path = if let Some(user_installed_path) = user_installed_path {
+            user_installed_path
+        } else {
+            let adapter_path = paths::debug_adapters_dir().join(self.name());
+
+            let file_name_prefix = format!("{}_", self.name());
+
+            util::fs::find_file_name_in_dir(adapter_path.as_path(), |file_name| {
+                file_name.starts_with(&file_name_prefix)
+            })
+            .await
+            .ok_or_else(|| anyhow!("Couldn't find JavaScript dap directory"))?
+        };
+
         let node_runtime = delegate
             .node_runtime()
             .ok_or(anyhow!("Couldn't get npm runtime"))?;
-
-        let adapter_path = paths::debug_adapters_dir().join(self.name());
-
-        let file_name_prefix = format!("{}_", self.name());
-
-        let adapter_path = util::fs::find_file_name_in_dir(adapter_path.as_path(), |file_name| {
-            file_name.starts_with(&file_name_prefix)
-        })
-        .await
-        .ok_or_else(|| anyhow!("Couldn't find JavaScript dap directory"))?;
 
         Ok(DebugAdapterBinary {
             command: node_runtime

@@ -1,5 +1,5 @@
 use dap::transport::{TcpTransport, Transport};
-use std::{ffi::OsStr, net::Ipv4Addr};
+use std::{ffi::OsStr, net::Ipv4Addr, path::PathBuf};
 
 use crate::*;
 
@@ -36,8 +36,10 @@ impl DebugAdapter for GoDebugAdapter {
         &self,
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
+        user_installed_path: Option<PathBuf>,
     ) -> Result<DebugAdapterBinary> {
-        self.get_installed_binary(delegate, config).await
+        self.get_installed_binary(delegate, config, user_installed_path)
+            .await
     }
 
     async fn fetch_latest_adapter_version(
@@ -66,6 +68,7 @@ impl DebugAdapter for GoDebugAdapter {
         &self,
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
+        _: Option<PathBuf>,
     ) -> Result<DebugAdapterBinary> {
         let delve_path = delegate
             .which(OsStr::new("dlv"))

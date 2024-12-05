@@ -1,4 +1,4 @@
-use std::ffi::OsStr;
+use std::{ffi::OsStr, path::PathBuf};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -31,6 +31,7 @@ impl DebugAdapter for LldbDebugAdapter {
         &self,
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
+        user_installed_path: Option<PathBuf>,
     ) -> Result<DebugAdapterBinary> {
         let lldb_dap_path = if cfg!(target_os = "macos") {
             std::process::Command::new("xcrun")
@@ -40,6 +41,8 @@ impl DebugAdapter for LldbDebugAdapter {
                 .and_then(|output| String::from_utf8(output.stdout).ok())
                 .map(|path| path.trim().to_string())
                 .ok_or(anyhow!("Failed to find lldb-dap in user's path"))?
+        } else if let Some(user_installed_path) = user_installed_path {
+            user_installed_path.to_string_lossy().into()
         } else {
             delegate
                 .which(OsStr::new("lldb-dap"))
@@ -71,6 +74,7 @@ impl DebugAdapter for LldbDebugAdapter {
         &self,
         _: &dyn DapDelegate,
         _: &DebugAdapterConfig,
+        _: Option<PathBuf>,
     ) -> Result<DebugAdapterBinary> {
         unimplemented!("LLDB debug adapter cannot be installed by Zed (yet)")
     }

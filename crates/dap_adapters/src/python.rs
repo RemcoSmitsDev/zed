@@ -1,5 +1,5 @@
 use dap::transport::{TcpTransport, Transport};
-use std::{ffi::OsStr, net::Ipv4Addr};
+use std::{ffi::OsStr, net::Ipv4Addr, path::PathBuf};
 
 use crate::*;
 
@@ -75,15 +75,20 @@ impl DebugAdapter for PythonDebugAdapter {
         &self,
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
+        user_installed_path: Option<PathBuf>,
     ) -> Result<DebugAdapterBinary> {
-        let adapter_path = paths::debug_adapters_dir().join(self.name());
-        let file_name_prefix = format!("{}_", self.name());
+        let debugpy_dir = if let Some(user_installed_path) = user_installed_path {
+            user_installed_path
+        } else {
+            let adapter_path = paths::debug_adapters_dir().join(self.name());
+            let file_name_prefix = format!("{}_", self.name());
 
-        let debugpy_dir = util::fs::find_file_name_in_dir(adapter_path.as_path(), |file_name| {
-            file_name.starts_with(&file_name_prefix)
-        })
-        .await
-        .ok_or_else(|| anyhow!("Debugpy directory not found"))?;
+            util::fs::find_file_name_in_dir(adapter_path.as_path(), |file_name| {
+                file_name.starts_with(&file_name_prefix)
+            })
+            .await
+            .ok_or_else(|| anyhow!("Debugpy directory not found"))?
+        };
 
         let python_cmds = [
             OsStr::new("python3"),

@@ -1,5 +1,6 @@
 use anyhow::Context;
 use collections::HashMap;
+use dap::adapters::DebugAdapterName;
 use fs::Fs;
 use gpui::{AppContext, AsyncAppContext, BorrowAppContext, EventEmitter, Model, ModelContext};
 use lsp::LanguageServerName;
@@ -41,6 +42,10 @@ pub struct ProjectSettings {
     #[serde(default)]
     pub lsp: HashMap<LanguageServerName, LspSettings>,
 
+    /// Configuration for Debugger-related features
+    #[serde(default)]
+    pub dap: HashMap<DebugAdapterName, DapSettings>,
+
     /// Configuration for Git-related features
     #[serde(default)]
     pub git: GitSettings,
@@ -56,6 +61,12 @@ pub struct ProjectSettings {
     /// Configuration for session-related features
     #[serde(default)]
     pub session: SessionSettings,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct DapSettings {
+    pub binary: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
