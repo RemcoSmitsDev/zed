@@ -374,6 +374,7 @@ messages!(
     (SynchronizeBreakpoints, Background),
     (SetActiveDebugLine, Background),
     (RemoveActiveDebugLine, Background),
+    (SetDebuggerPanelItem, Background),
 );
 
 request_messages!(
@@ -586,6 +587,7 @@ entity_messages!(
     SynchronizeBreakpoints,
     SetActiveDebugLine,
     RemoveActiveDebugLine,
+    SetDebuggerPanelItem,
 );
 
 entity_messages!(

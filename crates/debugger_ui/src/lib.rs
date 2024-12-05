@@ -1,12 +1,16 @@
+use client::Client;
 use dap::debugger_settings::DebuggerSettings;
 use debugger_panel::{DebugPanel, ToggleFocus};
 use gpui::AppContext;
+use rpc::AnyProtoClient;
 use settings::Settings;
 use ui::ViewContext;
 use workspace::{
     Continue, Pause, Restart, ShutdownDebugAdapters, Start, StepInto, StepOut, StepOver, Stop,
     ToggleIgnoreBreakpoints, Workspace,
 };
+
+use std::sync::Arc;
 
 mod attach_modal;
 mod console;
@@ -17,8 +21,11 @@ mod module_list;
 mod stack_frame_list;
 mod variable_list;
 
-pub fn init(cx: &mut AppContext) {
+pub fn init(_client: &Arc<Client>, cx: &mut AppContext) {
     DebuggerSettings::register(cx);
+
+    // let client: AnyProtoClient = client.clone().into();
+    // client.add_model_message_handler(DebugPanel::handle_set_debug_panel_item);
 
     cx.observe_new_views(
         |workspace: &mut Workspace, _cx: &mut ViewContext<Workspace>| {

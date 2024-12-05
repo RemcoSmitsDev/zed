@@ -830,6 +830,11 @@ impl DapStore {
             Ok(())
         })
     }
+    
+    
+    fn send_proto_client_request(&self, client_id: &DebugAdapterClientId, message: Message, cx: &mut ModelContext<Self>) {
+        //
+    }
 
     pub fn step_over(
         &self,
@@ -838,6 +843,12 @@ impl DapStore {
         granularity: SteppingGranularity,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
+        if let Some(remote) = self.as_remote() {
+            if let Some(_client) = &remote.upstream_client {
+                //
+            }
+        }
+
         let Some(client) = self.client_by_id(client_id) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };

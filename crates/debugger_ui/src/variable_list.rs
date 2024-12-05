@@ -1,6 +1,6 @@
 use crate::stack_frame_list::{StackFrameList, StackFrameListEvent};
 use anyhow::Result;
-use dap::{client::DebugAdapterClientId, Scope, Variable};
+use dap::{client::DebugAdapterClientId, Scope, ScopePresentationHint, Variable};
 use editor::{
     actions::{self, SelectAll},
     Editor, EditorEvent,
@@ -12,6 +12,7 @@ use gpui::{
 };
 use menu::Confirm;
 use project::dap_store::DapStore;
+use rpc::proto::{self, envelope::Payload, SetDebuggerPanelItem};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
@@ -33,6 +34,38 @@ pub struct SetVariableState {
     stack_frame_id: u64,
     evaluate_name: Option<String>,
     parent_variables_reference: u64,
+}
+
+impl SetVariableState {
+    fn from_proto(payload: proto::DebuggerSetVariableState) -> Option<Self> {
+        let scope = payload.scope.map(|scope| {
+            let presentation_hint = match scope.presentation_hint {
+                0 => Some(ScopePresentationHint::Arguments),
+                1 => Some(ScopePresentationHint::Locals),
+                2 => Some(ScopePresentationHint::Registers),
+                3 => Some(ScopePresentationHint::ReturnValue),
+                4 => Some(ScopePresentationHint::Unknown),
+                _ => None,
+            };
+
+            Scope {
+                name: scope.name,
+                presentation_hint,
+                variables_reference: scope.variables_reference,
+                named_variables: scope.named_variables,
+                indexed_variables: scope.indexed_variables,
+                expensive: scope.expensive,
+                source: None,
+                line: scope.line,
+                column: scope.column,
+                end_line: scope.end_line,
+                end_column: scope.end_column,
+            }
+        })?;
+
+        None
+        // SetVariableState { name: payload.name, scope, value: payload.value, stack_frame_id: payload.stack_frame_id, }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -170,6 +203,8 @@ impl VariableList {
             stack_frame_list: stack_frame_list.clone(),
         }
     }
+
+    pub(crate) fn set_from_proto(&mut self, payload: &SetDebuggerPanelItem) {}
 
     fn handle_stack_frame_list_events(
         &mut self,
