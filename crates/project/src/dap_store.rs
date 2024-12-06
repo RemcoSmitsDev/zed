@@ -1181,7 +1181,7 @@ impl DapStore {
         self.ignore_breakpoints.remove(client_id);
         let capabilities = self.capabilities.remove(client_id);
 
-        cx.background_executor().spawn(async move {
+        cx.spawn(|_, _| async move {
             let client = match client {
                 DebugAdapterClientState::Starting(task) => task.await,
                 DebugAdapterClientState::Running(client) => Some(client),

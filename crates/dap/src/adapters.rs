@@ -260,7 +260,7 @@ pub trait DebugAdapter: 'static + Send + Sync {
             .await
     }
 
-    fn transport(&self) -> Box<dyn Transport>;
+    fn transport(&self) -> Arc<dyn Transport>;
 
     async fn fetch_latest_adapter_version(
         &self,

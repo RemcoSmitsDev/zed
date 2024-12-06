@@ -15,7 +15,7 @@ use smol::{
     io::{AsyncBufReadExt as _, AsyncWriteExt, BufReader},
     lock::Mutex,
     net::{TcpListener, TcpStream},
-    process::{self, Child, ChildStderr, ChildStdout},
+    process::{self, Child},
 };
 use std::{
     collections::HashMap,
@@ -43,22 +43,25 @@ pub enum IoKind {
     StdErr,
 }
 
-pub struct TransportParams {
+pub struct TransportPipe {
     input: Box<dyn AsyncWrite + Unpin + Send>,
     output: Box<dyn AsyncBufRead + Unpin + Send>,
-    process: Child,
+    stdout: Option<Box<dyn AsyncBufRead + Unpin + Send>>,
+    stderr: Option<Box<dyn AsyncBufRead + Unpin + Send>>,
 }
 
-impl TransportParams {
+impl TransportPipe {
     pub fn new(
         input: Box<dyn AsyncWrite + Unpin + Send>,
         output: Box<dyn AsyncBufRead + Unpin + Send>,
-        process: Child,
+        stdout: Option<Box<dyn AsyncBufRead + Unpin + Send>>,
+        stderr: Option<Box<dyn AsyncBufRead + Unpin + Send>>,
     ) -> Self {
-        TransportParams {
+        TransportPipe {
             input,
             output,
-            process,
+            stdout,
+            stderr,
         }
     }
 }
@@ -70,16 +73,14 @@ pub(crate) struct TransportDelegate {
     log_handlers: LogHandlers,
     current_requests: Requests,
     pending_requests: Requests,
-    transport: Box<dyn Transport>,
-    process: Arc<Mutex<Option<Child>>>,
+    transport: Arc<dyn Transport>,
     server_tx: Arc<Mutex<Option<Sender<Message>>>>,
 }
 
 impl TransportDelegate {
-    pub fn new(transport: Box<dyn Transport>) -> Self {
+    pub fn new(transport: Arc<dyn Transport>) -> Self {
         Self {
             transport,
-            process: Default::default(),
             server_tx: Default::default(),
             log_handlers: Default::default(),
             current_requests: Default::default(),
@@ -92,13 +93,13 @@ impl TransportDelegate {
         binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
     ) -> Result<(Receiver<Message>, Sender<Message>)> {
-        let mut params = self.transport.start(binary, cx).await?;
+        let mut params = self.transport.clone().start(binary, cx).await?;
 
         let (client_tx, server_rx) = unbounded::<Message>();
         let (server_tx, client_rx) = unbounded::<Message>();
 
         cx.update(|cx| {
-            if let Some(stdout) = params.process.stdout.take() {
+            if let Some(stdout) = params.stdout.take() {
                 cx.background_executor()
                     .spawn(Self::handle_adapter_log(stdout, self.log_handlers.clone()))
                     .detach_and_log_err(cx);
@@ -113,7 +114,7 @@ impl TransportDelegate {
                 ))
                 .detach_and_log_err(cx);
 
-            if let Some(stderr) = params.process.stderr.take() {
+            if let Some(stderr) = params.stderr.take() {
                 cx.background_executor()
                     .spawn(Self::handle_error(stderr, self.log_handlers.clone()))
                     .detach_and_log_err(cx);
@@ -131,9 +132,6 @@ impl TransportDelegate {
         })?;
 
         {
-            let mut lock = self.process.lock().await;
-            *lock = Some(params.process);
-
             let mut lock = self.server_tx.lock().await;
             *lock = Some(server_tx.clone());
         }
@@ -166,7 +164,10 @@ impl TransportDelegate {
         }
     }
 
-    async fn handle_adapter_log(stdout: ChildStdout, log_handlers: LogHandlers) -> Result<()> {
+    async fn handle_adapter_log(
+        stdout: Box<dyn AsyncBufRead + Unpin + Send>,
+        log_handlers: LogHandlers,
+    ) -> Result<()> {
         let mut reader = BufReader::new(stdout);
         let mut line = String::new();
 
@@ -287,7 +288,10 @@ impl TransportDelegate {
         result
     }
 
-    async fn handle_error(stderr: ChildStderr, log_handlers: LogHandlers) -> Result<()> {
+    async fn handle_error(
+        stderr: Box<dyn AsyncBufRead + Unpin + Send>,
+        log_handlers: LogHandlers,
+    ) -> Result<()> {
         let mut buffer = String::new();
 
         let mut reader = BufReader::new(stderr);
@@ -389,20 +393,16 @@ impl TransportDelegate {
             server_tx.close();
         }
 
-        let mut adapter = self.process.lock().await.take();
         let mut current_requests = self.current_requests.lock().await;
         let mut pending_requests = self.pending_requests.lock().await;
 
         current_requests.clear();
         pending_requests.clear();
 
-        if let Some(mut adapter) = adapter.take() {
-            let _ = adapter.kill().log_err();
-        }
+        let _ = self.transport.kill().await.log_err();
 
         drop(current_requests);
         drop(pending_requests);
-        drop(adapter);
 
         log::debug!("Shutdown client completed");
 
@@ -425,21 +425,21 @@ impl TransportDelegate {
 #[async_trait(?Send)]
 pub trait Transport: 'static + Send + Sync {
     async fn start(
-        &mut self,
+        self: Arc<Self>,
         binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
-    ) -> Result<TransportParams>;
+    ) -> Result<TransportPipe>;
 
     fn has_adapter_logs(&self) -> bool;
 
-    fn clone_box(&self) -> Box<dyn Transport>;
+    async fn kill(&self) -> Result<()>;
 }
 
-#[derive(Clone)]
 pub struct TcpTransport {
     port: u16,
     host: Ipv4Addr,
     timeout: Option<u64>,
+    process: Arc<Mutex<Option<Child>>>,
 }
 
 impl TcpTransport {
@@ -448,6 +448,7 @@ impl TcpTransport {
             port,
             host,
             timeout,
+            process: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -467,10 +468,10 @@ impl TcpTransport {
 #[async_trait(?Send)]
 impl Transport for TcpTransport {
     async fn start(
-        &mut self,
+        self: Arc<Self>,
         binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
-    ) -> Result<TransportParams> {
+    ) -> Result<TransportPipe> {
         let mut command = process::Command::new(&binary.command);
 
         if let Some(cwd) = &binary.cwd {
@@ -491,7 +492,7 @@ impl Transport for TcpTransport {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
 
-        let process = command
+        let mut process = command
             .spawn()
             .with_context(|| "failed to start debug adapter.")?;
 
@@ -523,10 +524,18 @@ impl Transport for TcpTransport {
             self.port
         );
 
-        Ok(TransportParams::new(
+        let stdout = process.stdout.take();
+        let stderr = process.stderr.take();
+
+        {
+            *self.process.lock().await = Some(process);
+        }
+
+        Ok(TransportPipe::new(
             Box::new(tx),
             Box::new(BufReader::new(rx)),
-            process,
+            stdout.map(|s| Box::new(BufReader::new(s)) as Box<dyn AsyncBufRead + Unpin + Send>),
+            stderr.map(|s| Box::new(BufReader::new(s)) as Box<dyn AsyncBufRead + Unpin + Send>),
         ))
     }
 
@@ -534,27 +543,34 @@ impl Transport for TcpTransport {
         true
     }
 
-    fn clone_box(&self) -> Box<dyn Transport> {
-        Box::new(self.clone())
+    async fn kill(&self) -> Result<()> {
+        if let Some(mut process) = self.process.lock().await.take() {
+            process.kill()?;
+        }
+
+        Ok(())
     }
 }
 
-#[derive(Clone)]
-pub struct StdioTransport {}
+pub struct StdioTransport {
+    process: Arc<Mutex<Option<Child>>>,
+}
 
 impl StdioTransport {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            process: Arc::new(Mutex::new(None)),
+        }
     }
 }
 
 #[async_trait(?Send)]
 impl Transport for StdioTransport {
     async fn start(
-        &mut self,
+        self: Arc<Self>,
         binary: &DebugAdapterBinary,
         _: &mut AsyncAppContext,
-    ) -> Result<TransportParams> {
+    ) -> Result<TransportPipe> {
         let mut command = process::Command::new(&binary.command);
 
         if let Some(cwd) = &binary.cwd {
@@ -587,13 +603,22 @@ impl Transport for StdioTransport {
             .stdout
             .take()
             .ok_or_else(|| anyhow!("Failed to open stdout"))?;
+        let stderr = process
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow!("Failed to open stderr"))?;
 
         log::info!("Debug adapter has connected to stdio adapter");
 
-        Ok(TransportParams::new(
+        {
+            *self.process.lock().await = Some(process);
+        }
+
+        Ok(TransportPipe::new(
             Box::new(stdin),
             Box::new(BufReader::new(stdout)),
-            process,
+            None,
+            Some(Box::new(BufReader::new(stderr)) as Box<dyn AsyncBufRead + Unpin + Send>),
         ))
     }
 
@@ -601,7 +626,36 @@ impl Transport for StdioTransport {
         false
     }
 
-    fn clone_box(&self) -> Box<dyn Transport> {
-        Box::new(self.clone())
+    async fn kill(&self) -> Result<()> {
+        if let Some(mut process) = self.process.lock().await.take() {
+            process.kill()?;
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+struct FakeTransport {
+    //
+}
+
+#[cfg(any(test, feature = "test-support"))]
+#[async_trait(?Send)]
+impl Transport for FakeTransport {
+    async fn start(
+        self: Arc<Self>,
+        _binary: &DebugAdapterBinary,
+        _cx: &mut AsyncAppContext,
+    ) -> Result<TransportPipe> {
+        unimplemented!("FakeTransport start not implemented")
+    }
+
+    fn has_adapter_logs(&self) -> bool {
+        false
+    }
+
+    async fn kill(&self) -> Result<()> {
+        Ok(())
     }
 }
