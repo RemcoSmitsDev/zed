@@ -2543,6 +2543,32 @@ message DebuggerVariableList {
     repeated VariableListEntries entries = 5;
 }
 
+message DebuggerStackFrameList {
+    uint64 thread_id = 1;
+    uint64 client_id = 2;
+    uint64 current_stack_frame = 3;
+    repeated DapStackFrame stack_frames = 4;
+}
+
+message DapStackFrame {
+    uint64 id = 1;
+    string name = 2;
+    optional DapSource source = 3;
+    uint64 line = 4;
+    uint64 column = 5;
+    optional uint64 end_line = 6;
+    optional uint64 end_column = 7;
+    optional bool can_restart = 8;
+    optional string instruction_pointer_reference = 9;
+    optional DapModuleId module_id = 10;
+    optional DapStackPresentationHint presentation_hint = 11;
+}
+
+message DebuggerLoadedSourceList {
+    uint64 client_id = 1;
+    repeated DapSource sources = 2;
+}
+
 message DebuggerConsole {
     // Editor console = 1;
     // Editor query_bar = 2;
@@ -2557,6 +2583,8 @@ message SetDebuggerPanelItem {
     DebuggerThreadItem active_thread_item = 6;
     DebuggerThreadState thread_state = 7;
     DebuggerVariableList variable_list = 8;
+    DebuggerStackFrameList stack_frame_list = 9;
+    DebuggerLoadedSourceList loaded_source_list = 10;
 }
 
 // Remote Debugging: Dap Types
@@ -2619,10 +2647,17 @@ enum DapScopePresentationHint {
 }
 
 enum DapSourcePresentationHint {
-    Normal = 0;
+    SourceNormal = 0;
     Emphasize = 1;
     Deemphasize = 2;
     SourceUnknown = 3;
+}
+
+enum DapStackPresentationHint {
+    StackNormal = 0;
+    Label = 1;
+    Subtle = 2;
+    StackUnknown = 3;
 }
 
 message DapModule {

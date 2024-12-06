@@ -1,6 +1,6 @@
 use dap::transport::{TcpTransport, Transport};
 use regex::Regex;
-use std::{collections::HashMap, net::Ipv4Addr};
+use std::{collections::HashMap, net::Ipv4Addr, rc::Rc};
 use sysinfo::{Pid, Process};
 use task::DebugRequestType;
 use util::maybe;
@@ -32,8 +32,8 @@ impl DebugAdapter for JsDebugAdapter {
         DebugAdapterName(Self::ADAPTER_NAME.into())
     }
 
-    fn transport(&self) -> Box<dyn Transport> {
-        Box::new(TcpTransport::new(self.host, self.port, self.timeout))
+    fn transport(&self) -> Rc<dyn Transport> {
+        Rc::new(TcpTransport::new(self.host, self.port, self.timeout))
     }
 
     async fn fetch_latest_adapter_version(

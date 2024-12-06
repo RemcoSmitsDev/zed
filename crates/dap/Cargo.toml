@@ -8,9 +8,16 @@ license = "GPL-3.0-or-later"
 [lints]
 workspace = true
 
+[features]
+test-support = [
+    "gpui/test-support",
+    "util/test-support"
+]
+
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+async-pipe = { workspace = true, optional = true }
 client.workspace = true
 collections.workspace = true
 dap-types = { git = "https://github.com/zed-industries/dap-types", rev = "b95818130022bfc72bbcd639bdd0c0358c7549fc" }
@@ -31,3 +38,8 @@ smol.workspace = true
 sysinfo.workspace = true
 task.workspace = true
 util.workspace = true
+
+[dev-dependencies]
+async-pipe.workspace = true
+gpui = { workspace = true, features = ["test-support"] }
+util = { workspace = true, features = ["test-support"] }

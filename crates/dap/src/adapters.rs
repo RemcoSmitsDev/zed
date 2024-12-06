@@ -1,10 +1,11 @@
 use crate::transport::Transport;
 use ::fs::Fs;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Context, Ok, Result};
 use async_trait::async_trait;
 use gpui::SharedString;
 use http_client::{github::latest_github_release, HttpClient};
 use node_runtime::NodeRuntime;
+use serde_json::Value;
 use serde_json::Value;
 use smol::{self, fs::File, lock::Mutex, process};
 use std::{
@@ -327,5 +328,107 @@ pub trait DebugAdapter: 'static + Send + Sync {
         _: &'a HashMap<Pid, Process>,
     ) -> Option<Vec<(&'a Pid, &'a Process)>> {
         None
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+struct FakeAdapter {
+    pub queue: VecDeque<Message>,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl FakeAdapter {
+    const ADAPTER_NAME: &'static str = "fake-dap";
+}
+
+#[cfg(any(test, feature = "test-support"))]
+struct FakeTransport {
+    //
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl FakeTransport {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl Transport for FakeTransport {
+    async fn start(
+        &mut self,
+        _: &DebugAdapterBinary,
+        _: &mut AsyncAppContext,
+    ) -> Result<TransportPipe> {
+        let (stdout_writer, stdout_reader) = async_pipe::pipe();
+
+        Ok(TransportPipe::new(
+            Box::new(stdout_writer),
+            Box::new(stdout_reader),
+        ))
+    }
+
+    fn has_adapter_logs(&self) -> bool {
+        false
+    }
+
+    async fn kill(&mut self) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+#[async_trait(?Send)]
+impl DebugAdapter for FakeAdapter {
+    fn name(&self) -> DebugAdapterName {
+        DebugAdapterName(Self::ADAPTER_NAME.into())
+    }
+
+    fn transport(&self) -> Box<dyn Transport> {
+        Box::new(FakeTransport::new())
+    }
+
+    async fn get_binary(
+        &self,
+        _delegate: &dyn DapDelegate,
+        _config: &DebugAdapterConfig,
+        _adapter_path: Option<PathBuf>,
+    ) -> Result<DebugAdapterBinary> {
+        Ok(DebugAdapterBinary {
+            command: "".into(),
+            arguments: Default::default(),
+            envs: Default::default(),
+            cwd: Default::default(),
+            version: "1".into(),
+        })
+    }
+
+    fn supports_attach(&self) -> bool {
+        false
+    }
+
+    async fn install_binary(
+        &self,
+        _version: AdapterVersion,
+        _delegate: &dyn DapDelegate,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn fetch_latest_adapter_version(&self, _: &dyn DapDelegate) -> Result<AdapterVersion> {
+        unimplemented!("Fetch latest adapter version not implemented for lldb (yet)")
+    }
+
+    async fn get_installed_binary(
+        &self,
+        _: &dyn DapDelegate,
+        _: &DebugAdapterConfig,
+        _: Option<PathBuf>,
+    ) -> Result<DebugAdapterBinary> {
+        unimplemented!("LLDB debug adapter cannot be installed by Zed (yet)")
+    }
+
+    fn request_args(&self, _config: &DebugAdapterConfig) -> Value {
+        Value::Null
     }
 }
