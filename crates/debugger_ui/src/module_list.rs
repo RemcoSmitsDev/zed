@@ -2,7 +2,7 @@ use anyhow::Result;
 use dap::{client::DebugAdapterClientId, Module, ModuleEvent, ModuleId};
 use gpui::{list, AnyElement, FocusHandle, FocusableView, ListState, Model, Task};
 use project::dap_store::DapStore;
-use rpc::proto::DapModule;
+use rpc::proto::{DapModule, DapModuleId};
 use ui::prelude::*;
 
 pub struct ModuleList {
@@ -11,6 +11,33 @@ pub struct ModuleList {
     focus_handle: FocusHandle,
     dap_store: Model<DapStore>,
     client_id: DebugAdapterClientId,
+}
+
+fn modules_to_state(modules: &Vec<Module>) -> Vec<DapModule> {
+    modules
+        .iter()
+        .map(|module| {
+            let id = match &module.id {
+                ModuleId::Number(num) => rpc::proto::dap_module_id::Id::Number(*num),
+                ModuleId::String(string) => rpc::proto::dap_module_id::Id::String(string.clone()),
+            };
+
+            let id = Some(DapModuleId { id: Some(id) });
+
+            DapModule {
+                id,
+                name: module.name.clone(),
+                path: module.path.clone(),
+                is_optimized: module.is_optimized,
+                is_user_code: module.is_user_code,
+                version: module.version.clone(),
+                symbol_status: module.symbol_status.clone(),
+                symbol_file_path: module.symbol_file_path.clone(),
+                date_time_stamp: module.date_time_stamp.clone(),
+                address_range: module.address_range.clone(),
+            }
+        })
+        .collect()
 }
 
 fn modules_from_state(modules: Vec<DapModule>) -> Vec<Module> {
@@ -71,6 +98,10 @@ impl ModuleList {
         self.list.reset(modules.len());
         self.modules = modules_from_state(modules);
         cx.notify();
+    }
+
+    pub(crate) fn to_proto(&self) -> Vec<DapModule> {
+        modules_to_state(&self.modules)
     }
 
     pub fn on_module_event(&mut self, event: &ModuleEvent, cx: &mut ViewContext<Self>) {

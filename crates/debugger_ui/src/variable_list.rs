@@ -204,6 +204,15 @@ impl VariableList {
         }
     }
 
+    pub(crate) fn to_proto(&self) -> proto::DebuggerVariableList {
+        proto::DebuggerVariableList {
+            open_entries: Default::default(),
+            scopes: Default::default(),
+            set_variable_state: Default::default(),
+            entries: Default::default(),
+        }
+    }
+
     pub(crate) fn set_from_proto(&mut self, payload: &SetDebuggerPanelItem) {}
 
     fn handle_stack_frame_list_events(

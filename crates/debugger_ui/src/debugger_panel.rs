@@ -68,7 +68,7 @@ impl ThreadState {
         }
     }
 
-    pub fn to_proto(self) -> proto::DebuggerThreadState {
+    pub fn to_proto(&self) -> proto::DebuggerThreadState {
         let status = self.status.to_proto();
 
         proto::DebuggerThreadState {

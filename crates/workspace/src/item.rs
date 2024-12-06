@@ -591,6 +591,7 @@ impl<T: Item> ItemHandle for View<T> {
         pane: View<Pane>,
         cx: &mut ViewContext<Workspace>,
     ) {
+        dbg!("In added to pane");
         let weak_item = self.downgrade();
         let history = pane.read(cx).nav_history_for_item(self);
         self.update(cx, |this, cx| {
@@ -615,6 +616,7 @@ impl<T: Item> ItemHandle for View<T> {
 
             let mut send_follower_updates = None;
             if let Some(item) = self.to_followable_item_handle(cx) {
+                dbg!(&item.type_id());
                 let is_project_item = item.is_project_item(cx);
                 let item = item.downgrade();
 
@@ -628,6 +630,8 @@ impl<T: Item> ItemHandle for View<T> {
 
                             workspace.update(&mut cx, |workspace, cx| {
                                 let Some(item) = item.upgrade() else { return };
+                                dbg!(&item.tab_tooltip_text(cx));
+                                dbg!(pending_update.borrow());
                                 workspace.update_followers(
                                     is_project_item,
                                     proto::update_followers::Variant::UpdateView(

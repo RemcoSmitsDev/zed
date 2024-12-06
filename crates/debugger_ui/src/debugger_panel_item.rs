@@ -598,17 +598,22 @@ impl FollowableItem for DebugPanelItem {
         self.remote_id
     }
 
-    fn to_state_proto(&self, _cx: &WindowContext) -> Option<proto::view::Variant> {
+    fn to_state_proto(&self, cx: &WindowContext) -> Option<proto::view::Variant> {
         dbg!("Into to state proto");
+
+        let thread_state = Some(self.thread_state.read_with(cx, |this, _| this.to_proto()));
+        let modules = self.module_list.read(cx).to_proto();
+        let variable_list = Some(self.variable_list.read(cx).to_proto());
+
         Some(proto::view::Variant::DebugPanel(proto::view::DebugPanel {
             project_id: 1,
             client_id: self.client_id.to_proto(),
             thread_id: self.thread_id,
             console: None,
-            modules: Default::default(),
+            modules,
             active_thread_item: self.active_thread_item.to_proto().into(),
-            thread_state: None,
-            variable_list: None,
+            thread_state,
+            variable_list,
         }))
     }
 
@@ -655,9 +660,11 @@ impl FollowableItem for DebugPanelItem {
     fn add_event_to_update_proto(
         &self,
         _event: &Self::Event,
-        _update: &mut Option<proto::update_view::Variant>,
+        update: &mut Option<proto::update_view::Variant>,
         _cx: &WindowContext,
     ) -> bool {
+        update.get_or_insert_with(|| proto::update_view::Variant::DebugPanel(Default::default()));
+
         true
     }
 

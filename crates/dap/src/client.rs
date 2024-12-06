@@ -42,7 +42,7 @@ impl ThreadStatus {
         }
     }
 
-    pub fn to_proto(self) -> i32 {
+    pub fn to_proto(&self) -> i32 {
         match self {
             Self::Running => 0,
             Self::Stopped => 1,
