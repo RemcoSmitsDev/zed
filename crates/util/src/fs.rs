@@ -57,7 +57,7 @@ where
 
                 if let Some(file_name) = entry_path
                     .file_name()
-                    .and_then(|file_name| Some(file_name.to_string_lossy()))
+                    .map(|file_name| file_name.to_string_lossy())
                 {
                     if predicate(&file_name) {
                         return Some(entry_path);
