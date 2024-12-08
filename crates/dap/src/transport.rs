@@ -691,7 +691,6 @@ impl FakeTransport {
                 move |seq, args, writer: Arc<Mutex<async_pipe::PipeWriter>>| {
                     let response = handler(seq, serde_json::from_value(args).unwrap()).unwrap();
 
-                    // Create the response message
                     let message = Message::Response(Response {
                         seq: seq + 1,
                         request_seq: seq,
@@ -700,10 +699,8 @@ impl FakeTransport {
                         body: Some(serde_json::to_value(response).unwrap()),
                     });
 
-                    // Serialize it once to JSON
                     let content = serde_json::to_string(&message).unwrap();
 
-                    // Format with DAP header
                     let formatted = format!("Content-Length: {}\r\n\r\n{}", content.len(), content);
 
                     let writer = writer.clone();
