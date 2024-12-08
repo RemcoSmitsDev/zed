@@ -29,3 +29,7 @@ serde_json.workspace = true
 sysinfo.workspace = true
 task.workspace = true
 util.workspace = true
+
+[dev-dependencies]
+dap = { workspace = true, features = ["test-support"] }
+task = { workspace = true, features = ["test-support"] }
