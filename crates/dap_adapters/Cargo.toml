@@ -5,6 +5,12 @@ edition =  "2021"
 publish =  false
 license = "GPL-3.0-or-later"
 
+[features]
+test-support = [
+    "util/test-support",
+    "task/test-support"
+]
+
 [lints]
 workspace = true
 
