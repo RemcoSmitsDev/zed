@@ -447,7 +447,10 @@ pub trait Transport: 'static + Send + Sync + Any {
 
     async fn kill(&self) -> Result<()>;
 
-    fn as_any(&self) -> &dyn Any;
+    #[cfg(any(test, feature = "test-support"))]
+    fn as_fake(&self) -> &FakeTransport {
+        panic!("called as_fake on a real adapter");
+    }
 }
 
 pub struct TcpTransport {
@@ -565,10 +568,6 @@ impl Transport for TcpTransport {
 
         Ok(())
     }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
 }
 
 pub struct StdioTransport {
@@ -651,10 +650,6 @@ impl Transport for StdioTransport {
         }
 
         Ok(())
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 }
 
@@ -782,7 +777,8 @@ impl Transport for FakeTransport {
         Ok(())
     }
 
-    fn as_any(&self) -> &dyn Any {
+    #[cfg(any(test, feature = "test-support"))]
+    fn as_fake(&self) -> &FakeTransport {
         self
     }
 }

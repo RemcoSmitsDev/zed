@@ -237,12 +237,7 @@ impl DebugAdapterClient {
     {
         let transport = self.transport_delegate.transport();
 
-        if let Some(fake_transport) = transport
-            .as_any()
-            .downcast_ref::<crate::transport::FakeTransport>()
-        {
-            fake_transport.on_request::<R, _>(handler).await;
-        }
+        transport.as_fake().on_request::<R, _>(handler).await;
     }
 }
 
