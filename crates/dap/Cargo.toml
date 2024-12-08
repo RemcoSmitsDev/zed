@@ -12,7 +12,8 @@ workspace = true
 test-support = [
     "gpui/test-support",
     "util/test-support",
-    "task/test-support"
+    "task/test-support",
+    "async-pipe",
 ]
 
 [dependencies]

@@ -8,7 +8,8 @@ license = "GPL-3.0-or-later"
 [features]
 test-support = [
     "util/test-support",
-    "task/test-support"
+    "task/test-support",
+    "dap/test-support",
 ]
 
 [lints]

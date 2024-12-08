@@ -304,9 +304,7 @@ pub trait DebugAdapter: 'static + Send + Sync {
 }
 
 #[cfg(any(test, feature = "test-support"))]
-pub struct FakeAdapter {
-    //
-}
+pub struct FakeAdapter {}
 
 #[cfg(any(test, feature = "test-support"))]
 impl FakeAdapter {
