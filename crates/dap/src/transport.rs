@@ -163,10 +163,10 @@ impl TransportDelegate {
         }
     }
 
-    async fn handle_adapter_log(
-        stdout: Box<dyn AsyncRead + Unpin + Send + 'static>,
-        log_handlers: LogHandlers,
-    ) -> Result<()> {
+    async fn handle_adapter_log<Stdout>(stdout: Stdout, log_handlers: LogHandlers) -> Result<()>
+    where
+        Stdout: AsyncRead + Unpin + Send + 'static,
+    {
         let mut reader = BufReader::new(stdout);
         let mut line = String::new();
 
@@ -196,13 +196,16 @@ impl TransportDelegate {
         result
     }
 
-    async fn handle_input(
-        mut server_stdin: Box<dyn AsyncWrite + Unpin + Send>,
+    async fn handle_input<Stdin>(
+        mut server_stdin: Stdin,
         client_rx: Receiver<Message>,
         current_requests: Requests,
         pending_requests: Requests,
         log_handlers: LogHandlers,
-    ) -> Result<()> {
+    ) -> Result<()>
+    where
+        Stdin: AsyncWrite + Unpin + Send + 'static,
+    {
         let result = loop {
             match client_rx.recv().await {
                 Ok(message) => {
@@ -248,12 +251,15 @@ impl TransportDelegate {
         result
     }
 
-    async fn handle_output(
-        server_stdout: Box<dyn AsyncRead + Unpin + Send + 'static>,
+    async fn handle_output<Stdout>(
+        server_stdout: Stdout,
         client_tx: Sender<Message>,
         pending_requests: Requests,
         log_handlers: LogHandlers,
-    ) -> Result<()> {
+    ) -> Result<()>
+    where
+        Stdout: AsyncRead + Unpin + Send + 'static,
+    {
         let mut recv_buffer = String::new();
         let mut reader = BufReader::new(server_stdout);
 
@@ -287,10 +293,10 @@ impl TransportDelegate {
         result
     }
 
-    async fn handle_error(
-        stderr: Box<dyn AsyncRead + Unpin + Send>,
-        log_handlers: LogHandlers,
-    ) -> Result<()> {
+    async fn handle_error<Stderr>(stderr: Stderr, log_handlers: LogHandlers) -> Result<()>
+    where
+        Stderr: AsyncRead + Unpin + Send + 'static,
+    {
         let mut buffer = String::new();
 
         let mut reader = BufReader::new(stderr);
