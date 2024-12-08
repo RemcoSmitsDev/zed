@@ -1,6 +1,6 @@
 use crate::stack_frame_list::{StackFrameList, StackFrameListEvent};
 use anyhow::Result;
-use dap::{client::DebugAdapterClientId, Scope, Variable};
+use dap::{client::DebugAdapterClientId, Scope, ScopePresentationHint, Variable};
 use editor::{
     actions::{self, SelectAll},
     Editor, EditorEvent,
@@ -12,6 +12,7 @@ use gpui::{
 };
 use menu::Confirm;
 use project::dap_store::DapStore;
+use rpc::proto::{self, SetDebuggerPanelItem};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
@@ -33,6 +34,38 @@ pub struct SetVariableState {
     stack_frame_id: u64,
     evaluate_name: Option<String>,
     parent_variables_reference: u64,
+}
+
+impl SetVariableState {
+    fn from_proto(payload: proto::DebuggerSetVariableState) -> Option<Self> {
+        let scope = payload.scope.map(|scope| {
+            let presentation_hint = match scope.presentation_hint {
+                0 => Some(ScopePresentationHint::Arguments),
+                1 => Some(ScopePresentationHint::Locals),
+                2 => Some(ScopePresentationHint::Registers),
+                3 => Some(ScopePresentationHint::ReturnValue),
+                4 => Some(ScopePresentationHint::Unknown),
+                _ => None,
+            };
+
+            Scope {
+                name: scope.name,
+                presentation_hint,
+                variables_reference: scope.variables_reference,
+                named_variables: scope.named_variables,
+                indexed_variables: scope.indexed_variables,
+                expensive: scope.expensive,
+                source: None,
+                line: scope.line,
+                column: scope.column,
+                end_line: scope.end_line,
+                end_column: scope.end_column,
+            }
+        })?;
+
+        None
+        // SetVariableState { name: payload.name, scope, value: payload.value, stack_frame_id: payload.stack_frame_id, }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -100,21 +133,24 @@ impl ScopeVariableIndex {
     }
 }
 
+type StackFrameId = u64;
+type ScopeId = u64;
+
 pub struct VariableList {
     list: ListState,
     focus_handle: FocusHandle,
     dap_store: Model<DapStore>,
     open_entries: Vec<OpenEntry>,
     client_id: DebugAdapterClientId,
-    scopes: HashMap<u64, Vec<Scope>>,
+    scopes: HashMap<StackFrameId, Vec<Scope>>,
     set_variable_editor: View<Editor>,
     _subscriptions: Vec<Subscription>,
     stack_frame_list: View<StackFrameList>,
     set_variable_state: Option<SetVariableState>,
-    entries: HashMap<u64, Vec<VariableListEntry>>,
+    entries: HashMap<StackFrameId, Vec<VariableListEntry>>,
     fetch_variables_task: Option<Task<Result<()>>>,
     // (stack_frame_id, scope_id) -> VariableIndex
-    variables: BTreeMap<(u64, u64), ScopeVariableIndex>,
+    variables: BTreeMap<(StackFrameId, ScopeId), ScopeVariableIndex>,
     open_context_menu: Option<(View<ContextMenu>, Point<Pixels>, Subscription)>,
 }
 
@@ -167,6 +203,17 @@ impl VariableList {
             stack_frame_list: stack_frame_list.clone(),
         }
     }
+
+    pub(crate) fn to_proto(&self) -> proto::DebuggerVariableList {
+        proto::DebuggerVariableList {
+            open_entries: Default::default(),
+            scopes: Default::default(),
+            set_variable_state: Default::default(),
+            entries: Default::default(),
+        }
+    }
+
+    pub(crate) fn set_from_proto(&mut self, payload: &SetDebuggerPanelItem) {}
 
     fn handle_stack_frame_list_events(
         &mut self,

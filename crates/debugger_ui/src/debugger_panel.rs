@@ -1,13 +1,14 @@
-use crate::attach_modal::AttachModal;
-use crate::debugger_panel_item::DebugPanelItem;
+use crate::{attach_modal::AttachModal, debugger_panel_item::DebugPanelItem};
+
 use anyhow::Result;
+use client::proto;
 use collections::{BTreeMap, HashMap};
 use command_palette_hooks::CommandPaletteFilter;
-use dap::client::{DebugAdapterClientId, ThreadStatus};
-use dap::debugger_settings::DebuggerSettings;
-use dap::messages::{Events, Message};
-use dap::requests::{Request, RunInTerminal, StartDebugging};
 use dap::{
+    client::{DebugAdapterClientId, ThreadStatus},
+    debugger_settings::DebuggerSettings,
+    messages::{Events, Message},
+    requests::{Request, RunInTerminal, StartDebugging},
     Capabilities, CapabilitiesEvent, ContinuedEvent, ExitedEvent, LoadedSourceEvent, ModuleEvent,
     OutputEvent, RunInTerminalRequestArguments, StoppedEvent, TerminatedEvent, ThreadEvent,
     ThreadEventReason,
@@ -16,24 +17,18 @@ use gpui::{
     actions, Action, AppContext, AsyncWindowContext, EventEmitter, FocusHandle, FocusableView,
     FontWeight, Model, Subscription, Task, View, ViewContext, WeakView,
 };
-use project::dap_store::DapStore;
-use project::terminals::TerminalKind;
+use project::{dap_store::DapStore, terminals::TerminalKind};
+use rpc::AnyProtoClient;
 use serde_json::Value;
 use settings::Settings;
-use std::any::TypeId;
-use std::collections::VecDeque;
-use std::path::PathBuf;
-use std::u64;
+use std::{any::TypeId, collections::VecDeque, path::PathBuf, u64};
 use task::DebugRequestType;
 use terminal_view::terminal_panel::TerminalPanel;
 use ui::prelude::*;
 use workspace::{
     dock::{DockPosition, Panel, PanelEvent},
-    Workspace,
-};
-use workspace::{
     pane, Continue, Disconnect, Pane, Pause, Restart, Start, StepInto, StepOut, StepOver, Stop,
-    ToggleIgnoreBreakpoints,
+    ToggleIgnoreBreakpoints, Workspace,
 };
 
 pub enum DebugPanelEvent {
@@ -63,6 +58,26 @@ pub struct ThreadState {
     pub stopped: bool,
 }
 
+impl ThreadState {
+    pub fn from_proto(thread_state: proto::DebuggerThreadState) -> Self {
+        let status = ThreadStatus::from_proto(thread_state.thread_status());
+
+        Self {
+            status,
+            stopped: thread_state.stopped,
+        }
+    }
+
+    pub fn to_proto(&self) -> proto::DebuggerThreadState {
+        let status = self.status.to_proto();
+
+        proto::DebuggerThreadState {
+            thread_status: status,
+            stopped: self.stopped,
+        }
+    }
+}
+
 pub struct DebugPanel {
     size: Pixels,
     pane: View<Pane>,
@@ -76,6 +91,8 @@ pub struct DebugPanel {
 }
 
 impl DebugPanel {
+    pub fn _init(client: &AnyProtoClient) {}
+
     pub fn new(workspace: &Workspace, cx: &mut ViewContext<Workspace>) -> View<Self> {
         cx.new_view(|cx| {
             let pane = cx.new_view(|cx| {
@@ -531,6 +548,8 @@ impl DebugPanel {
 
         let client_id = *client_id;
 
+        let client_name = SharedString::from(client_kind.display_name().to_string());
+
         cx.spawn({
             let event = event.clone();
             |this, mut cx| async move {
@@ -567,7 +586,7 @@ impl DebugPanel {
                                     this.dap_store.clone(),
                                     thread_state.clone(),
                                     &client_id,
-                                    &client_kind,
+                                    client_name,
                                     thread_id,
                                     cx,
                                 )
@@ -725,6 +744,49 @@ impl DebugPanel {
         cx.emit(DebugPanelEvent::CapabilitiesChanged(*client_id));
     }
 
+    pub fn open_remote_debug_panel_item(
+        &self,
+        client_id: DebugAdapterClientId,
+        thread_id: u64,
+        cx: &mut ViewContext<DebugPanel>,
+    ) -> View<DebugPanelItem> {
+        let existing_item = self.pane.read(cx).items().find_map(|item| {
+            let item = item.downcast::<DebugPanelItem>()?;
+            let item_ref = item.read(cx);
+
+            if item_ref.client_id() == client_id && item_ref.thread_id() == thread_id {
+                Some(item)
+            } else {
+                None
+            }
+        });
+
+        if let Some(existing_item) = existing_item {
+            return existing_item;
+        }
+
+        let debug_panel = cx.view().clone();
+
+        let debug_panel_item = cx.new_view(|cx| {
+            DebugPanelItem::new(
+                debug_panel,
+                self.workspace.clone(),
+                self.dap_store.clone(),
+                cx.new_model(|_| Default::default()), // change this
+                &client_id,
+                SharedString::from("test"), // change this
+                thread_id,
+                cx,
+            )
+        });
+
+        self.pane.update(cx, |pane, cx| {
+            pane.add_item(Box::new(debug_panel_item.clone()), true, true, None, cx);
+        });
+
+        debug_panel_item
+    }
+
     fn render_did_not_stop_warning(&self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         const TITLE: &'static str = "Debug session exited without hitting any breakpoints";
         const DESCRIPTION: &'static str =
@@ -803,6 +865,10 @@ impl Panel for DebugPanel {
 
     fn set_size(&mut self, size: Option<Pixels>, _cx: &mut ViewContext<Self>) {
         self.size = size.unwrap();
+    }
+
+    fn remote_id() -> Option<proto::PanelId> {
+        Some(proto::PanelId::DebugPanel)
     }
 
     fn icon(&self, _cx: &WindowContext) -> Option<IconName> {

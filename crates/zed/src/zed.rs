@@ -3580,7 +3580,7 @@ mod tests {
             repl::notebook::init(cx);
             tasks_ui::init(cx);
             project::dap_store::DapStore::init(&app_state.client.clone().into());
-            debugger_ui::init(cx);
+            debugger_ui::init(&app_state.client, cx);
             initialize_workspace(app_state.clone(), prompt_builder, cx);
             search::init(cx);
             app_state
