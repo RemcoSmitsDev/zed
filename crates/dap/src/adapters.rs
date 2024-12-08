@@ -326,6 +326,20 @@ impl DebugAdapter for FakeAdapter {
         Arc::new(FakeTransport::new())
     }
 
+    async fn get_binary(
+        &self,
+        _delegate: &dyn DapDelegate,
+        _config: &DebugAdapterConfig,
+        _user_installed_path: Option<PathBuf>,
+    ) -> Result<DebugAdapterBinary> {
+        Ok(DebugAdapterBinary {
+            command: "command".into(),
+            arguments: None,
+            envs: None,
+            cwd: None,
+        })
+    }
+
     async fn fetch_latest_adapter_version(
         &self,
         _delegate: &dyn DapDelegate,
