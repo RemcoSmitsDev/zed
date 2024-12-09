@@ -290,7 +290,13 @@ mod tests {
             })
             .await;
 
-        client.start(|_, _| {}, &mut cx.to_async()).await.unwrap();
+        client
+            .start(
+                |_, _| panic!("Did not expect to hit this code path"),
+                &mut cx.to_async(),
+            )
+            .await
+            .unwrap();
 
         let response = client
             .request::<Initialize>(InitializeRequestArguments {
