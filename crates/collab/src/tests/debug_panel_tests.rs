@@ -74,7 +74,7 @@ async fn test_debug_panel_following(cx_a: &mut TestAppContext, cx_b: &mut TestAp
             .unwrap()
     });
 
-    // Start a fake debugging session in a (see: other tests which setup fake langauge servers for a model)
+    // Start a fake debugging session in a (see: other tests which setup fake language servers for a model)
     // Add a breakpoint
     editor_a.update(cx_a, |editor, cx| {
         editor.move_down(&editor::actions::MoveDown, cx);
