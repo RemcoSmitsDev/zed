@@ -372,8 +372,6 @@ mod tests {
         client
             .start(
                 move |event, _| {
-                    dbg!("here");
-
                     was_called_clone.store(true, Ordering::SeqCst);
 
                     assert_eq!(
