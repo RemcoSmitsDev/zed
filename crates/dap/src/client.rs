@@ -309,10 +309,6 @@ mod tests {
 
         cx.run_until_parked();
 
-        client
-            .fake_event(Events::Initialized(Some(Capabilities::default())))
-            .await;
-
         let response = client
             .request::<Initialize>(InitializeRequestArguments {
                 client_id: Some("zed".to_owned()),
