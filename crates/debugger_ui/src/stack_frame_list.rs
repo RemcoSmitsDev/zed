@@ -2,6 +2,7 @@ use std::path::Path;
 
 use anyhow::{anyhow, Result};
 use dap::client::DebugAdapterClientId;
+use dap::proto_conversions::ProtoConversion;
 use dap::StackFrame;
 use gpui::{
     list, AnyElement, EventEmitter, FocusHandle, ListState, Subscription, Task, View, WeakView,
@@ -9,6 +10,7 @@ use gpui::{
 use gpui::{FocusableView, Model};
 use project::dap_store::DapStore;
 use project::ProjectPath;
+use rpc::proto::DebuggerStackFrameList;
 use ui::ViewContext;
 use ui::{prelude::*, Tooltip};
 use workspace::Workspace;
@@ -69,6 +71,22 @@ impl StackFrameList {
             stack_frames: Default::default(),
             current_stack_frame_id: Default::default(),
         }
+    }
+
+    pub(crate) fn to_proto(&self) -> DebuggerStackFrameList {
+        DebuggerStackFrameList {
+            thread_id: self.thread_id,
+            client_id: self.client_id.to_proto(),
+            current_stack_frame: self.current_stack_frame_id,
+            stack_frames: self.stack_frames.to_proto(),
+        }
+    }
+
+    pub(crate) fn set_from_proto(&mut self, stack_frames: DebuggerStackFrameList) {
+        self.thread_id = stack_frames.thread_id;
+        self.client_id = DebugAdapterClientId::from_proto(stack_frames.client_id);
+        self.current_stack_frame_id = stack_frames.current_stack_frame;
+        self.stack_frames = Vec::from_proto(stack_frames.stack_frames);
     }
 
     pub fn stack_frames(&self) -> &Vec<StackFrame> {

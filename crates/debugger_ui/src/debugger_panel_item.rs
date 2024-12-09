@@ -206,6 +206,11 @@ impl DebugPanelItem {
         state: &proto::view::DebugPanel,
         cx: &mut ViewContext<Self>,
     ) {
+        if let Some(stack_frame_list) = state.stack_frames.as_ref() {
+            self.stack_frame_list
+                .update(cx, |this, _| this.set_from_proto(stack_frame_list.clone()));
+        }
+
         if let Some(variable_list_state) = state.variable_list.as_ref() {
             self.variable_list
                 .update(cx, |this, cx| this.set_from_proto(variable_list_state, cx));
@@ -619,6 +624,7 @@ impl FollowableItem for DebugPanelItem {
         let thread_state = Some(self.thread_state.read_with(cx, |this, _| this.to_proto()));
         let modules = self.module_list.read(cx).to_proto();
         let variable_list = Some(self.variable_list.read(cx).to_proto());
+        let stack_frames = Some(self.stack_frame_list.read(cx).to_proto());
 
         Some(proto::view::Variant::DebugPanel(proto::view::DebugPanel {
             project_id: 1,
@@ -629,6 +635,7 @@ impl FollowableItem for DebugPanelItem {
             active_thread_item: self.active_thread_item.to_proto().into(),
             thread_state,
             variable_list,
+            stack_frames,
         }))
     }
 

@@ -1,6 +1,6 @@
 use client::proto::{
     DapChecksum, DapChecksumAlgorithm, DapScope, DapScopePresentationHint, DapSource,
-    DapSourcePresentationHint, DapVariable,
+    DapSourcePresentationHint, DapStackFrame, DapVariable,
 };
 
 pub trait ProtoConversion {
@@ -225,6 +225,42 @@ impl ProtoConversion for dap_types::Source {
             sources: Some(Vec::from_proto(payload.sources)),
             checksums: Some(Vec::from_proto(payload.checksums)),
             adapter_data: None,
+        }
+    }
+}
+
+impl ProtoConversion for dap_types::StackFrame {
+    type DapType = DapStackFrame;
+
+    fn to_proto(&self) -> Self::DapType {
+        Self::DapType {
+            id: self.id,
+            name: self.name.clone(),
+            source: self.source.as_ref().map(|src| src.to_proto()),
+            line: self.line,
+            column: self.column,
+            end_line: self.end_line,
+            end_column: self.end_column,
+            can_restart: self.can_restart,
+            instruction_pointer_reference: self.instruction_pointer_reference.clone(),
+            module_id: None, // TODO Debugger Collab
+            presentation_hint: None,
+        }
+    }
+
+    fn from_proto(payload: Self::DapType) -> Self {
+        Self {
+            id: payload.id,
+            name: payload.name,
+            source: payload.source.map(|src| dap_types::Source::from_proto(src)),
+            line: payload.line,
+            column: payload.column,
+            end_line: payload.end_line,
+            end_column: payload.end_column,
+            can_restart: payload.can_restart,
+            instruction_pointer_reference: payload.instruction_pointer_reference,
+            module_id: None,
+            presentation_hint: None,
         }
     }
 }

@@ -1754,6 +1754,7 @@ message View {
         DebuggerThreadItem active_thread_item = 6;
         DebuggerThreadState thread_state = 7;
         DebuggerVariableList variable_list = 8;
+        DebuggerStackFrameList stack_frames = 9;
     }
 }
 
