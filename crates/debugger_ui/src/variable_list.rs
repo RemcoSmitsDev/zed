@@ -1,9 +1,8 @@
 use crate::stack_frame_list::{StackFrameList, StackFrameListEvent};
 use anyhow::Result;
 use dap::{
-    client::DebugAdapterClientId,
-    proto_conversions::{self, ProtoConversion},
-    Scope, ScopePresentationHint, Variable,
+    client::DebugAdapterClientId, proto_conversions::ProtoConversion, Scope, ScopePresentationHint,
+    Variable,
 };
 use editor::{
     actions::{self, SelectAll},
@@ -16,7 +15,8 @@ use gpui::{
 };
 use menu::Confirm;
 use project::dap_store::DapStore;
-use rpc::proto::{self, SetDebuggerPanelItem};
+use proto::debugger_variable_list_entry::Entry;
+use rpc::proto::{self, VariableListEntries, VariableListScopes};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
@@ -143,6 +143,52 @@ pub enum VariableListEntry {
     },
 }
 
+impl VariableListEntry {
+    pub(crate) fn to_proto(&self) -> proto::DebuggerVariableListEntry {
+        let entry = match &self {
+            VariableListEntry::Scope(scope) => Entry::Scope(scope.to_proto()),
+            VariableListEntry::Variable {
+                depth,
+                scope,
+                variable,
+                has_children,
+                container_reference,
+            } => Entry::Variable(proto::VariableListEntryVariable {
+                depth: *depth as u64,
+                scope: Some(scope.to_proto()),
+                variable: Some(variable.to_proto()),
+                has_children: *has_children,
+                container_reference: *container_reference,
+            }),
+            VariableListEntry::SetVariableEditor { depth, state } => {
+                Entry::SetVariableEditor(proto::VariableListEntrySetState {
+                    depth: *depth as u64,
+                    state: Some(state.to_proto()),
+                })
+            }
+        };
+
+        proto::DebuggerVariableListEntry { entry: Some(entry) }
+    }
+
+    pub(crate) fn from_proto(entry: proto::DebuggerVariableListEntry) -> Option<Self> {
+        match entry.entry? {
+            Entry::Scope(scope) => Some(Self::Scope(Scope::from_proto(scope))),
+            Entry::Variable(var) => Some(Self::Variable {
+                depth: var.depth as usize,
+                scope: Arc::new(Scope::from_proto(var.scope?)),
+                variable: Arc::new(Variable::from_proto(var.variable?)),
+                has_children: var.has_children,
+                container_reference: var.container_reference,
+            }),
+            Entry::SetVariableEditor(set_state) => Some(Self::SetVariableEditor {
+                depth: set_state.depth as usize,
+                state: SetVariableState::from_proto(set_state.state?)?,
+            }),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct ScopeVariableIndex {
     fetched_ids: HashSet<u64>,
@@ -266,11 +312,33 @@ impl VariableList {
             .as_ref()
             .map(SetVariableState::to_proto);
 
+        let entries = self
+            .entries
+            .iter()
+            .map(|(key, entries)| VariableListEntries {
+                stack_frame_id: *key,
+                entries: entries
+                    .clone()
+                    .iter()
+                    .map(|entry| entry.to_proto())
+                    .collect(),
+            })
+            .collect();
+
+        let scopes = self
+            .scopes
+            .iter()
+            .map(|(key, scopes)| VariableListScopes {
+                stack_frame_id: *key,
+                scopes: scopes.to_proto(),
+            })
+            .collect();
+
         proto::DebuggerVariableList {
             open_entries,
-            scopes: Default::default(),
+            scopes,
             set_variable_state,
-            entries: Default::default(),
+            entries,
         }
     }
 
@@ -290,9 +358,40 @@ impl VariableList {
             .clone()
             .and_then(SetVariableState::from_proto);
 
-        dbg!("Setting from proto");
-        dbg!(&self.open_entries);
-        dbg!(&state.entries);
+        self.entries = state
+            .entries
+            .iter()
+            .map(|entry| {
+                (
+                    entry.stack_frame_id,
+                    entry
+                        .entries
+                        .clone()
+                        .iter()
+                        .filter_map(|ele| VariableListEntry::from_proto(ele.clone()))
+                        .collect(),
+                )
+            })
+            .collect();
+
+        self.scopes = state
+            .scopes
+            .iter()
+            .map(|scope| {
+                (
+                    scope.stack_frame_id,
+                    scope
+                        .scopes
+                        .clone()
+                        .iter()
+                        .map(|ele| Scope::from_proto(ele.clone()))
+                        .collect(),
+                )
+            })
+            .collect();
+
+        self.build_entries(true, true, cx);
+
         cx.notify();
     }
 

@@ -2521,7 +2521,7 @@ enum DebuggerThreadStatus {
 
 message VariableListScopes {
     uint64 stack_frame_id = 1;
-    DapScope scopes = 2;
+    repeated DapScope scopes = 2;
 }
 
 message VariableListEntries {
