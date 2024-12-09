@@ -239,6 +239,13 @@ impl DebugAdapterClient {
 
         transport.as_fake().on_request::<R, F>(handler).await;
     }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn fake_event(&self, event: dap_types::messages::Events) {
+        self.send_message(Message::Event(Box::new(event)))
+            .await
+            .unwrap();
+    }
 }
 
 #[cfg(test)]
@@ -246,9 +253,11 @@ mod tests {
     use super::*;
     use crate::{adapters::FakeAdapter, client::DebugAdapterClient};
     use dap_types::{
-        requests::Initialize, InitializeRequestArguments, InitializeRequestArgumentsPathFormat,
+        messages::Events, requests::Initialize, Capabilities, InitializeRequestArguments,
+        InitializeRequestArgumentsPathFormat,
     };
     use gpui::TestAppContext;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use task::DebugAdapterConfig;
 
     #[ctor::ctor]
@@ -298,6 +307,12 @@ mod tests {
             .await
             .unwrap();
 
+        cx.run_until_parked();
+
+        client
+            .fake_event(Events::Initialized(Some(Capabilities::default())))
+            .await;
+
         let response = client
             .request::<Initialize>(InitializeRequestArguments {
                 client_id: Some("zed".to_owned()),
@@ -320,12 +335,74 @@ mod tests {
             .await
             .unwrap();
 
+        cx.run_until_parked();
+
         assert_eq!(
             dap_types::Capabilities {
                 supports_configuration_done_request: Some(true),
                 ..Default::default()
             },
             response
+        );
+
+        client.shutdown().await.unwrap();
+    }
+
+    #[gpui::test]
+    pub async fn test_calls_event_handler(cx: &mut TestAppContext) {
+        let adapter = Arc::new(FakeAdapter::new());
+        let was_called = Arc::new(AtomicBool::new(false));
+        let was_called_clone = was_called.clone();
+
+        let mut client = DebugAdapterClient::new(
+            crate::client::DebugAdapterClientId(1),
+            DebugAdapterConfig {
+                kind: task::DebugAdapterKind::Fake,
+                request: task::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            adapter,
+            DebugAdapterBinary {
+                command: "command".into(),
+                arguments: Default::default(),
+                envs: Default::default(),
+                cwd: None,
+            },
+            &mut cx.to_async(),
+        );
+
+        client
+            .start(
+                move |event, _| {
+                    dbg!("here");
+
+                    was_called_clone.store(true, Ordering::SeqCst);
+
+                    assert_eq!(
+                        Message::Event(Box::new(Events::Initialized(
+                            Some(Capabilities::default())
+                        ))),
+                        event
+                    );
+                },
+                &mut cx.to_async(),
+            )
+            .await
+            .unwrap();
+
+        cx.run_until_parked();
+
+        client
+            .fake_event(Events::Initialized(Some(Capabilities::default())))
+            .await;
+
+        cx.run_until_parked();
+
+        assert!(
+            was_called.load(std::sync::atomic::Ordering::SeqCst),
+            "Event handler was not called"
         );
 
         client.shutdown().await.unwrap();

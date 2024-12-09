@@ -196,6 +196,10 @@ impl TransportDelegate {
         result
     }
 
+    fn build_rpc_message(message: String) -> String {
+        format!("Content-Length: {}\r\n\r\n{}", message.len(), message)
+    }
+
     async fn handle_input<Stdin>(
         mut server_stdin: Stdin,
         client_rx: Receiver<Message>,
@@ -227,10 +231,7 @@ impl TransportDelegate {
                     }
 
                     if let Err(e) = server_stdin
-                        .write_all(
-                            format!("Content-Length: {}\r\n\r\n{}", message.len(), message)
-                                .as_bytes(),
-                        )
+                        .write_all(Self::build_rpc_message(message).as_bytes())
                         .await
                     {
                         break Err(e.into());
@@ -694,15 +695,16 @@ impl FakeTransport {
                         body: Some(serde_json::to_value(response).unwrap()),
                     });
 
-                    let content = serde_json::to_string(&message).unwrap();
-
-                    let formatted = format!("Content-Length: {}\r\n\r\n{}", content.len(), content);
+                    let message = serde_json::to_string(&message).unwrap();
 
                     let writer = writer.clone();
 
                     Box::pin(async move {
                         let mut writer = writer.lock().await;
-                        writer.write_all(formatted.as_bytes()).await.unwrap();
+                        writer
+                            .write_all(TransportDelegate::build_rpc_message(message).as_bytes())
+                            .await
+                            .unwrap();
                         writer.flush().await.unwrap();
                     })
                 },
@@ -725,7 +727,7 @@ impl Transport for FakeTransport {
         let handlers = self.request_handlers.clone();
         let stdout_writer = Arc::new(Mutex::new(stdout_writer));
 
-        cx.spawn(|_| async move {
+        cx.background_executor().spawn(async move {
             let mut reader = BufReader::new(stdin_reader);
             let mut buffer = String::new();
 
@@ -755,7 +757,17 @@ impl Transport for FakeTransport {
                             log::debug!("No handler for {}", request.command);
                         }
                     }
-                    _ => unreachable!("You can only send a request"),
+                    Ok(Message::Event(event)) => {
+                        let message = serde_json::to_string(&Message::Event(event)).unwrap();
+
+                        let mut writer = stdout_writer.lock().await;
+                        writer
+                            .write_all(TransportDelegate::build_rpc_message(message).as_bytes())
+                            .await
+                            .unwrap();
+                        writer.flush().await.unwrap();
+                    }
+                    _ => unreachable!("You can only send a request and an event that is redirected to the ouput reader"),
                 }
             }
         })
