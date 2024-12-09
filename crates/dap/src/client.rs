@@ -237,7 +237,7 @@ impl DebugAdapterClient {
     {
         let transport = self.transport_delegate.transport();
 
-        transport.as_fake().on_request::<R, _>(handler).await;
+        transport.as_fake().on_request::<R, F>(handler).await;
     }
 }
 
