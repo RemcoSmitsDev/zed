@@ -92,7 +92,7 @@ impl TransportDelegate {
         binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
     ) -> Result<(Receiver<Message>, Sender<Message>)> {
-        let mut params = self.transport.clone().start(binary, cx).await?;
+        let mut params = self.transport.start(binary, cx).await?;
 
         let (client_tx, server_rx) = unbounded::<Message>();
         let (server_tx, client_rx) = unbounded::<Message>();
@@ -438,7 +438,7 @@ impl TransportDelegate {
 #[async_trait(?Send)]
 pub trait Transport: 'static + Send + Sync + Any {
     async fn start(
-        self: Arc<Self>,
+        &self,
         binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
     ) -> Result<TransportPipe>;
@@ -486,7 +486,7 @@ impl TcpTransport {
 #[async_trait(?Send)]
 impl Transport for TcpTransport {
     async fn start(
-        self: Arc<Self>,
+        &self,
         binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
     ) -> Result<TransportPipe> {
@@ -585,7 +585,7 @@ impl StdioTransport {
 #[async_trait(?Send)]
 impl Transport for StdioTransport {
     async fn start(
-        self: Arc<Self>,
+        &self,
         binary: &DebugAdapterBinary,
         _: &mut AsyncAppContext,
     ) -> Result<TransportPipe> {
@@ -715,7 +715,7 @@ impl FakeTransport {
 #[async_trait(?Send)]
 impl Transport for FakeTransport {
     async fn start(
-        self: Arc<Self>,
+        &self,
         _binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
     ) -> Result<TransportPipe> {
