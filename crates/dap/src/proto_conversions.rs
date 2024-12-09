@@ -1,6 +1,6 @@
 use client::proto::{
     DapChecksum, DapChecksumAlgorithm, DapScope, DapScopePresentationHint, DapSource,
-    DapSourcePresentationHint, DapStackPresentationHint, DapVariable,
+    DapSourcePresentationHint, DapVariable,
 };
 
 pub trait ProtoConversion {
@@ -132,7 +132,6 @@ impl ProtoConversion for dap_types::SourcePresentationHint {
                 DapSourcePresentationHint::Deemphasize
             }
             dap_types::SourcePresentationHint::Unknown => DapSourcePresentationHint::SourceUnknown,
-            &_ => unreachable!(),
         }
     }
 
@@ -175,7 +174,6 @@ impl ProtoConversion for dap_types::ChecksumAlgorithm {
             dap_types::ChecksumAlgorithm::Sha1 => DapChecksumAlgorithm::Sha1,
             dap_types::ChecksumAlgorithm::Sha256 => DapChecksumAlgorithm::Sha256,
             dap_types::ChecksumAlgorithm::Timestamp => DapChecksumAlgorithm::Timestamp,
-            _ => unreachable!(),
         }
     }
 

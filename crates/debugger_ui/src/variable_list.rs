@@ -391,7 +391,6 @@ impl VariableList {
             .collect();
 
         self.build_entries(true, true, cx);
-
         cx.notify();
     }
 

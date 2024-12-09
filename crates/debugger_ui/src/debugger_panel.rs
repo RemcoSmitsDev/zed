@@ -91,7 +91,8 @@ pub struct DebugPanel {
 }
 
 impl DebugPanel {
-    pub fn _init(client: &AnyProtoClient) {}
+    // TODO Debugger Collab
+    pub fn _init(_client: &AnyProtoClient) {}
 
     pub fn new(workspace: &Workspace, cx: &mut ViewContext<Workspace>) -> View<Self> {
         cx.new_view(|cx| {

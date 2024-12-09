@@ -71,7 +71,7 @@ pub use prettier_store::PrettierStore;
 use project_settings::{ProjectSettings, SettingsObserver, SettingsObserverEvent};
 use remote::{SshConnectionOptions, SshRemoteClient};
 use rpc::{
-    proto::{LanguageServerPromptResponse, SetDebuggerPanelItem, SSH_PROJECT_ID},
+    proto::{LanguageServerPromptResponse, SSH_PROJECT_ID},
     AnyProtoClient, ErrorCode,
 };
 use search::{SearchInputKind, SearchQuery, SearchResult};

@@ -843,9 +843,14 @@ impl DapStore {
             Ok(())
         })
     }
-    
-    
-    fn send_proto_client_request(&self, client_id: &DebugAdapterClientId, message: Message, cx: &mut ModelContext<Self>) {
+
+    // TODO Debugger Collab
+    fn _send_proto_client_request(
+        &self,
+        _client_id: &DebugAdapterClientId,
+        _message: Message,
+        _cx: &mut ModelContext<Self>,
+    ) {
         //
     }
 

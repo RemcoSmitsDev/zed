@@ -5,7 +5,6 @@ use crate::module_list::ModuleList;
 use crate::stack_frame_list::{StackFrameList, StackFrameListEvent};
 use crate::variable_list::VariableList;
 
-use anyhow::{anyhow, Result};
 use dap::{
     client::{DebugAdapterClientId, ThreadStatus},
     debugger_settings::DebuggerSettings,
@@ -18,7 +17,7 @@ use gpui::{
     View, WeakView,
 };
 use project::dap_store::DapStore;
-use rpc::proto::{self, PeerId, SetDebuggerPanelItem};
+use rpc::proto::{self, PeerId};
 use settings::Settings;
 use ui::{prelude::*, Indicator, Tooltip, WindowContext};
 use workspace::item;
@@ -211,6 +210,12 @@ impl DebugPanelItem {
             self.variable_list
                 .update(cx, |this, cx| this.set_from_proto(variable_list_state, cx));
         }
+
+        self.module_list.update(cx, |this, cx| {
+            this.set_from_proto(state.modules.clone(), cx)
+        });
+
+        self.active_thread_item = ThreadItem::from_proto(state.active_thread_item());
     }
 
     pub fn update_thread_state_status(&mut self, status: ThreadStatus, cx: &mut ViewContext<Self>) {

@@ -51,7 +51,7 @@ async fn test_debug_panel_following(cx_a: &mut TestAppContext, cx_b: &mut TestAp
     let (workspace_b, cx_b) = client_b.build_workspace(&project_b, cx_b);
 
     // Client A opens an editor.
-    let pane_a = workspace_a.update(cx_a, |workspace, _| workspace.active_pane().clone());
+    let _pane_a = workspace_a.update(cx_a, |workspace, _| workspace.active_pane().clone());
     let editor_a = workspace_a
         .update(cx_a, |workspace, cx| {
             workspace.open_path((worktree_id, "test.txt"), None, true, cx)
@@ -66,7 +66,7 @@ async fn test_debug_panel_following(cx_a: &mut TestAppContext, cx_b: &mut TestAp
     // Client B follows A
     workspace_b.update(cx_b, |workspace, cx| workspace.follow(peer_id_a, cx));
 
-    let editor_b2 = workspace_b.update(cx_b, |workspace, cx| {
+    let _editor_b2 = workspace_b.update(cx_b, |workspace, cx| {
         workspace
             .active_item(cx)
             .unwrap()
