@@ -69,6 +69,7 @@ impl DebugAdapterClientId {
 pub struct DebugAdapterClient {
     id: DebugAdapterClientId,
     sequence_count: AtomicU64,
+    binary: DebugAdapterBinary,
     executor: BackgroundExecutor,
     adapter: Arc<Box<dyn DebugAdapter>>,
     transport_delegate: TransportDelegate,
@@ -80,12 +81,14 @@ impl DebugAdapterClient {
         id: DebugAdapterClientId,
         config: DebugAdapterConfig,
         adapter: Arc<Box<dyn DebugAdapter>>,
+        binary: DebugAdapterBinary,
         cx: &AsyncAppContext,
     ) -> Self {
         let transport_delegate = TransportDelegate::new(adapter.transport());
 
         Self {
             id,
+            binary,
             adapter,
             transport_delegate,
             sequence_count: AtomicU64::new(1),
@@ -225,6 +228,10 @@ impl DebugAdapterClient {
 
     pub fn adapter(&self) -> &Arc<Box<dyn DebugAdapter>> {
         &self.adapter
+    }
+
+    pub fn binary(&self) -> &DebugAdapterBinary {
+        &self.binary
     }
 
     pub fn adapter_id(&self) -> String {
