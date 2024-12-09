@@ -97,6 +97,7 @@ impl TransportDelegate {
         let (client_tx, server_rx) = unbounded::<Message>();
         let (server_tx, client_rx) = unbounded::<Message>();
 
+        // params.stdout //Not 'Stdout' -> stdout_reader (dyn AsyncRead)
         cx.update(|cx| {
             if let Some(stdout) = params.stdout.take() {
                 cx.background_executor()
