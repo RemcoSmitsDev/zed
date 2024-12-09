@@ -71,7 +71,7 @@ pub struct DebugAdapterClient {
     sequence_count: AtomicU64,
     binary: DebugAdapterBinary,
     executor: BackgroundExecutor,
-    adapter: Arc<Box<dyn DebugAdapter>>,
+    adapter: Arc<dyn DebugAdapter>,
     transport_delegate: TransportDelegate,
     config: Arc<Mutex<DebugAdapterConfig>>,
 }
@@ -80,7 +80,7 @@ impl DebugAdapterClient {
     pub fn new(
         id: DebugAdapterClientId,
         config: DebugAdapterConfig,
-        adapter: Arc<Box<dyn DebugAdapter>>,
+        adapter: Arc<dyn DebugAdapter>,
         binary: DebugAdapterBinary,
         cx: &AsyncAppContext,
     ) -> Self {
@@ -97,16 +97,11 @@ impl DebugAdapterClient {
         }
     }
 
-    pub async fn start<F>(
-        &mut self,
-        binary: &DebugAdapterBinary,
-        message_handler: F,
-        cx: &mut AsyncAppContext,
-    ) -> Result<()>
+    pub async fn start<F>(&mut self, message_handler: F, cx: &mut AsyncAppContext) -> Result<()>
     where
         F: FnMut(Message, &mut AppContext) + 'static + Send + Sync + Clone,
     {
-        let (server_rx, server_tx) = self.transport_delegate.start(binary, cx).await?;
+        let (server_rx, server_tx) = self.transport_delegate.start(&self.binary, cx).await?;
         log::info!("Successfully connected to debug adapter");
 
         // start handling events/reverse requests
@@ -226,7 +221,7 @@ impl DebugAdapterClient {
         self.config.lock().unwrap().clone()
     }
 
-    pub fn adapter(&self) -> &Arc<Box<dyn DebugAdapter>> {
+    pub fn adapter(&self) -> &Arc<dyn DebugAdapter> {
         &self.adapter
     }
 
@@ -264,5 +259,100 @@ impl DebugAdapterClient {
         F: 'static + Send + FnMut(IoKind, &str),
     {
         self.transport_delegate.add_log_handler(f, kind);
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn on_request<R: dap_types::requests::Request, F>(&self, handler: F)
+    where
+        F: 'static + Send + FnMut(u64, R::Arguments) -> Result<R::Response>,
+    {
+        let transport = self.transport_delegate.transport();
+
+        transport.as_fake().on_request::<R, _>(handler).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{adapters::FakeAdapter, client::DebugAdapterClient};
+    use dap_types::{
+        requests::Initialize, InitializeRequestArguments, InitializeRequestArgumentsPathFormat,
+    };
+    use gpui::TestAppContext;
+    use task::DebugAdapterConfig;
+
+    #[ctor::ctor]
+    fn init_logger() {
+        if std::env::var("RUST_LOG").is_ok() {
+            env_logger::init();
+        }
+    }
+
+    #[gpui::test]
+    pub async fn test_initialize_client(cx: &mut TestAppContext) {
+        let adapter = Arc::new(FakeAdapter::new());
+
+        let mut client = DebugAdapterClient::new(
+            crate::client::DebugAdapterClientId(1),
+            DebugAdapterConfig {
+                kind: task::DebugAdapterKind::Fake,
+                request: task::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            adapter,
+            DebugAdapterBinary {
+                command: "command".into(),
+                arguments: Default::default(),
+                envs: Default::default(),
+                cwd: None,
+            },
+            &mut cx.to_async(),
+        );
+
+        client
+            .on_request::<Initialize, _>(move |_, _| {
+                Ok(dap_types::Capabilities {
+                    supports_configuration_done_request: Some(true),
+                    ..Default::default()
+                })
+            })
+            .await;
+
+        client.start(|_, _| {}, &mut cx.to_async()).await.unwrap();
+
+        let response = client
+            .request::<Initialize>(InitializeRequestArguments {
+                client_id: Some("zed".to_owned()),
+                client_name: Some("Zed".to_owned()),
+                adapter_id: "fake-adapter".to_owned(),
+                locale: Some("en-US".to_owned()),
+                path_format: Some(InitializeRequestArgumentsPathFormat::Path),
+                supports_variable_type: Some(true),
+                supports_variable_paging: Some(false),
+                supports_run_in_terminal_request: Some(true),
+                supports_memory_references: Some(true),
+                supports_progress_reporting: Some(false),
+                supports_invalidated_event: Some(false),
+                lines_start_at1: Some(true),
+                columns_start_at1: Some(true),
+                supports_memory_event: Some(false),
+                supports_args_can_be_interpreted_by_shell: Some(false),
+                supports_start_debugging_request: Some(true),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            dap_types::Capabilities {
+                supports_configuration_done_request: Some(true),
+                ..Default::default()
+            },
+            response
+        );
+
+        client.shutdown().await.unwrap();
     }
 }
