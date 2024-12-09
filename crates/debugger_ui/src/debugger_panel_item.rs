@@ -5,7 +5,7 @@ use crate::module_list::ModuleList;
 use crate::stack_frame_list::{StackFrameList, StackFrameListEvent};
 use crate::variable_list::VariableList;
 
-use client::proto::{self, PeerId};
+use anyhow::{anyhow, Result};
 use dap::{
     client::{DebugAdapterClientId, ThreadStatus},
     debugger_settings::DebuggerSettings,
@@ -18,6 +18,7 @@ use gpui::{
     View, WeakView,
 };
 use project::dap_store::DapStore;
+use rpc::proto::{self, PeerId, SetDebuggerPanelItem};
 use settings::Settings;
 use ui::{prelude::*, Indicator, Tooltip, WindowContext};
 use workspace::item;
@@ -198,6 +199,17 @@ impl DebugPanelItem {
             client_id: *client_id,
             show_console_indicator: false,
             active_thread_item: ThreadItem::Variables,
+        }
+    }
+
+    pub(crate) fn set_from_proto(
+        &mut self,
+        state: &proto::view::DebugPanel,
+        cx: &mut ViewContext<Self>,
+    ) {
+        if let Some(variable_list_state) = state.variable_list.as_ref() {
+            self.variable_list
+                .update(cx, |this, cx| this.set_from_proto(variable_list_state, cx));
         }
     }
 
@@ -599,8 +611,6 @@ impl FollowableItem for DebugPanelItem {
     }
 
     fn to_state_proto(&self, cx: &WindowContext) -> Option<proto::view::Variant> {
-        dbg!("Into to state proto");
-
         let thread_state = Some(self.thread_state.read_with(cx, |this, _| this.to_proto()));
         let modules = self.module_list.read(cx).to_proto();
         let variable_list = Some(self.variable_list.read(cx).to_proto());
@@ -623,17 +633,12 @@ impl FollowableItem for DebugPanelItem {
         state: &mut Option<proto::view::Variant>,
         cx: &mut WindowContext,
     ) -> Option<gpui::Task<gpui::Result<View<Self>>>> {
-        dbg!("In from state proto 3pm ish");
         let proto::view::Variant::DebugPanel(_) = state.as_ref()? else {
-            dbg!(state.as_ref());
-            dbg!("In from state proto NONE case");
             return None;
         };
         let Some(proto::view::Variant::DebugPanel(state)) = state.take() else {
             unreachable!()
         };
-
-        dbg!("from state proto with debug panel");
 
         let (_project, debug_panel) = workspace.update(cx, |workspace, cx| {
             Some((
@@ -650,8 +655,9 @@ impl FollowableItem for DebugPanelItem {
             )
         });
 
-        debug_panel_item.update(cx, |debug_panel_item, _| {
+        debug_panel_item.update(cx, |debug_panel_item, cx| {
             debug_panel_item.remote_id = Some(remote_id);
+            debug_panel_item.set_from_proto(&state, cx);
         });
 
         Some(Task::ready(Ok(debug_panel_item)))
@@ -680,12 +686,9 @@ impl FollowableItem for DebugPanelItem {
     }
 
     fn set_leader_peer_id(&mut self, _leader_peer_id: Option<PeerId>, _cx: &mut ViewContext<Self>) {
-        dbg!("set leader peer id");
     }
 
     fn to_follow_event(_event: &Self::Event) -> Option<workspace::item::FollowEvent> {
-        dbg!("to follow event");
-
         None
     }
 

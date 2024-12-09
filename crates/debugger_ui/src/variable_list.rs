@@ -1,6 +1,10 @@
 use crate::stack_frame_list::{StackFrameList, StackFrameListEvent};
 use anyhow::Result;
-use dap::{client::DebugAdapterClientId, Scope, ScopePresentationHint, Variable};
+use dap::{
+    client::DebugAdapterClientId,
+    proto_conversions::{self, ProtoConversion},
+    Scope, ScopePresentationHint, Variable,
+};
 use editor::{
     actions::{self, SelectAll},
     Editor, EditorEvent,
@@ -63,8 +67,25 @@ impl SetVariableState {
             }
         })?;
 
-        None
-        // SetVariableState { name: payload.name, scope, value: payload.value, stack_frame_id: payload.stack_frame_id, }
+        Some(SetVariableState {
+            name: payload.name,
+            scope,
+            value: payload.value,
+            stack_frame_id: payload.stack_frame_id,
+            evaluate_name: payload.evaluate_name.clone(),
+            parent_variables_reference: payload.parent_variables_reference,
+        })
+    }
+
+    fn to_proto(&self) -> proto::DebuggerSetVariableState {
+        proto::DebuggerSetVariableState {
+            name: self.name.clone(),
+            scope: Some(self.scope.to_proto()),
+            value: self.value.clone(),
+            stack_frame_id: self.stack_frame_id,
+            evaluate_name: self.evaluate_name.clone(),
+            parent_variables_reference: self.parent_variables_reference,
+        }
     }
 }
 
@@ -72,6 +93,38 @@ impl SetVariableState {
 enum OpenEntry {
     Scope { name: String },
     Variable { name: String, depth: usize },
+}
+
+impl OpenEntry {
+    pub(crate) fn from_proto(open_entry: &proto::VariableListOpenEntry) -> Option<Self> {
+        match open_entry.entry.as_ref()? {
+            proto::variable_list_open_entry::Entry::Scope(state) => Some(Self::Scope {
+                name: state.name.clone(),
+            }),
+            proto::variable_list_open_entry::Entry::Variable(state) => Some(Self::Variable {
+                name: state.name.clone(),
+                depth: state.depth as usize,
+            }),
+        }
+    }
+
+    pub(crate) fn to_proto(&self) -> proto::VariableListOpenEntry {
+        let entry = match self {
+            OpenEntry::Scope { name } => {
+                proto::variable_list_open_entry::Entry::Scope(proto::DebuggerOpenEntryScope {
+                    name: name.clone(),
+                })
+            }
+            OpenEntry::Variable { name, depth } => {
+                proto::variable_list_open_entry::Entry::Variable(proto::DebuggerOpenEntryVariable {
+                    name: name.clone(),
+                    depth: *depth as u64,
+                })
+            }
+        };
+
+        proto::VariableListOpenEntry { entry: Some(entry) }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -132,6 +185,8 @@ impl ScopeVariableIndex {
         &self.variables
     }
 }
+
+// fn open_entries_from_proto(entries: &Vec<proto::VariableListOpenEntry>) -> Vec<OpenEntry>
 
 type StackFrameId = u64;
 type ScopeId = u64;
@@ -205,15 +260,41 @@ impl VariableList {
     }
 
     pub(crate) fn to_proto(&self) -> proto::DebuggerVariableList {
+        let open_entries = self.open_entries.iter().map(OpenEntry::to_proto).collect();
+        let set_variable_state = self
+            .set_variable_state
+            .as_ref()
+            .map(SetVariableState::to_proto);
+
         proto::DebuggerVariableList {
-            open_entries: Default::default(),
+            open_entries,
             scopes: Default::default(),
-            set_variable_state: Default::default(),
+            set_variable_state,
             entries: Default::default(),
         }
     }
 
-    pub(crate) fn set_from_proto(&mut self, payload: &SetDebuggerPanelItem) {}
+    pub(crate) fn set_from_proto(
+        &mut self,
+        state: &proto::DebuggerVariableList,
+        cx: &mut ViewContext<Self>,
+    ) {
+        self.open_entries = state
+            .open_entries
+            .iter()
+            .filter_map(OpenEntry::from_proto)
+            .collect();
+
+        self.set_variable_state = state
+            .set_variable_state
+            .clone()
+            .and_then(SetVariableState::from_proto);
+
+        dbg!("Setting from proto");
+        dbg!(&self.open_entries);
+        dbg!(&state.entries);
+        cx.notify();
+    }
 
     fn handle_stack_frame_list_events(
         &mut self,
