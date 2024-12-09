@@ -3597,8 +3597,9 @@ impl Workspace {
         follower_project_id: Option<u64>,
         cx: &mut ViewContext<Self>,
     ) -> proto::FollowResponse {
+        dbg!("following for ", follower_project_id);
         let active_view = self.active_view_for_follower(follower_project_id, cx);
-
+        dbg!(&active_view);
         cx.notify();
         proto::FollowResponse {
             // TODO: Remove after version 0.145.x stabilizes.

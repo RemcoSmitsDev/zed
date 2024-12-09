@@ -3,6 +3,7 @@ use crate::{
     transport::{IoKind, LogKind, TransportDelegate},
 };
 use anyhow::{anyhow, Result};
+use client::proto;
 use dap_types::{
     messages::{Message, Response},
     requests::Request,
@@ -31,16 +32,46 @@ pub enum ThreadStatus {
     Ended,
 }
 
+impl ThreadStatus {
+    pub fn from_proto(status: proto::DebuggerThreadStatus) -> Self {
+        match status {
+            proto::DebuggerThreadStatus::Running => Self::Running,
+            proto::DebuggerThreadStatus::Stopped => Self::Stopped,
+            proto::DebuggerThreadStatus::Exited => Self::Exited,
+            proto::DebuggerThreadStatus::Ended => Self::Ended,
+        }
+    }
+
+    pub fn to_proto(&self) -> i32 {
+        match self {
+            Self::Running => 0,
+            Self::Stopped => 1,
+            Self::Exited => 2,
+            Self::Ended => 3,
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct DebugAdapterClientId(pub usize);
+
+impl DebugAdapterClientId {
+    pub fn from_proto(client_id: u64) -> Self {
+        Self(client_id as usize)
+    }
+
+    pub fn to_proto(&self) -> u64 {
+        self.0 as u64
+    }
+}
 
 pub struct DebugAdapterClient {
     id: DebugAdapterClientId,
     sequence_count: AtomicU64,
     binary: DebugAdapterBinary,
     executor: BackgroundExecutor,
-    adapter: Arc<Box<dyn DebugAdapter>>,
+    adapter: Arc<dyn DebugAdapter>,
     transport_delegate: TransportDelegate,
     config: Arc<Mutex<DebugAdapterConfig>>,
 }
@@ -49,7 +80,7 @@ impl DebugAdapterClient {
     pub fn new(
         id: DebugAdapterClientId,
         config: DebugAdapterConfig,
-        adapter: Arc<Box<dyn DebugAdapter>>,
+        adapter: Arc<dyn DebugAdapter>,
         binary: DebugAdapterBinary,
         cx: &AsyncAppContext,
     ) -> Self {
@@ -66,16 +97,11 @@ impl DebugAdapterClient {
         }
     }
 
-    pub async fn start<F>(
-        &mut self,
-        binary: &DebugAdapterBinary,
-        message_handler: F,
-        cx: &mut AsyncAppContext,
-    ) -> Result<()>
+    pub async fn start<F>(&mut self, message_handler: F, cx: &mut AsyncAppContext) -> Result<()>
     where
         F: FnMut(Message, &mut AppContext) + 'static + Send + Sync + Clone,
     {
-        let (server_rx, server_tx) = self.transport_delegate.start(binary, cx).await?;
+        let (server_rx, server_tx) = self.transport_delegate.start(&self.binary, cx).await?;
         log::info!("Successfully connected to debug adapter");
 
         // start handling events/reverse requests
@@ -195,7 +221,7 @@ impl DebugAdapterClient {
         self.config.lock().unwrap().clone()
     }
 
-    pub fn adapter(&self) -> &Arc<Box<dyn DebugAdapter>> {
+    pub fn adapter(&self) -> &Arc<dyn DebugAdapter> {
         &self.adapter
     }
 
@@ -233,5 +259,100 @@ impl DebugAdapterClient {
         F: 'static + Send + FnMut(IoKind, &str),
     {
         self.transport_delegate.add_log_handler(f, kind);
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn on_request<R: dap_types::requests::Request, F>(&self, handler: F)
+    where
+        F: 'static + Send + FnMut(u64, R::Arguments) -> Result<R::Response>,
+    {
+        let transport = self.transport_delegate.transport();
+
+        transport.as_fake().on_request::<R, _>(handler).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{adapters::FakeAdapter, client::DebugAdapterClient};
+    use dap_types::{
+        requests::Initialize, InitializeRequestArguments, InitializeRequestArgumentsPathFormat,
+    };
+    use gpui::TestAppContext;
+    use task::DebugAdapterConfig;
+
+    #[ctor::ctor]
+    fn init_logger() {
+        if std::env::var("RUST_LOG").is_ok() {
+            env_logger::init();
+        }
+    }
+
+    #[gpui::test]
+    pub async fn test_initialize_client(cx: &mut TestAppContext) {
+        let adapter = Arc::new(FakeAdapter::new());
+
+        let mut client = DebugAdapterClient::new(
+            crate::client::DebugAdapterClientId(1),
+            DebugAdapterConfig {
+                kind: task::DebugAdapterKind::Fake,
+                request: task::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            adapter,
+            DebugAdapterBinary {
+                command: "command".into(),
+                arguments: Default::default(),
+                envs: Default::default(),
+                cwd: None,
+            },
+            &mut cx.to_async(),
+        );
+
+        client
+            .on_request::<Initialize, _>(move |_, _| {
+                Ok(dap_types::Capabilities {
+                    supports_configuration_done_request: Some(true),
+                    ..Default::default()
+                })
+            })
+            .await;
+
+        client.start(|_, _| {}, &mut cx.to_async()).await.unwrap();
+
+        let response = client
+            .request::<Initialize>(InitializeRequestArguments {
+                client_id: Some("zed".to_owned()),
+                client_name: Some("Zed".to_owned()),
+                adapter_id: "fake-adapter".to_owned(),
+                locale: Some("en-US".to_owned()),
+                path_format: Some(InitializeRequestArgumentsPathFormat::Path),
+                supports_variable_type: Some(true),
+                supports_variable_paging: Some(false),
+                supports_run_in_terminal_request: Some(true),
+                supports_memory_references: Some(true),
+                supports_progress_reporting: Some(false),
+                supports_invalidated_event: Some(false),
+                lines_start_at1: Some(true),
+                columns_start_at1: Some(true),
+                supports_memory_event: Some(false),
+                supports_args_can_be_interpreted_by_shell: Some(false),
+                supports_start_debugging_request: Some(true),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            dap_types::Capabilities {
+                supports_configuration_done_request: Some(true),
+                ..Default::default()
+            },
+            response
+        );
+
+        client.shutdown().await.unwrap();
     }
 }

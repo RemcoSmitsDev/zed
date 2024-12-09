@@ -382,7 +382,7 @@ impl DapStore {
 
     pub fn start_client(
         &mut self,
-        adapter: Arc<Box<dyn DebugAdapter>>,
+        adapter: Arc<dyn DebugAdapter>,
         binary: DebugAdapterBinary,
         config: DebugAdapterConfig,
         cx: &mut ModelContext<Self>,
@@ -403,12 +403,10 @@ impl DapStore {
 
         let start_client_task = cx.spawn(|this, mut cx| async move {
             let dap_store = this.clone();
-            let mut client =
-                DebugAdapterClient::new(client_id, config, adapter, binary.clone(), &cx);
+            let mut client = DebugAdapterClient::new(client_id, config, adapter, binary, &cx);
 
             let result = client
                 .start(
-                    &binary,
                     move |message, cx| {
                         dap_store
                             .update(cx, |_, cx| {
@@ -470,7 +468,7 @@ impl DapStore {
         let adapter_delegate = Arc::new(adapter_delegate);
 
         cx.spawn(|this, mut cx| async move {
-            let adapter = Arc::new(build_adapter(&config.kind).await?);
+            let adapter = build_adapter(&config.kind).await?;
 
             let binary = cx.update(|cx| {
                 let name = DebugAdapterName::from(adapter.name().as_ref());
@@ -846,6 +844,16 @@ impl DapStore {
         })
     }
 
+    // TODO Debugger Collab
+    fn _send_proto_client_request(
+        &self,
+        _client_id: &DebugAdapterClientId,
+        _message: Message,
+        _cx: &mut ModelContext<Self>,
+    ) {
+        //
+    }
+
     pub fn step_over(
         &self,
         client_id: &DebugAdapterClientId,
@@ -853,6 +861,12 @@ impl DapStore {
         granularity: SteppingGranularity,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
+        if let Some(remote) = self.as_remote() {
+            if let Some(_client) = &remote.upstream_client {
+                //
+            }
+        }
+
         let Some(client) = self.client_by_id(client_id) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
@@ -1181,7 +1195,7 @@ impl DapStore {
         self.ignore_breakpoints.remove(client_id);
         let capabilities = self.capabilities.remove(client_id);
 
-        cx.background_executor().spawn(async move {
+        cx.spawn(|_, _| async move {
             let client = match client {
                 DebugAdapterClientState::Starting(task) => task.await,
                 DebugAdapterClientState::Running(client) => Some(client),

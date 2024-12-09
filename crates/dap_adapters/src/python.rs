@@ -1,5 +1,5 @@
 use dap::transport::{TcpTransport, Transport};
-use std::{ffi::OsStr, net::Ipv4Addr, path::PathBuf};
+use std::{ffi::OsStr, net::Ipv4Addr, path::PathBuf, sync::Arc};
 
 use crate::*;
 
@@ -28,8 +28,8 @@ impl DebugAdapter for PythonDebugAdapter {
         DebugAdapterName(Self::ADAPTER_NAME.into())
     }
 
-    fn transport(&self) -> Box<dyn Transport> {
-        Box::new(TcpTransport::new(self.host, self.port, self.timeout))
+    fn transport(&self) -> Arc<dyn Transport> {
+        Arc::new(TcpTransport::new(self.host, self.port, self.timeout))
     }
 
     async fn fetch_latest_adapter_version(
@@ -64,6 +64,8 @@ impl DebugAdapter for PythonDebugAdapter {
             })
             .await
         {
+            // TODO Debugger: Rename folder instead of moving all files to another folder
+            // We're doing uncessary IO work right now
             util::fs::move_folder_files_to_folder(debugpy_dir.as_path(), version_path.as_path())
                 .await?;
         }
