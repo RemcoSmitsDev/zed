@@ -25,6 +25,7 @@ use std::{
     sync::Arc,
 };
 use ui::{prelude::*, ContextMenu, ListItem};
+use util::ResultExt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VariableContainer {
@@ -464,7 +465,12 @@ impl VariableList {
             })
             .collect();
 
-        self.list.reset(state.open_entries.len());
+        dbg!(
+            &self.variables.len(),
+            &self.scopes,
+            &self.open_entries.len()
+        );
+        self.list.reset(self.open_entries.len());
         cx.notify();
     }
 
@@ -644,6 +650,19 @@ impl VariableList {
         self.list.reset(len);
 
         cx.notify();
+
+        if let Some((client, project_id)) = self.dap_store.read(cx).downstream_client() {
+            let request = UpdateDebugAdapter {
+                client_id: self.client_id.to_proto(),
+                thread_id: self.stack_frame_list.read(cx).thread_id(),
+                project_id: *project_id,
+                variant: Some(rpc::proto::update_debug_adapter::Variant::VariableList(
+                    self.to_proto(),
+                )),
+            };
+
+            client.send(request).log_err();
+        }
     }
 
     fn fetch_nested_variables(
@@ -771,23 +790,6 @@ impl VariableList {
                         new_variables.insert((stack_frame_id, scope_id), variable_index);
                     }
                 }
-
-                let thread_id = this.stack_frame_list.read(cx).thread_id();
-
-                this.dap_store.update(cx, |store, _| {
-                    if let Some((client, id)) = store.downstream_client() {
-                        let request = UpdateDebugAdapter {
-                            client_id: this.client_id.to_proto(),
-                            thread_id,
-                            project_id: *id,
-                            variant: Some(rpc::proto::update_debug_adapter::Variant::VariableList(
-                                this.to_proto(),
-                            )),
-                        };
-
-                        let _res = client.send(request);
-                    }
-                });
 
                 std::mem::swap(&mut this.variables, &mut new_variables);
                 std::mem::swap(&mut this.scopes, &mut new_scopes);
