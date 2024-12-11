@@ -2600,6 +2600,7 @@ message SetDebuggerPanelItem {
     DebuggerVariableList variable_list = 8;
     DebuggerStackFrameList stack_frame_list = 9;
     DebuggerLoadedSourceList loaded_source_list = 10;
+    string client_name = 11;
 }
 
 // Remote Debugging: Dap Types

@@ -200,14 +200,14 @@ impl DebugPanelItem {
         }
     }
 
-    pub(crate) fn to_proto(&self, cx: &ViewContext<Self>) -> SetDebuggerPanelItem {
+    pub(crate) fn to_proto(&self, cx: &ViewContext<Self>, project_id: u64) -> SetDebuggerPanelItem {
         let thread_state = Some(self.thread_state.read_with(cx, |this, _| this.to_proto()));
         let modules = self.module_list.read(cx).to_proto();
         let variable_list = Some(self.variable_list.read(cx).to_proto());
         let stack_frame_list = Some(self.stack_frame_list.read(cx).to_proto());
 
         SetDebuggerPanelItem {
-            project_id: 1,
+            project_id,
             client_id: self.client_id.to_proto(),
             thread_id: self.thread_id,
             console: None,
@@ -217,17 +217,18 @@ impl DebugPanelItem {
             variable_list,
             stack_frame_list,
             loaded_source_list: None,
+            client_name: self.client_name.to_string(),
         }
     }
 
     pub(crate) fn set_from_proto(
         &mut self,
-        state: &proto::view::DebugPanel,
+        state: &SetDebuggerPanelItem,
         cx: &mut ViewContext<Self>,
     ) {
         self.active_thread_item = ThreadItem::from_proto(state.active_thread_item());
 
-        if let Some(stack_frame_list) = state.stack_frames.as_ref() {
+        if let Some(stack_frame_list) = state.stack_frame_list.as_ref() {
             self.stack_frame_list
                 .update(cx, |this, _| this.set_from_proto(stack_frame_list.clone()));
         }
@@ -289,9 +290,10 @@ impl DebugPanelItem {
 
         cx.emit(DebugPanelItemEvent::Stopped { go_to_stack_frame });
 
-        if let Some((downstream_client, _project_id)) = self.dap_store.read(cx).downstream_client()
-        {
-            downstream_client.send(self.to_proto(cx)).log_err();
+        if let Some((downstream_client, project_id)) = self.dap_store.read(cx).downstream_client() {
+            downstream_client
+                .send(self.to_proto(cx, *project_id))
+                .log_err();
         }
     }
 
@@ -693,9 +695,9 @@ impl FollowableItem for DebugPanelItem {
             )
         });
 
-        debug_panel_item.update(cx, |debug_panel_item, cx| {
+        debug_panel_item.update(cx, |debug_panel_item, _cx| {
             debug_panel_item.remote_id = Some(remote_id);
-            debug_panel_item.set_from_proto(&state, cx);
+            // debug_panel_item.set_from_proto(&state, cx);
         });
 
         Some(Task::ready(Ok(debug_panel_item)))

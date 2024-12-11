@@ -2484,6 +2484,7 @@ impl Project {
             DapStoreEvent::ActiveDebugLineChanged => {
                 cx.emit(Event::ActiveDebugLineChanged);
             }
+            _ => {}
         }
     }
 

@@ -36,6 +36,7 @@ use language::{
 };
 use lsp::LanguageServerName;
 use node_runtime::NodeRuntime;
+use rpc::proto::SetDebuggerPanelItem;
 use rpc::{proto, AnyProtoClient, TypedEnvelope};
 use serde_json::Value;
 use settings::{Settings as _, WorktreeId};
@@ -64,6 +65,7 @@ pub enum DapStoreEvent {
     Notification(String),
     BreakpointsChanged,
     ActiveDebugLineChanged,
+    SetDebugPanelItem(SetDebuggerPanelItem),
 }
 
 pub enum DebugAdapterClientState {
@@ -1295,9 +1297,9 @@ impl DapStore {
         envelope: TypedEnvelope<proto::SetDebuggerPanelItem>,
         mut cx: AsyncAppContext,
     ) -> Result<()> {
-        println!("\n\nHandle set debug panel item has been hit!\n\n");
-        dbg!("In Handle set debug panel item");
-        Ok(())
+        this.update(&mut cx, |_, cx| {
+            cx.emit(DapStoreEvent::SetDebugPanelItem(envelope.payload));
+        })
     }
 
     async fn handle_set_active_debug_line(
