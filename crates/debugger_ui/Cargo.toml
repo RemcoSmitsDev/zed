@@ -8,6 +8,15 @@ license = "GPL-3.0-or-later"
 [lints]
 workspace = true
 
+[features]
+test-support = [
+    "gpui/test-support",
+    "util/test-support",
+    "workspace/test-support",
+    "editor/test-support",
+    "project/test-support",
+]
+
 [dependencies]
 anyhow.workspace = true
 client.workspace = true

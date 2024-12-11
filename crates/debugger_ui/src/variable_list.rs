@@ -1176,6 +1176,7 @@ mod tests {
         let mut index = ScopeVariableIndex::new();
 
         assert_eq!(index.variables(), &[]);
+        assert_eq!(index.fetched_ids, HashSet::default());
 
         let variable1 = VariableContainer {
             variable: Variable {
@@ -1234,6 +1235,7 @@ mod tests {
             index.variables(),
             &[variable1.clone(), variable2.clone(), variable3.clone()]
         );
+        assert_eq!(index.fetched_ids, HashSet::from([1]));
     }
 
     /// This covers when you click on a variable that has a nested variable
@@ -1301,6 +1303,7 @@ mod tests {
             index.variables(),
             &[variable1.clone(), variable2.clone(), variable3.clone()]
         );
+        assert_eq!(index.fetched_ids, HashSet::from([1]));
 
         let variable4 = VariableContainer {
             variable: Variable {
@@ -1346,5 +1349,95 @@ mod tests {
                 variable3.clone(),
             ]
         );
+        assert_eq!(index.fetched_ids, HashSet::from([1, 2]));
+    }
+
+    #[test]
+    fn test_can_serialize_to_proto() {
+        let mut index = ScopeVariableIndex::new();
+
+        let variable1 = VariableContainer {
+            variable: Variable {
+                name: "First variable".into(),
+                value: "First variable".into(),
+                type_: None,
+                presentation_hint: None,
+                evaluate_name: None,
+                variables_reference: 2,
+                named_variables: None,
+                indexed_variables: None,
+                memory_reference: None,
+            },
+            depth: 1,
+            container_reference: 1,
+        };
+
+        let variable2 = VariableContainer {
+            variable: Variable {
+                name: "Second variable with child".into(),
+                value: "Second variable with child".into(),
+                type_: None,
+                presentation_hint: None,
+                evaluate_name: None,
+                variables_reference: 0,
+                named_variables: None,
+                indexed_variables: None,
+                memory_reference: None,
+            },
+            depth: 1,
+            container_reference: 1,
+        };
+
+        index.add_variables(1, vec![variable1.clone(), variable2.clone()]);
+
+        let variable3 = VariableContainer {
+            variable: Variable {
+                name: "Third variable".into(),
+                value: "Third variable".into(),
+                type_: None,
+                presentation_hint: None,
+                evaluate_name: None,
+                variables_reference: 0,
+                named_variables: None,
+                indexed_variables: None,
+                memory_reference: None,
+            },
+            depth: 1,
+            container_reference: 1,
+        };
+
+        let variable4 = VariableContainer {
+            variable: Variable {
+                name: "Four variable".into(),
+                value: "Four variable".into(),
+                type_: None,
+                presentation_hint: None,
+                evaluate_name: None,
+                variables_reference: 0,
+                named_variables: None,
+                indexed_variables: None,
+                memory_reference: None,
+            },
+            depth: 1,
+            container_reference: 1,
+        };
+
+        index.add_variables(2, vec![variable3.clone(), variable4.clone()]);
+
+        assert_eq!(
+            index.variables(),
+            &[
+                variable1.clone(),
+                variable3.clone(),
+                variable4.clone(),
+                variable2.clone(),
+            ]
+        );
+        assert_eq!(index.fetched_ids, HashSet::from([1, 2]));
+
+        let from_proto = ScopeVariableIndex::from_proto(index.to_proto());
+
+        assert_eq!(index.variables(), from_proto.variables());
+        assert_eq!(index.fetched_ids, from_proto.fetched_ids);
     }
 }
