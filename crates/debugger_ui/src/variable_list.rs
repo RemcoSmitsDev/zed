@@ -390,7 +390,8 @@ impl VariableList {
             })
             .collect();
 
-        self.build_entries(true, true, cx);
+        self.list.reset(state.open_entries.len());
+
         cx.notify();
     }
 

@@ -206,6 +206,8 @@ impl DebugPanelItem {
         state: &proto::view::DebugPanel,
         cx: &mut ViewContext<Self>,
     ) {
+        self.active_thread_item = ThreadItem::from_proto(state.active_thread_item());
+
         if let Some(stack_frame_list) = state.stack_frames.as_ref() {
             self.stack_frame_list
                 .update(cx, |this, _| this.set_from_proto(stack_frame_list.clone()));
@@ -220,7 +222,7 @@ impl DebugPanelItem {
             this.set_from_proto(state.modules.clone(), cx)
         });
 
-        self.active_thread_item = ThreadItem::from_proto(state.active_thread_item());
+        cx.notify();
     }
 
     pub fn update_thread_state_status(&mut self, status: ThreadStatus, cx: &mut ViewContext<Self>) {
