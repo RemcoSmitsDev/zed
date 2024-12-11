@@ -98,10 +98,10 @@ impl ThreadStatus {
 
     pub fn to_proto(&self) -> i32 {
         match self {
-            Self::Running => 0,
-            Self::Stopped => 1,
-            Self::Exited => 2,
-            Self::Ended => 3,
+            Self::Running => proto::DebuggerThreadStatus::Running.into(),
+            Self::Stopped => proto::DebuggerThreadStatus::Stopped.into(),
+            Self::Exited => proto::DebuggerThreadStatus::Exited.into(),
+            Self::Ended => proto::DebuggerThreadStatus::Ended.into(),
         }
     }
 }

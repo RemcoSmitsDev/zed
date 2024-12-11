@@ -236,7 +236,7 @@ impl DebugPanelItem {
 
         if let Some(variable_list_state) = state.variable_list.as_ref() {
             self.variable_list
-                .update(cx, |this, cx| this.set_from_proto(variable_list_state, cx));
+                .update(cx, |this, cx| this.from_proto(variable_list_state, cx));
         }
 
         self.module_list.update(cx, |this, cx| {
@@ -447,7 +447,7 @@ impl DebugPanelItem {
                 }
                 proto::update_debug_adapter::Variant::VariableList(variable_list) => self
                     .variable_list
-                    .update(cx, |this, cx| this.set_from_proto(variable_list, cx)),
+                    .update(cx, |this, cx| this.from_proto(variable_list, cx)),
             }
         }
     }

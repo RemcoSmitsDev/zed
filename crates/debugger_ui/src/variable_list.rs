@@ -69,14 +69,22 @@ pub struct SetVariableState {
 impl SetVariableState {
     fn from_proto(payload: proto::DebuggerSetVariableState) -> Option<Self> {
         let scope = payload.scope.map(|scope| {
-            let presentation_hint = match scope.presentation_hint {
-                0 => Some(ScopePresentationHint::Arguments),
-                1 => Some(ScopePresentationHint::Locals),
-                2 => Some(ScopePresentationHint::Registers),
-                3 => Some(ScopePresentationHint::ReturnValue),
-                4 => Some(ScopePresentationHint::Unknown),
-                _ => None,
-            };
+            let presentation_hint =
+                match proto::DapScopePresentationHint::from_i32(scope.presentation_hint) {
+                    Some(proto::DapScopePresentationHint::Arguments) => {
+                        Some(ScopePresentationHint::Arguments)
+                    }
+                    Some(proto::DapScopePresentationHint::Locals) => {
+                        Some(ScopePresentationHint::Locals)
+                    }
+                    Some(proto::DapScopePresentationHint::Registers) => {
+                        Some(ScopePresentationHint::Registers)
+                    }
+                    Some(proto::DapScopePresentationHint::ReturnValue) => {
+                        Some(ScopePresentationHint::ReturnValue)
+                    }
+                    _ => Some(ScopePresentationHint::Unknown),
+                };
 
             Scope {
                 name: scope.name,
@@ -397,7 +405,7 @@ impl VariableList {
         }
     }
 
-    pub(crate) fn set_from_proto(
+    pub(crate) fn from_proto(
         &mut self,
         state: &proto::DebuggerVariableList,
         cx: &mut ViewContext<Self>,
@@ -439,11 +447,6 @@ impl VariableList {
                 )
             })
             .collect();
-
-        // 1. tread stopped message (client_id, thread_id, status)
-        // 2. stackframes updated message (client_id, thread_id, stackframes)
-        // 3. variables updated message (client_id, thread_id, scopes/variables)
-        // 4. modules updated message (client_id, thread_id, modules)
 
         self.scopes = state
             .scopes
