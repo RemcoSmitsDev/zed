@@ -2546,7 +2546,7 @@ message VariableListEntries {
 message VariableListVariables {
     uint64 stack_frame_id = 1;
     uint64 scope_id = 2;
-    repeated DebuggerScopeVariableIndex variables = 3;
+    DebuggerScopeVariableIndex variables = 3;
 }
 
 message DebuggerVariableList {
@@ -2555,6 +2555,7 @@ message DebuggerVariableList {
     // Editor set_variable_editor = 3;
     DebuggerSetVariableState set_variable_state = 4;
     repeated VariableListEntries entries = 5;
+    repeated VariableListVariables variables = 6;
 }
 
 message DebuggerStackFrameList {

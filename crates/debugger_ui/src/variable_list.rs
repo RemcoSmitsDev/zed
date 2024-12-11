@@ -16,7 +16,10 @@ use gpui::{
 use menu::Confirm;
 use project::dap_store::DapStore;
 use proto::debugger_variable_list_entry::Entry;
-use rpc::proto::{self, VariableListEntries, VariableListScopes};
+use rpc::proto::{
+    self, DebuggerScopeVariableIndex, DebuggerVariableContainer, VariableListEntries,
+    VariableListScopes, VariableListVariables,
+};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
@@ -28,6 +31,29 @@ pub struct VariableContainer {
     pub container_reference: u64,
     pub variable: Variable,
     pub depth: usize,
+}
+
+impl ProtoConversion for VariableContainer {
+    type ProtoType = DebuggerVariableContainer;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        DebuggerVariableContainer {
+            container_reference: self.container_reference,
+            depth: self.depth as u64,
+            variable: Some(self.variable.to_proto()),
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        Self {
+            container_reference: payload.container_reference,
+            variable: payload
+                .variable
+                .map(|var| Variable::from_proto(var))
+                .expect("DapVariable Proto message is required"),
+            depth: payload.depth as usize,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -195,6 +221,24 @@ struct ScopeVariableIndex {
     variables: Vec<VariableContainer>,
 }
 
+impl ProtoConversion for ScopeVariableIndex {
+    type ProtoType = DebuggerScopeVariableIndex;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        DebuggerScopeVariableIndex {
+            fetched_ids: self.fetched_ids.iter().copied().collect(),
+            variables: self.variables.to_proto(),
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        Self {
+            fetched_ids: payload.fetched_ids.iter().copied().collect(),
+            variables: Vec::from_proto(payload.variables),
+        }
+    }
+}
+
 impl ScopeVariableIndex {
     pub fn new() -> Self {
         Self {
@@ -231,8 +275,6 @@ impl ScopeVariableIndex {
         &self.variables
     }
 }
-
-// fn open_entries_from_proto(entries: &Vec<proto::VariableListOpenEntry>) -> Vec<OpenEntry>
 
 type StackFrameId = u64;
 type ScopeId = u64;
@@ -312,6 +354,18 @@ impl VariableList {
             .as_ref()
             .map(SetVariableState::to_proto);
 
+        let variables = self
+            .variables
+            .iter()
+            .map(
+                |((stack_frame_id, scope_id), scope_variable_index)| VariableListVariables {
+                    scope_id: *scope_id,
+                    stack_frame_id: *stack_frame_id,
+                    variables: Some(scope_variable_index.to_proto()),
+                },
+            )
+            .collect();
+
         let entries = self
             .entries
             .iter()
@@ -339,6 +393,7 @@ impl VariableList {
             scopes,
             set_variable_state,
             entries,
+            variables,
         }
     }
 
@@ -347,6 +402,17 @@ impl VariableList {
         state: &proto::DebuggerVariableList,
         cx: &mut ViewContext<Self>,
     ) {
+        self.variables = state
+            .variables
+            .iter()
+            .filter_map(|variable| {
+                Some((
+                    (variable.stack_frame_id, variable.stack_frame_id),
+                    ScopeVariableIndex::from_proto(variable.variables.clone()?),
+                ))
+            })
+            .collect();
+
         self.open_entries = state
             .open_entries
             .iter()
@@ -391,6 +457,7 @@ impl VariableList {
             .collect();
 
         self.list.reset(state.open_entries.len());
+        self.build_entries(true, true, cx);
 
         cx.notify();
     }
@@ -654,6 +721,10 @@ impl VariableList {
     }
 
     fn fetch_variables(&mut self, cx: &mut ViewContext<Self>) {
+        if self.dap_store.read(cx).upstream_client().is_some() {
+            return;
+        }
+
         let stack_frames = self.stack_frame_list.read(cx).stack_frames().clone();
 
         self.fetch_variables_task = Some(cx.spawn(|this, mut cx| async move {

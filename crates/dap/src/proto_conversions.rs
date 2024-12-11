@@ -4,23 +4,23 @@ use client::proto::{
 };
 
 pub trait ProtoConversion {
-    type DapType;
+    type ProtoType;
 
-    fn to_proto(&self) -> Self::DapType;
-    fn from_proto(payload: Self::DapType) -> Self;
+    fn to_proto(&self) -> Self::ProtoType;
+    fn from_proto(payload: Self::ProtoType) -> Self;
 }
 
 impl<T> ProtoConversion for Vec<T>
 where
     T: ProtoConversion,
 {
-    type DapType = Vec<T::DapType>;
+    type ProtoType = Vec<T::ProtoType>;
 
-    fn to_proto(&self) -> Self::DapType {
+    fn to_proto(&self) -> Self::ProtoType {
         self.iter().map(|item| item.to_proto()).collect()
     }
 
-    fn from_proto(payload: Self::DapType) -> Self {
+    fn from_proto(payload: Self::ProtoType) -> Self {
         payload
             .into_iter()
             .map(|item| T::from_proto(item))
@@ -29,10 +29,10 @@ where
 }
 
 impl ProtoConversion for dap_types::Scope {
-    type DapType = DapScope;
+    type ProtoType = DapScope;
 
-    fn to_proto(&self) -> Self::DapType {
-        Self::DapType {
+    fn to_proto(&self) -> Self::ProtoType {
+        Self::ProtoType {
             name: self.name.clone(),
             presentation_hint: Default::default(), //TODO Debugger Collab
             variables_reference: self.variables_reference,
@@ -47,7 +47,7 @@ impl ProtoConversion for dap_types::Scope {
         }
     }
 
-    fn from_proto(payload: Self::DapType) -> Self {
+    fn from_proto(payload: Self::ProtoType) -> Self {
         Self {
             name: payload.name,
             presentation_hint: DapScopePresentationHint::from_i32(payload.presentation_hint)
@@ -66,10 +66,10 @@ impl ProtoConversion for dap_types::Scope {
 }
 
 impl ProtoConversion for dap_types::Variable {
-    type DapType = DapVariable;
+    type ProtoType = DapVariable;
 
-    fn to_proto(&self) -> Self::DapType {
-        Self::DapType {
+    fn to_proto(&self) -> Self::ProtoType {
+        Self::ProtoType {
             name: self.name.clone(),
             value: self.value.clone(),
             r#type: self.type_.clone(),
@@ -81,7 +81,7 @@ impl ProtoConversion for dap_types::Variable {
         }
     }
 
-    fn from_proto(payload: Self::DapType) -> Self {
+    fn from_proto(payload: Self::ProtoType) -> Self {
         Self {
             name: payload.name,
             value: payload.value,
@@ -97,9 +97,9 @@ impl ProtoConversion for dap_types::Variable {
 }
 
 impl ProtoConversion for dap_types::ScopePresentationHint {
-    type DapType = DapScopePresentationHint;
+    type ProtoType = DapScopePresentationHint;
 
-    fn to_proto(&self) -> Self::DapType {
+    fn to_proto(&self) -> Self::ProtoType {
         match self {
             dap_types::ScopePresentationHint::Locals => DapScopePresentationHint::Locals,
             dap_types::ScopePresentationHint::Arguments => DapScopePresentationHint::Arguments,
@@ -110,7 +110,7 @@ impl ProtoConversion for dap_types::ScopePresentationHint {
         }
     }
 
-    fn from_proto(payload: Self::DapType) -> Self {
+    fn from_proto(payload: Self::ProtoType) -> Self {
         match payload {
             DapScopePresentationHint::Locals => dap_types::ScopePresentationHint::Locals,
             DapScopePresentationHint::Arguments => dap_types::ScopePresentationHint::Arguments,
@@ -122,9 +122,9 @@ impl ProtoConversion for dap_types::ScopePresentationHint {
 }
 
 impl ProtoConversion for dap_types::SourcePresentationHint {
-    type DapType = DapSourcePresentationHint;
+    type ProtoType = DapSourcePresentationHint;
 
-    fn to_proto(&self) -> Self::DapType {
+    fn to_proto(&self) -> Self::ProtoType {
         match self {
             dap_types::SourcePresentationHint::Normal => DapSourcePresentationHint::SourceNormal,
             dap_types::SourcePresentationHint::Emphasize => DapSourcePresentationHint::Emphasize,
@@ -135,7 +135,7 @@ impl ProtoConversion for dap_types::SourcePresentationHint {
         }
     }
 
-    fn from_proto(payload: Self::DapType) -> Self {
+    fn from_proto(payload: Self::ProtoType) -> Self {
         match payload {
             DapSourcePresentationHint::SourceNormal => dap_types::SourcePresentationHint::Normal,
             DapSourcePresentationHint::Emphasize => dap_types::SourcePresentationHint::Emphasize,
@@ -148,16 +148,16 @@ impl ProtoConversion for dap_types::SourcePresentationHint {
 }
 
 impl ProtoConversion for dap_types::Checksum {
-    type DapType = DapChecksum;
+    type ProtoType = DapChecksum;
 
-    fn to_proto(&self) -> Self::DapType {
+    fn to_proto(&self) -> Self::ProtoType {
         DapChecksum {
             algorithm: self.algorithm.to_proto().into(),
             checksum: self.checksum.clone(),
         }
     }
 
-    fn from_proto(payload: Self::DapType) -> Self {
+    fn from_proto(payload: Self::ProtoType) -> Self {
         Self {
             algorithm: dap_types::ChecksumAlgorithm::from_proto(payload.algorithm()),
             checksum: payload.checksum,
@@ -166,9 +166,9 @@ impl ProtoConversion for dap_types::Checksum {
 }
 
 impl ProtoConversion for dap_types::ChecksumAlgorithm {
-    type DapType = DapChecksumAlgorithm;
+    type ProtoType = DapChecksumAlgorithm;
 
-    fn to_proto(&self) -> Self::DapType {
+    fn to_proto(&self) -> Self::ProtoType {
         match self {
             dap_types::ChecksumAlgorithm::Md5 => DapChecksumAlgorithm::Md5,
             dap_types::ChecksumAlgorithm::Sha1 => DapChecksumAlgorithm::Sha1,
@@ -177,7 +177,7 @@ impl ProtoConversion for dap_types::ChecksumAlgorithm {
         }
     }
 
-    fn from_proto(payload: Self::DapType) -> Self {
+    fn from_proto(payload: Self::ProtoType) -> Self {
         match payload {
             DapChecksumAlgorithm::Md5 => dap_types::ChecksumAlgorithm::Md5,
             DapChecksumAlgorithm::Sha1 => dap_types::ChecksumAlgorithm::Sha1,
@@ -189,10 +189,10 @@ impl ProtoConversion for dap_types::ChecksumAlgorithm {
 }
 
 impl ProtoConversion for dap_types::Source {
-    type DapType = DapSource;
+    type ProtoType = DapSource;
 
-    fn to_proto(&self) -> Self::DapType {
-        Self::DapType {
+    fn to_proto(&self) -> Self::ProtoType {
+        Self::ProtoType {
             name: self.name.clone(),
             path: self.path.clone(),
             source_reference: self.source_reference,
@@ -212,7 +212,7 @@ impl ProtoConversion for dap_types::Source {
         }
     }
 
-    fn from_proto(payload: Self::DapType) -> Self {
+    fn from_proto(payload: Self::ProtoType) -> Self {
         Self {
             name: payload.name.clone(),
             path: payload.path.clone(),
@@ -230,10 +230,10 @@ impl ProtoConversion for dap_types::Source {
 }
 
 impl ProtoConversion for dap_types::StackFrame {
-    type DapType = DapStackFrame;
+    type ProtoType = DapStackFrame;
 
-    fn to_proto(&self) -> Self::DapType {
-        Self::DapType {
+    fn to_proto(&self) -> Self::ProtoType {
+        Self::ProtoType {
             id: self.id,
             name: self.name.clone(),
             source: self.source.as_ref().map(|src| src.to_proto()),
@@ -248,7 +248,7 @@ impl ProtoConversion for dap_types::StackFrame {
         }
     }
 
-    fn from_proto(payload: Self::DapType) -> Self {
+    fn from_proto(payload: Self::ProtoType) -> Self {
         Self {
             id: payload.id,
             name: payload.name,
