@@ -2,6 +2,7 @@ use client::proto::{
     DapChecksum, DapChecksumAlgorithm, DapScope, DapScopePresentationHint, DapSource,
     DapSourcePresentationHint, DapStackFrame, DapVariable,
 };
+use dap_types::{ScopePresentationHint, Source};
 
 pub trait ProtoConversion {
     type ProtoType;
@@ -34,12 +35,15 @@ impl ProtoConversion for dap_types::Scope {
     fn to_proto(&self) -> Self::ProtoType {
         Self::ProtoType {
             name: self.name.clone(),
-            presentation_hint: Default::default(), //TODO Debugger Collab
+            presentation_hint: self
+                .presentation_hint
+                .as_ref()
+                .map(|hint| hint.to_proto().into()),
             variables_reference: self.variables_reference,
             named_variables: self.named_variables,
             indexed_variables: self.indexed_variables,
             expensive: self.expensive,
-            source: None, //TODO Debugger Collab
+            source: self.source.as_ref().map(Source::to_proto),
             line: self.line,
             end_line: self.end_line,
             column: self.column,
@@ -48,10 +52,13 @@ impl ProtoConversion for dap_types::Scope {
     }
 
     fn from_proto(payload: Self::ProtoType) -> Self {
+        let presentation_hint = payload
+            .presentation_hint
+            .clone()
+            .and_then(DapScopePresentationHint::from_i32);
         Self {
             name: payload.name,
-            presentation_hint: DapScopePresentationHint::from_i32(payload.presentation_hint)
-                .map(|val| dap_types::ScopePresentationHint::from_proto(val)),
+            presentation_hint: presentation_hint.map(ScopePresentationHint::from_proto),
             variables_reference: payload.variables_reference,
             named_variables: payload.named_variables,
             indexed_variables: payload.indexed_variables,
@@ -203,7 +210,7 @@ impl ProtoConversion for dap_types::Source {
                 .clone()
                 .map(|src| src.to_proto())
                 .unwrap_or_default(),
-            adapter_data: Default::default(), // TODO: Need adapter_data field
+            adapter_data: Default::default(), // TODO Debugger Collab
             checksums: self
                 .checksums
                 .clone()
@@ -224,7 +231,7 @@ impl ProtoConversion for dap_types::Source {
             origin: payload.origin.clone(),
             sources: Some(Vec::from_proto(payload.sources)),
             checksums: Some(Vec::from_proto(payload.checksums)),
-            adapter_data: None,
+            adapter_data: None, // TODO Debugger Collab
         }
     }
 }
@@ -243,8 +250,8 @@ impl ProtoConversion for dap_types::StackFrame {
             end_column: self.end_column,
             can_restart: self.can_restart,
             instruction_pointer_reference: self.instruction_pointer_reference.clone(),
-            module_id: None, // TODO Debugger Collab
-            presentation_hint: None,
+            module_id: None,         // TODO Debugger Collab
+            presentation_hint: None, // TODO Debugger Collab
         }
     }
 
@@ -259,8 +266,8 @@ impl ProtoConversion for dap_types::StackFrame {
             end_column: payload.end_column,
             can_restart: payload.can_restart,
             instruction_pointer_reference: payload.instruction_pointer_reference,
-            module_id: None,
-            presentation_hint: None,
+            module_id: None,         // TODO Debugger Collab
+            presentation_hint: None, // TODO Debugger Collab
         }
     }
 }

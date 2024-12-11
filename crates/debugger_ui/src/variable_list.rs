@@ -70,22 +70,25 @@ pub struct SetVariableState {
 impl SetVariableState {
     fn from_proto(payload: proto::DebuggerSetVariableState) -> Option<Self> {
         let scope = payload.scope.map(|scope| {
-            let presentation_hint =
-                match proto::DapScopePresentationHint::from_i32(scope.presentation_hint) {
-                    Some(proto::DapScopePresentationHint::Arguments) => {
-                        Some(ScopePresentationHint::Arguments)
-                    }
-                    Some(proto::DapScopePresentationHint::Locals) => {
-                        Some(ScopePresentationHint::Locals)
-                    }
-                    Some(proto::DapScopePresentationHint::Registers) => {
-                        Some(ScopePresentationHint::Registers)
-                    }
-                    Some(proto::DapScopePresentationHint::ReturnValue) => {
-                        Some(ScopePresentationHint::ReturnValue)
-                    }
-                    _ => Some(ScopePresentationHint::Unknown),
-                };
+            let proto_hint = scope
+                .presentation_hint
+                .unwrap_or(proto::DapScopePresentationHint::ScopeUnknown.into());
+
+            let presentation_hint = match proto::DapScopePresentationHint::from_i32(proto_hint) {
+                Some(proto::DapScopePresentationHint::Arguments) => {
+                    Some(ScopePresentationHint::Arguments)
+                }
+                Some(proto::DapScopePresentationHint::Locals) => {
+                    Some(ScopePresentationHint::Locals)
+                }
+                Some(proto::DapScopePresentationHint::Registers) => {
+                    Some(ScopePresentationHint::Registers)
+                }
+                Some(proto::DapScopePresentationHint::ReturnValue) => {
+                    Some(ScopePresentationHint::ReturnValue)
+                }
+                _ => Some(ScopePresentationHint::Unknown),
+            };
 
             Scope {
                 name: scope.name,
