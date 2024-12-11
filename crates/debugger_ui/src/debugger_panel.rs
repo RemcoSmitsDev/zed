@@ -833,7 +833,7 @@ impl DebugPanel {
         });
 
         debug_panel_item.update(cx, |this, cx| {
-            this.set_from_proto(payload, cx);
+            this.from_proto(payload, cx);
         });
     }
 

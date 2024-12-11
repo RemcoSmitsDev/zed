@@ -467,11 +467,6 @@ impl VariableList {
             })
             .collect();
 
-        dbg!(
-            &self.variables.len(),
-            &self.scopes,
-            &self.open_entries.len()
-        );
         self.list.reset(self.open_entries.len());
         cx.notify();
     }
