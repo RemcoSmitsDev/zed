@@ -185,6 +185,9 @@ impl DebugPanel {
 
                             cx.notify();
                         }
+                        project::Event::SetDebugClient(set_debug_client) => {
+                            let _res = this.handle_set_debug_panel_item(set_debug_client, cx);
+                        }
                         _ => {}
                     }
                 }),
@@ -741,6 +744,14 @@ impl DebugPanel {
             .push_back(event.clone());
 
         cx.emit(DebugPanelEvent::Output((*client_id, event.clone())));
+    }
+
+    pub(crate) fn handle_set_debug_panel_item(
+        &mut self,
+        _payload: &proto::SetDebuggerPanelItem,
+        _cx: &mut ViewContext<Self>,
+    ) -> Result<()> {
+        todo!()
     }
 
     fn handle_module_event(
