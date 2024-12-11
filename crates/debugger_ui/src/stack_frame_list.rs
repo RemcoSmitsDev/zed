@@ -87,7 +87,7 @@ impl StackFrameList {
         }
     }
 
-    pub(crate) fn set_from_proto(
+    pub(crate) fn from_proto(
         &mut self,
         stack_frame_list: DebuggerStackFrameList,
         cx: &mut ViewContext<Self>,
@@ -142,19 +142,6 @@ impl StackFrameList {
 
                 cx.emit(StackFrameListEvent::StackFramesUpdated);
 
-                if let Some((client, id)) = this.dap_store.read(cx).downstream_client() {
-                    let request = UpdateDebugAdapter {
-                        client_id: this.client_id.to_proto(),
-                        thread_id: this.thread_id,
-                        project_id: *id,
-                        variant: Some(rpc::proto::update_debug_adapter::Variant::StackFrameList(
-                            this.to_proto(),
-                        )),
-                    };
-
-                    client.send(request).log_err();
-                }
-
                 let stack_frame = this
                     .stack_frames
                     .first()
@@ -182,6 +169,19 @@ impl StackFrameList {
 
         cx.emit(StackFrameListEvent::SelectedStackFrameChanged);
         cx.notify();
+
+        if let Some((client, id)) = self.dap_store.read(cx).downstream_client() {
+            let request = UpdateDebugAdapter {
+                client_id: self.client_id.to_proto(),
+                thread_id: self.thread_id,
+                project_id: *id,
+                variant: Some(rpc::proto::update_debug_adapter::Variant::StackFrameList(
+                    self.to_proto(),
+                )),
+            };
+
+            client.send(request).log_err();
+        }
 
         if !go_to_stack_frame {
             return Task::ready(Ok(()));

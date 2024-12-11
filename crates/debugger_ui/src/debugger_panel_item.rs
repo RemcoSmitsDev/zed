@@ -230,7 +230,7 @@ impl DebugPanelItem {
 
         if let Some(stack_frame_list) = state.stack_frame_list.as_ref() {
             self.stack_frame_list.update(cx, |this, cx| {
-                this.set_from_proto(stack_frame_list.clone(), cx);
+                this.from_proto(stack_frame_list.clone(), cx);
             });
         }
 
@@ -435,11 +435,9 @@ impl DebugPanelItem {
     ) {
         if let Some(update_variant) = update.variant.as_ref() {
             match update_variant {
-                proto::update_debug_adapter::Variant::StackFrameList(stack_frame_list) => {
-                    self.stack_frame_list.update(cx, |this, cx| {
-                        this.set_from_proto(stack_frame_list.clone(), cx)
-                    })
-                }
+                proto::update_debug_adapter::Variant::StackFrameList(stack_frame_list) => self
+                    .stack_frame_list
+                    .update(cx, |this, cx| this.from_proto(stack_frame_list.clone(), cx)),
                 proto::update_debug_adapter::Variant::ThreadState(thread_state) => {
                     self.thread_state.update(cx, |this, _| {
                         *this = ThreadState::from_proto(thread_state.clone());

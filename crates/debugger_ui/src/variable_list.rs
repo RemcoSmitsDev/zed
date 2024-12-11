@@ -301,7 +301,6 @@ pub struct VariableList {
     set_variable_state: Option<SetVariableState>,
     entries: HashMap<StackFrameId, Vec<VariableListEntry>>,
     fetch_variables_task: Option<Task<Result<()>>>,
-    // (stack_frame_id, scope_id) -> VariableIndex
     variables: BTreeMap<(StackFrameId, ScopeId), ScopeVariableIndex>,
     open_context_menu: Option<(View<ContextMenu>, Point<Pixels>, Subscription)>,
 }
@@ -442,8 +441,8 @@ impl VariableList {
                     entry
                         .entries
                         .clone()
-                        .iter()
-                        .filter_map(|ele| VariableListEntry::from_proto(ele.clone()))
+                        .into_iter()
+                        .filter_map(VariableListEntry::from_proto)
                         .collect(),
                 )
             })
@@ -458,8 +457,8 @@ impl VariableList {
                     scope
                         .scopes
                         .clone()
-                        .iter()
-                        .map(|ele| Scope::from_proto(ele.clone()))
+                        .into_iter()
+                        .map(Scope::from_proto)
                         .collect(),
                 )
             })
