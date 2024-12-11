@@ -1353,7 +1353,7 @@ mod tests {
     }
 
     #[test]
-    fn test_can_serialize_to_proto() {
+    fn test_can_serialize_to_and_from_proto() {
         let mut index = ScopeVariableIndex::new();
 
         let variable1 = VariableContainer {
