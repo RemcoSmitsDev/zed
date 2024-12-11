@@ -16,9 +16,10 @@ use gpui::{
     View, WeakView,
 };
 use project::dap_store::DapStore;
-use rpc::proto::{self, PeerId};
+use rpc::proto::{self, PeerId, SetDebuggerPanelItem};
 use settings::Settings;
 use ui::{prelude::*, Indicator, Tooltip, WindowContext};
+use util::ResultExt as _;
 use workspace::{
     item::{self, Item, ItemEvent},
     FollowableItem, ItemHandle, ViewId, Workspace,
@@ -199,6 +200,26 @@ impl DebugPanelItem {
         }
     }
 
+    pub(crate) fn to_proto(&self, cx: &ViewContext<Self>) -> SetDebuggerPanelItem {
+        let thread_state = Some(self.thread_state.read_with(cx, |this, _| this.to_proto()));
+        let modules = self.module_list.read(cx).to_proto();
+        let variable_list = Some(self.variable_list.read(cx).to_proto());
+        let stack_frame_list = Some(self.stack_frame_list.read(cx).to_proto());
+
+        SetDebuggerPanelItem {
+            project_id: 1,
+            client_id: self.client_id.to_proto(),
+            thread_id: self.thread_id,
+            console: None,
+            modules,
+            active_thread_item: self.active_thread_item.to_proto().into(),
+            thread_state,
+            variable_list,
+            stack_frame_list,
+            loaded_source_list: None,
+        }
+    }
+
     pub(crate) fn set_from_proto(
         &mut self,
         state: &proto::view::DebugPanel,
@@ -267,6 +288,11 @@ impl DebugPanelItem {
         }
 
         cx.emit(DebugPanelItemEvent::Stopped { go_to_stack_frame });
+
+        if let Some((downstream_client, _project_id)) = self.dap_store.read(cx).downstream_client()
+        {
+            downstream_client.send(self.to_proto(cx)).log_err();
+        }
     }
 
     fn handle_thread_event(

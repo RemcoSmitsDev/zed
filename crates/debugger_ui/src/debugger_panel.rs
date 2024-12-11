@@ -1,5 +1,4 @@
 use crate::{attach_modal::AttachModal, debugger_panel_item::DebugPanelItem};
-
 use anyhow::Result;
 use client::proto;
 use collections::{BTreeMap, HashMap};
@@ -18,7 +17,6 @@ use gpui::{
     FontWeight, Model, Subscription, Task, View, ViewContext, WeakView,
 };
 use project::{dap_store::DapStore, terminals::TerminalKind};
-use rpc::AnyProtoClient;
 use serde_json::Value;
 use settings::Settings;
 use std::{any::TypeId, collections::VecDeque, path::PathBuf, u64};
@@ -120,9 +118,6 @@ pub struct DebugPanel {
 }
 
 impl DebugPanel {
-    // TODO Debugger Collab
-    pub fn _init(_client: &AnyProtoClient) {}
-
     pub fn new(workspace: &Workspace, cx: &mut ViewContext<Workspace>) -> View<Self> {
         cx.new_view(|cx| {
             let pane = cx.new_view(|cx| {

@@ -3737,6 +3737,7 @@ dependencies = [
  "terminal_view",
  "theme",
  "ui",
+ "util",
  "workspace",
 ]
 

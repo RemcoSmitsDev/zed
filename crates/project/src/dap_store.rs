@@ -107,6 +107,7 @@ impl DapStore {
         client.add_model_message_handler(DapStore::handle_synchronize_breakpoints);
         client.add_model_message_handler(DapStore::handle_set_active_debug_line);
         client.add_model_message_handler(DapStore::handle_remove_active_debug_line);
+        client.add_model_message_handler(DapStore::handle_set_debug_panel_item);
     }
 
     pub fn new_local(
@@ -195,6 +196,10 @@ impl DapStore {
             }) => None,
             DapStoreMode::Local(_) => None,
         }
+    }
+
+    pub fn downstream_client(&self) -> Option<&(AnyProtoClient, u64)> {
+        self.downstream_client.as_ref()
     }
 
     pub fn next_client_id(&self) -> DebugAdapterClientId {
@@ -1283,6 +1288,16 @@ impl DapStore {
 
             cx.notify();
         })
+    }
+
+    async fn handle_set_debug_panel_item(
+        this: Model<Self>,
+        envelope: TypedEnvelope<proto::SetDebuggerPanelItem>,
+        mut cx: AsyncAppContext,
+    ) -> Result<()> {
+        println!("\n\nHandle set debug panel item has been hit!\n\n");
+        dbg!("In Handle set debug panel item");
+        Ok(())
     }
 
     async fn handle_set_active_debug_line(
