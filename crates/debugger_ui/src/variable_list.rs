@@ -467,7 +467,7 @@ impl VariableList {
             })
             .collect();
 
-        self.list.reset(self.open_entries.len());
+        self.list.reset(self.entries.len());
         cx.notify();
     }
 
