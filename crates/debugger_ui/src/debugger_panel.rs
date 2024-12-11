@@ -5,7 +5,7 @@ use client::proto;
 use collections::{BTreeMap, HashMap};
 use command_palette_hooks::CommandPaletteFilter;
 use dap::{
-    client::{DebugAdapterClientId, ThreadStatus},
+    client::DebugAdapterClientId,
     debugger_settings::DebuggerSettings,
     messages::{Events, Message},
     requests::{Request, RunInTerminal, StartDebugging},
@@ -78,6 +78,35 @@ impl ThreadState {
     }
 }
 
+#[derive(Copy, Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ThreadStatus {
+    #[default]
+    Running,
+    Stopped,
+    Exited,
+    Ended,
+}
+
+impl ThreadStatus {
+    pub fn from_proto(status: proto::DebuggerThreadStatus) -> Self {
+        match status {
+            proto::DebuggerThreadStatus::Running => Self::Running,
+            proto::DebuggerThreadStatus::Stopped => Self::Stopped,
+            proto::DebuggerThreadStatus::Exited => Self::Exited,
+            proto::DebuggerThreadStatus::Ended => Self::Ended,
+        }
+    }
+
+    pub fn to_proto(&self) -> i32 {
+        match self {
+            Self::Running => 0,
+            Self::Stopped => 1,
+            Self::Exited => 2,
+            Self::Ended => 3,
+        }
+    }
+}
+
 pub struct DebugPanel {
     size: Pixels,
     pane: View<Pane>,
@@ -105,7 +134,7 @@ impl DebugPanel {
                     None,
                     cx,
                 );
-                pane.set_can_split(false, cx);
+                pane.set_can_split(None);
                 pane.set_can_navigate(true, cx);
                 pane.display_nav_history_buttons(None);
                 pane.set_should_display_tab_bar(|_| true);

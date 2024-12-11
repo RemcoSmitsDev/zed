@@ -13,7 +13,7 @@ use smol::{
     io::{AsyncBufReadExt as _, AsyncWriteExt, BufReader},
     lock::Mutex,
     net::{TcpListener, TcpStream},
-    process::{self, Child},
+    process::Child,
 };
 use std::{
     any::Any,
@@ -197,6 +197,10 @@ impl TransportDelegate {
         result
     }
 
+    fn build_rpc_message(message: String) -> String {
+        format!("Content-Length: {}\r\n\r\n{}", message.len(), message)
+    }
+
     async fn handle_input<Stdin>(
         mut server_stdin: Stdin,
         client_rx: Receiver<Message>,
@@ -228,10 +232,7 @@ impl TransportDelegate {
                     }
 
                     if let Err(e) = server_stdin
-                        .write_all(
-                            format!("Content-Length: {}\r\n\r\n{}", message.len(), message)
-                                .as_bytes(),
-                        )
+                        .write_all(Self::build_rpc_message(message).as_bytes())
                         .await
                     {
                         break Err(e.into());
@@ -329,7 +330,7 @@ impl TransportDelegate {
         if response.success {
             Ok(response)
         } else {
-            if let Some(body) = response.body {
+            if let Some(body) = response.body.clone() {
                 if let Ok(error) = serde_json::from_value::<ErrorResponse>(body) {
                     if let Some(message) = error.error {
                         return Err(anyhow!(message.format));
@@ -337,7 +338,10 @@ impl TransportDelegate {
                 };
             }
 
-            Err(anyhow!("Received error response from adapter"))
+            Err(anyhow!(
+                "Received error response from adapter. Response: {:?}",
+                response.clone()
+            ))
         }
     }
 
@@ -439,7 +443,7 @@ impl TransportDelegate {
 #[async_trait(?Send)]
 pub trait Transport: 'static + Send + Sync + Any {
     async fn start(
-        self: Arc<Self>,
+        &self,
         binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
     ) -> Result<TransportPipe>;
@@ -487,11 +491,11 @@ impl TcpTransport {
 #[async_trait(?Send)]
 impl Transport for TcpTransport {
     async fn start(
-        self: Arc<Self>,
+        &self,
         binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
     ) -> Result<TransportPipe> {
-        let mut command = process::Command::new(&binary.command);
+        let mut command = util::command::new_smol_command(&binary.command);
 
         if let Some(cwd) = &binary.cwd {
             command.current_dir(cwd);
@@ -586,11 +590,11 @@ impl StdioTransport {
 #[async_trait(?Send)]
 impl Transport for StdioTransport {
     async fn start(
-        self: Arc<Self>,
+        &self,
         binary: &DebugAdapterBinary,
         _: &mut AsyncAppContext,
     ) -> Result<TransportPipe> {
-        let mut command = process::Command::new(&binary.command);
+        let mut command = util::command::new_smol_command(&binary.command);
 
         if let Some(cwd) = &binary.cwd {
             command.current_dir(cwd);
@@ -625,7 +629,14 @@ impl Transport for StdioTransport {
         let stderr = process
             .stdout
             .take()
-            .ok_or_else(|| anyhow!("Failed to open stderr"))?;
+            .map(|io_err| Box::new(io_err) as Box<dyn AsyncRead + Unpin + Send>);
+
+        if stderr.is_none() {
+            log::error!(
+                "Failed to connect to stderr for debug adapter command {}",
+                &binary.command
+            );
+        }
 
         log::info!("Debug adapter has connected to stdio adapter");
 
@@ -637,7 +648,7 @@ impl Transport for StdioTransport {
             Box::new(stdin),
             Box::new(BufReader::new(stdout)),
             None,
-            Some(Box::new(stderr) as Box<dyn AsyncRead + Unpin + Send>),
+            stderr,
         ))
     }
 
@@ -695,15 +706,16 @@ impl FakeTransport {
                         body: Some(serde_json::to_value(response).unwrap()),
                     });
 
-                    let content = serde_json::to_string(&message).unwrap();
-
-                    let formatted = format!("Content-Length: {}\r\n\r\n{}", content.len(), content);
+                    let message = serde_json::to_string(&message).unwrap();
 
                     let writer = writer.clone();
 
                     Box::pin(async move {
                         let mut writer = writer.lock().await;
-                        writer.write_all(formatted.as_bytes()).await.unwrap();
+                        writer
+                            .write_all(TransportDelegate::build_rpc_message(message).as_bytes())
+                            .await
+                            .unwrap();
                         writer.flush().await.unwrap();
                     })
                 },
@@ -716,7 +728,7 @@ impl FakeTransport {
 #[async_trait(?Send)]
 impl Transport for FakeTransport {
     async fn start(
-        self: Arc<Self>,
+        &self,
         _binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
     ) -> Result<TransportPipe> {
@@ -726,7 +738,7 @@ impl Transport for FakeTransport {
         let handlers = self.request_handlers.clone();
         let stdout_writer = Arc::new(Mutex::new(stdout_writer));
 
-        cx.spawn(|_| async move {
+        cx.background_executor().spawn(async move {
             let mut reader = BufReader::new(stdin_reader);
             let mut buffer = String::new();
 
@@ -756,7 +768,17 @@ impl Transport for FakeTransport {
                             log::debug!("No handler for {}", request.command);
                         }
                     }
-                    _ => unreachable!("You can only send a request"),
+                    Ok(Message::Event(event)) => {
+                        let message = serde_json::to_string(&Message::Event(event)).unwrap();
+
+                        let mut writer = stdout_writer.lock().await;
+                        writer
+                            .write_all(TransportDelegate::build_rpc_message(message).as_bytes())
+                            .await
+                            .unwrap();
+                        writer.flush().await.unwrap();
+                    }
+                    _ => unreachable!("You can only send a request and an event that is redirected to the output reader"),
                 }
             }
         })

@@ -1,15 +1,14 @@
 use crate::console::Console;
-use crate::debugger_panel::{DebugPanel, DebugPanelEvent, ThreadState};
+use crate::debugger_panel::{DebugPanel, DebugPanelEvent, ThreadState, ThreadStatus};
 use crate::loaded_source_list::LoadedSourceList;
 use crate::module_list::ModuleList;
 use crate::stack_frame_list::{StackFrameList, StackFrameListEvent};
 use crate::variable_list::VariableList;
 
 use dap::{
-    client::{DebugAdapterClientId, ThreadStatus},
-    debugger_settings::DebuggerSettings,
-    Capabilities, ContinuedEvent, LoadedSourceEvent, ModuleEvent, OutputEvent, OutputEventCategory,
-    StoppedEvent, ThreadEvent,
+    client::DebugAdapterClientId, debugger_settings::DebuggerSettings, Capabilities,
+    ContinuedEvent, LoadedSourceEvent, ModuleEvent, OutputEvent, OutputEventCategory, StoppedEvent,
+    ThreadEvent,
 };
 use editor::Editor;
 use gpui::{
@@ -20,9 +19,8 @@ use project::dap_store::DapStore;
 use rpc::proto::{self, PeerId};
 use settings::Settings;
 use ui::{prelude::*, Indicator, Tooltip, WindowContext};
-use workspace::item;
 use workspace::{
-    item::{Item, ItemEvent},
+    item::{self, Item, ItemEvent},
     FollowableItem, ItemHandle, ViewId, Workspace,
 };
 
