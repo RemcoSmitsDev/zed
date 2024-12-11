@@ -309,7 +309,8 @@ message Envelope {
         SynchronizeBreakpoints Synchronize_breakpoints = 290;
         SetActiveDebugLine set_active_debug_line = 291;
         RemoveActiveDebugLine remove_active_debug_line = 292;
-        SetDebuggerPanelItem set_debugger_panel_item = 293; // current max
+        SetDebuggerPanelItem set_debugger_panel_item = 293;
+        UpdateDebugAdapter update_debug_adapter = 294; // current max
     }
 
     reserved 87 to 88;
@@ -1269,6 +1270,17 @@ message UpdateLanguageServer {
         LspWorkEnd work_end = 5;
         LspDiskBasedDiagnosticsUpdating disk_based_diagnostics_updating = 6;
         LspDiskBasedDiagnosticsUpdated disk_based_diagnostics_updated = 7;
+    }
+}
+
+message UpdateDebugAdapter {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    uint64 thread_id = 3;
+    oneof variant {
+        DebuggerThreadState thread_state = 4;
+        DebuggerStackFrameList stack_frame_list = 5;
+        DebuggerVariableList variable_list = 6;
     }
 }
 

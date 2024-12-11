@@ -95,8 +95,8 @@ impl ModuleList {
     }
 
     pub(crate) fn set_from_proto(&mut self, modules: Vec<DapModule>, cx: &mut ViewContext<Self>) {
-        self.list.reset(modules.len());
         self.modules = modules_from_state(modules);
+        self.list.reset(self.modules.len());
         cx.notify();
     }
 

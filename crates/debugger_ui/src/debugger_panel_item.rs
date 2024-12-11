@@ -16,7 +16,7 @@ use gpui::{
     View, WeakView,
 };
 use project::dap_store::DapStore;
-use rpc::proto::{self, PeerId, SetDebuggerPanelItem};
+use rpc::proto::{self, PeerId, SetDebuggerPanelItem, UpdateDebugAdapter};
 use settings::Settings;
 use ui::{prelude::*, Indicator, Tooltip, WindowContext};
 use util::ResultExt as _;
@@ -229,8 +229,9 @@ impl DebugPanelItem {
         self.active_thread_item = ThreadItem::from_proto(state.active_thread_item());
 
         if let Some(stack_frame_list) = state.stack_frame_list.as_ref() {
-            self.stack_frame_list
-                .update(cx, |this, _| this.set_from_proto(stack_frame_list.clone()));
+            self.stack_frame_list.update(cx, |this, cx| {
+                this.set_from_proto(stack_frame_list.clone(), cx);
+            });
         }
 
         if let Some(variable_list_state) = state.variable_list.as_ref() {
@@ -425,6 +426,30 @@ impl DebugPanelItem {
         }
 
         cx.notify();
+    }
+
+    pub(crate) fn update_adapter(
+        &mut self,
+        update: &UpdateDebugAdapter,
+        cx: &mut ViewContext<Self>,
+    ) {
+        if let Some(update_variant) = update.variant.as_ref() {
+            match update_variant {
+                proto::update_debug_adapter::Variant::StackFrameList(stack_frame_list) => {
+                    self.stack_frame_list.update(cx, |this, cx| {
+                        this.set_from_proto(stack_frame_list.clone(), cx)
+                    })
+                }
+                proto::update_debug_adapter::Variant::ThreadState(thread_state) => {
+                    self.thread_state.update(cx, |this, _| {
+                        *this = ThreadState::from_proto(thread_state.clone());
+                    })
+                }
+                proto::update_debug_adapter::Variant::VariableList(variable_list) => self
+                    .variable_list
+                    .update(cx, |this, cx| this.set_from_proto(variable_list, cx)),
+            }
+        }
     }
 
     pub fn client_id(&self) -> DebugAdapterClientId {

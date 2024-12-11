@@ -17,7 +17,7 @@ use gpui::{
     FontWeight, Model, Subscription, Task, View, ViewContext, WeakView,
 };
 use project::{dap_store::DapStore, terminals::TerminalKind};
-use rpc::proto::SetDebuggerPanelItem;
+use rpc::proto::{SetDebuggerPanelItem, UpdateDebugAdapter};
 use serde_json::Value;
 use settings::Settings;
 use std::{any::TypeId, collections::VecDeque, path::PathBuf, u64};
@@ -755,7 +755,36 @@ impl DebugPanel {
             project::dap_store::DapStoreEvent::SetDebugPanelItem(set_debug_panel_item) => {
                 self.handle_set_debug_panel_item(set_debug_panel_item, cx);
             }
+            project::dap_store::DapStoreEvent::UpdateDebugAdapter(debug_adapter_update) => {
+                self.handle_debug_adapter_update(debug_adapter_update, cx);
+            }
             _ => {}
+        }
+    }
+
+    pub(crate) fn handle_debug_adapter_update(
+        &mut self,
+        update: &UpdateDebugAdapter,
+        cx: &mut ViewContext<Self>,
+    ) {
+        let client_id = DebugAdapterClientId::from_proto(update.client_id);
+        let thread_id = update.thread_id;
+
+        let existing_item = self
+            .pane
+            .read(cx)
+            .items()
+            .filter_map(|item| item.downcast::<DebugPanelItem>())
+            .find(|item| {
+                let item = item.read(cx);
+
+                item.client_id() == client_id && item.thread_id() == thread_id
+            });
+
+        if let Some(debug_panel_item) = existing_item {
+            debug_panel_item.update(cx, |this, cx| {
+                this.update_adapter(update, cx);
+            });
         }
     }
 
@@ -764,8 +793,6 @@ impl DebugPanel {
         payload: &SetDebuggerPanelItem,
         cx: &mut ViewContext<Self>,
     ) {
-        dbg!("In debug panel handle set debug panel item");
-
         let client_id = DebugAdapterClientId::from_proto(payload.client_id);
         let thread_id = payload.thread_id;
         let thread_state = payload.thread_state.clone().unwrap();

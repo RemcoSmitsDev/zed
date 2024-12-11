@@ -10,7 +10,7 @@ use gpui::{
 use gpui::{FocusableView, Model};
 use project::dap_store::DapStore;
 use project::ProjectPath;
-use rpc::proto::DebuggerStackFrameList;
+use rpc::proto::{DebuggerStackFrameList, UpdateDebugAdapter};
 use ui::ViewContext;
 use ui::{prelude::*, Tooltip};
 use workspace::Workspace;
@@ -73,6 +73,10 @@ impl StackFrameList {
         }
     }
 
+    pub(crate) fn thread_id(&self) -> u64 {
+        self.thread_id
+    }
+
     pub(crate) fn to_proto(&self) -> DebuggerStackFrameList {
         DebuggerStackFrameList {
             thread_id: self.thread_id,
@@ -82,11 +86,18 @@ impl StackFrameList {
         }
     }
 
-    pub(crate) fn set_from_proto(&mut self, stack_frames: DebuggerStackFrameList) {
-        self.thread_id = stack_frames.thread_id;
-        self.client_id = DebugAdapterClientId::from_proto(stack_frames.client_id);
-        self.current_stack_frame_id = stack_frames.current_stack_frame;
-        self.stack_frames = Vec::from_proto(stack_frames.stack_frames);
+    pub(crate) fn set_from_proto(
+        &mut self,
+        stack_frame_list: DebuggerStackFrameList,
+        cx: &mut ViewContext<Self>,
+    ) {
+        self.thread_id = stack_frame_list.thread_id;
+        self.client_id = DebugAdapterClientId::from_proto(stack_frame_list.client_id);
+        self.current_stack_frame_id = stack_frame_list.current_stack_frame;
+        self.stack_frames = Vec::from_proto(stack_frame_list.stack_frames);
+        self.list.reset(self.stack_frames.len());
+
+        cx.notify();
     }
 
     pub fn stack_frames(&self) -> &Vec<StackFrame> {
@@ -129,6 +140,23 @@ impl StackFrameList {
                 this.list.reset(this.stack_frames.len());
 
                 cx.emit(StackFrameListEvent::StackFramesUpdated);
+
+                this.dap_store.update(cx, |store, _| {
+                    if let Some((client, id)) = store.downstream_client() {
+                        let request = UpdateDebugAdapter {
+                            client_id: this.client_id.to_proto(),
+                            thread_id: this.thread_id,
+                            project_id: *id,
+                            variant: Some(
+                                rpc::proto::update_debug_adapter::Variant::StackFrameList(
+                                    this.to_proto(),
+                                ),
+                            ),
+                        };
+
+                        let _res = client.send(request);
+                    }
+                });
 
                 let stack_frame = this
                     .stack_frames

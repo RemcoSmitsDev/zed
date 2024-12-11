@@ -17,8 +17,8 @@ use menu::Confirm;
 use project::dap_store::DapStore;
 use proto::debugger_variable_list_entry::Entry;
 use rpc::proto::{
-    self, DebuggerScopeVariableIndex, DebuggerVariableContainer, VariableListEntries,
-    VariableListScopes, VariableListVariables,
+    self, DebuggerScopeVariableIndex, DebuggerVariableContainer, UpdateDebugAdapter,
+    VariableListEntries, VariableListScopes, VariableListVariables,
 };
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -440,6 +440,11 @@ impl VariableList {
             })
             .collect();
 
+        // 1. tread stopped message (client_id, thread_id, status)
+        // 2. stackframes updated message (client_id, thread_id, stackframes)
+        // 3. variables updated message (client_id, thread_id, scopes/variables)
+        // 4. modules updated message (client_id, thread_id, modules)
+
         self.scopes = state
             .scopes
             .iter()
@@ -457,8 +462,6 @@ impl VariableList {
             .collect();
 
         self.list.reset(state.open_entries.len());
-        self.build_entries(true, true, cx);
-
         cx.notify();
     }
 
@@ -765,6 +768,23 @@ impl VariableList {
                         new_variables.insert((stack_frame_id, scope_id), variable_index);
                     }
                 }
+
+                let thread_id = this.stack_frame_list.read(cx).thread_id();
+
+                this.dap_store.update(cx, |store, _| {
+                    if let Some((client, id)) = store.downstream_client() {
+                        let request = UpdateDebugAdapter {
+                            client_id: this.client_id.to_proto(),
+                            thread_id,
+                            project_id: *id,
+                            variant: Some(rpc::proto::update_debug_adapter::Variant::VariableList(
+                                this.to_proto(),
+                            )),
+                        };
+
+                        let _res = client.send(request);
+                    }
+                });
 
                 std::mem::swap(&mut this.variables, &mut new_variables);
                 std::mem::swap(&mut this.scopes, &mut new_scopes);

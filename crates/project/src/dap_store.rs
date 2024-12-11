@@ -36,7 +36,7 @@ use language::{
 };
 use lsp::LanguageServerName;
 use node_runtime::NodeRuntime;
-use rpc::proto::SetDebuggerPanelItem;
+use rpc::proto::{SetDebuggerPanelItem, UpdateDebugAdapter};
 use rpc::{proto, AnyProtoClient, TypedEnvelope};
 use serde_json::Value;
 use settings::{Settings as _, WorktreeId};
@@ -66,6 +66,7 @@ pub enum DapStoreEvent {
     BreakpointsChanged,
     ActiveDebugLineChanged,
     SetDebugPanelItem(SetDebuggerPanelItem),
+    UpdateDebugAdapter(UpdateDebugAdapter),
 }
 
 pub enum DebugAdapterClientState {
@@ -110,6 +111,7 @@ impl DapStore {
         client.add_model_message_handler(DapStore::handle_set_active_debug_line);
         client.add_model_message_handler(DapStore::handle_remove_active_debug_line);
         client.add_model_message_handler(DapStore::handle_set_debug_panel_item);
+        client.add_model_message_handler(DapStore::handle_update_debug_adapter);
     }
 
     pub fn new_local(
@@ -1299,6 +1301,16 @@ impl DapStore {
     ) -> Result<()> {
         this.update(&mut cx, |_, cx| {
             cx.emit(DapStoreEvent::SetDebugPanelItem(envelope.payload));
+        })
+    }
+
+    async fn handle_update_debug_adapter(
+        this: Model<Self>,
+        envelope: TypedEnvelope<proto::UpdateDebugAdapter>,
+        mut cx: AsyncAppContext,
+    ) -> Result<()> {
+        this.update(&mut cx, |_, cx| {
+            cx.emit(DapStoreEvent::UpdateDebugAdapter(envelope.payload));
         })
     }
 
