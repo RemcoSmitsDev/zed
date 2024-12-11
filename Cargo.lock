@@ -3572,6 +3572,7 @@ dependencies = [
  "async-pipe",
  "async-tar",
  "async-trait",
+ "client",
  "collections",
  "ctor",
  "dap-types",
@@ -3713,6 +3714,7 @@ name = "debugger_ui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "client",
  "collections",
  "command_palette_hooks",
  "dap",
@@ -3725,6 +3727,7 @@ dependencies = [
  "parking_lot",
  "picker",
  "project",
+ "rpc",
  "serde",
  "serde_json",
  "settings",
@@ -3734,6 +3737,7 @@ dependencies = [
  "terminal_view",
  "theme",
  "ui",
+ "util",
  "workspace",
 ]
 

@@ -5,24 +5,25 @@ use crate::module_list::ModuleList;
 use crate::stack_frame_list::{StackFrameList, StackFrameListEvent};
 use crate::variable_list::VariableList;
 
-use dap::client::DebugAdapterClientId;
-use dap::debugger_settings::DebuggerSettings;
 use dap::{
-    Capabilities, ContinuedEvent, LoadedSourceEvent, ModuleEvent, OutputEvent, OutputEventCategory,
-    StoppedEvent, ThreadEvent,
+    client::DebugAdapterClientId, debugger_settings::DebuggerSettings, Capabilities,
+    ContinuedEvent, LoadedSourceEvent, ModuleEvent, OutputEvent, OutputEventCategory, StoppedEvent,
+    ThreadEvent,
 };
 use editor::Editor;
 use gpui::{
-    AnyElement, AppContext, EventEmitter, FocusHandle, FocusableView, Model, Subscription, View,
-    WeakView,
+    AnyElement, AppContext, EventEmitter, FocusHandle, FocusableView, Model, Subscription, Task,
+    View, WeakView,
 };
 use project::dap_store::DapStore;
+use rpc::proto::{self, PeerId, SetDebuggerPanelItem, UpdateDebugAdapter};
 use settings::Settings;
-use task::DebugAdapterKind;
-use ui::{prelude::*, Tooltip};
-use ui::{Indicator, WindowContext};
-use workspace::item::{Item, ItemEvent};
-use workspace::{ItemHandle, Workspace};
+use ui::{prelude::*, Indicator, Tooltip, WindowContext};
+use util::ResultExt as _;
+use workspace::{
+    item::{self, Item, ItemEvent},
+    FollowableItem, ItemHandle, ViewId, Workspace,
+};
 
 #[derive(Debug)]
 pub enum DebugPanelItemEvent {
@@ -39,15 +40,38 @@ enum ThreadItem {
     Variables,
 }
 
+impl ThreadItem {
+    fn to_proto(&self) -> proto::DebuggerThreadItem {
+        match self {
+            ThreadItem::Console => proto::DebuggerThreadItem::Console,
+            ThreadItem::LoadedSource => proto::DebuggerThreadItem::LoadedSource,
+            ThreadItem::Modules => proto::DebuggerThreadItem::Modules,
+            ThreadItem::Output => proto::DebuggerThreadItem::Output,
+            ThreadItem::Variables => proto::DebuggerThreadItem::Variables,
+        }
+    }
+
+    fn from_proto(active_thread_item: proto::DebuggerThreadItem) -> Self {
+        match active_thread_item {
+            proto::DebuggerThreadItem::Console => ThreadItem::Console,
+            proto::DebuggerThreadItem::LoadedSource => ThreadItem::LoadedSource,
+            proto::DebuggerThreadItem::Modules => ThreadItem::Modules,
+            proto::DebuggerThreadItem::Output => ThreadItem::Output,
+            proto::DebuggerThreadItem::Variables => ThreadItem::Variables,
+        }
+    }
+}
+
 pub struct DebugPanelItem {
     thread_id: u64,
+    remote_id: Option<ViewId>,
     console: View<Console>,
     show_console_indicator: bool,
     focus_handle: FocusHandle,
     dap_store: Model<DapStore>,
     output_editor: View<Editor>,
     module_list: View<ModuleList>,
-    client_kind: DebugAdapterKind,
+    client_name: SharedString,
     active_thread_item: ThreadItem,
     workspace: WeakView<Workspace>,
     client_id: DebugAdapterClientId,
@@ -66,7 +90,7 @@ impl DebugPanelItem {
         dap_store: Model<DapStore>,
         thread_state: Model<ThreadState>,
         client_id: &DebugAdapterClientId,
-        client_kind: &DebugAdapterKind,
+        client_name: SharedString,
         thread_id: u64,
         cx: &mut ViewContext<Self>,
     ) -> Self {
@@ -157,22 +181,65 @@ impl DebugPanelItem {
 
         Self {
             console,
-            show_console_indicator: false,
             thread_id,
             dap_store,
             workspace,
+            client_name,
             module_list,
             thread_state,
             focus_handle,
             output_editor,
             variable_list,
             _subscriptions,
+            remote_id: None,
             stack_frame_list,
             loaded_source_list,
             client_id: *client_id,
-            client_kind: client_kind.clone(),
+            show_console_indicator: false,
             active_thread_item: ThreadItem::Variables,
         }
+    }
+
+    pub(crate) fn to_proto(&self, cx: &ViewContext<Self>, project_id: u64) -> SetDebuggerPanelItem {
+        let thread_state = Some(self.thread_state.read_with(cx, |this, _| this.to_proto()));
+        let modules = self.module_list.read(cx).to_proto();
+        let variable_list = Some(self.variable_list.read(cx).to_proto());
+        let stack_frame_list = Some(self.stack_frame_list.read(cx).to_proto());
+
+        SetDebuggerPanelItem {
+            project_id,
+            client_id: self.client_id.to_proto(),
+            thread_id: self.thread_id,
+            console: None,
+            modules,
+            active_thread_item: self.active_thread_item.to_proto().into(),
+            thread_state,
+            variable_list,
+            stack_frame_list,
+            loaded_source_list: None,
+            client_name: self.client_name.to_string(),
+        }
+    }
+
+    pub(crate) fn from_proto(&mut self, state: &SetDebuggerPanelItem, cx: &mut ViewContext<Self>) {
+        self.active_thread_item = ThreadItem::from_proto(state.active_thread_item());
+
+        if let Some(stack_frame_list) = state.stack_frame_list.as_ref() {
+            self.stack_frame_list.update(cx, |this, cx| {
+                this.from_proto(stack_frame_list.clone(), cx);
+            });
+        }
+
+        if let Some(variable_list_state) = state.variable_list.as_ref() {
+            self.variable_list
+                .update(cx, |this, cx| this.from_proto(variable_list_state, cx));
+        }
+
+        self.module_list.update(cx, |this, cx| {
+            this.set_from_proto(state.modules.clone(), cx)
+        });
+
+        cx.notify();
     }
 
     pub fn update_thread_state_status(&mut self, status: ThreadStatus, cx: &mut ViewContext<Self>) {
@@ -219,6 +286,12 @@ impl DebugPanelItem {
         }
 
         cx.emit(DebugPanelItemEvent::Stopped { go_to_stack_frame });
+
+        if let Some((downstream_client, project_id)) = self.dap_store.read(cx).downstream_client() {
+            downstream_client
+                .send(self.to_proto(cx, *project_id))
+                .log_err();
+        }
     }
 
     fn handle_thread_event(
@@ -349,6 +422,28 @@ impl DebugPanelItem {
         }
 
         cx.notify();
+    }
+
+    pub(crate) fn update_adapter(
+        &mut self,
+        update: &UpdateDebugAdapter,
+        cx: &mut ViewContext<Self>,
+    ) {
+        if let Some(update_variant) = update.variant.as_ref() {
+            match update_variant {
+                proto::update_debug_adapter::Variant::StackFrameList(stack_frame_list) => self
+                    .stack_frame_list
+                    .update(cx, |this, cx| this.from_proto(stack_frame_list.clone(), cx)),
+                proto::update_debug_adapter::Variant::ThreadState(thread_state) => {
+                    self.thread_state.update(cx, |this, _| {
+                        *this = ThreadState::from_proto(thread_state.clone());
+                    })
+                }
+                proto::update_debug_adapter::Variant::VariableList(variable_list) => self
+                    .variable_list
+                    .update(cx, |this, cx| this.from_proto(variable_list, cx)),
+            }
+        }
     }
 
     pub fn client_id(&self) -> DebugAdapterClientId {
@@ -541,23 +636,19 @@ impl Item for DebugPanelItem {
         params: workspace::item::TabContentParams,
         _: &WindowContext,
     ) -> AnyElement {
-        Label::new(format!(
-            "{} - Thread {}",
-            self.client_kind.display_name(),
-            self.thread_id
-        ))
-        .color(if params.selected {
-            Color::Default
-        } else {
-            Color::Muted
-        })
-        .into_any_element()
+        Label::new(format!("{} - Thread {}", self.client_name, self.thread_id))
+            .color(if params.selected {
+                Color::Default
+            } else {
+                Color::Muted
+            })
+            .into_any_element()
     }
 
     fn tab_tooltip_text(&self, cx: &AppContext) -> Option<SharedString> {
         Some(SharedString::from(format!(
             "{} Thread {} - {:?}",
-            self.client_kind.display_name(),
+            self.client_name,
             self.thread_id,
             self.thread_state.read(cx).status,
         )))
@@ -568,6 +659,108 @@ impl Item for DebugPanelItem {
             DebugPanelItemEvent::Close => f(ItemEvent::CloseItem),
             DebugPanelItemEvent::Stopped { .. } => {}
         }
+    }
+}
+
+impl FollowableItem for DebugPanelItem {
+    fn remote_id(&self) -> Option<workspace::ViewId> {
+        self.remote_id
+    }
+
+    fn to_state_proto(&self, cx: &WindowContext) -> Option<proto::view::Variant> {
+        let thread_state = Some(self.thread_state.read_with(cx, |this, _| this.to_proto()));
+        let modules = self.module_list.read(cx).to_proto();
+        let variable_list = Some(self.variable_list.read(cx).to_proto());
+        let stack_frames = Some(self.stack_frame_list.read(cx).to_proto());
+
+        Some(proto::view::Variant::DebugPanel(proto::view::DebugPanel {
+            project_id: 1,
+            client_id: self.client_id.to_proto(),
+            thread_id: self.thread_id,
+            console: None,
+            modules,
+            active_thread_item: self.active_thread_item.to_proto().into(),
+            thread_state,
+            variable_list,
+            stack_frames,
+        }))
+    }
+
+    fn from_state_proto(
+        workspace: View<Workspace>,
+        remote_id: ViewId,
+        state: &mut Option<proto::view::Variant>,
+        cx: &mut WindowContext,
+    ) -> Option<gpui::Task<gpui::Result<View<Self>>>> {
+        let proto::view::Variant::DebugPanel(_) = state.as_ref()? else {
+            return None;
+        };
+        let Some(proto::view::Variant::DebugPanel(state)) = state.take() else {
+            unreachable!()
+        };
+
+        let (_project, debug_panel) = workspace.update(cx, |workspace, cx| {
+            Some((
+                workspace.project().clone(),
+                workspace.panel::<DebugPanel>(cx)?,
+            ))
+        })?;
+
+        let debug_panel_item = debug_panel.update(cx, |this, cx| {
+            this.open_remote_debug_panel_item(
+                DebugAdapterClientId::from_proto(state.client_id),
+                state.thread_id,
+                cx,
+            )
+        });
+
+        debug_panel_item.update(cx, |debug_panel_item, _cx| {
+            debug_panel_item.remote_id = Some(remote_id);
+            // debug_panel_item.set_from_proto(&state, cx);
+        });
+
+        Some(Task::ready(Ok(debug_panel_item)))
+    }
+
+    fn add_event_to_update_proto(
+        &self,
+        _event: &Self::Event,
+        update: &mut Option<proto::update_view::Variant>,
+        _cx: &WindowContext,
+    ) -> bool {
+        update.get_or_insert_with(|| proto::update_view::Variant::DebugPanel(Default::default()));
+
+        true
+    }
+
+    fn apply_update_proto(
+        &mut self,
+        _project: &Model<project::Project>,
+        _message: proto::update_view::Variant,
+        _cx: &mut ViewContext<Self>,
+    ) -> gpui::Task<gpui::Result<()>> {
+        dbg!("apply update from proto");
+
+        Task::ready(Ok(()))
+    }
+
+    fn set_leader_peer_id(&mut self, _leader_peer_id: Option<PeerId>, _cx: &mut ViewContext<Self>) {
+    }
+
+    fn to_follow_event(_event: &Self::Event) -> Option<workspace::item::FollowEvent> {
+        None
+    }
+
+    fn dedup(&self, existing: &Self, _cx: &WindowContext) -> Option<workspace::item::Dedup> {
+        if existing.client_id == self.client_id && existing.thread_id == self.thread_id {
+            Some(item::Dedup::KeepExisting)
+        } else {
+            None
+        }
+    }
+
+    fn is_project_item(&self, _cx: &WindowContext) -> bool {
+        true
     }
 }
 
