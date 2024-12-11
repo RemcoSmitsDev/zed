@@ -13,6 +13,7 @@ use project::ProjectPath;
 use rpc::proto::{DebuggerStackFrameList, UpdateDebugAdapter};
 use ui::ViewContext;
 use ui::{prelude::*, Tooltip};
+use util::ResultExt;
 use workspace::Workspace;
 
 use crate::debugger_panel_item::DebugPanelItemEvent::Stopped;
@@ -141,22 +142,18 @@ impl StackFrameList {
 
                 cx.emit(StackFrameListEvent::StackFramesUpdated);
 
-                this.dap_store.update(cx, |store, _| {
-                    if let Some((client, id)) = store.downstream_client() {
-                        let request = UpdateDebugAdapter {
-                            client_id: this.client_id.to_proto(),
-                            thread_id: this.thread_id,
-                            project_id: *id,
-                            variant: Some(
-                                rpc::proto::update_debug_adapter::Variant::StackFrameList(
-                                    this.to_proto(),
-                                ),
-                            ),
-                        };
+                if let Some((client, id)) = this.dap_store.read(cx).downstream_client() {
+                    let request = UpdateDebugAdapter {
+                        client_id: this.client_id.to_proto(),
+                        thread_id: this.thread_id,
+                        project_id: *id,
+                        variant: Some(rpc::proto::update_debug_adapter::Variant::StackFrameList(
+                            this.to_proto(),
+                        )),
+                    };
 
-                        let _res = client.send(request);
-                    }
-                });
+                    client.send(request).log_err();
+                }
 
                 let stack_frame = this
                     .stack_frames
