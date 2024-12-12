@@ -1,5 +1,5 @@
 use crate::stack_frame_list::{StackFrameList, StackFrameListEvent};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use dap::{
     client::DebugAdapterClientId, proto_conversions::ProtoConversion, Scope, ScopePresentationHint,
     Variable,
@@ -36,6 +36,7 @@ pub struct VariableContainer {
 
 impl ProtoConversion for VariableContainer {
     type ProtoType = DebuggerVariableContainer;
+    type Output = Result<Self>;
 
     fn to_proto(&self) -> Self::ProtoType {
         DebuggerVariableContainer {
@@ -45,15 +46,14 @@ impl ProtoConversion for VariableContainer {
         }
     }
 
-    fn from_proto(payload: Self::ProtoType) -> Self {
-        Self {
+    fn from_proto(payload: Self::ProtoType) -> Self::Output {
+        Ok(Self {
             container_reference: payload.container_reference,
-            variable: payload
-                .variable
-                .map(|var| Variable::from_proto(var))
-                .expect("DapVariable Proto message is required"),
+            variable: payload.variable.map(Variable::from_proto).ok_or(anyhow!(
+                "DebuggerVariableContainer proto message didn't contain DapVariable variable field"
+            ))?,
             depth: payload.depth as usize,
-        }
+        })
     }
 }
 
@@ -235,18 +235,23 @@ struct ScopeVariableIndex {
 
 impl ProtoConversion for ScopeVariableIndex {
     type ProtoType = DebuggerScopeVariableIndex;
+    type Output = Self;
 
     fn to_proto(&self) -> Self::ProtoType {
         DebuggerScopeVariableIndex {
             fetched_ids: self.fetched_ids.iter().copied().collect(),
-            variables: self.variables.to_proto(),
+            variables: self.variables.iter().map(|var| var.to_proto()).collect(),
         }
     }
 
     fn from_proto(payload: Self::ProtoType) -> Self {
         Self {
             fetched_ids: payload.fetched_ids.iter().copied().collect(),
-            variables: Vec::from_proto(payload.variables),
+            variables: payload
+                .variables
+                .iter()
+                .filter_map(|var| VariableContainer::from_proto(var.clone()).log_err())
+                .collect(),
         }
     }
 }

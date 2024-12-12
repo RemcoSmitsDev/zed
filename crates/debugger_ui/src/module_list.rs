@@ -48,14 +48,10 @@ impl ModuleList {
         module_list: &DebuggerModuleList,
         cx: &mut ViewContext<Self>,
     ) {
-        // Note: Module::from_proto has a unwrap with the assumption that DapModule.id.id
-        // is always Some value instead of None. Because id is always sent in proto that
-        // should always be the case but we double check here to avoid a panic
         self.modules = module_list
             .modules
             .iter()
-            .filter(|ele| ele.id.as_ref().is_some_and(|id| id.id.is_some()))
-            .map(|payload| Module::from_proto(payload.clone()))
+            .filter_map(|payload| Module::from_proto(payload.clone()).log_err())
             .collect();
 
         self.client_id = DebugAdapterClientId::from_proto(module_list.client_id);
@@ -67,7 +63,11 @@ impl ModuleList {
     pub(crate) fn to_proto(&self) -> DebuggerModuleList {
         DebuggerModuleList {
             client_id: self.client_id.to_proto(),
-            modules: self.modules.to_proto(),
+            modules: self
+                .modules
+                .iter()
+                .map(|module| module.to_proto())
+                .collect(),
         }
     }
 

@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Result};
 use client::proto::{
     self, DapChecksum, DapChecksumAlgorithm, DapModule, DapScope, DapScopePresentationHint,
     DapSource, DapSourcePresentationHint, DapStackFrame, DapVariable,
@@ -6,16 +7,18 @@ use dap_types::{ScopePresentationHint, Source};
 
 pub trait ProtoConversion {
     type ProtoType;
+    type Output;
 
     fn to_proto(&self) -> Self::ProtoType;
-    fn from_proto(payload: Self::ProtoType) -> Self;
+    fn from_proto(payload: Self::ProtoType) -> Self::Output;
 }
 
 impl<T> ProtoConversion for Vec<T>
 where
-    T: ProtoConversion,
+    T: ProtoConversion<Output = T>,
 {
     type ProtoType = Vec<T::ProtoType>;
+    type Output = Self;
 
     fn to_proto(&self) -> Self::ProtoType {
         self.iter().map(|item| item.to_proto()).collect()
@@ -31,6 +34,7 @@ where
 
 impl ProtoConversion for dap_types::Scope {
     type ProtoType = DapScope;
+    type Output = Self;
 
     fn to_proto(&self) -> Self::ProtoType {
         Self::ProtoType {
@@ -74,6 +78,7 @@ impl ProtoConversion for dap_types::Scope {
 
 impl ProtoConversion for dap_types::Variable {
     type ProtoType = DapVariable;
+    type Output = Self;
 
     fn to_proto(&self) -> Self::ProtoType {
         Self::ProtoType {
@@ -105,6 +110,7 @@ impl ProtoConversion for dap_types::Variable {
 
 impl ProtoConversion for dap_types::ScopePresentationHint {
     type ProtoType = DapScopePresentationHint;
+    type Output = Self;
 
     fn to_proto(&self) -> Self::ProtoType {
         match self {
@@ -130,6 +136,7 @@ impl ProtoConversion for dap_types::ScopePresentationHint {
 
 impl ProtoConversion for dap_types::SourcePresentationHint {
     type ProtoType = DapSourcePresentationHint;
+    type Output = Self;
 
     fn to_proto(&self) -> Self::ProtoType {
         match self {
@@ -156,6 +163,7 @@ impl ProtoConversion for dap_types::SourcePresentationHint {
 
 impl ProtoConversion for dap_types::Checksum {
     type ProtoType = DapChecksum;
+    type Output = Self;
 
     fn to_proto(&self) -> Self::ProtoType {
         DapChecksum {
@@ -174,6 +182,7 @@ impl ProtoConversion for dap_types::Checksum {
 
 impl ProtoConversion for dap_types::ChecksumAlgorithm {
     type ProtoType = DapChecksumAlgorithm;
+    type Output = Self;
 
     fn to_proto(&self) -> Self::ProtoType {
         match self {
@@ -197,6 +206,7 @@ impl ProtoConversion for dap_types::ChecksumAlgorithm {
 
 impl ProtoConversion for dap_types::Source {
     type ProtoType = DapSource;
+    type Output = Self;
 
     fn to_proto(&self) -> Self::ProtoType {
         Self::ProtoType {
@@ -229,8 +239,8 @@ impl ProtoConversion for dap_types::Source {
                 .and_then(|val| DapSourcePresentationHint::from_i32(val))
                 .map(|val| dap_types::SourcePresentationHint::from_proto(val)),
             origin: payload.origin.clone(),
-            sources: Some(Vec::from_proto(payload.sources)),
-            checksums: Some(Vec::from_proto(payload.checksums)),
+            sources: Some(Vec::<dap_types::Source>::from_proto(payload.sources)),
+            checksums: Some(Vec::<dap_types::Checksum>::from_proto(payload.checksums)),
             adapter_data: None, // TODO Debugger Collab
         }
     }
@@ -238,6 +248,7 @@ impl ProtoConversion for dap_types::Source {
 
 impl ProtoConversion for dap_types::StackFrame {
     type ProtoType = DapStackFrame;
+    type Output = Self;
 
     fn to_proto(&self) -> Self::ProtoType {
         Self::ProtoType {
@@ -274,6 +285,7 @@ impl ProtoConversion for dap_types::StackFrame {
 
 impl ProtoConversion for dap_types::Module {
     type ProtoType = DapModule;
+    type Output = Result<Self>;
 
     fn to_proto(&self) -> Self::ProtoType {
         let id = match &self.id {
@@ -295,18 +307,18 @@ impl ProtoConversion for dap_types::Module {
         }
     }
 
-    fn from_proto(payload: Self::ProtoType) -> Self {
+    fn from_proto(payload: Self::ProtoType) -> Result<Self> {
         let id = match payload
             .id
-            .expect("All module messages must have an id")
+            .ok_or(anyhow!("All DapModule proto messages must have an id"))?
             .id
-            .unwrap()
+            .ok_or(anyhow!("All DapModuleID proto messages must have an id"))?
         {
             proto::dap_module_id::Id::String(string) => dap_types::ModuleId::String(string),
             proto::dap_module_id::Id::Number(num) => dap_types::ModuleId::Number(num),
         };
 
-        Self {
+        Ok(Self {
             id,
             name: payload.name,
             path: payload.path,
@@ -317,6 +329,6 @@ impl ProtoConversion for dap_types::Module {
             symbol_file_path: payload.symbol_file_path,
             date_time_stamp: payload.date_time_stamp,
             address_range: payload.address_range,
-        }
+        })
     }
 }
