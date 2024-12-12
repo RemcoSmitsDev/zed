@@ -778,7 +778,8 @@ impl DebugPanel {
             .find(|item| {
                 let item = item.read(cx);
 
-                item.client_id() == client_id && item.thread_id() == thread_id
+                item.client_id() == client_id
+                    && thread_id.map(|id| id == item.thread_id()).unwrap_or(true)
             });
 
         if let Some(debug_panel_item) = existing_item {

@@ -202,7 +202,7 @@ impl DebugPanelItem {
 
     pub(crate) fn to_proto(&self, cx: &ViewContext<Self>, project_id: u64) -> SetDebuggerPanelItem {
         let thread_state = Some(self.thread_state.read_with(cx, |this, _| this.to_proto()));
-        let modules = self.module_list.read(cx).to_proto();
+        let module_list = Some(self.module_list.read(cx).to_proto());
         let variable_list = Some(self.variable_list.read(cx).to_proto());
         let stack_frame_list = Some(self.stack_frame_list.read(cx).to_proto());
 
@@ -211,7 +211,7 @@ impl DebugPanelItem {
             client_id: self.client_id.to_proto(),
             thread_id: self.thread_id,
             console: None,
-            modules,
+            module_list,
             active_thread_item: self.active_thread_item.to_proto().into(),
             thread_state,
             variable_list,
@@ -226,18 +226,19 @@ impl DebugPanelItem {
 
         if let Some(stack_frame_list) = state.stack_frame_list.as_ref() {
             self.stack_frame_list.update(cx, |this, cx| {
-                this.from_proto(stack_frame_list.clone(), cx);
+                this.set_from_proto(stack_frame_list.clone(), cx);
             });
         }
 
         if let Some(variable_list_state) = state.variable_list.as_ref() {
             self.variable_list
-                .update(cx, |this, cx| this.from_proto(variable_list_state, cx));
+                .update(cx, |this, cx| this.set_from_proto(variable_list_state, cx));
         }
 
-        self.module_list.update(cx, |this, cx| {
-            this.set_from_proto(state.modules.clone(), cx)
-        });
+        if let Some(module_list_state) = state.module_list.as_ref() {
+            self.module_list
+                .update(cx, |this, cx| this.set_from_proto(module_list_state, cx));
+        }
 
         cx.notify();
     }
@@ -431,9 +432,11 @@ impl DebugPanelItem {
     ) {
         if let Some(update_variant) = update.variant.as_ref() {
             match update_variant {
-                proto::update_debug_adapter::Variant::StackFrameList(stack_frame_list) => self
-                    .stack_frame_list
-                    .update(cx, |this, cx| this.from_proto(stack_frame_list.clone(), cx)),
+                proto::update_debug_adapter::Variant::StackFrameList(stack_frame_list) => {
+                    self.stack_frame_list.update(cx, |this, cx| {
+                        this.set_from_proto(stack_frame_list.clone(), cx)
+                    })
+                }
                 proto::update_debug_adapter::Variant::ThreadState(thread_state) => {
                     self.thread_state.update(cx, |this, _| {
                         *this = ThreadState::from_proto(thread_state.clone());
@@ -441,7 +444,12 @@ impl DebugPanelItem {
                 }
                 proto::update_debug_adapter::Variant::VariableList(variable_list) => self
                     .variable_list
-                    .update(cx, |this, cx| this.from_proto(variable_list, cx)),
+                    .update(cx, |this, cx| this.set_from_proto(variable_list, cx)),
+                proto::update_debug_adapter::Variant::Modules(module_list) => {
+                    self.module_list.update(cx, |this, cx| {
+                        this.set_from_proto(module_list, cx);
+                    })
+                }
             }
         }
     }
@@ -669,7 +677,7 @@ impl FollowableItem for DebugPanelItem {
 
     fn to_state_proto(&self, cx: &WindowContext) -> Option<proto::view::Variant> {
         let thread_state = Some(self.thread_state.read_with(cx, |this, _| this.to_proto()));
-        let modules = self.module_list.read(cx).to_proto();
+        let modules = Some(self.module_list.read(cx).to_proto());
         let variable_list = Some(self.variable_list.read(cx).to_proto());
         let stack_frames = Some(self.stack_frame_list.read(cx).to_proto());
 

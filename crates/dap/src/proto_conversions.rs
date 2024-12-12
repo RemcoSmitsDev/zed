@@ -1,6 +1,6 @@
 use client::proto::{
-    DapChecksum, DapChecksumAlgorithm, DapScope, DapScopePresentationHint, DapSource,
-    DapSourcePresentationHint, DapStackFrame, DapVariable,
+    self, DapChecksum, DapChecksumAlgorithm, DapModule, DapScope, DapScopePresentationHint,
+    DapSource, DapSourcePresentationHint, DapStackFrame, DapVariable,
 };
 use dap_types::{ScopePresentationHint, Source};
 
@@ -268,6 +268,55 @@ impl ProtoConversion for dap_types::StackFrame {
             instruction_pointer_reference: payload.instruction_pointer_reference,
             module_id: None,         // TODO Debugger Collab
             presentation_hint: None, // TODO Debugger Collab
+        }
+    }
+}
+
+impl ProtoConversion for dap_types::Module {
+    type ProtoType = DapModule;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        let id = match &self.id {
+            dap_types::ModuleId::Number(num) => proto::dap_module_id::Id::Number(*num),
+            dap_types::ModuleId::String(string) => proto::dap_module_id::Id::String(string.clone()),
+        };
+
+        DapModule {
+            id: Some(proto::DapModuleId { id: Some(id) }),
+            name: self.name.clone(),
+            path: self.path.clone(),
+            is_optimized: self.is_optimized,
+            is_user_code: self.is_user_code,
+            version: self.version.clone(),
+            symbol_status: self.symbol_status.clone(),
+            symbol_file_path: self.symbol_file_path.clone(),
+            date_time_stamp: self.date_time_stamp.clone(),
+            address_range: self.address_range.clone(),
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        let id = match payload
+            .id
+            .expect("All module messages must have an id")
+            .id
+            .unwrap()
+        {
+            proto::dap_module_id::Id::String(string) => dap_types::ModuleId::String(string),
+            proto::dap_module_id::Id::Number(num) => dap_types::ModuleId::Number(num),
+        };
+
+        Self {
+            id,
+            name: payload.name,
+            path: payload.path,
+            is_optimized: payload.is_optimized,
+            is_user_code: payload.is_user_code,
+            version: payload.version,
+            symbol_status: payload.symbol_status,
+            symbol_file_path: payload.symbol_file_path,
+            date_time_stamp: payload.date_time_stamp,
+            address_range: payload.address_range,
         }
     }
 }

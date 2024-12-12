@@ -408,7 +408,7 @@ impl VariableList {
         }
     }
 
-    pub(crate) fn from_proto(
+    pub(crate) fn set_from_proto(
         &mut self,
         state: &proto::DebuggerVariableList,
         cx: &mut ViewContext<Self>,
@@ -651,7 +651,7 @@ impl VariableList {
         if let Some((client, project_id)) = self.dap_store.read(cx).downstream_client() {
             let request = UpdateDebugAdapter {
                 client_id: self.client_id.to_proto(),
-                thread_id: self.stack_frame_list.read(cx).thread_id(),
+                thread_id: Some(self.stack_frame_list.read(cx).thread_id()),
                 project_id: *project_id,
                 variant: Some(rpc::proto::update_debug_adapter::Variant::VariableList(
                     self.to_proto(),

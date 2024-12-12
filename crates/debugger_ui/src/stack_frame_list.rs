@@ -87,7 +87,7 @@ impl StackFrameList {
         }
     }
 
-    pub(crate) fn from_proto(
+    pub(crate) fn set_from_proto(
         &mut self,
         stack_frame_list: DebuggerStackFrameList,
         cx: &mut ViewContext<Self>,
@@ -173,8 +173,8 @@ impl StackFrameList {
         if let Some((client, id)) = self.dap_store.read(cx).downstream_client() {
             let request = UpdateDebugAdapter {
                 client_id: self.client_id.to_proto(),
-                thread_id: self.thread_id,
                 project_id: *id,
+                thread_id: Some(self.thread_id),
                 variant: Some(rpc::proto::update_debug_adapter::Variant::StackFrameList(
                     self.to_proto(),
                 )),

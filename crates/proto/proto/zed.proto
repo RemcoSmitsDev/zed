@@ -1273,17 +1273,6 @@ message UpdateLanguageServer {
     }
 }
 
-message UpdateDebugAdapter {
-    uint64 project_id = 1;
-    uint64 client_id = 2;
-    uint64 thread_id = 3;
-    oneof variant {
-        DebuggerThreadState thread_state = 4;
-        DebuggerStackFrameList stack_frame_list = 5;
-        DebuggerVariableList variable_list = 6;
-    }
-}
-
 message LspWorkStart {
     string token = 1;
     optional string title = 4;
@@ -1765,7 +1754,7 @@ message View {
         uint64 client_id = 2;
         uint64 thread_id = 3;
         DebuggerConsole console = 4;
-        repeated DapModule modules = 5;
+        DebuggerModuleList modules = 5;
         DebuggerThreadItem active_thread_item = 6;
         DebuggerThreadState thread_state = 7;
         DebuggerVariableList variable_list = 8;
@@ -2601,18 +2590,35 @@ message DebuggerConsole {
     // Editor query_bar = 2;
 }
 
+message DebuggerModuleList {
+    repeated DapModule modules = 1;
+    uint64 client_id = 2;
+}
+
 message SetDebuggerPanelItem {
     uint64 project_id = 1;
     uint64 client_id = 2;
     uint64 thread_id = 3;
     DebuggerConsole console = 4;
-    repeated DapModule modules = 5;
+    DebuggerModuleList module_list = 5;
     DebuggerThreadItem active_thread_item = 6;
     DebuggerThreadState thread_state = 7;
     DebuggerVariableList variable_list = 8;
     DebuggerStackFrameList stack_frame_list = 9;
     DebuggerLoadedSourceList loaded_source_list = 10;
     string client_name = 11;
+}
+
+message UpdateDebugAdapter {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    optional uint64 thread_id = 3;
+    oneof variant {
+        DebuggerThreadState thread_state = 4;
+        DebuggerStackFrameList stack_frame_list = 5;
+        DebuggerVariableList variable_list = 6;
+        DebuggerModuleList modules = 7;
+    }
 }
 
 // Remote Debugging: Dap Types
