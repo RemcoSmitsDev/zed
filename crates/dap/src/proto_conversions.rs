@@ -58,7 +58,6 @@ impl ProtoConversion for dap_types::Scope {
     fn from_proto(payload: Self::ProtoType) -> Self {
         let presentation_hint = payload
             .presentation_hint
-            .clone()
             .and_then(DapScopePresentationHint::from_i32);
         Self {
             name: payload.name,
@@ -67,7 +66,7 @@ impl ProtoConversion for dap_types::Scope {
             named_variables: payload.named_variables,
             indexed_variables: payload.indexed_variables,
             expensive: payload.expensive,
-            source: payload.source.map(|src| dap_types::Source::from_proto(src)),
+            source: payload.source.map(dap_types::Source::from_proto),
             line: payload.line,
             end_line: payload.end_line,
             column: payload.column,
@@ -236,8 +235,8 @@ impl ProtoConversion for dap_types::Source {
             source_reference: payload.source_reference,
             presentation_hint: payload
                 .presentation_hint
-                .and_then(|val| DapSourcePresentationHint::from_i32(val))
-                .map(|val| dap_types::SourcePresentationHint::from_proto(val)),
+                .and_then(DapSourcePresentationHint::from_i32)
+                .map(dap_types::SourcePresentationHint::from_proto),
             origin: payload.origin.clone(),
             sources: Some(Vec::<dap_types::Source>::from_proto(payload.sources)),
             checksums: Some(Vec::<dap_types::Checksum>::from_proto(payload.checksums)),
@@ -270,7 +269,7 @@ impl ProtoConversion for dap_types::StackFrame {
         Self {
             id: payload.id,
             name: payload.name,
-            source: payload.source.map(|src| dap_types::Source::from_proto(src)),
+            source: payload.source.map(dap_types::Source::from_proto),
             line: payload.line,
             column: payload.column,
             end_line: payload.end_line,

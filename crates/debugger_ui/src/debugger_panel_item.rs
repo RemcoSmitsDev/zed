@@ -675,68 +675,26 @@ impl FollowableItem for DebugPanelItem {
         self.remote_id
     }
 
-    fn to_state_proto(&self, cx: &WindowContext) -> Option<proto::view::Variant> {
-        let thread_state = Some(self.thread_state.read_with(cx, |this, _| this.to_proto()));
-        let modules = Some(self.module_list.read(cx).to_proto());
-        let variable_list = Some(self.variable_list.read(cx).to_proto());
-        let stack_frames = Some(self.stack_frame_list.read(cx).to_proto());
-
-        Some(proto::view::Variant::DebugPanel(proto::view::DebugPanel {
-            project_id: 1,
-            client_id: self.client_id.to_proto(),
-            thread_id: self.thread_id,
-            console: None,
-            modules,
-            active_thread_item: self.active_thread_item.to_proto().into(),
-            thread_state,
-            variable_list,
-            stack_frames,
-        }))
+    fn to_state_proto(&self, _cx: &WindowContext) -> Option<proto::view::Variant> {
+        None
     }
 
     fn from_state_proto(
-        workspace: View<Workspace>,
-        remote_id: ViewId,
-        state: &mut Option<proto::view::Variant>,
-        cx: &mut WindowContext,
+        _workspace: View<Workspace>,
+        _remote_id: ViewId,
+        _state: &mut Option<proto::view::Variant>,
+        _cx: &mut WindowContext,
     ) -> Option<gpui::Task<gpui::Result<View<Self>>>> {
-        let proto::view::Variant::DebugPanel(_) = state.as_ref()? else {
-            return None;
-        };
-        let Some(proto::view::Variant::DebugPanel(state)) = state.take() else {
-            unreachable!()
-        };
-
-        let (_project, debug_panel) = workspace.update(cx, |workspace, cx| {
-            Some((
-                workspace.project().clone(),
-                workspace.panel::<DebugPanel>(cx)?,
-            ))
-        })?;
-
-        let debug_panel_item = debug_panel.update(cx, |this, cx| {
-            this.open_remote_debug_panel_item(
-                DebugAdapterClientId::from_proto(state.client_id),
-                state.thread_id,
-                cx,
-            )
-        });
-
-        debug_panel_item.update(cx, |debug_panel_item, _cx| {
-            debug_panel_item.remote_id = Some(remote_id);
-            // debug_panel_item.set_from_proto(&state, cx);
-        });
-
-        Some(Task::ready(Ok(debug_panel_item)))
+        None
     }
 
     fn add_event_to_update_proto(
         &self,
         _event: &Self::Event,
-        update: &mut Option<proto::update_view::Variant>,
+        _update: &mut Option<proto::update_view::Variant>,
         _cx: &WindowContext,
     ) -> bool {
-        update.get_or_insert_with(|| proto::update_view::Variant::DebugPanel(Default::default()));
+        // update.get_or_insert_with(|| proto::update_view::Variant::DebugPanel(Default::default()));
 
         true
     }
@@ -747,8 +705,6 @@ impl FollowableItem for DebugPanelItem {
         _message: proto::update_view::Variant,
         _cx: &mut ViewContext<Self>,
     ) -> gpui::Task<gpui::Result<()>> {
-        dbg!("apply update from proto");
-
         Task::ready(Ok(()))
     }
 

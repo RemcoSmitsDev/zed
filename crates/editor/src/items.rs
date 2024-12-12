@@ -297,7 +297,6 @@ impl FollowableItem for Editor {
                 }
                 _ => false,
             },
-            proto::update_view::Variant::DebugPanel(_) => false,
         }
     }
 
@@ -307,9 +306,7 @@ impl FollowableItem for Editor {
         message: update_view::Variant,
         cx: &mut ViewContext<Self>,
     ) -> Task<Result<()>> {
-        let update_view::Variant::Editor(message) = message else {
-            return Task::ready(Ok(()));
-        };
+        let update_view::Variant::Editor(message) = message;
         let project = project.clone();
         cx.spawn(|this, mut cx| async move {
             update_editor_from_message(this, project, message, &mut cx).await

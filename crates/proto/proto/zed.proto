@@ -1698,7 +1698,6 @@ message UpdateView {
 
     oneof variant {
         Editor editor = 3;
-        DebugPanel debug_panel = 4;
     }
 
     message Editor {
@@ -1709,10 +1708,6 @@ message UpdateView {
         EditorAnchor scroll_top_anchor = 5;
         float scroll_x = 6;
         float scroll_y = 7;
-    }
-
-    message DebugPanel {
-
     }
 }
 
@@ -1725,7 +1720,6 @@ message View {
         Editor editor = 3;
         ChannelView channel_view = 4;
         ContextEditor context_editor = 5;
-        DebugPanel debug_panel = 7;
     }
 
     message Editor {
@@ -1747,18 +1741,6 @@ message View {
     message ContextEditor {
         string context_id = 1;
         Editor editor = 2;
-    }
-
-    message DebugPanel {
-        uint64 project_id = 1;
-        uint64 client_id = 2;
-        uint64 thread_id = 3;
-        DebuggerConsole console = 4;
-        DebuggerModuleList modules = 5;
-        DebuggerThreadItem active_thread_item = 6;
-        DebuggerThreadState thread_state = 7;
-        DebuggerVariableList variable_list = 8;
-        DebuggerStackFrameList stack_frames = 9;
     }
 }
 
