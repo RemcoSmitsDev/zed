@@ -17,7 +17,7 @@ mod module_list;
 mod stack_frame_list;
 mod variable_list;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 mod tests;
 
 pub fn init(cx: &mut AppContext) {

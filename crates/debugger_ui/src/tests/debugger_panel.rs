@@ -1,5 +1,7 @@
+use std::time::Duration;
+
 use crate::*;
-use gpui::{Model, TestAppContext, VisualTestContext, WindowHandle};
+use gpui::{BackgroundExecutor, Model, TestAppContext, VisualTestContext, WindowHandle};
 use project::{FakeFs, Project};
 use serde_json::json;
 use settings::SettingsStore;
@@ -45,10 +47,10 @@ async fn add_debugger_panel(
 }
 
 #[gpui::test]
-async fn test_show_debug_panel(cx: &mut TestAppContext) {
+async fn test_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppContext) {
     init_test(cx);
 
-    let fs = FakeFs::new(cx.executor().clone());
+    let fs = FakeFs::new(executor.clone());
 
     let file_contents = r#"
         // print goodbye
@@ -112,7 +114,9 @@ async fn test_show_debug_panel(cx: &mut TestAppContext) {
 
     cx.run_until_parked();
 
-    // assert we added a debug panel item
+    dbg!("here");
+
+    // // assert we added a debug panel item
     workspace
         .update(cx, |workspace, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
@@ -124,4 +128,11 @@ async fn test_show_debug_panel(cx: &mut TestAppContext) {
             assert_eq!(1, debug_panel_item.read(cx).thread_id());
         })
         .unwrap();
+
+    dbg!("shutdown end");
+
+    client.shutdown().await.unwrap();
+
+    // Ensure that the project lasts until after the last await
+    drop(project);
 }
