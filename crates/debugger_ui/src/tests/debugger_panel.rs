@@ -1,8 +1,9 @@
 use std::time::Duration;
 
 use crate::*;
+use dap::requests::{Initialize, Launch, StackTrace};
 use gpui::{BackgroundExecutor, Model, TestAppContext, VisualTestContext, WindowHandle};
-use project::{FakeFs, Project};
+use project::{dap_store::DapStoreEvent, FakeFs, Project};
 use serde_json::json;
 use settings::SettingsStore;
 use unindent::Unindent as _;
@@ -91,7 +92,32 @@ async fn test_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppCon
 
     let client = task.await.unwrap();
 
-    // assert we don't have a debug panel item yet
+    client
+        .on_request::<Initialize, _>(move |_, _| {
+            Ok(dap::Capabilities::default())
+        })
+        .await;
+
+    client.on_request::<Launch, _>(move |_, _| Ok(())).await;
+
+    client
+        .on_request::<StackTrace, _>(move |_, _| {
+            Ok(dap::StackTraceResponse {
+                stack_frames: Vec::default(),
+                total_frames: None,
+            })
+        })
+        .await;
+
+    // this will trigger the debug panel to call initialize and launch/attach
+    // we have to do this after we configure the on_request, otherwise we don't send a response back.
+    project.update(cx, |project, cx| {
+        project.dap_store().update(cx, |_, cx| {
+            cx.emit(DapStoreEvent::DebugClientStarted(client.id()));
+        });
+    });
+
+    // // assert we don't have a debug panel item yet
     workspace
         .update(cx, |workspace, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
@@ -113,8 +139,7 @@ async fn test_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppCon
         .await;
 
     cx.run_until_parked();
-
-    dbg!("here");
+    cx.executor().timer(Duration::from_secs(2)).await;
 
     // // assert we added a debug panel item
     workspace
@@ -129,10 +154,8 @@ async fn test_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppCon
         })
         .unwrap();
 
-    dbg!("shutdown end");
-
     client.shutdown().await.unwrap();
 
-    // Ensure that the project lasts until after the last await
+    // // Ensure that the project lasts until after the last await
     drop(project);
 }

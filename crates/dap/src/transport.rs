@@ -6,6 +6,7 @@ use dap_types::{
 };
 use futures::{channel::oneshot, select, AsyncRead, AsyncReadExt as _, AsyncWrite, FutureExt as _};
 use gpui::AsyncAppContext;
+use serde_json::json;
 use settings::Settings as _;
 use smallvec::SmallVec;
 use smol::{
@@ -837,7 +838,7 @@ impl Transport for FakeTransport {
                         {
                             handle(
                                 request.seq,
-                                request.arguments.unwrap(),
+                                request.arguments.unwrap_or(json!({})),
                                 stdout_writer.clone(),
                             )
                             .await;
