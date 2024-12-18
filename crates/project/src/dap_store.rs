@@ -437,6 +437,7 @@ impl DapStore {
         config: DebugAdapterConfig,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<Arc<DebugAdapterClient>>> {
+        use anyhow::Ok;
         use task::DebugAdapterKind;
 
         let client_id = self.next_client_id();
@@ -1261,6 +1262,9 @@ impl DapStore {
         })
     }
 
+    pub fn remove_client(&mut self, client_id: &DebugAdapterClientId) {
+        self.clients.remove(&client_id);
+    }
     pub fn shutdown_clients(&mut self, cx: &mut ModelContext<Self>) -> Task<()> {
         let mut tasks = Vec::new();
 

@@ -1,7 +1,7 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use crate::*;
-use dap::requests::{Initialize, Launch, StackTrace};
+use dap::requests::{Disconnect, Initialize, Launch, StackTrace};
 use gpui::{BackgroundExecutor, Model, TestAppContext, VisualTestContext, WindowHandle};
 use project::{dap_store::DapStoreEvent, FakeFs, Project};
 use serde_json::json;
@@ -94,7 +94,10 @@ async fn test_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppCon
 
     client
         .on_request::<Initialize, _>(move |_, _| {
-            Ok(dap::Capabilities::default())
+            Ok(dap::Capabilities {
+                supports_step_back: Some(false),
+                ..Default::default()
+            })
         })
         .await;
 
@@ -109,6 +112,10 @@ async fn test_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppCon
         })
         .await;
 
+    client
+        .on_request::<Disconnect, _>(move |_, _| Ok(Default::default()))
+        .await;
+
     // this will trigger the debug panel to call initialize and launch/attach
     // we have to do this after we configure the on_request, otherwise we don't send a response back.
     project.update(cx, |project, cx| {
@@ -117,7 +124,7 @@ async fn test_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppCon
         });
     });
 
-    // // assert we don't have a debug panel item yet
+    // assert we don't have a debug panel item yet
     workspace
         .update(cx, |workspace, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
@@ -138,10 +145,16 @@ async fn test_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppCon
         }))
         .await;
 
-    cx.run_until_parked();
-    cx.executor().timer(Duration::from_secs(2)).await;
+    dbg!("Hitting delay");
+    let time = std::time::Instant::now();
+    let delay = std::time::Duration::from_secs(1);
+    let finish_time = time.checked_add(delay).unwrap();
 
-    // // assert we added a debug panel item
+    while std::time::Instant::now() < finish_time {}
+
+    dbg!("Passed delay");
+
+    // assert we added a debug panel item
     workspace
         .update(cx, |workspace, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
@@ -154,8 +167,16 @@ async fn test_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppCon
         })
         .unwrap();
 
-    client.shutdown().await.unwrap();
+    let end_session = project.update(cx, |project, cx| {
+        project.dap_store().update(cx, |dap_store, cx| {
+            dap_store.shutdown_client(&client.id(), cx)
+        })
+    });
 
-    // // Ensure that the project lasts until after the last await
-    drop(project);
+    dbg!(Arc::strong_count(&client));
+
+    end_session.await;
+    cx.run_until_parked();
+
+    // Ensure that the project lasts until after the last await
 }

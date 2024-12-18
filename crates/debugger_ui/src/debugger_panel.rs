@@ -414,7 +414,8 @@ impl DebugPanel {
                             .update(cx, |store, cx| store.launch(&client_id, cx))
                     });
 
-                    task?.await
+                    let res = task?.await;
+                    res
                 }
                 DebugRequestType::Attach(config) => {
                     if let Some(process_id) = config.process_id {
@@ -497,7 +498,9 @@ impl DebugPanel {
             .spawn(async move {
                 send_breakpoints_task?.await;
 
-                configuration_done_task.await
+                let res = configuration_done_task.await;
+
+                res
             })
             .detach_and_log_err(cx);
     }
@@ -602,11 +605,12 @@ impl DebugPanel {
                     this.workspace.clone()
                 })?;
 
-                cx.update(|cx| {
+                let res = cx.update(|cx| {
                     workspace.update(cx, |workspace, cx| {
                         workspace.focus_panel::<Self>(cx);
                     })
-                })
+                });
+                res
             }
         })
         .detach_and_log_err(cx);
