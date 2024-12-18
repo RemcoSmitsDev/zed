@@ -1039,10 +1039,6 @@ impl DapStore {
         granularity: SteppingGranularity,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
-        };
-
         let capabilities = self.capabilities_by_id(client_id);
 
         let supports_single_thread_execution_requests = capabilities
@@ -1052,16 +1048,14 @@ impl DapStore {
             .supports_stepping_granularity
             .unwrap_or_default();
 
-        cx.background_executor().spawn(async move {
-            client
-                .request::<StepIn>(StepInArguments {
-                    thread_id,
-                    granularity: supports_stepping_granularity.then(|| granularity),
-                    single_thread: supports_single_thread_execution_requests.then(|| true),
-                    target_id: None,
-                })
-                .await
-        })
+        let arguments = StepInArguments {
+            thread_id,
+            granularity: supports_stepping_granularity.then(|| granularity),
+            single_thread: supports_single_thread_execution_requests.then(|| true),
+            target_id: None,
+        };
+
+        self.request_dap::<StepIn>(client_id, arguments, cx)
     }
 
     pub fn step_out(
@@ -1071,10 +1065,6 @@ impl DapStore {
         granularity: SteppingGranularity,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
-        };
-
         let capabilities = self.capabilities_by_id(client_id);
 
         let supports_single_thread_execution_requests = capabilities
@@ -1084,15 +1074,13 @@ impl DapStore {
             .supports_stepping_granularity
             .unwrap_or_default();
 
-        cx.background_executor().spawn(async move {
-            client
-                .request::<StepOut>(StepOutArguments {
-                    thread_id,
-                    granularity: supports_stepping_granularity.then(|| granularity),
-                    single_thread: supports_single_thread_execution_requests.then(|| true),
-                })
-                .await
-        })
+        let arguments = StepOutArguments {
+            thread_id,
+            granularity: supports_stepping_granularity.then(|| granularity),
+            single_thread: supports_single_thread_execution_requests.then(|| true),
+        };
+
+        self.request_dap::<StepOut>(client_id, arguments, cx)
     }
 
     pub fn variables(
@@ -1101,22 +1089,18 @@ impl DapStore {
         variables_reference: u64,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<Vec<Variable>>> {
-        let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
+        let arguments = VariablesArguments {
+            variables_reference,
+            filter: None,
+            start: None,
+            count: None,
+            format: None,
         };
 
-        cx.background_executor().spawn(async move {
-            Ok(client
-                .request::<Variables>(VariablesArguments {
-                    variables_reference,
-                    filter: None,
-                    start: None,
-                    count: None,
-                    format: None,
-                })
-                .await?
-                .variables)
-        })
+        let task = self.request_dap::<Variables>(client_id, arguments, cx);
+
+        cx.background_executor()
+            .spawn(async move { Ok(task.await?.variables) })
     }
 
     pub fn evaluate(
@@ -1127,23 +1111,17 @@ impl DapStore {
         context: EvaluateArgumentsContext,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<EvaluateResponse>> {
-        let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
+        let arguments = EvaluateArguments {
+            expression: expression.clone(),
+            frame_id: Some(stack_frame_id),
+            context: Some(context),
+            format: None,
+            line: None,
+            column: None,
+            source: None,
         };
 
-        cx.background_executor().spawn(async move {
-            client
-                .request::<Evaluate>(EvaluateArguments {
-                    expression: expression.clone(),
-                    frame_id: Some(stack_frame_id),
-                    context: Some(context),
-                    format: None,
-                    line: None,
-                    column: None,
-                    source: None,
-                })
-                .await
-        })
+        self.request_dap::<Evaluate>(client_id, arguments, cx)
     }
 
     pub fn completions(
@@ -1154,21 +1132,17 @@ impl DapStore {
         completion_column: u64,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<Vec<CompletionItem>>> {
-        let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
+        let arguments = CompletionsArguments {
+            frame_id: Some(stack_frame_id),
+            line: None,
+            text,
+            column: completion_column,
         };
 
-        cx.background_executor().spawn(async move {
-            Ok(client
-                .request::<Completions>(CompletionsArguments {
-                    frame_id: Some(stack_frame_id),
-                    line: None,
-                    text,
-                    column: completion_column,
-                })
-                .await?
-                .targets)
-        })
+        let task = self.request_dap::<Completions>(client_id, arguments, cx);
+
+        cx.background_executor()
+            .spawn(async move { Ok(task.await?.targets) })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1182,38 +1156,42 @@ impl DapStore {
         evaluate_name: Option<String>,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
-        };
-
         let supports_set_expression = self
             .capabilities_by_id(client_id)
             .supports_set_expression
             .unwrap_or_default();
 
-        cx.background_executor().spawn(async move {
-            if let Some(evaluate_name) = supports_set_expression.then(|| evaluate_name).flatten() {
-                client
-                    .request::<SetExpression>(SetExpressionArguments {
-                        expression: evaluate_name,
-                        value,
-                        frame_id: Some(stack_frame_id),
-                        format: None,
-                    })
-                    .await?;
-            } else {
-                client
-                    .request::<SetVariable>(SetVariableArguments {
-                        variables_reference,
-                        name,
-                        value,
-                        format: None,
-                    })
-                    .await?;
-            }
+        if let Some(evaluate_name) = supports_set_expression.then(|| evaluate_name).flatten() {
+            let arguments = SetExpressionArguments {
+                expression: evaluate_name,
+                value,
+                frame_id: Some(stack_frame_id),
+                format: None,
+            };
 
-            Ok(())
-        })
+            let task = self.request_dap::<SetExpression>(client_id, arguments, cx);
+
+            cx.background_executor().spawn(async move {
+                task.await?;
+
+                Ok(())
+            })
+        } else {
+            let arguments = SetVariableArguments {
+                variables_reference,
+                name,
+                value,
+                format: None,
+            };
+
+            let task = self.request_dap::<SetVariable>(client_id, arguments, cx);
+
+            cx.background_executor().spawn(async move {
+                task.await?;
+
+                Ok(())
+            })
+        }
     }
 
     pub fn pause_thread(
@@ -1222,12 +1200,7 @@ impl DapStore {
         thread_id: u64,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
-        };
-
-        cx.background_executor()
-            .spawn(async move { client.request::<Pause>(PauseArguments { thread_id }).await })
+        self.request_dap::<Pause>(client_id, PauseArguments { thread_id }, cx)
     }
 
     pub fn terminate_threads(
