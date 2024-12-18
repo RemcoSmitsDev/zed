@@ -297,7 +297,8 @@ pub trait DebugAdapter: 'static + Send + Sync {
     /// Filters out the processes that the adapter can attach to for debugging
     fn attach_processes<'a>(
         &self,
-        _: &'a HashMap<Pid, Process>,
+        _processes: &'a HashMap<Pid, Process>,
+        _port: Option<u16>,
     ) -> Option<Vec<(&'a Pid, &'a Process)>> {
         None
     }

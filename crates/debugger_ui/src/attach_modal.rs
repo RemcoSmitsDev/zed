@@ -122,8 +122,15 @@ impl PickerDelegate for AttachModalDelegate {
                         };
 
                         let system = System::new_all();
-                        let Some(processes) =
-                            client.adapter().attach_processes(&system.processes())
+                        let initialize_args = client.config().initialize_args;
+                        let port = initialize_args
+                            .as_ref()
+                            .and_then(|args| args.get("port"))
+                            .and_then(|p| p.as_u64());
+
+                        let Some(processes) = client
+                            .adapter()
+                            .attach_processes(&system.processes(), port.map(|p| p as u16))
                         else {
                             return Vec::new();
                         };
