@@ -6,7 +6,6 @@ use dap_types::{
 };
 use futures::{channel::oneshot, select, AsyncRead, AsyncReadExt as _, AsyncWrite, FutureExt as _};
 use gpui::AsyncAppContext;
-use serde_json::json;
 use settings::Settings as _;
 use smallvec::SmallVec;
 use smol::{
@@ -810,6 +809,8 @@ impl Transport for FakeTransport {
         _binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
     ) -> Result<TransportPipe> {
+        use serde_json::json;
+
         let (stdin_writer, stdin_reader) = async_pipe::pipe();
         let (stdout_writer, stdout_reader) = async_pipe::pipe();
 

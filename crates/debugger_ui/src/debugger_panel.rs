@@ -445,7 +445,6 @@ impl DebugPanel {
         event: &Events,
         cx: &mut ViewContext<Self>,
     ) {
-        dbg!(event);
         match event {
             Events::Initialized(event) => self.handle_initialized_event(&client_id, event, cx),
             Events::Stopped(event) => self.handle_stopped_event(&client_id, event, cx),
@@ -518,11 +517,9 @@ impl DebugPanel {
         event: &StoppedEvent,
         cx: &mut ViewContext<Self>,
     ) {
-        dbg!("In handle stopped event");
         let Some(thread_id) = event.thread_id else {
             return;
         };
-        dbg!("handle stopped event: thread_id found");
 
         let Some(client_kind) = self
             .dap_store
@@ -532,7 +529,6 @@ impl DebugPanel {
         else {
             return; // this can never happen
         };
-        dbg!("handle stopped event: client_kind found");
 
         let client_id = *client_id;
 
@@ -577,7 +573,6 @@ impl DebugPanel {
                                     cx,
                                 )
                             });
-                            dbg!("created debug panel item");
 
                             pane.add_item(Box::new(tab), true, true, None, cx);
                         });

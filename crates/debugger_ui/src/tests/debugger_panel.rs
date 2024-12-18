@@ -4,9 +4,8 @@ use gpui::{BackgroundExecutor, Model, TestAppContext, VisualTestContext, WindowH
 use project::{dap_store::DapStoreEvent, FakeFs, Project};
 use serde_json::json;
 use settings::SettingsStore;
-use std::sync::Arc;
 use unindent::Unindent as _;
-use workspace::Workspace;
+use workspace::{dock::Panel, Workspace};
 
 pub fn init_test(cx: &mut gpui::TestAppContext) {
     if std::env::var("RUST_LOG").is_ok() {
@@ -111,9 +110,7 @@ async fn test_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppCon
         })
         .await;
 
-    client
-        .on_request::<Disconnect, _>(move |_, _| Ok(Default::default()))
-        .await;
+    client.on_request::<Disconnect, _>(move |_, _| Ok(())).await;
 
     // this will trigger the debug panel to call initialize and launch/attach
     // we have to do this after we configure the on_request, otherwise we don't send a response back.
@@ -128,7 +125,10 @@ async fn test_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppCon
         .update(cx, |workspace, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
 
-            assert!(debug_panel.update(cx, |this, cx| this.active_debug_panel_item(cx).is_none()));
+            debug_panel.update(cx, |this, cx| {
+                assert!(this.active_debug_panel_item(cx).is_none());
+                assert_eq!(0, this.pane().unwrap().read(cx).items_len());
+            });
         })
         .unwrap();
 
@@ -154,24 +154,25 @@ async fn test_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppCon
                 .update(cx, |this, cx| this.active_debug_panel_item(cx))
                 .unwrap();
 
+            assert_eq!(
+                1,
+                debug_panel.update(cx, |this, cx| this.pane().unwrap().read(cx).items_len())
+            );
             assert_eq!(client.id(), debug_panel_item.read(cx).client_id());
             assert_eq!(1, debug_panel_item.read(cx).thread_id());
         })
         .unwrap();
 
-    let end_session = project.update(cx, |project, cx| {
+    let shutdown_client = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
             dap_store.shutdown_client(&client.id(), cx)
         })
     });
 
-    dbg!(Arc::strong_count(&client));
-
     // If we don't end session client will still be awaiting to recv messages
     // from fake transport that will never be transmitted, thus resulting in
     // a "panic: parked with nothing to run"
-    if let Err(err) = end_session.await {
-        panic!("{err}");
-    }
+    shutdown_client.await.unwrap();
+
     cx.run_until_parked();
 }
