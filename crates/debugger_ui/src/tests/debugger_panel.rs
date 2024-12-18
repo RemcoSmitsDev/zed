@@ -174,5 +174,15 @@ async fn test_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppCon
     // a "panic: parked with nothing to run"
     shutdown_client.await.unwrap();
 
-    cx.run_until_parked();
+    // assert we don't have a debug panel item anymore because the client shutdown
+    workspace
+        .update(cx, |workspace, cx| {
+            let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
+
+            debug_panel.update(cx, |this, cx| {
+                assert!(this.active_debug_panel_item(cx).is_none());
+                assert_eq!(0, this.pane().unwrap().read(cx).items_len());
+            });
+        })
+        .unwrap();
 }
