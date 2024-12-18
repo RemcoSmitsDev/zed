@@ -1,11 +1,10 @@
-use std::{sync::Arc, time::Duration};
-
 use crate::*;
 use dap::requests::{Disconnect, Initialize, Launch, StackTrace};
 use gpui::{BackgroundExecutor, Model, TestAppContext, VisualTestContext, WindowHandle};
 use project::{dap_store::DapStoreEvent, FakeFs, Project};
 use serde_json::json;
 use settings::SettingsStore;
+use std::sync::Arc;
 use unindent::Unindent as _;
 use workspace::Workspace;
 
@@ -145,14 +144,7 @@ async fn test_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppCon
         }))
         .await;
 
-    dbg!("Hitting delay");
-    let time = std::time::Instant::now();
-    let delay = std::time::Duration::from_secs(1);
-    let finish_time = time.checked_add(delay).unwrap();
-
-    while std::time::Instant::now() < finish_time {}
-
-    dbg!("Passed delay");
+    cx.run_until_parked();
 
     // assert we added a debug panel item
     workspace
@@ -175,8 +167,11 @@ async fn test_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppCon
 
     dbg!(Arc::strong_count(&client));
 
-    end_session.await;
+    // If we don't end session client will still be awaiting to recv messages
+    // from fake transport that will never be transmitted, thus resulting in
+    // a "panic: parked with nothing to run"
+    if let Err(err) = end_session.await {
+        panic!("{err}");
+    }
     cx.run_until_parked();
-
-    // Ensure that the project lasts until after the last await
 }
