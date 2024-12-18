@@ -967,14 +967,44 @@ impl DapStore {
         })
     }
 
-    // TODO Debugger Collab
-    fn _send_proto_client_request(
+    fn request_dap<R: dap::requests::Request>(
         &self,
+        client_id: &DebugAdapterClientId,
+        arguments: R::Arguments,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<R::Response>>
+    where
+        <R as dap::requests::Request>::Response: 'static,
+        <R as dap::requests::Request>::Arguments: 'static,
+    {
+        if let Some((upstream_client, upstream_project_id)) = self.upstream_client() {
+            return self._send_proto_client_request::<R>(
+                upstream_client,
+                upstream_project_id,
+                client_id,
+                arguments,
+                cx,
+            );
+        }
+
+        let Some(client) = self.client_by_id(client_id) else {
+            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
+        };
+
+        cx.background_executor()
+            .spawn(async move { client.request::<R>(arguments).await })
+    }
+
+    // TODO Debugger Collab
+    fn _send_proto_client_request<R: dap::requests::Request>(
+        &self,
+        _upstream_client: AnyProtoClient,
+        _upstream_project_id: u64,
         _client_id: &DebugAdapterClientId,
-        _message: Message,
+        _arguments: R::Arguments,
         _cx: &mut ModelContext<Self>,
-    ) {
-        //
+    ) -> Task<Result<R::Response>> {
+        todo!()
     }
 
     pub fn step_over(
@@ -984,16 +1014,6 @@ impl DapStore {
         granularity: SteppingGranularity,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        if let Some(remote) = self.as_remote() {
-            if let Some(_client) = &remote.upstream_client {
-                //
-            }
-        }
-
-        let Some(client) = self.client_by_id(client_id) else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
-        };
-
         let capabilities = self.capabilities_by_id(client_id);
 
         let supports_single_thread_execution_requests = capabilities
@@ -1003,15 +1023,13 @@ impl DapStore {
             .supports_stepping_granularity
             .unwrap_or_default();
 
-        cx.background_executor().spawn(async move {
-            client
-                .request::<Next>(NextArguments {
-                    thread_id,
-                    granularity: supports_stepping_granularity.then(|| granularity),
-                    single_thread: supports_single_thread_execution_requests.then(|| true),
-                })
-                .await
-        })
+        let arguments = NextArguments {
+            thread_id,
+            granularity: supports_stepping_granularity.then(|| granularity),
+            single_thread: supports_single_thread_execution_requests.then(|| true),
+        };
+
+        self.request_dap::<Next>(client_id, arguments, cx)
     }
 
     pub fn step_in(
