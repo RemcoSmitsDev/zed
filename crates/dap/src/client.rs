@@ -20,7 +20,7 @@ use std::{
 };
 use task::{DebugAdapterConfig, DebugRequestType};
 
-const DAP_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const DAP_REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
@@ -67,6 +67,26 @@ impl DebugAdapterClient {
         }
     }
 
+    pub async fn reconnect<F>(&mut self, message_handler: F, cx: &mut AsyncAppContext) -> Result<()>
+    where
+        F: FnMut(Message, &mut AppContext) + 'static + Send + Sync + Clone,
+    {
+        let (server_rx, server_tx) = self.transport_delegate.reconnect(cx).await?;
+        log::info!("Successfully reconnected to debug adapter");
+
+        // start handling events/reverse requests
+        cx.update(|cx| {
+            cx.spawn({
+                let server_tx = server_tx.clone();
+                |mut cx| async move {
+                    Self::handle_receive_messages(server_rx, server_tx, message_handler, &mut cx)
+                        .await
+                }
+            })
+            .detach_and_log_err(cx);
+        })
+    }
+
     pub async fn start<F>(&mut self, message_handler: F, cx: &mut AsyncAppContext) -> Result<()>
     where
         F: FnMut(Message, &mut AppContext) + 'static + Send + Sync + Clone,
@@ -103,9 +123,17 @@ impl DebugAdapterClient {
             };
 
             if let Err(e) = match message {
-                Message::Event(ev) => cx.update(|cx| event_handler(Message::Event(ev), cx)),
+                Message::Event(ev) => {
+                    log::debug!("Received event `{}`", &ev);
+
+                    cx.update(|cx| event_handler(Message::Event(ev), cx))
+                }
                 Message::Request(req) => cx.update(|cx| event_handler(Message::Request(req), cx)),
-                Message::Response(_) => unreachable!(),
+                Message::Response(response) => {
+                    log::debug!("Received response after request timeout: {:#?}", response);
+
+                    Ok(())
+                }
             } {
                 break Err(e);
             }
@@ -252,24 +280,34 @@ impl DebugAdapterClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{adapters::FakeAdapter, client::DebugAdapterClient};
+    use crate::{
+        adapters::FakeAdapter, client::DebugAdapterClient, debugger_settings::DebuggerSettings,
+    };
     use dap_types::{
         messages::Events, requests::Initialize, Capabilities, InitializeRequestArguments,
         InitializeRequestArgumentsPathFormat,
     };
     use gpui::TestAppContext;
+    use settings::{Settings, SettingsStore};
     use std::sync::atomic::{AtomicBool, Ordering};
     use task::DebugAdapterConfig;
 
-    #[ctor::ctor]
-    fn init_logger() {
+    pub fn init_test(cx: &mut gpui::TestAppContext) {
         if std::env::var("RUST_LOG").is_ok() {
-            env_logger::init();
+            env_logger::try_init().ok();
         }
+
+        cx.update(|cx| {
+            let settings = SettingsStore::test(cx);
+            cx.set_global(settings);
+            DebuggerSettings::register(cx);
+        });
     }
 
     #[gpui::test]
     pub async fn test_initialize_client(cx: &mut TestAppContext) {
+        init_test(cx);
+
         let adapter = Arc::new(FakeAdapter::new());
 
         let mut client = DebugAdapterClient::new(
@@ -347,6 +385,8 @@ mod tests {
 
     #[gpui::test]
     pub async fn test_calls_event_handler(cx: &mut TestAppContext) {
+        init_test(cx);
+
         let adapter = Arc::new(FakeAdapter::new());
         let was_called = Arc::new(AtomicBool::new(false));
         let was_called_clone = was_called.clone();

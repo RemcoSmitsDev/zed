@@ -1,4 +1,3 @@
-use client::Client;
 use dap::debugger_settings::DebuggerSettings;
 use debugger_panel::{DebugPanel, ToggleFocus};
 use debugger_panel_item::DebugPanelItem;
@@ -10,8 +9,6 @@ use workspace::{
     ToggleIgnoreBreakpoints, Workspace,
 };
 
-use std::sync::Arc;
-
 mod attach_modal;
 mod console;
 pub mod debugger_panel;
@@ -21,7 +18,10 @@ mod module_list;
 mod stack_frame_list;
 mod variable_list;
 
-pub fn init(_client: &Arc<Client>, cx: &mut AppContext) {
+#[cfg(test)]
+mod tests;
+
+pub fn init(cx: &mut AppContext) {
     DebuggerSettings::register(cx);
     workspace::FollowableViewRegistry::register::<DebugPanelItem>(cx);
 
@@ -35,7 +35,8 @@ pub fn init(_client: &Arc<Client>, cx: &mut AppContext) {
                     workspace.toggle_panel_focus::<DebugPanel>(cx);
                 })
                 .register_action(|workspace: &mut Workspace, _: &Start, cx| {
-                    tasks_ui::toggle_modal(workspace, task::TaskModal::DebugModal, cx).detach();
+                    tasks_ui::toggle_modal(workspace, None, task::TaskModal::DebugModal, cx)
+                        .detach();
                 })
                 .register_action(|workspace: &mut Workspace, _: &ShutdownDebugAdapters, cx| {
                     workspace.project().update(cx, |project, cx| {

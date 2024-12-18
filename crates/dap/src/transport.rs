@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use dap_types::{
     messages::{Message, Response},
@@ -87,21 +87,46 @@ impl TransportDelegate {
         }
     }
 
+    pub(crate) async fn reconnect(
+        &mut self,
+        cx: &mut AsyncAppContext,
+    ) -> Result<(Receiver<Message>, Sender<Message>)> {
+        self.start_handlers(self.transport.reconnect(cx).await?, cx)
+            .await
+    }
+
     pub(crate) async fn start(
         &mut self,
         binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
     ) -> Result<(Receiver<Message>, Sender<Message>)> {
-        let mut params = self.transport.clone().start(binary, cx).await?;
+        self.start_handlers(self.transport.start(binary, cx).await?, cx)
+            .await
+    }
 
+    async fn start_handlers(
+        &mut self,
+        mut params: TransportPipe,
+        cx: &mut AsyncAppContext,
+    ) -> Result<(Receiver<Message>, Sender<Message>)> {
         let (client_tx, server_rx) = unbounded::<Message>();
         let (server_tx, client_rx) = unbounded::<Message>();
 
-        // params.stdout //Not 'Stdout' -> stdout_reader (dyn AsyncRead)
+        let log_dap_communications =
+            cx.update(|cx| DebuggerSettings::get_global(cx).log_dap_communications)
+                .with_context(|| "Failed to get Debugger Setting log dap communications error in transport::start_handlers. Defaulting to false")
+                .unwrap_or(false);
+
+        let log_handler = if log_dap_communications {
+            Some(self.log_handlers.clone())
+        } else {
+            None
+        };
+
         cx.update(|cx| {
             if let Some(stdout) = params.stdout.take() {
                 cx.background_executor()
-                    .spawn(Self::handle_adapter_log(stdout, self.log_handlers.clone()))
+                    .spawn(Self::handle_adapter_log(stdout, log_handler.clone()))
                     .detach_and_log_err(cx);
             }
 
@@ -110,7 +135,7 @@ impl TransportDelegate {
                     params.output,
                     client_tx,
                     self.pending_requests.clone(),
-                    self.log_handlers.clone(),
+                    log_handler.clone(),
                 ))
                 .detach_and_log_err(cx);
 
@@ -126,7 +151,7 @@ impl TransportDelegate {
                     client_rx,
                     self.current_requests.clone(),
                     self.pending_requests.clone(),
-                    self.log_handlers.clone(),
+                    log_handler.clone(),
                 ))
                 .detach_and_log_err(cx);
         })?;
@@ -164,7 +189,10 @@ impl TransportDelegate {
         }
     }
 
-    async fn handle_adapter_log<Stdout>(stdout: Stdout, log_handlers: LogHandlers) -> Result<()>
+    async fn handle_adapter_log<Stdout>(
+        stdout: Stdout,
+        log_handlers: Option<LogHandlers>,
+    ) -> Result<()>
     where
         Stdout: AsyncRead + Unpin + Send + 'static,
     {
@@ -183,9 +211,11 @@ impl TransportDelegate {
                 break Err(anyhow!("Debugger log stream closed"));
             }
 
-            for (kind, handler) in log_handlers.lock().iter_mut() {
-                if matches!(kind, LogKind::Adapter) {
-                    handler(IoKind::StdOut, line.as_str());
+            if let Some(log_handlers) = log_handlers.as_ref() {
+                for (kind, handler) in log_handlers.lock().iter_mut() {
+                    if matches!(kind, LogKind::Adapter) {
+                        handler(IoKind::StdOut, line.as_str());
+                    }
                 }
             }
 
@@ -206,7 +236,7 @@ impl TransportDelegate {
         client_rx: Receiver<Message>,
         current_requests: Requests,
         pending_requests: Requests,
-        log_handlers: LogHandlers,
+        log_handlers: Option<LogHandlers>,
     ) -> Result<()>
     where
         Stdin: AsyncWrite + Unpin + Send + 'static,
@@ -225,9 +255,11 @@ impl TransportDelegate {
                         Err(e) => break Err(e.into()),
                     };
 
-                    for (kind, log_handler) in log_handlers.lock().iter_mut() {
-                        if matches!(kind, LogKind::Rpc) {
-                            log_handler(IoKind::StdIn, &message);
+                    if let Some(log_handlers) = log_handlers.as_ref() {
+                        for (kind, log_handler) in log_handlers.lock().iter_mut() {
+                            if matches!(kind, LogKind::Rpc) {
+                                log_handler(IoKind::StdIn, &message);
+                            }
                         }
                     }
 
@@ -257,7 +289,7 @@ impl TransportDelegate {
         server_stdout: Stdout,
         client_tx: Sender<Message>,
         pending_requests: Requests,
-        log_handlers: LogHandlers,
+        log_handlers: Option<LogHandlers>,
     ) -> Result<()>
     where
         Stdout: AsyncRead + Unpin + Send + 'static,
@@ -267,7 +299,8 @@ impl TransportDelegate {
 
         let result = loop {
             let message =
-                Self::receive_server_message(&mut reader, &mut recv_buffer, &log_handlers).await;
+                Self::receive_server_message(&mut reader, &mut recv_buffer, log_handlers.as_ref())
+                    .await;
 
             match message {
                 Ok(Message::Response(res)) => {
@@ -348,7 +381,7 @@ impl TransportDelegate {
     async fn receive_server_message<Stdout>(
         reader: &mut BufReader<Stdout>,
         buffer: &mut String,
-        log_handlers: &LogHandlers,
+        log_handlers: Option<&LogHandlers>,
     ) -> Result<Message>
     where
         Stdout: AsyncRead + Unpin + Send + 'static,
@@ -390,9 +423,11 @@ impl TransportDelegate {
 
         let message = std::str::from_utf8(&content).context("invalid utf8 from server")?;
 
-        for (kind, log_handler) in log_handlers.lock().iter_mut() {
-            if matches!(kind, LogKind::Rpc) {
-                log_handler(IoKind::StdOut, &message);
+        if let Some(log_handlers) = log_handlers {
+            for (kind, log_handler) in log_handlers.lock().iter_mut() {
+                if matches!(kind, LogKind::Rpc) {
+                    log_handler(IoKind::StdOut, &message);
+                }
             }
         }
 
@@ -452,9 +487,13 @@ pub trait Transport: 'static + Send + Sync + Any {
 
     async fn kill(&self) -> Result<()>;
 
+    async fn reconnect(&self, _: &mut AsyncAppContext) -> Result<TransportPipe> {
+        bail!("Cannot reconnect to adapter")
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     fn as_fake(&self) -> &FakeTransport {
-        panic!("called as_fake on a real adapter");
+        panic!("Called as_fake on a real adapter");
     }
 }
 
@@ -490,6 +529,44 @@ impl TcpTransport {
 
 #[async_trait(?Send)]
 impl Transport for TcpTransport {
+    async fn reconnect(&self, cx: &mut AsyncAppContext) -> Result<TransportPipe> {
+        let address = SocketAddrV4::new(self.host, self.port);
+
+        let timeout = self.timeout.unwrap_or_else(|| {
+            cx.update(|cx| DebuggerSettings::get_global(cx).timeout)
+                .unwrap_or(2000u64)
+        });
+
+        let (rx, tx) = select! {
+            _ = cx.background_executor().timer(Duration::from_millis(timeout)).fuse() => {
+                return Err(anyhow!(format!("Reconnect to TCP DAP timeout {}:{}", self.host, self.port)))
+            },
+            result = cx.spawn(|cx| async move {
+                loop {
+                    match TcpStream::connect(address).await {
+                        Ok(stream) => return stream.split(),
+                        Err(_) => {
+                            cx.background_executor().timer(Duration::from_millis(100)).await;
+                        }
+                    }
+                }
+            }).fuse() => result
+        };
+
+        log::info!(
+            "Debug adapter has reconnected to TCP server {}:{}",
+            self.host,
+            self.port
+        );
+
+        Ok(TransportPipe::new(
+            Box::new(tx),
+            Box::new(BufReader::new(rx)),
+            None,
+            None,
+        ))
+    }
+
     async fn start(
         &self,
         binary: &DebugAdapterBinary,
@@ -732,6 +809,8 @@ impl Transport for FakeTransport {
         _binary: &DebugAdapterBinary,
         cx: &mut AsyncAppContext,
     ) -> Result<TransportPipe> {
+        use serde_json::json;
+
         let (stdin_writer, stdin_reader) = async_pipe::pipe();
         let (stdout_writer, stdout_reader) = async_pipe::pipe();
 
@@ -746,7 +825,7 @@ impl Transport for FakeTransport {
                 let message = TransportDelegate::receive_server_message(
                     &mut reader,
                     &mut buffer,
-                    &Default::default(),
+                    None,
                 )
                 .await;
 
@@ -760,7 +839,7 @@ impl Transport for FakeTransport {
                         {
                             handle(
                                 request.seq,
-                                request.arguments.unwrap(),
+                                request.arguments.unwrap_or(json!({})),
                                 stdout_writer.clone(),
                             )
                             .await;

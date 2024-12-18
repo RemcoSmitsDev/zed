@@ -254,6 +254,23 @@ impl DebugPanel {
             .and_then(|panel| panel.downcast::<DebugPanelItem>())
     }
 
+    pub fn debug_panel_item_by_client(
+        &self,
+        client_id: &DebugAdapterClientId,
+        thread_id: u64,
+        cx: &mut ViewContext<Self>,
+    ) -> Option<View<DebugPanelItem>> {
+        self.pane
+            .read(cx)
+            .items()
+            .filter_map(|item| item.downcast::<DebugPanelItem>())
+            .find(|item| {
+                let item = item.read(cx);
+
+                &item.client_id() == client_id && item.thread_id() == thread_id
+            })
+    }
+
     fn handle_pane_event(
         &mut self,
         _: View<Pane>,
@@ -347,21 +364,13 @@ impl DebugPanel {
         let mut envs: HashMap<String, String> = Default::default();
 
         if let Some(Value::Object(env)) = request_args.env {
-            // Special handling for VSCODE_INSPECTOR_OPTIONS:
-            // The JavaScript debug adapter expects this value to be a valid JSON object.
-            // However, it's often passed as an escaped string, which the adapter can't parse.
-            // We need to unescape it and reformat it so the adapter can read it correctly.
             for (key, value) in env {
                 let value_str = match (key.as_str(), value) {
-                    ("VSCODE_INSPECTOR_OPTIONS", Value::String(value)) => {
-                        serde_json::from_str::<Value>(&value[3..])
-                            .map(|json| format!(":::{}", json))
-                            .unwrap_or_else(|_| value)
-                    }
-                    (_, value) => value.to_string(),
+                    (_, Value::String(value)) => value,
+                    _ => continue,
                 };
 
-                envs.insert(key, value_str.trim_matches('"').to_string());
+                envs.insert(key, value_str);
             }
         }
 
@@ -596,18 +605,8 @@ impl DebugPanel {
                         thread_state.status = ThreadStatus::Stopped;
                     });
 
-                    let existing_item = this
-                        .pane
-                        .read(cx)
-                        .items()
-                        .filter_map(|item| item.downcast::<DebugPanelItem>())
-                        .any(|item| {
-                            let item = item.read(cx);
-
-                            item.client_id() == client_id && item.thread_id() == thread_id
-                        });
-
-                    if !existing_item {
+                    let existing_item = this.debug_panel_item_by_client(&client_id, thread_id, cx);
+                    if existing_item.is_none() {
                         let debug_panel = cx.view().clone();
                         this.pane.update(cx, |pane, cx| {
                             let tab = cx.new_view(|cx| {

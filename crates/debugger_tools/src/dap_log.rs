@@ -1,5 +1,6 @@
 use dap::{
     client::{DebugAdapterClient, DebugAdapterClientId},
+    debugger_settings::DebuggerSettings,
     transport::{IoKind, LogKind},
 };
 use editor::{Editor, EditorEvent};
@@ -8,16 +9,18 @@ use futures::{
     StreamExt,
 };
 use gpui::{
-    actions, div, AnchorCorner, AppContext, Context, EventEmitter, FocusHandle, FocusableView,
-    IntoElement, Model, ModelContext, ParentElement, Render, SharedString, Styled, Subscription,
-    View, ViewContext, VisualContext, WeakModel, WindowContext,
+    actions, div, AppContext, Context, EventEmitter, FocusHandle, FocusableView, IntoElement,
+    Model, ModelContext, ParentElement, Render, SharedString, Styled, Subscription, View,
+    ViewContext, VisualContext, WeakModel, WindowContext,
 };
 use project::{search::SearchQuery, Project};
+use settings::Settings as _;
 use std::{
     borrow::Cow,
     collections::{HashMap, VecDeque},
     sync::Arc,
 };
+use util::maybe;
 use workspace::{
     item::Item,
     searchable::{SearchEvent, SearchableItem, SearchableItemHandle},
@@ -260,9 +263,21 @@ impl LogStore {
         while log_lines.len() >= RpcMessages::MESSAGE_QUEUE_LIMIT {
             log_lines.pop_front();
         }
-        let entry: &str = message.as_ref();
-        let entry = entry.to_string();
-        log_lines.push_back(message);
+
+        let format_messages = DebuggerSettings::get_global(cx).format_dap_log_messages;
+
+        let entry = if format_messages {
+            maybe!({
+                serde_json::to_string_pretty::<serde_json::Value>(
+                    &serde_json::from_str(&message).ok()?,
+                )
+                .ok()
+            })
+            .unwrap_or(message)
+        } else {
+            message
+        };
+        log_lines.push_back(entry.clone());
 
         cx.emit(Event::NewLogEntry { id, entry, kind });
     }
@@ -361,14 +376,15 @@ impl Render for DapLogToolbarItemView {
         });
 
         let dap_menu: PopoverMenu<_> = PopoverMenu::new("DapLogView")
-            .anchor(AnchorCorner::TopLeft)
+            .anchor(gpui::Corner::TopLeft)
             .trigger(Button::new(
                 "debug_server_menu_header",
                 current_client
                     .map(|row| {
                         Cow::Owned(format!(
-                            "{} - {}",
+                            "{}({}) - {}",
                             row.client_name,
+                            row.client_id.0,
                             match row.selected_entry {
                                 LogKind::Adapter => ADAPTER_LOGS,
                                 LogKind::Rpc => RPC_MESSAGES,
@@ -382,7 +398,7 @@ impl Render for DapLogToolbarItemView {
                 let menu_rows = menu_rows.clone();
                 ContextMenu::build(cx, move |mut menu, cx| {
                     for row in menu_rows.into_iter() {
-                        menu = menu.header(row.client_name.to_string());
+                        menu = menu.header(format!("{}({})", row.client_name, row.client_id.0));
 
                         if row.has_adapter_logs {
                             menu = menu.entry(
