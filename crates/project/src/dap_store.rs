@@ -475,10 +475,12 @@ impl DapStore {
 
             let client = Arc::new(client);
 
-            this.update(&mut cx, |store, _| {
+            this.update(&mut cx, |store, cx| {
                 store
                     .clients
                     .insert(client_id, DebugAdapterClientState::Running(client.clone()));
+
+                cx.emit(DapStoreEvent::DebugClientStarted(client_id));
 
                 client
             })

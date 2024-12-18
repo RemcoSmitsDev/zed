@@ -1,7 +1,7 @@
 use crate::*;
 use dap::requests::{Disconnect, Initialize, Launch, StackTrace};
 use gpui::{BackgroundExecutor, Model, TestAppContext, VisualTestContext, WindowHandle};
-use project::{dap_store::DapStoreEvent, FakeFs, Project};
+use project::{FakeFs, Project};
 use serde_json::json;
 use settings::SettingsStore;
 use unindent::Unindent as _;
@@ -111,14 +111,6 @@ async fn test_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppCon
         .await;
 
     client.on_request::<Disconnect, _>(move |_, _| Ok(())).await;
-
-    // this will trigger the debug panel to call initialize and launch/attach
-    // we have to do this after we configure the on_request, otherwise we don't send a response back.
-    project.update(cx, |project, cx| {
-        project.dap_store().update(cx, |_, cx| {
-            cx.emit(DapStoreEvent::DebugClientStarted(client.id()));
-        });
-    });
 
     // assert we don't have a debug panel item yet
     workspace
