@@ -1091,6 +1091,13 @@ impl DapStore {
 
         let capabilities = self.capabilities_by_id(client_id);
 
+        if capabilities.supports_step_back.unwrap_or(false) {
+            return Task::ready(Err(anyhow!(
+                "Step back request isn't support for client_id: {:?}",
+                client_id
+            )));
+        }
+
         let supports_single_thread_execution_requests = capabilities
             .supports_single_thread_execution_requests
             .unwrap_or_default();
