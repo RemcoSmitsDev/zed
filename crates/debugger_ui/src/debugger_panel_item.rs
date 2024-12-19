@@ -792,6 +792,17 @@ impl Render for DebugPanelItem {
                                     )
                                 }
                             })
+                            .when(capabilities.supports_step_back.unwrap_or(false), |this| {
+                                this.child(
+                                    IconButton::new("debug-step-back", IconName::DebugStepBack)
+                                        .icon_size(IconSize::Small)
+                                        .on_click(cx.listener(|this, _, cx| {
+                                            this.step_back(cx);
+                                        }))
+                                        .disabled(thread_status != ThreadStatus::Stopped)
+                                        .tooltip(move |cx| Tooltip::text("Step back", cx)),
+                                )
+                            })
                             .child(
                                 IconButton::new("debug-step-over", IconName::DebugStepOver)
                                     .icon_size(IconSize::Small)
@@ -819,17 +830,6 @@ impl Render for DebugPanelItem {
                                     .disabled(thread_status != ThreadStatus::Stopped)
                                     .tooltip(move |cx| Tooltip::text("Step out", cx)),
                             )
-                            .when(capabilities.supports_step_back.unwrap_or(false), |this| {
-                                this.child(
-                                    IconButton::new("debug-step-back", IconName::DebugStepBack)
-                                        .icon_size(IconSize::Small)
-                                        .on_click(cx.listener(|this, _, cx| {
-                                            this.step_back(cx);
-                                        }))
-                                        .disabled(thread_status != ThreadStatus::Stopped)
-                                        .tooltip(move |cx| Tooltip::text("Step back", cx)),
-                                )
-                            })
                             .child(
                                 IconButton::new("debug-restart", IconName::DebugRestart)
                                     .icon_size(IconSize::Small)
