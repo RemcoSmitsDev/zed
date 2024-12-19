@@ -147,8 +147,20 @@ impl DebugAdapter for JsDebugAdapter {
     fn attach_processes<'a>(
         &self,
         processes: &'a HashMap<Pid, Process>,
+        port: Option<u16>,
     ) -> Option<Vec<(&'a Pid, &'a Process)>> {
         let regex = Regex::new(r"(?i)^(?:node|bun|iojs)(?:$|\b)").unwrap();
+
+        if let Some(port) = port {
+            if let Ok(processes_by_port) = listeners::get_processes_by_port(port) {
+                return Some(
+                    processes
+                        .iter()
+                        .filter(|(pid, _)| processes_by_port.iter().any(|p| p.pid == pid.as_u32()))
+                        .collect::<Vec<_>>(),
+                );
+            }
+        }
 
         Some(
             processes

@@ -3611,6 +3611,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "dap",
+ "listeners",
  "paths",
  "regex",
  "serde",
@@ -7236,6 +7237,18 @@ name = "linux-raw-sys"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78b3ae25bc7c8c38cec158d1f2757ee79e9b3740fbc7ccf0e59e4b08d793fa89"
+
+[[package]]
+name = "listeners"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "777b1ed64c65e967d6afe3950f5694b60962672156bb53027e25f72a05fcaeb5"
+dependencies = [
+ "byteorder",
+ "once_cell",
+ "rustix 0.38.40",
+ "windows 0.58.0",
+]
 
 [[package]]
 name = "litemap"
