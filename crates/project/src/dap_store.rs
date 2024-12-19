@@ -107,10 +107,12 @@ impl DapStore {
     const INDEX_STARTS_AT_ONE: bool = true;
 
     pub fn init(client: &AnyProtoClient) {
-        client.add_model_message_handler(DapStore::handle_synchronize_breakpoints);
-        client.add_model_message_handler(DapStore::handle_set_active_debug_line);
         client.add_model_message_handler(DapStore::handle_remove_active_debug_line);
+        client.add_model_message_handler(DapStore::handle_shutdown_debug_client);
+        client.add_model_message_handler(DapStore::handle_set_active_debug_line);
+        client.add_model_message_handler(DapStore::handle_set_debug_client_capabilities);
         client.add_model_message_handler(DapStore::handle_set_debug_panel_item);
+        client.add_model_message_handler(DapStore::handle_synchronize_breakpoints);
         client.add_model_message_handler(DapStore::handle_update_debug_adapter);
     }
 
@@ -661,6 +663,15 @@ impl DapStore {
                 .await?;
 
             this.update(&mut cx, |store, cx| {
+                if let Some((downstream_client, project_id)) = store.downstream_client.as_ref() {
+                    let message = dap::proto_conversions::capabilities_to_proto(
+                        &capabilities.clone(),
+                        *project_id,
+                        client.id().to_proto(),
+                    );
+
+                    downstream_client.send(message).log_err();
+                }
                 store.capabilities.insert(client.id(), capabilities);
 
                 cx.notify();
@@ -1465,6 +1476,31 @@ impl DapStore {
         this.update(&mut cx, |_, cx| {
             cx.emit(DapStoreEvent::UpdateDebugAdapter(envelope.payload));
         })
+    }
+
+    async fn handle_set_debug_client_capabilities(
+        this: Model<Self>,
+        envelope: TypedEnvelope<proto::SetDebugClientCapabilities>,
+        mut cx: AsyncAppContext,
+    ) -> Result<()> {
+        this.update(&mut cx, |dap_store, _| {
+            if dap_store.upstream_client().is_some() {
+                *dap_store
+                    .capabilities
+                    .entry(DebugAdapterClientId::from_proto(envelope.payload.client_id))
+                    .or_default() =
+                    dap::proto_conversions::capabilities_from_proto(&envelope.payload);
+            }
+        })
+    }
+
+    async fn handle_shutdown_debug_client(
+        _this: Model<Self>,
+        _envelope: TypedEnvelope<proto::ShutdownDebugClient>,
+        mut _cx: AsyncAppContext,
+    ) -> Result<()> {
+        // TODO Debugger Collab: Need to properly handle both downstream & upstream cases
+        Ok(())
     }
 
     async fn handle_set_active_debug_line(

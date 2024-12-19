@@ -418,7 +418,10 @@ impl Server {
                 broadcast_project_message_from_host::<proto::RemoveActiveDebugLine>,
             )
             .add_message_handler(broadcast_project_message_from_host::<proto::SetDebuggerPanelItem>)
-            .add_message_handler(broadcast_project_message_from_host::<proto::UpdateDebugAdapter>);
+            .add_message_handler(broadcast_project_message_from_host::<proto::UpdateDebugAdapter>)
+            .add_message_handler(
+                broadcast_project_message_from_host::<proto::SetDebugClientCapabilities>,
+            );
 
         Arc::new(server)
     }
