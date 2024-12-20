@@ -1368,6 +1368,15 @@ impl DapStore {
         self.ignore_breakpoints.remove(client_id);
         let capabilities = self.capabilities.remove(client_id);
 
+        if let Some((downstream_client, project_id)) = self.downstream_client.as_ref() {
+            let request = proto::ShutdownDebugClient {
+                client_id: client_id.to_proto(),
+                project_id: *project_id,
+            };
+
+            downstream_client.send(request).log_err();
+        }
+
         cx.spawn(|_, _| async move {
             let client = match client {
                 DebugAdapterClientState::Starting(task) => task.await,
@@ -1497,12 +1506,19 @@ impl DapStore {
     }
 
     async fn handle_shutdown_debug_client(
-        _this: Model<Self>,
-        _envelope: TypedEnvelope<proto::ShutdownDebugClient>,
-        mut _cx: AsyncAppContext,
+        this: Model<Self>,
+        envelope: TypedEnvelope<proto::ShutdownDebugClient>,
+        mut cx: AsyncAppContext,
     ) -> Result<()> {
-        // TODO Debugger Collab: Need to properly handle both downstream & upstream cases
-        Ok(())
+        this.update(&mut cx, |dap_store, cx| {
+            if matches!(dap_store.mode, DapStoreMode::Remote(_)) {
+                dap_store.clients.remove(&DebugAdapterClientId::from_proto(
+                    envelope.payload.client_id,
+                ));
+
+                cx.notify();
+            }
+        })
     }
 
     async fn handle_set_active_debug_line(
