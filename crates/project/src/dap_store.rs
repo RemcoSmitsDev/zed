@@ -1483,13 +1483,15 @@ impl DapStore {
         envelope: TypedEnvelope<proto::SetDebugClientCapabilities>,
         mut cx: AsyncAppContext,
     ) -> Result<()> {
-        this.update(&mut cx, |dap_store, _| {
+        this.update(&mut cx, |dap_store, cx| {
             if dap_store.upstream_client().is_some() {
                 *dap_store
                     .capabilities
                     .entry(DebugAdapterClientId::from_proto(envelope.payload.client_id))
                     .or_default() =
                     dap::proto_conversions::capabilities_from_proto(&envelope.payload);
+
+                cx.notify();
             }
         })
     }
