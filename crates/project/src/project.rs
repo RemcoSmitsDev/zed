@@ -1272,9 +1272,9 @@ impl Project {
         debug_task: task::ResolvedTask,
         cx: &mut ModelContext<Self>,
     ) {
-        if let Some(adapter_config) = debug_task.debug_adapter_config() {
+        if let Some(config) = debug_task.debug_adapter_config() {
             self.dap_store.update(cx, |store, cx| {
-                store.start_client_from_debug_config(adapter_config, cx);
+                store.start_debug_session(config, cx).detach_and_log_err(cx);
             });
         }
     }
@@ -4598,14 +4598,6 @@ impl Project {
         cx: &'a AppContext,
     ) -> impl 'a + Iterator<Item = Arc<DebugAdapterClient>> {
         self.dap_store.read(cx).running_clients()
-    }
-
-    pub fn debug_client_for_id(
-        &self,
-        id: &DebugAdapterClientId,
-        cx: &AppContext,
-    ) -> Option<Arc<DebugAdapterClient>> {
-        self.dap_store.read(cx).client_by_id(id)
     }
 
     pub fn buffer_store(&self) -> &Model<BufferStore> {

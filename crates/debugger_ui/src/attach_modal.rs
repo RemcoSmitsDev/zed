@@ -112,12 +112,9 @@ impl PickerDelegate for AttachModalDelegate {
                     if let Some(processes) = this.delegate.candidates.clone() {
                         processes
                     } else {
-                        let Some(client) = this
-                            .delegate
-                            .dap_store
-                            .read(cx)
-                            .client_by_id(&this.delegate.client_id)
-                        else {
+                        let Some(client) = this.delegate.dap_store.update(cx, |store, cx| {
+                            store.client_by_id(&this.delegate.client_id, cx)
+                        }) else {
                             return Vec::new();
                         };
 

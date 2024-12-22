@@ -170,7 +170,11 @@ impl LogStore {
                         project::Event::DebugClientStarted(client_id) => {
                             this.add_debug_client(
                                 *client_id,
-                                project.read(cx).debug_client_for_id(client_id, cx),
+                                project.update(cx, |project, cx| {
+                                    project
+                                        .dap_store()
+                                        .update(cx, |store, cx| store.client_by_id(client_id, cx))
+                                }),
                             );
                         }
                         project::Event::DebugClientShutdown(id) => {

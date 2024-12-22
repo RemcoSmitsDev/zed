@@ -473,7 +473,10 @@ impl DebugPanel {
         client_id: &DebugAdapterClientId,
         cx: &mut ViewContext<Self>,
     ) {
-        let Some(client) = self.dap_store.read(cx).client_by_id(&client_id) else {
+        let Some(client) = self
+            .dap_store
+            .update(cx, |store, cx| store.client_by_id(&client_id, cx))
+        else {
             return;
         };
 
@@ -604,8 +607,7 @@ impl DebugPanel {
 
         let Some(client_name) = self
             .dap_store
-            .read(cx)
-            .client_by_id(client_id)
+            .update(cx, |store, cx| store.client_by_id(client_id, cx))
             .map(|client| client.config().label)
         else {
             return; // this can never happen

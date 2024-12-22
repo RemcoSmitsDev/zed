@@ -1,8 +1,9 @@
 use crate::project_settings::ProjectSettings;
 use crate::{ProjectEnvironment, ProjectItem as _, ProjectPath};
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{anyhow, bail, Context as _, Result};
 use async_trait::async_trait;
 use collections::HashMap;
+use dap::session::{DebugSession, DebugSessionId};
 use dap::{
     adapters::{DapDelegate, DapStatus, DebugAdapter, DebugAdapterBinary, DebugAdapterName},
     client::{DebugAdapterClient, DebugAdapterClientId},
@@ -26,9 +27,9 @@ use dap::{
 };
 use dap_adapters::build_adapter;
 use fs::Fs;
-use futures::future::Shared;
+use futures::future::{join_all, Shared};
 use futures::FutureExt;
-use gpui::{AsyncAppContext, EventEmitter, Model, ModelContext, SharedString, Task};
+use gpui::{AsyncAppContext, Context, EventEmitter, Model, ModelContext, SharedString, Task};
 use http_client::HttpClient;
 use language::{
     proto::{deserialize_anchor, serialize_anchor as serialize_text_anchor},
@@ -93,11 +94,14 @@ pub struct RemoteDapStore {
 pub struct DapStore {
     mode: DapStoreMode,
     next_client_id: AtomicUsize,
+    next_session_id: AtomicUsize,
     downstream_client: Option<(AnyProtoClient, u64)>,
     ignore_breakpoints: HashSet<DebugAdapterClientId>,
+    sessions: HashMap<DebugSessionId, Model<DebugSession>>,
     breakpoints: BTreeMap<ProjectPath, HashSet<Breakpoint>>,
     capabilities: HashMap<DebugAdapterClientId, Capabilities>,
     clients: HashMap<DebugAdapterClientId, DebugAdapterClientState>,
+    client_by_session: HashMap<DebugAdapterClientId, DebugSessionId>,
     active_debug_line: Option<(DebugAdapterClientId, ProjectPath, u32)>,
 }
 
@@ -140,9 +144,12 @@ impl DapStore {
             downstream_client: None,
             active_debug_line: None,
             clients: HashMap::default(),
+            sessions: HashMap::default(),
             breakpoints: Default::default(),
             capabilities: HashMap::default(),
             next_client_id: Default::default(),
+            next_session_id: Default::default(),
+            client_by_session: Default::default(),
             ignore_breakpoints: Default::default(),
         }
     }
@@ -160,9 +167,12 @@ impl DapStore {
             downstream_client: None,
             active_debug_line: None,
             clients: HashMap::default(),
+            sessions: HashMap::default(),
             breakpoints: Default::default(),
             capabilities: HashMap::default(),
             next_client_id: Default::default(),
+            next_session_id: Default::default(),
+            client_by_session: Default::default(),
             ignore_breakpoints: Default::default(),
         }
     }
@@ -208,8 +218,12 @@ impl DapStore {
         self.downstream_client.as_ref()
     }
 
-    pub fn next_client_id(&self) -> DebugAdapterClientId {
+    fn next_client_id(&self) -> DebugAdapterClientId {
         DebugAdapterClientId(self.next_client_id.fetch_add(1, SeqCst))
+    }
+
+    fn next_session_id(&self) -> DebugSessionId {
+        DebugSessionId(self.next_session_id.fetch_add(1, SeqCst))
     }
 
     pub fn running_clients(&self) -> impl Iterator<Item = Arc<DebugAdapterClient>> + '_ {
@@ -219,11 +233,22 @@ impl DapStore {
         })
     }
 
-    pub fn client_by_id(&self, id: &DebugAdapterClientId) -> Option<Arc<DebugAdapterClient>> {
-        self.clients.get(id).and_then(|state| match state {
-            DebugAdapterClientState::Starting(_) => None,
-            DebugAdapterClientState::Running(client) => Some(client.clone()),
-        })
+    pub fn session_by_client(
+        &self,
+        client_id: &DebugAdapterClientId,
+    ) -> Option<Model<DebugSession>> {
+        self.client_by_session
+            .get(client_id)
+            .and_then(|session_id| self.sessions.get(session_id).cloned())
+    }
+
+    pub fn client_by_id(
+        &self,
+        client_id: &DebugAdapterClientId,
+        cx: &mut ModelContext<Self>,
+    ) -> Option<Arc<DebugAdapterClient>> {
+        self.session_by_client(client_id)
+            .and_then(|session| session.read(cx).client_by_id(client_id))
     }
 
     pub fn capabilities_by_id(&self, client_id: &DebugAdapterClientId) -> Capabilities {
@@ -499,6 +524,117 @@ impl DapStore {
         })
     }
 
+    fn start_client_internal(
+        &mut self,
+        config: DebugAdapterConfig,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<Arc<DebugAdapterClient>>> {
+        let Some(local_store) = self.as_local_mut() else {
+            return Task::ready(Err(anyhow!("cannot start client on remote side")));
+        };
+
+        let mut adapter_delegate = local_store.delegate.clone();
+        let worktree_abs_path = config.cwd.as_ref().map(|p| Arc::from(p.as_path()));
+        adapter_delegate.refresh_shell_env_task(local_store.environment.update(cx, |env, cx| {
+            env.get_environment(None, worktree_abs_path, cx)
+        }));
+        let adapter_delegate = Arc::new(adapter_delegate);
+
+        let client_id = self.next_client_id();
+
+        cx.spawn(|this, mut cx| async move {
+            let adapter = build_adapter(&config.kind).await?;
+
+            if !adapter.supports_attach() && matches!(config.request, DebugRequestType::Attach(_)) {
+                bail!("Debug adapter does not support `attach` request");
+            }
+
+            let binary = cx.update(|cx| {
+                let name = DebugAdapterName::from(adapter.name().as_ref());
+
+                ProjectSettings::get_global(cx)
+                    .dap
+                    .get(&name)
+                    .and_then(|s| s.binary.as_ref().map(PathBuf::from))
+            })?;
+
+            let (adapter, binary) = match adapter
+                .get_binary(adapter_delegate.as_ref(), &config, binary)
+                .await
+            {
+                Err(error) => {
+                    adapter_delegate.update_status(
+                        adapter.name(),
+                        DapStatus::Failed {
+                            error: error.to_string(),
+                        },
+                    );
+
+                    return Err(error);
+                }
+                Ok(mut binary) => {
+                    adapter_delegate.update_status(adapter.name(), DapStatus::None);
+
+                    let shell_env = adapter_delegate.shell_env().await;
+                    let mut envs = binary.envs.unwrap_or_default();
+                    envs.extend(shell_env);
+                    binary.envs = Some(envs);
+
+                    (adapter, binary)
+                }
+            };
+
+            let mut client = DebugAdapterClient::new(client_id, config, adapter, binary, &cx);
+
+            client
+                .start(
+                    {
+                        let dap_store = this.clone();
+                        move |message, cx| {
+                            dap_store
+                                .update(cx, |_, cx| {
+                                    cx.emit(DapStoreEvent::DebugClientEvent { client_id, message })
+                                })
+                                .log_err();
+                        }
+                    },
+                    &mut cx,
+                )
+                .await?;
+
+            Ok(Arc::new(client))
+        })
+    }
+
+    pub fn start_debug_session(
+        &mut self,
+        config: DebugAdapterConfig,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<()>> {
+        let session_id = self.next_session_id();
+        let start_client_task = self.start_client_internal(config.clone(), cx);
+
+        cx.spawn(|this, mut cx| async move {
+            let session = cx.new_model(|_| DebugSession::new(session_id, config))?;
+
+            let client = start_client_task.await?;
+
+            this.update(&mut cx, |store, cx| {
+                let client_id = client.id();
+
+                session.update(cx, |session, _| {
+                    session.add_client(client);
+                });
+
+                store.client_by_session.insert(client_id, session_id);
+                store.sessions.insert(session_id, session);
+
+                cx.emit(DapStoreEvent::DebugClientStarted(client_id));
+                cx.notify();
+            })
+        })
+    }
+
     pub fn start_client_from_debug_config(
         &mut self,
         config: DebugAdapterConfig,
@@ -632,7 +768,7 @@ impl DapStore {
         client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
@@ -680,7 +816,7 @@ impl DapStore {
         client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Client was not found")));
         };
 
@@ -703,7 +839,7 @@ impl DapStore {
         pid: u32,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Client was not found")));
         };
 
@@ -731,7 +867,7 @@ impl DapStore {
         client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<Vec<Module>>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Client was not found")));
         };
 
@@ -757,7 +893,7 @@ impl DapStore {
         client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<Vec<Source>>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Client was not found")));
         };
 
@@ -784,7 +920,7 @@ impl DapStore {
         thread_id: u64,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<Vec<StackFrame>>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Client was not found")));
         };
 
@@ -807,7 +943,7 @@ impl DapStore {
         stack_frame_id: u64,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<Vec<Scope>>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Client was not found")));
         };
 
@@ -826,7 +962,7 @@ impl DapStore {
         client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
@@ -854,7 +990,7 @@ impl DapStore {
         args: Option<StartDebuggingRequestArguments>,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
@@ -931,7 +1067,7 @@ impl DapStore {
         shell_pid: Option<u64>,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
@@ -960,7 +1096,7 @@ impl DapStore {
         thread_id: u64,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
@@ -999,7 +1135,7 @@ impl DapStore {
             }
         }
 
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
@@ -1030,7 +1166,7 @@ impl DapStore {
         granularity: SteppingGranularity,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
@@ -1062,7 +1198,7 @@ impl DapStore {
         granularity: SteppingGranularity,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
@@ -1093,7 +1229,7 @@ impl DapStore {
         granularity: SteppingGranularity,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
@@ -1130,7 +1266,7 @@ impl DapStore {
         variables_reference: u64,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<Vec<Variable>>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
@@ -1156,7 +1292,7 @@ impl DapStore {
         context: EvaluateArgumentsContext,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<EvaluateResponse>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
@@ -1183,7 +1319,7 @@ impl DapStore {
         completion_column: u64,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<Vec<CompletionItem>>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
@@ -1211,7 +1347,7 @@ impl DapStore {
         evaluate_name: Option<String>,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
@@ -1251,7 +1387,7 @@ impl DapStore {
         thread_id: u64,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
@@ -1265,7 +1401,7 @@ impl DapStore {
         thread_ids: Option<Vec<u64>>,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
@@ -1290,7 +1426,7 @@ impl DapStore {
         client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
@@ -1311,7 +1447,7 @@ impl DapStore {
         args: Option<Value>,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
@@ -1335,6 +1471,41 @@ impl DapStore {
                     .await?;
             }
 
+            Ok(())
+        })
+    }
+
+    pub fn shutdown_sessions(&mut self, cx: &mut ModelContext<Self>) -> Task<()> {
+        let mut tasks = Vec::new();
+
+        for session_id in self.sessions.keys().cloned().collect::<Vec<_>>() {
+            tasks.push(self.shutdown_session(&session_id, cx));
+        }
+
+        cx.background_executor().spawn(async move {
+            futures::future::join_all(tasks).await;
+        })
+    }
+
+    pub fn shutdown_session(
+        &mut self,
+        session_id: &DebugSessionId,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<()>> {
+        let Some(session) = self.sessions.remove(session_id) else {
+            return Task::ready(Err(anyhow!("Could not find session: {:?}", session_id)));
+        };
+
+        let mut tasks = Vec::new();
+        for client in session.read(cx).clients() {
+            let task = client.shutdown();
+            tasks.push(cx.background_executor().spawn(async move {
+                task.await.log_err();
+            }));
+        }
+
+        cx.background_executor().spawn(async move {
+            join_all(tasks).await;
             Ok(())
         })
     }
@@ -1618,7 +1789,7 @@ impl DapStore {
         ignore: bool,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(client) = self.client_by_id(client_id) else {
+        let Some(client) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
