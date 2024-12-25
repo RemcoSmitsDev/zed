@@ -25,7 +25,7 @@ use util::maybe;
 use workspace::{
     item::Item,
     searchable::{SearchEvent, SearchableItem, SearchableItemHandle},
-    ui::{h_flex, Button, Clickable, ContextMenu, Label, PopoverMenu},
+    ui::{h_flex, Button, Clickable, ContextMenu, Label, LabelCommon, PopoverMenu},
     ToolbarItemEvent, ToolbarItemView, Workspace,
 };
 
@@ -391,8 +391,9 @@ impl Render for DapLogToolbarItemView {
                 current_client
                     .map(|sub_item| {
                         Cow::Owned(format!(
-                            "{} - {}",
+                            "{} ({}) - {}",
                             sub_item.client_name,
+                            sub_item.client_id.0,
                             match sub_item.selected_entry {
                                 LogKind::Adapter => ADAPTER_LOGS,
                                 LogKind::Rpc => RPC_MESSAGES,
@@ -409,15 +410,29 @@ impl Render for DapLogToolbarItemView {
                         menu = menu.header(format!("{}. {}", row.session_id.0, row.session_name));
 
                         for sub_item in row.clients.into_iter() {
-                            menu = menu.label(format!(
-                                "{}. {}",
-                                sub_item.client_id.0, sub_item.client_name,
-                            ));
+                            menu = menu.custom_row(move |_| {
+                                div()
+                                    .w_full()
+                                    .pl_2()
+                                    .child(
+                                        Label::new(format!(
+                                            "{}. {}",
+                                            sub_item.client_id.0, sub_item.client_name,
+                                        ))
+                                        .color(workspace::ui::Color::Muted),
+                                    )
+                                    .into_any_element()
+                            });
 
                             if sub_item.has_adapter_logs {
-                                menu = menu.entry(
-                                    ADAPTER_LOGS,
-                                    None,
+                                menu = menu.custom_entry(
+                                    move |_| {
+                                        div()
+                                            .w_full()
+                                            .pl_4()
+                                            .child(Label::new(ADAPTER_LOGS))
+                                            .into_any_element()
+                                    },
                                     cx.handler_for(&log_view, move |view, cx| {
                                         view.show_log_messages_for_server(sub_item.client_id, cx);
                                     }),
@@ -426,9 +441,9 @@ impl Render for DapLogToolbarItemView {
 
                             menu = menu.custom_entry(
                                 move |_| {
-                                    h_flex()
+                                    div()
                                         .w_full()
-                                        .justify_between()
+                                        .pl_4()
                                         .child(Label::new(RPC_MESSAGES))
                                         .into_any_element()
                                 },
