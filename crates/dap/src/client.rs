@@ -74,13 +74,21 @@ impl DebugAdapterClient {
         let (server_rx, server_tx) = self.transport_delegate.reconnect(cx).await?;
         log::info!("Successfully reconnected to debug adapter");
 
+        let client_id = self.id;
+
         // start handling events/reverse requests
         cx.update(|cx| {
             cx.spawn({
                 let server_tx = server_tx.clone();
                 |mut cx| async move {
-                    Self::handle_receive_messages(server_rx, server_tx, message_handler, &mut cx)
-                        .await
+                    Self::handle_receive_messages(
+                        client_id,
+                        server_rx,
+                        server_tx,
+                        message_handler,
+                        &mut cx,
+                    )
+                    .await
                 }
             })
             .detach_and_log_err(cx);
@@ -94,13 +102,21 @@ impl DebugAdapterClient {
         let (server_rx, server_tx) = self.transport_delegate.start(&self.binary, cx).await?;
         log::info!("Successfully connected to debug adapter");
 
+        let client_id = self.id;
+
         // start handling events/reverse requests
         cx.update(|cx| {
             cx.spawn({
                 let server_tx = server_tx.clone();
                 |mut cx| async move {
-                    Self::handle_receive_messages(server_rx, server_tx, message_handler, &mut cx)
-                        .await
+                    Self::handle_receive_messages(
+                        client_id,
+                        server_rx,
+                        server_tx,
+                        message_handler,
+                        &mut cx,
+                    )
+                    .await
                 }
             })
             .detach_and_log_err(cx);
@@ -108,6 +124,7 @@ impl DebugAdapterClient {
     }
 
     async fn handle_receive_messages<F>(
+        client_id: DebugAdapterClientId,
         server_rx: Receiver<Message>,
         client_tx: Sender<Message>,
         mut event_handler: F,
@@ -124,7 +141,7 @@ impl DebugAdapterClient {
 
             if let Err(e) = match message {
                 Message::Event(ev) => {
-                    log::debug!("Received event `{}`", &ev);
+                    log::debug!("Client {} received event `{}`", client_id.0, &ev);
 
                     cx.update(|cx| event_handler(Message::Event(ev), cx))
                 }
