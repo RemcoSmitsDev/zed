@@ -583,18 +583,22 @@ impl DapLogView {
                 .map(|session| DapMenuItem {
                     session_id: session.read(cx).id(),
                     session_name: session.read(cx).name(),
-                    clients: session
-                        .read(cx)
-                        .clients()
-                        .map(|client| DapMenuSubItem {
-                            client_id: client.id(),
-                            client_name: client.adapter_id(),
-                            has_adapter_logs: client.has_adapter_logs(),
-                            selected_entry: self
-                                .current_view
-                                .map_or(LogKind::Adapter, |(_, kind)| kind),
-                        })
-                        .collect::<Vec<_>>(),
+                    clients: {
+                        let mut clients = session
+                            .read(cx)
+                            .clients()
+                            .map(|client| DapMenuSubItem {
+                                client_id: client.id(),
+                                client_name: client.adapter_id(),
+                                has_adapter_logs: client.has_adapter_logs(),
+                                selected_entry: self
+                                    .current_view
+                                    .map_or(LogKind::Adapter, |(_, kind)| kind),
+                            })
+                            .collect::<Vec<_>>();
+                        clients.sort_by_key(|item| item.client_id.0);
+                        clients
+                    },
                 })
                 .collect::<Vec<_>>(),
         )
