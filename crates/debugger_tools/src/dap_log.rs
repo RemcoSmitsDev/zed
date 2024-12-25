@@ -394,9 +394,8 @@ impl Render for DapLogToolbarItemView {
                 current_client
                     .map(|sub_item| {
                         Cow::Owned(format!(
-                            "{}({}) - {}",
+                            "{} - {}",
                             sub_item.client_name,
-                            sub_item.client_id.0,
                             match sub_item.selected_entry {
                                 LogKind::Adapter => ADAPTER_LOGS,
                                 LogKind::Rpc => RPC_MESSAGES,
