@@ -263,10 +263,11 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) {
         if let Some((session, _)) = self.client_by_id(client_id, cx) {
-            session.update(cx, |session, _| {
+            session.update(cx, |session, cx| {
                 session.update_capabilities(
                     client_id,
                     session.capabilities(client_id).merge(other.clone()),
+                    cx,
                 );
             });
 
@@ -460,17 +461,26 @@ impl DapStore {
                 .await?;
 
             dap_store.update(&mut cx, |store, cx| {
-                let Some(session) = store.session_by_id(&session_id) else {
-                    return;
-                };
+                store
+                    .client_by_session
+                    .insert(client_id.clone(), session_id.clone());
+
+                let session = store.session_by_id(&session_id).unwrap();
 
                 let client = Arc::new(client);
 
-                session.update(cx, |session, _| {
-                    session.add_client(client.clone());
+                session.update(cx, |session, cx| {
+                    session.update_configuration(
+                        |old_config| {
+                            *old_config = config.clone();
+                        },
+                        cx,
+                    );
+                    session.add_client(client.clone(), cx);
                 });
 
                 cx.emit(DapStoreEvent::DebugClientStarted((session_id, client_id)));
+                cx.notify();
             })
         })
     }
@@ -585,8 +595,8 @@ impl DapStore {
             let client = start_client_task.await?;
 
             this.update(&mut cx, |store, cx| {
-                session.update(cx, |session, _| {
-                    session.add_client(client.clone());
+                session.update(cx, |session, cx| {
+                    session.add_client(client.clone(), cx);
                 });
 
                 let client_id = client.id();
@@ -641,8 +651,8 @@ impl DapStore {
                 .await?;
 
             this.update(&mut cx, |store, cx| {
-                session.update(cx, |session, _| {
-                    session.update_capabilities(&client_id, capabilities.clone());
+                session.update(cx, |session, cx| {
+                    session.update_capabilities(&client_id, capabilities.clone(), cx);
                 });
                 cx.notify();
 
@@ -705,12 +715,15 @@ impl DapStore {
         // update the process id on the config, so when the `startDebugging` reverse request
         // comes in we send another `attach` request with the already selected PID
         // If we don't do this the user has to select the process twice if the adapter sends a `startDebugging` request
-        session.update(cx, |session, _| {
-            session.update_configuration(|config| {
-                config.request = DebugRequestType::Attach(task::AttachConfig {
-                    process_id: Some(process_id),
-                });
-            });
+        session.update(cx, |session, cx| {
+            session.update_configuration(
+                |config| {
+                    config.request = DebugRequestType::Attach(task::AttachConfig {
+                        process_id: Some(process_id),
+                    });
+                },
+                cx,
+            );
         });
 
         let config = session.read(cx).configuration();
@@ -906,9 +919,9 @@ impl DapStore {
                 });
 
                 match task {
-                    Ok(task) => match task.await {
-                        Ok(_) => (true, None),
-                        Err(_) => (false, None),
+                    Ok(task) => match task.await.log_err() {
+                        Some(_) => (true, None),
+                        None => (false, None),
                     },
                     Err(_) => (false, None),
                 }
@@ -1381,7 +1394,8 @@ impl DapStore {
             ));
         };
 
-        let Some(client) = session.update(cx, |session, _| session.remove_client(client_id)) else {
+        let Some(client) = session.update(cx, |session, cx| session.remove_client(client_id, cx))
+        else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
@@ -1508,10 +1522,11 @@ impl DapStore {
         this.update(&mut cx, |dap_store, cx| {
             let session_id = DebugSessionId::from_proto(envelope.payload.session_id);
             if let Some(session) = dap_store.session_by_id(&session_id) {
-                session.update(cx, |session, _| {
+                session.update(cx, |session, cx| {
                     session.update_capabilities(
                         &DebugAdapterClientId::from_proto(envelope.payload.client_id),
                         dap::proto_conversions::capabilities_from_proto(&envelope.payload),
+                        cx,
                     );
                 });
 

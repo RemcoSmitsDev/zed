@@ -50,8 +50,13 @@ impl DebugSession {
         &self.configuration
     }
 
-    pub fn update_configuration(&mut self, f: impl FnOnce(&mut DebugAdapterConfig)) {
+    pub fn update_configuration(
+        &mut self,
+        f: impl FnOnce(&mut DebugAdapterConfig),
+        cx: &mut ModelContext<Self>,
+    ) {
         f(&mut self.configuration);
+        cx.notify();
     }
 
     pub fn capabilities(&self, client_id: &DebugAdapterClientId) -> Capabilities {
@@ -65,23 +70,31 @@ impl DebugSession {
         &mut self,
         client_id: &DebugAdapterClientId,
         new_capabilities: Capabilities,
+        cx: &mut ModelContext<Self>,
     ) {
         if let Some(capabilities) = self.capabilities.get_mut(client_id) {
             *capabilities = capabilities.merge(new_capabilities);
         } else {
             self.capabilities.insert(*client_id, new_capabilities);
         }
+
+        cx.notify();
     }
 
-    pub fn add_client(&mut self, client: Arc<DebugAdapterClient>) {
+    pub fn add_client(&mut self, client: Arc<DebugAdapterClient>, cx: &mut ModelContext<Self>) {
         self.clients.insert(client.id(), client);
+        cx.notify();
     }
 
     pub fn remove_client(
         &mut self,
         client_id: &DebugAdapterClientId,
+        cx: &mut ModelContext<Self>,
     ) -> Option<Arc<DebugAdapterClient>> {
-        self.clients.remove(client_id)
+        let client = self.clients.remove(client_id);
+        cx.notify();
+
+        client
     }
 
     pub fn client_by_id(
