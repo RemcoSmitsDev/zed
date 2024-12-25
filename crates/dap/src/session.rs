@@ -97,8 +97,11 @@ impl DebugSession {
 
     pub fn shutdown_clients(&self, cx: &mut ModelContext<Self>) -> Task<Result<()>> {
         let mut tasks = Vec::new();
-        for client in self.clients.values().cloned() {
-            tasks.push(cx.spawn(|_, _| async move { client.shutdown().await }));
+        for client in self.clients.values() {
+            tasks.push(cx.spawn({
+                let client = client.clone();
+                |_, _| async move { client.shutdown().await }
+            }));
         }
 
         cx.background_executor().spawn(async move {
