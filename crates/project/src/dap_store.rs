@@ -231,6 +231,10 @@ impl DapStore {
         })
     }
 
+    pub fn sessions(&self) -> impl Iterator<Item = Model<DebugSession>> + '_ {
+        self.sessions.values().cloned()
+    }
+
     pub fn session_by_id(&self, session_id: &DebugSessionId) -> Option<Model<DebugSession>> {
         self.sessions.get(session_id).cloned()
     }

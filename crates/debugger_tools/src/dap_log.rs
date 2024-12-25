@@ -1,6 +1,7 @@
 use dap::{
     client::{DebugAdapterClient, DebugAdapterClientId},
     debugger_settings::DebuggerSettings,
+    session::{DebugSession, DebugSessionId},
     transport::{IoKind, LogKind},
 };
 use editor::{Editor, EditorEvent};
@@ -9,9 +10,9 @@ use futures::{
     StreamExt,
 };
 use gpui::{
-    actions, div, AppContext, Context, EventEmitter, FocusHandle, FocusableView, IntoElement,
-    Model, ModelContext, ParentElement, Render, SharedString, Styled, Subscription, View,
-    ViewContext, VisualContext, WeakModel, WindowContext,
+    actions, div, AppContext, Context, Empty, EventEmitter, FocusHandle, FocusableView,
+    IntoElement, Model, ModelContext, ParentElement, Render, SharedString, Styled, Subscription,
+    View, ViewContext, VisualContext, WeakModel, WindowContext,
 };
 use project::{search::SearchQuery, Project};
 use settings::Settings as _;
@@ -167,8 +168,9 @@ impl LogStore {
                         this.projects.remove(&weak_project);
                     }),
                     cx.subscribe(project, |this, project, event, cx| match event {
-                        project::Event::DebugClientStarted(client_id) => {
+                        project::Event::DebugClientStarted((session_id, client_id)) => {
                             this.add_debug_client(
+                                *session_id,
                                 *client_id,
                                 project.update(cx, |project, cx| {
                                     project
@@ -177,8 +179,8 @@ impl LogStore {
                                 }),
                             );
                         }
-                        project::Event::DebugClientShutdown(id) => {
-                            this.remove_debug_client(*id, cx);
+                        project::Event::DebugClientShutdown((session_id, client_id)) => {
+                            this.remove_debug_client(*session_id, *client_id, cx);
                         }
 
                         _ => {}
@@ -288,15 +290,16 @@ impl LogStore {
 
     fn add_debug_client(
         &mut self,
+        session_id: DebugSessionId,
         client_id: DebugAdapterClientId,
-        client: Option<Arc<DebugAdapterClient>>,
+        session_and_client: Option<(Model<DebugSession>, Arc<DebugAdapterClient>)>,
     ) -> Option<&mut DebugAdapterState> {
         let client_state = self
             .debug_clients
             .entry(client_id)
             .or_insert_with(DebugAdapterState::new);
 
-        if let Some(client) = client {
+        if let Some((session, client)) = session_and_client {
             let io_tx = self.rpc_tx.clone();
 
             client.add_log_handler(
@@ -322,8 +325,13 @@ impl LogStore {
         Some(client_state)
     }
 
-    fn remove_debug_client(&mut self, id: DebugAdapterClientId, cx: &mut ModelContext<Self>) {
-        self.debug_clients.remove(&id);
+    fn remove_debug_client(
+        &mut self,
+        session_id: DebugSessionId,
+        client_id: DebugAdapterClientId,
+        cx: &mut ModelContext<Self>,
+    ) {
+        self.debug_clients.remove(&client_id);
         cx.notify();
     }
 
@@ -361,7 +369,7 @@ impl DapLogToolbarItemView {
 impl Render for DapLogToolbarItemView {
     fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         let Some(log_view) = self.log_view.clone() else {
-            return div();
+            return Empty.into_any_element();
         };
 
         let (menu_rows, current_client_id) = log_view.update(cx, |log_view, cx| {
@@ -371,86 +379,95 @@ impl Render for DapLogToolbarItemView {
             )
         });
 
-        let current_client = current_client_id.and_then(|current_client_id| {
-            if let Ok(ix) = menu_rows.binary_search_by_key(&current_client_id, |e| e.client_id) {
-                Some(&menu_rows[ix])
-            } else {
-                None
-            }
-        });
+        // let current_client = current_client_id.and_then(|current_client_id| {
+        //     if let Ok(ix) = menu_rows.binary_search_by_key(&current_client_id, |e| e.client_id) {
+        //         Some(&menu_rows[ix])
+        //     } else {
+        //         None
+        //     }
+        // });
 
         let dap_menu: PopoverMenu<_> = PopoverMenu::new("DapLogView")
             .anchor(gpui::Corner::TopLeft)
             .trigger(Button::new(
                 "debug_server_menu_header",
-                current_client
-                    .map(|row| {
-                        Cow::Owned(format!(
-                            "{}({}) - {}",
-                            row.client_name,
-                            row.client_id.0,
-                            match row.selected_entry {
-                                LogKind::Adapter => ADAPTER_LOGS,
-                                LogKind::Rpc => RPC_MESSAGES,
-                            }
-                        ))
-                    })
-                    .unwrap_or_else(|| "No server selected".into()),
+                "No server selected",
+                // current_client
+                //     .map(|row| {
+                //         Cow::Owned(format!(
+                //             "{}({}) - {}",
+                //             row.client_name,
+                //             row.client_id.0,
+                //             match row.selected_entry {
+                //                 LogKind::Adapter => ADAPTER_LOGS,
+                //                 LogKind::Rpc => RPC_MESSAGES,
+                //             }
+                //         ))
+                //     })
+                //     .unwrap_or_else(|| "No server selected".into()),
             ))
             .menu(move |cx| {
                 let log_view = log_view.clone();
                 let menu_rows = menu_rows.clone();
                 ContextMenu::build(cx, move |mut menu, cx| {
                     for row in menu_rows.into_iter() {
-                        menu = menu.header(format!("{}({})", row.client_name, row.client_id.0));
+                        menu = menu.header(format!("{}({})", row.session_name, row.session_id.0));
 
-                        if row.has_adapter_logs {
-                            menu = menu.entry(
-                                ADAPTER_LOGS,
-                                None,
+                        for (client_id, client_name) in row.clients.into_iter() {
+                            menu = menu.header(format!("{}({})", client_name, client_id.0));
+
+                            if row.has_adapter_logs {
+                                menu = menu.entry(
+                                    ADAPTER_LOGS,
+                                    None,
+                                    cx.handler_for(&log_view, move |view, cx| {
+                                        view.show_log_messages_for_server(client_id, cx);
+                                    }),
+                                );
+                            }
+
+                            menu = menu.custom_entry(
+                                move |_| {
+                                    h_flex()
+                                        .w_full()
+                                        .justify_between()
+                                        .child(Label::new(RPC_MESSAGES))
+                                        .into_any_element()
+                                },
                                 cx.handler_for(&log_view, move |view, cx| {
-                                    view.show_log_messages_for_server(row.client_id, cx);
+                                    view.show_rpc_trace_for_server(client_id, cx);
                                 }),
                             );
                         }
-
-                        menu = menu.custom_entry(
-                            move |_| {
-                                h_flex()
-                                    .w_full()
-                                    .justify_between()
-                                    .child(Label::new(RPC_MESSAGES))
-                                    .into_any_element()
-                            },
-                            cx.handler_for(&log_view, move |view, cx| {
-                                view.show_rpc_trace_for_server(row.client_id, cx);
-                            }),
-                        );
                     }
                     menu
                 })
                 .into()
             });
 
-        h_flex().size_full().child(dap_menu).child(
-            div()
-                .child(
-                    Button::new("clear_log_button", "Clear").on_click(cx.listener(
-                        |this, _, cx| {
-                            if let Some(log_view) = this.log_view.as_ref() {
-                                log_view.update(cx, |log_view, cx| {
-                                    log_view.editor.update(cx, |editor, cx| {
-                                        editor.set_read_only(false);
-                                        editor.clear(cx);
-                                        editor.set_read_only(true);
-                                    });
-                                })
-                            }
-                        },
-                    )),
-                )
-                .ml_2(),
-        )
+        h_flex()
+            .size_full()
+            .child(dap_menu)
+            .child(
+                div()
+                    .child(
+                        Button::new("clear_log_button", "Clear").on_click(cx.listener(
+                            |this, _, cx| {
+                                if let Some(log_view) = this.log_view.as_ref() {
+                                    log_view.update(cx, |log_view, cx| {
+                                        log_view.editor.update(cx, |editor, cx| {
+                                            editor.set_read_only(false);
+                                            editor.clear(cx);
+                                            editor.set_read_only(true);
+                                        });
+                                    })
+                                }
+                            },
+                        )),
+                    )
+                    .ml_2(),
+            )
+            .into_any_element()
     }
 }
 
@@ -544,20 +561,21 @@ impl DapLogView {
     }
 
     fn menu_items(&self, cx: &AppContext) -> Option<Vec<DapMenuItem>> {
-        let mut rows = self
-            .project
-            .read(cx)
-            .debug_clients(cx)
-            .map(|client| DapMenuItem {
-                client_id: client.id(),
-                client_name: client.config().kind.display_name().into(),
-                selected_entry: self.current_view.map_or(LogKind::Adapter, |(_, kind)| kind),
-                has_adapter_logs: client.has_adapter_logs(),
-            })
-            .collect::<Vec<_>>();
-        rows.sort_by_key(|row| row.client_id);
-        rows.dedup_by_key(|row| row.client_id);
-        Some(rows)
+        Some(
+            self.project
+                .read(cx)
+                .dap_store()
+                .read(cx)
+                .sessions()
+                .map(|session| DapMenuItem {
+                    session_id: session.read(cx).id(),
+                    session_name: session.read(cx).name(),
+                    clients: Vec::new(),
+                    selected_entry: self.current_view.map_or(LogKind::Adapter, |(_, kind)| kind),
+                    has_adapter_logs: true, // TODO debugger: client.has_adapter_logs(),
+                })
+                .collect::<Vec<_>>(),
+        )
     }
 
     fn show_rpc_trace_for_server(
@@ -643,8 +661,9 @@ fn log_contents(lines: &VecDeque<String>) -> String {
 
 #[derive(Clone, PartialEq)]
 pub(crate) struct DapMenuItem {
-    pub client_id: DebugAdapterClientId,
-    pub client_name: String,
+    pub session_id: DebugSessionId,
+    pub session_name: String,
+    pub clients: Vec<(DebugAdapterClientId, String)>,
     pub has_adapter_logs: bool,
     pub selected_entry: LogKind,
 }

@@ -4600,13 +4600,6 @@ impl Project {
             .language_servers_for_local_buffer(buffer, cx)
     }
 
-    pub fn debug_clients<'a>(
-        &'a self,
-        cx: &'a AppContext,
-    ) -> impl 'a + Iterator<Item = Arc<DebugAdapterClient>> {
-        self.dap_store.read(cx).running_clients()
-    }
-
     pub fn buffer_store(&self) -> &Model<BufferStore> {
         &self.buffer_store
     }

@@ -181,7 +181,7 @@ impl DebugPanel {
                             }
                             _ => unreachable!(),
                         },
-                        project::Event::DebugClientShutdown(client_id) => {
+                        project::Event::DebugClientShutdown((session_id, client_id)) => {
                             cx.emit(DebugPanelEvent::ClientShutdown(*client_id));
 
                             this.message_queue.remove(client_id);
@@ -485,10 +485,14 @@ impl DebugPanel {
         client_id: &DebugAdapterClientId,
         cx: &mut ViewContext<Self>,
     ) {
+        let Some(session) = self.dap_store.read(cx).session_by_id(session_id) else {
+            return;
+        };
+
         let session_id = *session_id;
         let client_id = *client_id;
         let workspace = self.workspace.clone();
-        let request_type = client.config().request;
+        let request_type = session.read(cx).configuration().request.clone();
         cx.spawn(|this, mut cx| async move {
             let task = this.update(&mut cx, |this, cx| {
                 this.dap_store.update(cx, |store, cx| {
@@ -620,10 +624,11 @@ impl DebugPanel {
             return;
         };
 
-        let Some(client_name) = self
+        let Some(session_name) = self
             .dap_store
-            .update(cx, |store, cx| store.client_by_id(client_id, cx))
-            .map(|client| client.config().label)
+            .read(cx)
+            .session_by_id(session_id)
+            .map(|session| session.read(cx).name())
         else {
             return; // this can never happen
         };
@@ -631,7 +636,7 @@ impl DebugPanel {
         let session_id = *session_id;
         let client_id = *client_id;
 
-        let client_name = SharedString::from(client_name);
+        let session_name = SharedString::from(session_name);
 
         cx.spawn({
             let event = event.clone();
@@ -660,7 +665,7 @@ impl DebugPanel {
                                     thread_state.clone(),
                                     &session_id,
                                     &client_id,
-                                    client_name,
+                                    session_name,
                                     thread_id,
                                     cx,
                                 )
@@ -837,7 +842,7 @@ impl DebugPanel {
         payload: &SetDebuggerPanelItem,
         cx: &mut ViewContext<Self>,
     ) {
-        let session_id = DebugAdapterClientId::from_proto(payload.session_id);
+        let session_id = DebugSessionId::from_proto(payload.session_id);
         let client_id = DebugAdapterClientId::from_proto(payload.client_id);
         let thread_id = payload.thread_id;
         let thread_state = payload.thread_state.clone().unwrap();
@@ -865,7 +870,7 @@ impl DebugPanel {
                         thread_state,
                         &session_id,
                         &client_id,
-                        payload.client_name.clone().into(),
+                        payload.session_name.clone().into(),
                         thread_id,
                         cx,
                     )

@@ -223,7 +223,7 @@ impl CompletionProvider for ConsoleQueryBarCompletionProvider {
 
         let support_completions = console.update(cx, |this, cx| {
             this.dap_store
-                .read_with(cx, |store, cx| {
+                .update(cx, |store, cx| {
                     store.capabilities_by_id(&this.client_id, cx)
                 })
                 .supports_completions_request

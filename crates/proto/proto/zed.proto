@@ -2606,14 +2606,14 @@ message SetDebuggerPanelItem {
     uint64 session_id = 2;
     uint64 client_id = 3;
     uint64 thread_id = 4;
-    DebuggerConsole console = 5;
-    DebuggerModuleList module_list = 6;
-    DebuggerThreadItem active_thread_item = 7;
-    DebuggerThreadState thread_state = 8;
-    DebuggerVariableList variable_list = 9;
-    DebuggerStackFrameList stack_frame_list = 10;
-    DebuggerLoadedSourceList loaded_source_list = 11;
-    string client_name = 12;
+    string session_name = 5;
+    DebuggerConsole console = 6;
+    DebuggerModuleList module_list = 7;
+    DebuggerThreadItem active_thread_item = 8;
+    DebuggerThreadState thread_state = 9;
+    DebuggerVariableList variable_list = 10;
+    DebuggerStackFrameList stack_frame_list = 11;
+    DebuggerLoadedSourceList loaded_source_list = 12;
 }
 
 message UpdateDebugAdapter {

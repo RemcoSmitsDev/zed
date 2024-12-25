@@ -831,7 +831,7 @@ impl VariableList {
     ) {
         let this = cx.view().clone();
 
-        let support_set_variable = self.dap_store.read_with(cx, |store, cx| {
+        let support_set_variable = self.dap_store.update(cx, |store, cx| {
             store
                 .capabilities_by_id(&self.client_id, cx)
                 .supports_set_variable

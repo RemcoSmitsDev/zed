@@ -69,7 +69,7 @@ pub struct DebugPanelItem {
     console: View<Console>,
     focus_handle: FocusHandle,
     remote_id: Option<ViewId>,
-    client_name: SharedString,
+    session_name: SharedString,
     dap_store: Model<DapStore>,
     session_id: DebugSessionId,
     output_editor: View<Editor>,
@@ -94,7 +94,7 @@ impl DebugPanelItem {
         thread_state: Model<ThreadState>,
         session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
-        client_name: SharedString,
+        session_name: SharedString,
         thread_id: u64,
         cx: &mut ViewContext<Self>,
     ) -> Self {
@@ -188,8 +188,7 @@ impl DebugPanelItem {
             thread_id,
             dap_store,
             workspace,
-            session_id,
-            client_name,
+            session_name,
             module_list,
             thread_state,
             focus_handle,
@@ -200,6 +199,7 @@ impl DebugPanelItem {
             stack_frame_list,
             loaded_source_list,
             client_id: *client_id,
+            session_id: *session_id,
             show_console_indicator: false,
             active_thread_item: ThreadItem::Variables,
         }
@@ -223,7 +223,7 @@ impl DebugPanelItem {
             variable_list,
             stack_frame_list,
             loaded_source_list: None,
-            client_name: self.client_name.to_string(),
+            session_name: self.session_name.to_string(),
         }
     }
 
@@ -433,8 +433,8 @@ impl DebugPanelItem {
                 let message = proto_conversions::capabilities_to_proto(
                     &dap_store.capabilities_by_id(client_id, cx),
                     *project_id,
-                    session_id.to_proto(),
-                    client_id.to_proto(),
+                    self.session_id.to_proto(),
+                    self.client_id.to_proto(),
                 );
 
                 downstream_client.send(message).log_err();
@@ -502,7 +502,7 @@ impl DebugPanelItem {
     }
 
     pub fn capabilities(&self, cx: &mut ViewContext<Self>) -> Capabilities {
-        self.dap_store.read_with(cx, |store, cx| {
+        self.dap_store.update(cx, |store, cx| {
             store.capabilities_by_id(&self.client_id, cx)
         })
     }
@@ -696,7 +696,7 @@ impl Item for DebugPanelItem {
         params: workspace::item::TabContentParams,
         _: &WindowContext,
     ) -> AnyElement {
-        Label::new(format!("{} - Thread {}", self.client_name, self.thread_id))
+        Label::new(format!("{} - Thread {}", self.session_name, self.thread_id))
             .color(if params.selected {
                 Color::Default
             } else {
@@ -708,7 +708,7 @@ impl Item for DebugPanelItem {
     fn tab_tooltip_text(&self, cx: &AppContext) -> Option<SharedString> {
         Some(SharedString::from(format!(
             "{} Thread {} - {:?}",
-            self.client_name,
+            self.session_name,
             self.thread_id,
             self.thread_state.read(cx).status,
         )))
