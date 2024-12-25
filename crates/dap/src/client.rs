@@ -168,18 +168,13 @@ impl DebugAdapterClient {
             .await;
 
         log::debug!(
-            "Send `{}` request with sequence_id: {}",
+            "Client {} send `{}` request with sequence_id: {}",
+            self.id.0,
             R::COMMAND.to_string(),
             sequence_id
         );
 
         self.send_message(Message::Request(request)).await?;
-
-        log::debug!(
-            "Start receiving response for: `{}` sequence_id: {}",
-            R::COMMAND.to_string(),
-            sequence_id
-        );
 
         let mut timeout = self.executor.timer(DAP_REQUEST_TIMEOUT).fuse();
         let command = R::COMMAND.to_string();
@@ -187,7 +182,8 @@ impl DebugAdapterClient {
         select! {
             response = callback_rx.fuse() => {
                 log::debug!(
-                    "Received response for: `{}` sequence_id: {}",
+                    "Client {} received response for: `{}` sequence_id: {}",
+                    self.id.0,
                     command,
                     sequence_id
                 );

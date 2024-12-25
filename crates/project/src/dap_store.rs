@@ -31,6 +31,7 @@ use futures::future::Shared;
 use futures::FutureExt;
 use gpui::{AsyncAppContext, Context, EventEmitter, Model, ModelContext, SharedString, Task};
 use http_client::HttpClient;
+use itertools::Itertools;
 use language::{
     proto::{deserialize_anchor, serialize_anchor as serialize_text_anchor},
     Buffer, BufferSnapshot, LanguageRegistry, LanguageServerBinaryStatus,
@@ -100,7 +101,6 @@ pub struct DapStore {
     ignore_breakpoints: HashSet<DebugAdapterClientId>,
     sessions: HashMap<DebugSessionId, Model<DebugSession>>,
     breakpoints: BTreeMap<ProjectPath, HashSet<Breakpoint>>,
-    clients: HashMap<DebugAdapterClientId, DebugAdapterClientState>,
     client_by_session: HashMap<DebugAdapterClientId, DebugSessionId>,
     active_debug_line: Option<(DebugAdapterClientId, ProjectPath, u32)>,
 }
@@ -143,7 +143,6 @@ impl DapStore {
             }),
             downstream_client: None,
             active_debug_line: None,
-            clients: HashMap::default(),
             sessions: HashMap::default(),
             breakpoints: Default::default(),
             next_client_id: Default::default(),
@@ -165,7 +164,6 @@ impl DapStore {
             }),
             downstream_client: None,
             active_debug_line: None,
-            clients: HashMap::default(),
             sessions: HashMap::default(),
             breakpoints: Default::default(),
             next_client_id: Default::default(),
@@ -222,13 +220,6 @@ impl DapStore {
 
     fn next_session_id(&self) -> DebugSessionId {
         DebugSessionId(self.next_session_id.fetch_add(1, SeqCst))
-    }
-
-    pub fn running_clients(&self) -> impl Iterator<Item = Arc<DebugAdapterClient>> + '_ {
-        self.clients.values().filter_map(|state| match state {
-            DebugAdapterClientState::Starting(_) => None,
-            DebugAdapterClientState::Running(client) => Some(client.clone()),
-        })
     }
 
     pub fn sessions(&self) -> impl Iterator<Item = Model<DebugSession>> + '_ {
@@ -436,12 +427,6 @@ impl DapStore {
         config: DebugAdapterConfig,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some(_) = self.as_local() else {
-            return Task::ready(Err(anyhow!(
-                "starting a debug client is not supported in remote setting"
-            )));
-        };
-
         if !adapter.supports_attach() && matches!(config.request, DebugRequestType::Attach(_)) {
             return Task::ready(Err(anyhow!(
                 "Debug adapter does not support `attach` request"
@@ -474,12 +459,16 @@ impl DapStore {
                 )
                 .await?;
 
-            let client = Arc::new(client);
-
             dap_store.update(&mut cx, |store, cx| {
-                store
-                    .clients
-                    .insert(client_id, DebugAdapterClientState::Running(client));
+                let Some(session) = store.session_by_id(&session_id) else {
+                    return;
+                };
+
+                let client = Arc::new(client);
+
+                session.update(cx, |session, _| {
+                    session.add_client(client.clone());
+                });
 
                 cx.emit(DapStoreEvent::DebugClientStarted((session_id, client_id)));
             })
@@ -1369,7 +1358,7 @@ impl DapStore {
         })
     }
 
-    pub fn shutdown_session(
+    fn shutdown_session(
         &mut self,
         session_id: &DebugSessionId,
         cx: &mut ModelContext<Self>,
@@ -1417,7 +1406,8 @@ impl DapStore {
                     .request::<Terminate>(TerminateArguments {
                         restart: Some(false),
                     })
-                    .await;
+                    .await
+                    .log_err();
             } else {
                 let _ = client
                     .request::<Disconnect>(DisconnectArguments {
@@ -1425,7 +1415,8 @@ impl DapStore {
                         terminate_debuggee: Some(true),
                         suspend_debuggee: Some(false),
                     })
-                    .await;
+                    .await
+                    .log_err();
             }
 
             client.shutdown().await
@@ -1683,7 +1674,11 @@ impl DapStore {
         buffer_snapshot: BufferSnapshot,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let clients = self.running_clients().collect::<Vec<_>>();
+        let clients: Vec<_> = self
+            .sessions
+            .values()
+            .flat_map(|session| session.read(cx).clients().collect_vec())
+            .collect();
 
         if clients.is_empty() {
             return Task::ready(Ok(()));
@@ -1706,12 +1701,11 @@ impl DapStore {
                 source_breakpoints.clone(),
                 self.ignore_breakpoints(&client.id()),
                 cx,
-            ))
+            ));
         }
 
         cx.background_executor().spawn(async move {
-            futures::future::try_join_all(tasks).await?;
-
+            futures::future::join_all(tasks).await;
             Ok(())
         })
     }
