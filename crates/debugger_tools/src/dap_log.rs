@@ -168,9 +168,8 @@ impl LogStore {
                         this.projects.remove(&weak_project);
                     }),
                     cx.subscribe(project, |this, project, event, cx| match event {
-                        project::Event::DebugClientStarted((session_id, client_id)) => {
+                        project::Event::DebugClientStarted((_, client_id)) => {
                             this.add_debug_client(
-                                *session_id,
                                 *client_id,
                                 project.update(cx, |project, cx| {
                                     project
@@ -179,8 +178,8 @@ impl LogStore {
                                 }),
                             );
                         }
-                        project::Event::DebugClientShutdown((session_id, client_id)) => {
-                            this.remove_debug_client(*session_id, *client_id, cx);
+                        project::Event::DebugClientShutdown(client_id) => {
+                            this.remove_debug_client(*client_id, cx);
                         }
 
                         _ => {}
@@ -290,7 +289,6 @@ impl LogStore {
 
     fn add_debug_client(
         &mut self,
-        session_id: DebugSessionId,
         client_id: DebugAdapterClientId,
         session_and_client: Option<(Model<DebugSession>, Arc<DebugAdapterClient>)>,
     ) -> Option<&mut DebugAdapterState> {
@@ -299,7 +297,7 @@ impl LogStore {
             .entry(client_id)
             .or_insert_with(DebugAdapterState::new);
 
-        if let Some((session, client)) = session_and_client {
+        if let Some((_, client)) = session_and_client {
             let io_tx = self.rpc_tx.clone();
 
             client.add_log_handler(
@@ -327,7 +325,6 @@ impl LogStore {
 
     fn remove_debug_client(
         &mut self,
-        session_id: DebugSessionId,
         client_id: DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
     ) {
@@ -409,11 +406,11 @@ impl Render for DapLogToolbarItemView {
                 let menu_rows = menu_rows.clone();
                 ContextMenu::build(cx, move |mut menu, cx| {
                     for row in menu_rows.into_iter() {
-                        menu = menu.header(format!("{} ({})", row.session_name, row.session_id.0));
+                        menu = menu.header(format!("{}. {}", row.session_id.0, row.session_name));
 
                         for sub_item in row.clients.into_iter() {
                             menu = menu.label(format!(
-                                "{} ({})",
+                                "{}. {}",
                                 sub_item.client_name, sub_item.client_id.0
                             ));
 

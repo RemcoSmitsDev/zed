@@ -58,7 +58,7 @@ use util::{merge_json_value_into, ResultExt as _};
 
 pub enum DapStoreEvent {
     DebugClientStarted((DebugSessionId, DebugAdapterClientId)),
-    DebugClientShutdown((DebugSessionId, DebugAdapterClientId)),
+    DebugClientShutdown(DebugAdapterClientId),
     DebugClientEvent {
         session_id: DebugSessionId,
         client_id: DebugAdapterClientId,
@@ -272,7 +272,7 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) {
         if let Some((session, _)) = self.client_by_id(client_id, cx) {
-            session.update(cx, |session, cx| {
+            session.update(cx, |session, _| {
                 session.update_capabilities(
                     client_id,
                     session.capabilities(client_id).merge(other.clone()),
@@ -716,7 +716,7 @@ impl DapStore {
         // update the process id on the config, so when the `startDebugging` reverse request
         // comes in we send another `attach` request with the already selected PID
         // If we don't do this the user has to select the process twice if the adapter sends a `startDebugging` request
-        session.update(cx, |session, cx| {
+        session.update(cx, |session, _| {
             session.update_configuration(|config| {
                 config.request = DebugRequestType::Attach(task::AttachConfig {
                     process_id: Some(process_id),
@@ -1396,10 +1396,7 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
-        cx.emit(DapStoreEvent::DebugClientShutdown((
-            session.read(cx).id(),
-            *client_id,
-        )));
+        cx.emit(DapStoreEvent::DebugClientShutdown(*client_id));
 
         self.ignore_breakpoints.remove(client_id);
         let capabilities = session.read(cx).capabilities(client_id);
@@ -1520,7 +1517,7 @@ impl DapStore {
         this.update(&mut cx, |dap_store, cx| {
             let session_id = DebugSessionId::from_proto(envelope.payload.session_id);
             if let Some(session) = dap_store.session_by_id(&session_id) {
-                session.update(cx, |session, cx| {
+                session.update(cx, |session, _| {
                     session.update_capabilities(
                         &DebugAdapterClientId::from_proto(envelope.payload.client_id),
                         dap::proto_conversions::capabilities_from_proto(&envelope.payload),
@@ -1539,10 +1536,9 @@ impl DapStore {
     ) -> Result<()> {
         this.update(&mut cx, |dap_store, cx| {
             if matches!(dap_store.mode, DapStoreMode::Remote(_)) {
-                let session_id = DebugSessionId::from_proto(envelope.payload.session_id);
                 let client_id = DebugAdapterClientId::from_proto(envelope.payload.client_id);
 
-                cx.emit(DapStoreEvent::DebugClientShutdown((session_id, client_id)));
+                cx.emit(DapStoreEvent::DebugClientShutdown(client_id));
                 cx.notify();
             }
         })

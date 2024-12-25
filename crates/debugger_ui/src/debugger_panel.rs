@@ -181,7 +181,7 @@ impl DebugPanel {
                             }
                             _ => unreachable!(),
                         },
-                        project::Event::DebugClientShutdown((session_id, client_id)) => {
+                        project::Event::DebugClientShutdown(client_id) => {
                             cx.emit(DebugPanelEvent::ClientShutdown(*client_id));
 
                             this.message_queue.remove(client_id);

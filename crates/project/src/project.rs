@@ -253,7 +253,7 @@ pub enum Event {
     LanguageServerPrompt(LanguageServerPromptRequest),
     LanguageNotFound(Model<Buffer>),
     DebugClientStarted((DebugSessionId, DebugAdapterClientId)),
-    DebugClientShutdown((DebugSessionId, DebugAdapterClientId)),
+    DebugClientShutdown(DebugAdapterClientId),
     SetDebugClient(SetDebuggerPanelItem),
     ActiveDebugLineChanged,
     DebugClientEvent {
