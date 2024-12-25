@@ -47,7 +47,7 @@ async fn test_basic_fetch_initial_scope_and_variables(
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
-            store.start_test_debug_session(
+            store.start_debug_session(
                 task::DebugAdapterConfig {
                     label: "test config".into(),
                     kind: task::DebugAdapterKind::Fake,
@@ -297,7 +297,7 @@ async fn test_fetch_variables_for_multiple_scopes(
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
-            store.start_test_debug_session(
+            store.start_debug_session(
                 task::DebugAdapterConfig {
                     label: "test config".into(),
                     kind: task::DebugAdapterKind::Fake,
@@ -594,7 +594,7 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
-            store.start_test_debug_session(
+            store.start_debug_session(
                 task::DebugAdapterConfig {
                     label: "test config".into(),
                     kind: task::DebugAdapterKind::Fake,

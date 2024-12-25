@@ -51,7 +51,7 @@ async fn test_fetch_initial_stack_frames_and_go_to_stack_frame(
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
-            store.start_test_debug_session(
+            store.start_debug_session(
                 task::DebugAdapterConfig {
                     label: "test config".into(),
                     kind: task::DebugAdapterKind::Fake,
@@ -215,7 +215,7 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
-            store.start_test_debug_session(
+            store.start_debug_session(
                 task::DebugAdapterConfig {
                     label: "test config".into(),
                     kind: task::DebugAdapterKind::Fake,

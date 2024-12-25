@@ -76,7 +76,7 @@ async fn test_debug_panel_item_opens_on_remote(
 
     let task = project_a.update(cx_a, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
-            store.start_test_debug_session(
+            store.start_debug_session(
                 dap::DebugAdapterConfig {
                     label: "test config".into(),
                     kind: dap::DebugAdapterKind::Fake,

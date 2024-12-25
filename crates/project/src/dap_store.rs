@@ -488,15 +488,6 @@ impl DapStore {
         })
     }
 
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn start_test_debug_session(
-        &mut self,
-        config: DebugAdapterConfig,
-        cx: &mut ModelContext<Self>,
-    ) -> Task<Result<(Model<DebugSession>, Arc<DebugAdapterClient>)>> {
-        self.start_debug_session(config, cx)
-    }
-
     fn start_client_internal(
         &mut self,
         session_id: DebugSessionId,
