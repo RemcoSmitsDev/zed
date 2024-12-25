@@ -588,23 +588,27 @@ impl DebugPanel {
             cx.emit(DebugPanelEvent::CapabilitiesChanged(*client_id));
         }
 
-        let send_breakpoints_task = self.workspace.update(cx, |workspace, cx| {
-            workspace.project().update(cx, |project, cx| {
-                project.send_breakpoints(&session_id, &client_id, cx)
-            })
-        });
+        let session_id = *session_id;
+        let client_id = *client_id;
 
-        let configuration_done_task = self
-            .dap_store
-            .update(cx, |store, cx| store.configuration_done(&client_id, cx));
+        cx.spawn(|this, mut cx| async move {
+            this.update(&mut cx, |debug_panel, cx| {
+                debug_panel.workspace.update(cx, |workspace, cx| {
+                    workspace.project().update(cx, |project, cx| {
+                        project.send_breakpoints(&session_id, &client_id, cx)
+                    })
+                })
+            })??
+            .await;
 
-        cx.background_executor()
-            .spawn(async move {
-                send_breakpoints_task?.await;
-
-                configuration_done_task.await
-            })
-            .detach_and_log_err(cx);
+            this.update(&mut cx, |debug_panel, cx| {
+                debug_panel
+                    .dap_store
+                    .update(cx, |store, cx| store.configuration_done(&client_id, cx))
+            })?
+            .await
+        })
+        .detach_and_log_err(cx);
     }
 
     fn handle_continued_event(
