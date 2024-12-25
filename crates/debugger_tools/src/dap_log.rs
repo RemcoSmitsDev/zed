@@ -379,49 +379,51 @@ impl Render for DapLogToolbarItemView {
             )
         });
 
-        // let current_client = current_client_id.and_then(|current_client_id| {
-        //     if let Ok(ix) = menu_rows.binary_search_by_key(&current_client_id, |e| e.client_id) {
-        //         Some(&menu_rows[ix])
-        //     } else {
-        //         None
-        //     }
-        // });
+        let current_client = current_client_id.and_then(|current_client_id| {
+            menu_rows.iter().find_map(|row| {
+                row.clients
+                    .iter()
+                    .find(|sub_item| sub_item.client_id == current_client_id)
+            })
+        });
 
         let dap_menu: PopoverMenu<_> = PopoverMenu::new("DapLogView")
             .anchor(gpui::Corner::TopLeft)
             .trigger(Button::new(
                 "debug_server_menu_header",
-                "No server selected",
-                // current_client
-                //     .map(|row| {
-                //         Cow::Owned(format!(
-                //             "{}({}) - {}",
-                //             row.client_name,
-                //             row.client_id.0,
-                //             match row.selected_entry {
-                //                 LogKind::Adapter => ADAPTER_LOGS,
-                //                 LogKind::Rpc => RPC_MESSAGES,
-                //             }
-                //         ))
-                //     })
-                //     .unwrap_or_else(|| "No server selected".into()),
+                current_client
+                    .map(|sub_item| {
+                        Cow::Owned(format!(
+                            "{}({}) - {}",
+                            sub_item.client_name,
+                            sub_item.client_id.0,
+                            match sub_item.selected_entry {
+                                LogKind::Adapter => ADAPTER_LOGS,
+                                LogKind::Rpc => RPC_MESSAGES,
+                            }
+                        ))
+                    })
+                    .unwrap_or_else(|| "No server selected".into()),
             ))
             .menu(move |cx| {
                 let log_view = log_view.clone();
                 let menu_rows = menu_rows.clone();
                 ContextMenu::build(cx, move |mut menu, cx| {
                     for row in menu_rows.into_iter() {
-                        menu = menu.header(format!("{}({})", row.session_name, row.session_id.0));
+                        menu = menu.header(format!("{} ({})", row.session_name, row.session_id.0));
 
-                        for (client_id, client_name) in row.clients.into_iter() {
-                            menu = menu.header(format!("{}({})", client_name, client_id.0));
+                        for sub_item in row.clients.into_iter() {
+                            menu = menu.label(format!(
+                                "{} ({})",
+                                sub_item.client_name, sub_item.client_id.0
+                            ));
 
-                            if row.has_adapter_logs {
+                            if sub_item.has_adapter_logs {
                                 menu = menu.entry(
                                     ADAPTER_LOGS,
                                     None,
                                     cx.handler_for(&log_view, move |view, cx| {
-                                        view.show_log_messages_for_server(client_id, cx);
+                                        view.show_log_messages_for_server(sub_item.client_id, cx);
                                     }),
                                 );
                             }
@@ -435,7 +437,7 @@ impl Render for DapLogToolbarItemView {
                                         .into_any_element()
                                 },
                                 cx.handler_for(&log_view, move |view, cx| {
-                                    view.show_rpc_trace_for_server(client_id, cx);
+                                    view.show_rpc_trace_for_server(sub_item.client_id, cx);
                                 }),
                             );
                         }
@@ -570,9 +572,18 @@ impl DapLogView {
                 .map(|session| DapMenuItem {
                     session_id: session.read(cx).id(),
                     session_name: session.read(cx).name(),
-                    clients: Vec::new(),
-                    selected_entry: self.current_view.map_or(LogKind::Adapter, |(_, kind)| kind),
-                    has_adapter_logs: true, // TODO debugger: client.has_adapter_logs(),
+                    clients: session
+                        .read(cx)
+                        .clients()
+                        .map(|client| DapMenuSubItem {
+                            client_id: client.id(),
+                            client_name: client.adapter_id(),
+                            has_adapter_logs: client.has_adapter_logs(),
+                            selected_entry: self
+                                .current_view
+                                .map_or(LogKind::Adapter, |(_, kind)| kind),
+                        })
+                        .collect::<Vec<_>>(),
                 })
                 .collect::<Vec<_>>(),
         )
@@ -663,7 +674,13 @@ fn log_contents(lines: &VecDeque<String>) -> String {
 pub(crate) struct DapMenuItem {
     pub session_id: DebugSessionId,
     pub session_name: String,
-    pub clients: Vec<(DebugAdapterClientId, String)>,
+    pub clients: Vec<DapMenuSubItem>,
+}
+
+#[derive(Clone, PartialEq)]
+pub(crate) struct DapMenuSubItem {
+    pub client_id: DebugAdapterClientId,
+    pub client_name: String,
     pub has_adapter_logs: bool,
     pub selected_entry: LogKind,
 }
