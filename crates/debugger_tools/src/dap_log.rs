@@ -411,7 +411,7 @@ impl Render for DapLogToolbarItemView {
                         for sub_item in row.clients.into_iter() {
                             menu = menu.label(format!(
                                 "{}. {}",
-                                sub_item.client_name, sub_item.client_id.0
+                                sub_item.client_id.0, sub_item.client_name,
                             ));
 
                             if sub_item.has_adapter_logs {
