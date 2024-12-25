@@ -50,7 +50,7 @@ async fn test_evaluate_expression(executor: BackgroundExecutor, cx: &mut TestApp
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
-            store.start_test_client(
+            store.start_test_debug_session(
                 task::DebugAdapterConfig {
                     label: "test config".into(),
                     kind: task::DebugAdapterKind::Fake,
@@ -64,7 +64,7 @@ async fn test_evaluate_expression(executor: BackgroundExecutor, cx: &mut TestApp
         })
     });
 
-    let client = task.await.unwrap();
+    let (_session, client) = task.await.unwrap();
 
     client
         .on_request::<Initialize, _>(move |_, _| {

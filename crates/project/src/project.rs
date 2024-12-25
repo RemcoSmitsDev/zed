@@ -34,6 +34,7 @@ use dap::{
     client::{DebugAdapterClient, DebugAdapterClientId},
     debugger_settings::DebuggerSettings,
     messages::Message,
+    session::DebugSessionId,
 };
 
 use collections::{BTreeSet, HashMap, HashSet};
@@ -251,11 +252,12 @@ pub enum Event {
     },
     LanguageServerPrompt(LanguageServerPromptRequest),
     LanguageNotFound(Model<Buffer>),
-    DebugClientStarted(DebugAdapterClientId),
-    DebugClientShutdown(DebugAdapterClientId),
+    DebugClientStarted((DebugSessionId, DebugAdapterClientId)),
+    DebugClientShutdown((DebugSessionId, DebugAdapterClientId)),
     SetDebugClient(SetDebuggerPanelItem),
     ActiveDebugLineChanged,
     DebugClientEvent {
+        session_id: DebugSessionId,
         client_id: DebugAdapterClientId,
         message: Message,
     },
@@ -2502,8 +2504,13 @@ impl Project {
             DapStoreEvent::DebugClientShutdown(client_id) => {
                 cx.emit(Event::DebugClientShutdown(*client_id));
             }
-            DapStoreEvent::DebugClientEvent { client_id, message } => {
+            DapStoreEvent::DebugClientEvent {
+                session_id,
+                client_id,
+                message,
+            } => {
                 cx.emit(Event::DebugClientEvent {
+                    session_id: *session_id,
                     client_id: *client_id,
                     message: message.clone(),
                 });

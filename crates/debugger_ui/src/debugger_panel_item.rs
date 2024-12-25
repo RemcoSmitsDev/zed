@@ -6,6 +6,7 @@ use crate::stack_frame_list::{StackFrameList, StackFrameListEvent};
 use crate::variable_list::VariableList;
 
 use dap::proto_conversions;
+use dap::session::DebugSessionId;
 use dap::{
     client::DebugAdapterClientId, debugger_settings::DebuggerSettings, Capabilities,
     ContinuedEvent, LoadedSourceEvent, ModuleEvent, OutputEvent, OutputEventCategory, StoppedEvent,
@@ -65,14 +66,15 @@ impl ThreadItem {
 
 pub struct DebugPanelItem {
     thread_id: u64,
-    remote_id: Option<ViewId>,
     console: View<Console>,
-    show_console_indicator: bool,
     focus_handle: FocusHandle,
-    dap_store: Model<DapStore>,
-    output_editor: View<Editor>,
-    module_list: View<ModuleList>,
+    remote_id: Option<ViewId>,
     client_name: SharedString,
+    dap_store: Model<DapStore>,
+    session_id: DebugSessionId,
+    output_editor: View<Editor>,
+    show_console_indicator: bool,
+    module_list: View<ModuleList>,
     active_thread_item: ThreadItem,
     workspace: WeakView<Workspace>,
     client_id: DebugAdapterClientId,
@@ -90,6 +92,7 @@ impl DebugPanelItem {
         workspace: WeakView<Workspace>,
         dap_store: Model<DapStore>,
         thread_state: Model<ThreadState>,
+        session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         client_name: SharedString,
         thread_id: u64,
@@ -185,6 +188,7 @@ impl DebugPanelItem {
             thread_id,
             dap_store,
             workspace,
+            session_id,
             client_name,
             module_list,
             thread_state,
@@ -209,6 +213,7 @@ impl DebugPanelItem {
 
         SetDebuggerPanelItem {
             project_id,
+            session_id: self.session_id.to_proto(),
             client_id: self.client_id.to_proto(),
             thread_id: self.thread_id,
             console: None,
@@ -423,11 +428,12 @@ impl DebugPanelItem {
             return;
         }
 
-        self.dap_store.update(cx, |dap_store, _| {
+        self.dap_store.update(cx, |dap_store, cx| {
             if let Some((downstream_client, project_id)) = dap_store.downstream_client() {
                 let message = proto_conversions::capabilities_to_proto(
-                    &dap_store.capabilities_by_id(client_id),
+                    &dap_store.capabilities_by_id(client_id, cx),
                     *project_id,
+                    session_id.to_proto(),
                     client_id.to_proto(),
                 );
 
@@ -496,8 +502,9 @@ impl DebugPanelItem {
     }
 
     pub fn capabilities(&self, cx: &mut ViewContext<Self>) -> Capabilities {
-        self.dap_store
-            .read_with(cx, |store, _| store.capabilities_by_id(&self.client_id))
+        self.dap_store.read_with(cx, |store, cx| {
+            store.capabilities_by_id(&self.client_id, cx)
+        })
     }
 
     fn clear_highlights(&self, cx: &mut ViewContext<Self>) {

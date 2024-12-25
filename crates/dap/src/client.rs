@@ -14,11 +14,10 @@ use std::{
     hash::Hash,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc,
     },
     time::Duration,
 };
-use task::{DebugAdapterConfig, DebugRequestType};
 
 #[cfg(debug_assertions)]
 const DAP_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
@@ -47,13 +46,11 @@ pub struct DebugAdapterClient {
     executor: BackgroundExecutor,
     adapter: Arc<dyn DebugAdapter>,
     transport_delegate: TransportDelegate,
-    config: Arc<Mutex<DebugAdapterConfig>>,
 }
 
 impl DebugAdapterClient {
     pub fn new(
         id: DebugAdapterClientId,
-        config: DebugAdapterConfig,
         adapter: Arc<dyn DebugAdapter>,
         binary: DebugAdapterBinary,
         cx: &AsyncAppContext,
@@ -66,7 +63,6 @@ impl DebugAdapterClient {
             adapter,
             transport_delegate,
             sequence_count: AtomicU64::new(1),
-            config: Arc::new(Mutex::new(config)),
             executor: cx.background_executor().clone(),
         }
     }
@@ -219,10 +215,6 @@ impl DebugAdapterClient {
         self.id
     }
 
-    pub fn config(&self) -> DebugAdapterConfig {
-        self.config.lock().unwrap().clone()
-    }
-
     pub fn adapter(&self) -> &Arc<dyn DebugAdapter> {
         &self.adapter
     }
@@ -233,14 +225,6 @@ impl DebugAdapterClient {
 
     pub fn adapter_id(&self) -> String {
         self.adapter.name().to_string()
-    }
-
-    pub fn set_process_id(&self, process_id: u32) {
-        let mut config = self.config.lock().unwrap();
-
-        config.request = DebugRequestType::Attach(task::AttachConfig {
-            process_id: Some(process_id),
-        });
     }
 
     /// Get the next sequence id to be used in a request
@@ -294,7 +278,6 @@ mod tests {
     use gpui::TestAppContext;
     use settings::{Settings, SettingsStore};
     use std::sync::atomic::{AtomicBool, Ordering};
-    use task::DebugAdapterConfig;
 
     pub fn init_test(cx: &mut gpui::TestAppContext) {
         if std::env::var("RUST_LOG").is_ok() {
@@ -316,14 +299,6 @@ mod tests {
 
         let mut client = DebugAdapterClient::new(
             crate::client::DebugAdapterClientId(1),
-            DebugAdapterConfig {
-                label: "test config".into(),
-                kind: task::DebugAdapterKind::Fake,
-                request: task::DebugRequestType::Launch,
-                program: None,
-                cwd: None,
-                initialize_args: None,
-            },
             adapter,
             DebugAdapterBinary {
                 command: "command".into(),
@@ -397,14 +372,6 @@ mod tests {
 
         let mut client = DebugAdapterClient::new(
             crate::client::DebugAdapterClientId(1),
-            DebugAdapterConfig {
-                label: "test config".into(),
-                kind: task::DebugAdapterKind::Fake,
-                request: task::DebugRequestType::Launch,
-                program: None,
-                cwd: None,
-                initialize_args: None,
-            },
             adapter,
             DebugAdapterBinary {
                 command: "command".into(),
