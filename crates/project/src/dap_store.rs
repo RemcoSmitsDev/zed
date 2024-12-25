@@ -225,7 +225,8 @@ impl DapStore {
     }
 
     pub fn session_by_id(&self, session_id: &DebugSessionId) -> Option<Model<DebugSession>> {
-        self.as_local().unwrap().sessions.get(session_id).cloned()
+        self.as_local()
+            .and_then(|store| store.sessions.get(session_id).cloned())
     }
 
     pub fn client_by_id(
@@ -233,9 +234,11 @@ impl DapStore {
         client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
     ) -> Option<(Model<DebugSession>, Arc<DebugAdapterClient>)> {
-        let session = self
-            .as_local()
-            .unwrap()
+        let Some(local_store) = self.as_local() else {
+            return None;
+        };
+
+        let session = local_store
             .sessions
             .get(self.client_by_session.get(client_id)?)
             .cloned()?;
