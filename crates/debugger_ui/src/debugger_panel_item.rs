@@ -428,20 +428,19 @@ impl DebugPanelItem {
             return;
         }
 
-        self.dap_store.update(cx, |dap_store, cx| {
-            if let Some((downstream_client, project_id)) = dap_store.downstream_client() {
-                let message = proto_conversions::capabilities_to_proto(
-                    &dap_store.capabilities_by_id(client_id, cx),
-                    *project_id,
-                    self.session_id.to_proto(),
-                    self.client_id.to_proto(),
-                );
-
-                downstream_client.send(message).log_err();
-            }
-        });
-
+        // notify the view that the capabilities have changed
         cx.notify();
+
+        if let Some((downstream_client, project_id)) = self.dap_store.read(cx).downstream_client() {
+            let message = proto_conversions::capabilities_to_proto(
+                &self.dap_store.read(cx).capabilities_by_id(client_id),
+                *project_id,
+                self.session_id.to_proto(),
+                self.client_id.to_proto(),
+            );
+
+            downstream_client.send(message).log_err();
+        }
     }
 
     pub(crate) fn update_adapter(
@@ -502,9 +501,7 @@ impl DebugPanelItem {
     }
 
     pub fn capabilities(&self, cx: &mut ViewContext<Self>) -> Capabilities {
-        self.dap_store.update(cx, |store, cx| {
-            store.capabilities_by_id(&self.client_id, cx)
-        })
+        self.dap_store.read(cx).capabilities_by_id(&self.client_id)
     }
 
     fn clear_highlights(&self, cx: &mut ViewContext<Self>) {

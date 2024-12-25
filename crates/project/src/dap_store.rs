@@ -109,6 +109,7 @@ pub struct DapStore {
     mode: DapStoreMode,
     downstream_client: Option<(AnyProtoClient, u64)>,
     breakpoints: BTreeMap<ProjectPath, HashSet<Breakpoint>>,
+    capabilities: HashMap<DebugAdapterClientId, Capabilities>,
     client_by_session: HashMap<DebugAdapterClientId, DebugSessionId>,
     active_debug_line: Option<(DebugAdapterClientId, ProjectPath, u32)>,
 }
@@ -155,6 +156,7 @@ impl DapStore {
             downstream_client: None,
             active_debug_line: None,
             breakpoints: Default::default(),
+            capabilities: Default::default(),
             client_by_session: Default::default(),
         }
     }
@@ -172,6 +174,7 @@ impl DapStore {
             downstream_client: None,
             active_debug_line: None,
             breakpoints: Default::default(),
+            capabilities: Default::default(),
             client_by_session: Default::default(),
         }
     }
@@ -241,34 +244,37 @@ impl DapStore {
         Some((session, client))
     }
 
-    pub fn capabilities_by_id(
-        &self,
-        client_id: &DebugAdapterClientId,
-        cx: &mut ModelContext<Self>,
-    ) -> Capabilities {
-        if let Some((session, _)) = self.client_by_id(client_id, cx) {
-            session.read(cx).capabilities(client_id)
-        } else {
-            Capabilities::default()
-        }
+    pub fn capabilities_by_id(&self, client_id: &DebugAdapterClientId) -> Capabilities {
+        self.capabilities
+            .get(client_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
     pub fn merge_capabilities_for_client(
         &mut self,
+        session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
-        other: &Capabilities,
+        capabilities: &Capabilities,
         cx: &mut ModelContext<Self>,
     ) {
-        if let Some((session, _)) = self.client_by_id(client_id, cx) {
-            session.update(cx, |session, cx| {
-                session.update_capabilities(
-                    client_id,
-                    session.capabilities(client_id).merge(other.clone()),
-                    cx,
-                );
-            });
+        if let Some(old_capabilities) = self.capabilities.get_mut(client_id) {
+            *old_capabilities = old_capabilities.merge(capabilities.clone());
+        } else {
+            self.capabilities.insert(*client_id, capabilities.clone());
+        }
 
-            cx.notify();
+        cx.notify();
+
+        if let Some((downstream_client, project_id)) = self.downstream_client.as_ref() {
+            downstream_client
+                .send(dap::proto_conversions::capabilities_to_proto(
+                    &capabilities,
+                    *project_id,
+                    session_id.to_proto(),
+                    client_id.to_proto(),
+                ))
+                .log_err();
         }
     }
 
@@ -619,7 +625,7 @@ impl DapStore {
         client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some((session, client)) = self.client_by_id(client_id, cx) else {
+        let Some((_, client)) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!(
                 "Could not find debug client: {:?} for session {:?}",
                 client_id,
@@ -653,21 +659,7 @@ impl DapStore {
                 .await?;
 
             this.update(&mut cx, |store, cx| {
-                session.update(cx, |session, cx| {
-                    session.update_capabilities(&client_id, capabilities.clone(), cx);
-                });
-                cx.notify();
-
-                if let Some((downstream_client, project_id)) = store.downstream_client.as_ref() {
-                    let message = dap::proto_conversions::capabilities_to_proto(
-                        &capabilities,
-                        *project_id,
-                        session_id.to_proto(),
-                        client_id.to_proto(),
-                    );
-
-                    downstream_client.send(message).log_err();
-                }
+                store.merge_capabilities_for_client(&session_id, &client_id, &capabilities, cx);
             })
         })
     }
@@ -747,13 +739,15 @@ impl DapStore {
         client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<Vec<Module>>> {
-        let Some((session, client)) = self.client_by_id(client_id, cx) else {
+        let Some((_, client)) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Client was not found")));
         };
 
-        let capabilities = session.read(cx).capabilities(client_id);
-
-        if !capabilities.supports_modules_request.unwrap_or_default() {
+        if !self
+            .capabilities_by_id(client_id)
+            .supports_modules_request
+            .unwrap_or_default()
+        {
             return Task::ready(Ok(Vec::default()));
         }
 
@@ -773,13 +767,12 @@ impl DapStore {
         client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<Vec<Source>>> {
-        let Some((session, client)) = self.client_by_id(client_id, cx) else {
+        let Some((_, client)) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Client was not found")));
         };
 
-        let capabilities = session.read(cx).capabilities(client_id);
-
-        if !capabilities
+        if !self
+            .capabilities_by_id(client_id)
             .supports_loaded_sources_request
             .unwrap_or_default()
         {
@@ -842,25 +835,23 @@ impl DapStore {
         client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some((session, client)) = self.client_by_id(client_id, cx) else {
+        let Some((_, client)) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
-        let capabilities = session.read(cx).capabilities(client_id);
-
-        cx.background_executor().spawn(async move {
-            let support_configuration_done_request = capabilities
-                .supports_configuration_done_request
-                .unwrap_or_default();
-
-            if support_configuration_done_request {
+        if self
+            .capabilities_by_id(client_id)
+            .supports_configuration_done_request
+            .unwrap_or_default()
+        {
+            cx.background_executor().spawn(async move {
                 client
                     .request::<ConfigurationDone>(ConfigurationDoneArguments)
                     .await
-            } else {
-                Ok(())
-            }
-        })
+            })
+        } else {
+            Task::ready(Ok(()))
+        }
     }
 
     pub fn respond_to_start_debugging(
@@ -1021,12 +1012,11 @@ impl DapStore {
         granularity: SteppingGranularity,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some((session, client)) = self.client_by_id(client_id, cx) else {
+        let Some((_, client)) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
-        let capabilities = session.read(cx).capabilities(client_id);
-
+        let capabilities = self.capabilities_by_id(client_id);
         let supports_single_thread_execution_requests = capabilities
             .supports_single_thread_execution_requests
             .unwrap_or_default();
@@ -1052,12 +1042,11 @@ impl DapStore {
         granularity: SteppingGranularity,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some((session, client)) = self.client_by_id(client_id, cx) else {
+        let Some((_, client)) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
-        let capabilities = session.read(cx).capabilities(client_id);
-
+        let capabilities = self.capabilities_by_id(client_id);
         let supports_single_thread_execution_requests = capabilities
             .supports_single_thread_execution_requests
             .unwrap_or_default();
@@ -1084,12 +1073,11 @@ impl DapStore {
         granularity: SteppingGranularity,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some((session, client)) = self.client_by_id(client_id, cx) else {
+        let Some((_, client)) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
-        let capabilities = session.read(cx).capabilities(client_id);
-
+        let capabilities = self.capabilities_by_id(client_id);
         let supports_single_thread_execution_requests = capabilities
             .supports_single_thread_execution_requests
             .unwrap_or_default();
@@ -1115,19 +1103,11 @@ impl DapStore {
         granularity: SteppingGranularity,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some((session, client)) = self.client_by_id(client_id, cx) else {
+        let Some((_, client)) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
-        let capabilities = session.read(cx).capabilities(client_id);
-
-        if capabilities.supports_step_back.unwrap_or(false) {
-            return Task::ready(Err(anyhow!(
-                "Step back request isn't support for client_id: {:?}",
-                client_id
-            )));
-        }
-
+        let capabilities = self.capabilities_by_id(client_id);
         let supports_single_thread_execution_requests = capabilities
             .supports_single_thread_execution_requests
             .unwrap_or_default();
@@ -1135,15 +1115,19 @@ impl DapStore {
             .supports_stepping_granularity
             .unwrap_or_default();
 
-        cx.background_executor().spawn(async move {
-            client
-                .request::<StepBack>(StepBackArguments {
-                    thread_id,
-                    granularity: supports_stepping_granularity.then(|| granularity),
-                    single_thread: supports_single_thread_execution_requests.then(|| true),
-                })
-                .await
-        })
+        if capabilities.supports_step_back.unwrap_or_default() {
+            cx.background_executor().spawn(async move {
+                client
+                    .request::<StepBack>(StepBackArguments {
+                        thread_id,
+                        granularity: supports_stepping_granularity.then(|| granularity),
+                        single_thread: supports_single_thread_execution_requests.then(|| true),
+                    })
+                    .await
+            })
+        } else {
+            Task::ready(Ok(()))
+        }
     }
 
     pub fn variables(
@@ -1238,7 +1222,7 @@ impl DapStore {
         };
 
         let supports_set_expression = self
-            .capabilities_by_id(client_id, cx)
+            .capabilities_by_id(client_id)
             .supports_set_expression
             .unwrap_or_default();
 
@@ -1287,13 +1271,12 @@ impl DapStore {
         thread_ids: Option<Vec<u64>>,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some((session, client)) = self.client_by_id(client_id, cx) else {
+        let Some((_, client)) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
-        let capabilities = session.read(cx).capabilities(client_id);
-
-        if capabilities
+        if self
+            .capabilities_by_id(client_id)
             .supports_terminate_threads_request
             .unwrap_or_default()
         {
@@ -1338,7 +1321,7 @@ impl DapStore {
         };
 
         let supports_restart = self
-            .capabilities_by_id(client_id, cx)
+            .capabilities_by_id(client_id)
             .supports_restart_request
             .unwrap_or_default();
 
@@ -1410,7 +1393,7 @@ impl DapStore {
 
         cx.emit(DapStoreEvent::DebugClientShutdown(*client_id));
 
-        let capabilities = session.read(cx).capabilities(client_id);
+        let capabilities = self.capabilities.remove(client_id).unwrap_or_default();
 
         if let Some((downstream_client, project_id)) = self.downstream_client.as_ref() {
             let request = proto::ShutdownDebugClient {
@@ -1528,18 +1511,12 @@ impl DapStore {
         mut cx: AsyncAppContext,
     ) -> Result<()> {
         this.update(&mut cx, |dap_store, cx| {
-            let session_id = DebugSessionId::from_proto(envelope.payload.session_id);
-            if let Some(session) = dap_store.session_by_id(&session_id) {
-                session.update(cx, |session, cx| {
-                    session.update_capabilities(
-                        &DebugAdapterClientId::from_proto(envelope.payload.client_id),
-                        dap::proto_conversions::capabilities_from_proto(&envelope.payload),
-                        cx,
-                    );
-                });
-
-                cx.notify();
-            }
+            dap_store.merge_capabilities_for_client(
+                &DebugSessionId::from_proto(envelope.payload.session_id),
+                &DebugAdapterClientId::from_proto(envelope.payload.client_id),
+                &dap::proto_conversions::capabilities_from_proto(&envelope.payload),
+                cx,
+            );
         })
     }
 

@@ -561,7 +561,7 @@ impl DebugPanel {
             Events::Module(event) => self.handle_module_event(&client_id, event, cx),
             Events::LoadedSource(event) => self.handle_loaded_source_event(&client_id, event, cx),
             Events::Capabilities(event) => {
-                self.handle_capabilities_changed_event(client_id, event, cx);
+                self.handle_capabilities_changed_event(session_id, client_id, event, cx);
             }
             Events::Memory(_) => {}
             Events::Process(_) => {}
@@ -582,7 +582,7 @@ impl DebugPanel {
     ) {
         if let Some(capabilities) = capabilities {
             self.dap_store.update(cx, |store, cx| {
-                store.merge_capabilities_for_client(&client_id, capabilities, cx);
+                store.merge_capabilities_for_client(&session_id, &client_id, capabilities, cx);
             });
 
             cx.emit(DebugPanelEvent::CapabilitiesChanged(*client_id));
@@ -917,12 +917,13 @@ impl DebugPanel {
 
     fn handle_capabilities_changed_event(
         &mut self,
+        session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         event: &CapabilitiesEvent,
         cx: &mut ViewContext<Self>,
     ) {
         self.dap_store.update(cx, |store, cx| {
-            store.merge_capabilities_for_client(client_id, &event.capabilities, cx);
+            store.merge_capabilities_for_client(session_id, client_id, &event.capabilities, cx);
         });
 
         cx.emit(DebugPanelEvent::CapabilitiesChanged(*client_id));

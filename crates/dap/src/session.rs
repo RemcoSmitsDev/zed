@@ -1,6 +1,5 @@
 use anyhow::Result;
 use collections::HashMap;
-use dap_types::Capabilities;
 use gpui::{ModelContext, Task};
 use std::sync::Arc;
 use task::DebugAdapterConfig;
@@ -25,7 +24,6 @@ pub struct DebugSession {
     id: DebugSessionId,
     ignore_breakpoints: bool,
     configuration: DebugAdapterConfig,
-    capabilities: HashMap<DebugAdapterClientId, Capabilities>,
     clients: HashMap<DebugAdapterClientId, Arc<DebugAdapterClient>>,
 }
 
@@ -36,7 +34,6 @@ impl DebugSession {
             configuration,
             ignore_breakpoints: false,
             clients: HashMap::default(),
-            capabilities: HashMap::default(),
         }
     }
 
@@ -67,28 +64,6 @@ impl DebugSession {
         cx: &mut ModelContext<Self>,
     ) {
         f(&mut self.configuration);
-        cx.notify();
-    }
-
-    pub fn capabilities(&self, client_id: &DebugAdapterClientId) -> Capabilities {
-        self.capabilities
-            .get(client_id)
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    pub fn update_capabilities(
-        &mut self,
-        client_id: &DebugAdapterClientId,
-        new_capabilities: Capabilities,
-        cx: &mut ModelContext<Self>,
-    ) {
-        if let Some(capabilities) = self.capabilities.get_mut(client_id) {
-            *capabilities = capabilities.merge(new_capabilities);
-        } else {
-            self.capabilities.insert(*client_id, new_capabilities);
-        }
-
         cx.notify();
     }
 
