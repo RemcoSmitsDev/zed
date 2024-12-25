@@ -1242,6 +1242,7 @@ impl Project {
 
     pub fn send_breakpoints(
         &self,
+        session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
     ) -> Task<()> {
@@ -1258,7 +1259,7 @@ impl Project {
                     client_id,
                     abs_path,
                     source_breakpoints,
-                    store.ignore_breakpoints(client_id),
+                    store.ignore_breakpoints(session_id, cx),
                     cx,
                 )
             }));
@@ -1356,11 +1357,12 @@ impl Project {
 
     pub fn toggle_ignore_breakpoints(
         &self,
+        session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let tasks = self.dap_store.update(cx, |store, cx| {
-            store.toggle_ignore_breakpoints(client_id);
+            store.toggle_ignore_breakpoints(session_id, cx);
 
             let mut tasks = Vec::new();
 
@@ -1389,7 +1391,7 @@ impl Project {
                             .into_iter()
                             .map(|breakpoint| breakpoint.to_source_breakpoint(buffer))
                             .collect::<Vec<_>>(),
-                        store.ignore_breakpoints(client_id),
+                        store.ignore_breakpoints(session_id, cx),
                         cx,
                     ),
                 );

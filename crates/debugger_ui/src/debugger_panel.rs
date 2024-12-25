@@ -548,7 +548,9 @@ impl DebugPanel {
         cx: &mut ViewContext<Self>,
     ) {
         match event {
-            Events::Initialized(event) => self.handle_initialized_event(&client_id, event, cx),
+            Events::Initialized(event) => {
+                self.handle_initialized_event(&session_id, &client_id, event, cx)
+            }
             Events::Stopped(event) => self.handle_stopped_event(&session_id, &client_id, event, cx),
             Events::Continued(event) => self.handle_continued_event(&client_id, event, cx),
             Events::Exited(event) => self.handle_exited_event(&client_id, event, cx),
@@ -573,6 +575,7 @@ impl DebugPanel {
 
     fn handle_initialized_event(
         &mut self,
+        session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         capabilities: &Option<Capabilities>,
         cx: &mut ViewContext<Self>,
@@ -586,9 +589,9 @@ impl DebugPanel {
         }
 
         let send_breakpoints_task = self.workspace.update(cx, |workspace, cx| {
-            workspace
-                .project()
-                .update(cx, |project, cx| project.send_breakpoints(&client_id, cx))
+            workspace.project().update(cx, |project, cx| {
+                project.send_breakpoints(&session_id, &client_id, cx)
+            })
         });
 
         let configuration_done_task = self

@@ -23,6 +23,7 @@ impl DebugSessionId {
 
 pub struct DebugSession {
     id: DebugSessionId,
+    ignore_breakpoints: bool,
     configuration: DebugAdapterConfig,
     capabilities: HashMap<DebugAdapterClientId, Capabilities>,
     clients: HashMap<DebugAdapterClientId, Arc<DebugAdapterClient>>,
@@ -33,6 +34,7 @@ impl DebugSession {
         Self {
             id,
             configuration,
+            ignore_breakpoints: false,
             clients: HashMap::default(),
             capabilities: HashMap::default(),
         }
@@ -48,6 +50,15 @@ impl DebugSession {
 
     pub fn configuration(&self) -> &DebugAdapterConfig {
         &self.configuration
+    }
+
+    pub fn ignore_breakpoints(&self) -> bool {
+        self.ignore_breakpoints
+    }
+
+    pub fn set_ignore_breakpoints(&mut self, ignore: bool, cx: &mut ModelContext<Self>) {
+        self.ignore_breakpoints = ignore;
+        cx.notify();
     }
 
     pub fn update_configuration(

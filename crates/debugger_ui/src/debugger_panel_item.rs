@@ -672,7 +672,7 @@ impl DebugPanelItem {
             .update(cx, |workspace, cx| {
                 workspace.project().update(cx, |project, cx| {
                     project
-                        .toggle_ignore_breakpoints(&self.client_id, cx)
+                        .toggle_ignore_breakpoints(&self.session_id, &self.client_id, cx)
                         .detach_and_log_err(cx);
                 })
             })
@@ -903,7 +903,9 @@ impl Render for DebugPanelItem {
                             .child(
                                 IconButton::new(
                                     "debug-ignore-breakpoints",
-                                    if self.dap_store.read(cx).ignore_breakpoints(&self.client_id) {
+                                    if self.dap_store.update(cx, |store, cx| {
+                                        store.ignore_breakpoints(&self.session_id, cx)
+                                    }) {
                                         IconName::DebugIgnoreBreakpoints
                                     } else {
                                         IconName::DebugBreakpoint

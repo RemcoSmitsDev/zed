@@ -31,7 +31,6 @@ use futures::future::Shared;
 use futures::FutureExt;
 use gpui::{AsyncAppContext, Context, EventEmitter, Model, ModelContext, SharedString, Task};
 use http_client::HttpClient;
-use itertools::Itertools;
 use language::{
     proto::{deserialize_anchor, serialize_anchor as serialize_text_anchor},
     Buffer, BufferSnapshot, LanguageRegistry, LanguageServerBinaryStatus,
@@ -99,7 +98,6 @@ pub struct DapStore {
     next_client_id: AtomicUsize,
     next_session_id: AtomicUsize,
     downstream_client: Option<(AnyProtoClient, u64)>,
-    ignore_breakpoints: HashSet<DebugAdapterClientId>,
     breakpoints: BTreeMap<ProjectPath, HashSet<Breakpoint>>,
     client_by_session: HashMap<DebugAdapterClientId, DebugSessionId>,
     active_debug_line: Option<(DebugAdapterClientId, ProjectPath, u32)>,
@@ -148,7 +146,6 @@ impl DapStore {
             next_client_id: Default::default(),
             next_session_id: Default::default(),
             client_by_session: Default::default(),
-            ignore_breakpoints: Default::default(),
         }
     }
 
@@ -168,7 +165,6 @@ impl DapStore {
             next_client_id: Default::default(),
             next_session_id: Default::default(),
             client_by_session: Default::default(),
-            ignore_breakpoints: Default::default(),
         }
     }
 
@@ -333,13 +329,21 @@ impl DapStore {
         &self.breakpoints
     }
 
-    pub fn ignore_breakpoints(&self, client_id: &DebugAdapterClientId) -> bool {
-        self.ignore_breakpoints.contains(client_id)
+    pub fn ignore_breakpoints(&self, session_id: &DebugSessionId, cx: &ModelContext<Self>) -> bool {
+        self.session_by_id(session_id)
+            .map(|session| session.read(cx).ignore_breakpoints())
+            .unwrap_or_default()
     }
 
-    pub fn toggle_ignore_breakpoints(&mut self, client_id: &DebugAdapterClientId) {
-        if !self.ignore_breakpoints.remove(client_id) {
-            self.ignore_breakpoints.insert(*client_id);
+    pub fn toggle_ignore_breakpoints(
+        &mut self,
+        session_id: &DebugSessionId,
+        cx: &mut ModelContext<Self>,
+    ) {
+        if let Some(session) = self.session_by_id(session_id) {
+            session.update(cx, |session, cx| {
+                session.set_ignore_breakpoints(!session.ignore_breakpoints(), cx);
+            });
         }
     }
 
@@ -462,9 +466,7 @@ impl DapStore {
                 .await?;
 
             dap_store.update(&mut cx, |store, cx| {
-                store
-                    .client_by_session
-                    .insert(client_id.clone(), session_id.clone());
+                store.client_by_session.insert(client_id, session_id);
 
                 let session = store.session_by_id(&session_id).unwrap();
 
@@ -603,7 +605,7 @@ impl DapStore {
                 let client_id = client.id();
                 store.client_by_session.insert(client_id, session_id);
                 store
-                    .as_local()
+                    .as_local_mut()
                     .unwrap()
                     .sessions
                     .insert(session_id, session.clone());
@@ -1413,7 +1415,6 @@ impl DapStore {
 
         cx.emit(DapStoreEvent::DebugClientShutdown(*client_id));
 
-        self.ignore_breakpoints.remove(client_id);
         let capabilities = session.read(cx).capabilities(client_id);
 
         if let Some((downstream_client, project_id)) = self.downstream_client.as_ref() {
@@ -1701,18 +1702,6 @@ impl DapStore {
         buffer_snapshot: BufferSnapshot,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let clients: Vec<_> = self
-            .as_local()
-            .unwrap()
-            .sessions
-            .values()
-            .flat_map(|session| session.read(cx).clients().collect_vec())
-            .collect();
-
-        if clients.is_empty() {
-            return Task::ready(Ok(()));
-        }
-
         let Some(breakpoints) = self.breakpoints.get(project_path) else {
             return Task::ready(Ok(()));
         };
@@ -1723,14 +1712,22 @@ impl DapStore {
             .collect::<Vec<_>>();
 
         let mut tasks = Vec::new();
-        for client in clients {
-            tasks.push(self.send_breakpoints(
-                &client.id(),
-                Arc::from(buffer_path.clone()),
-                source_breakpoints.clone(),
-                self.ignore_breakpoints(&client.id()),
-                cx,
-            ));
+        for session in self.as_local().unwrap().sessions.values() {
+            let session = session.read(cx);
+            let ignore_breakpoints = self.ignore_breakpoints(&session.id(), cx);
+            for client in session.clients().collect::<Vec<_>>() {
+                tasks.push(self.send_breakpoints(
+                    &client.id(),
+                    Arc::from(buffer_path.clone()),
+                    source_breakpoints.clone(),
+                    ignore_breakpoints,
+                    cx,
+                ));
+            }
+        }
+
+        if tasks.is_empty() {
+            return Task::ready(Ok(()));
         }
 
         cx.background_executor().spawn(async move {
