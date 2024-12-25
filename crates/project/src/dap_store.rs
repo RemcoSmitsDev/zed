@@ -83,9 +83,21 @@ pub enum DapStoreMode {
 }
 
 pub struct LocalDapStore {
+    next_client_id: AtomicUsize,
+    next_session_id: AtomicUsize,
     delegate: DapAdapterDelegate,
     environment: Model<ProjectEnvironment>,
     sessions: HashMap<DebugSessionId, Model<DebugSession>>,
+}
+
+impl LocalDapStore {
+    fn next_client_id(&self) -> DebugAdapterClientId {
+        DebugAdapterClientId(self.next_client_id.fetch_add(1, SeqCst))
+    }
+
+    fn next_session_id(&self) -> DebugSessionId {
+        DebugSessionId(self.next_session_id.fetch_add(1, SeqCst))
+    }
 }
 
 pub struct RemoteDapStore {
@@ -95,8 +107,6 @@ pub struct RemoteDapStore {
 
 pub struct DapStore {
     mode: DapStoreMode,
-    next_client_id: AtomicUsize,
-    next_session_id: AtomicUsize,
     downstream_client: Option<(AnyProtoClient, u64)>,
     breakpoints: BTreeMap<ProjectPath, HashSet<Breakpoint>>,
     client_by_session: HashMap<DebugAdapterClientId, DebugSessionId>,
@@ -131,6 +141,9 @@ impl DapStore {
         Self {
             mode: DapStoreMode::Local(LocalDapStore {
                 environment,
+                sessions: HashMap::default(),
+                next_client_id: Default::default(),
+                next_session_id: Default::default(),
                 delegate: DapAdapterDelegate::new(
                     Some(http_client.clone()),
                     Some(node_runtime.clone()),
@@ -138,13 +151,10 @@ impl DapStore {
                     languages.clone(),
                     Task::ready(None).shared(),
                 ),
-                sessions: HashMap::default(),
             }),
             downstream_client: None,
             active_debug_line: None,
             breakpoints: Default::default(),
-            next_client_id: Default::default(),
-            next_session_id: Default::default(),
             client_by_session: Default::default(),
         }
     }
@@ -162,8 +172,6 @@ impl DapStore {
             downstream_client: None,
             active_debug_line: None,
             breakpoints: Default::default(),
-            next_client_id: Default::default(),
-            next_session_id: Default::default(),
             client_by_session: Default::default(),
         }
     }
@@ -207,14 +215,6 @@ impl DapStore {
 
     pub fn downstream_client(&self) -> Option<&(AnyProtoClient, u64)> {
         self.downstream_client.as_ref()
-    }
-
-    fn next_client_id(&self) -> DebugAdapterClientId {
-        DebugAdapterClientId(self.next_client_id.fetch_add(1, SeqCst))
-    }
-
-    fn next_session_id(&self) -> DebugSessionId {
-        DebugSessionId(self.next_session_id.fetch_add(1, SeqCst))
     }
 
     pub fn sessions(&self) -> impl Iterator<Item = Model<DebugSession>> + '_ {
@@ -440,7 +440,7 @@ impl DapStore {
         }
 
         let session_id = *session_id;
-        let client_id = self.next_client_id();
+        let client_id = self.as_local().unwrap().next_client_id();
 
         cx.spawn(|dap_store, mut cx| async move {
             let mut client = DebugAdapterClient::new(client_id, adapter, binary, &cx);
@@ -514,7 +514,7 @@ impl DapStore {
         }));
         let adapter_delegate = Arc::new(adapter_delegate);
 
-        let client_id = self.next_client_id();
+        let client_id = self.as_local().unwrap().next_client_id();
 
         cx.spawn(|this, mut cx| async move {
             let adapter = build_adapter(&config.kind).await?;
@@ -589,7 +589,11 @@ impl DapStore {
         config: DebugAdapterConfig,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<(Model<DebugSession>, Arc<DebugAdapterClient>)>> {
-        let session_id = self.next_session_id();
+        let Some(local_store) = self.as_local() else {
+            return Task::ready(Err(anyhow!("cannot start session on remote side")));
+        };
+
+        let session_id = local_store.next_session_id();
         let start_client_task = self.start_client_internal(session_id, config.clone(), cx);
 
         cx.spawn(|this, mut cx| async move {
@@ -1702,6 +1706,10 @@ impl DapStore {
         buffer_snapshot: BufferSnapshot,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
+        let Some(local_store) = self.as_local() else {
+            return Task::ready(Err(anyhow!("cannot start session on remote side")));
+        };
+
         let Some(breakpoints) = self.breakpoints.get(project_path) else {
             return Task::ready(Ok(()));
         };
@@ -1712,7 +1720,7 @@ impl DapStore {
             .collect::<Vec<_>>();
 
         let mut tasks = Vec::new();
-        for session in self.as_local().unwrap().sessions.values() {
+        for session in local_store.sessions.values() {
             let session = session.read(cx);
             let ignore_breakpoints = self.ignore_breakpoints(&session.id(), cx);
             for client in session.clients().collect::<Vec<_>>() {
