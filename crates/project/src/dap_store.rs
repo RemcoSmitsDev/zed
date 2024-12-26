@@ -607,7 +607,17 @@ impl DapStore {
         cx.spawn(|this, mut cx| async move {
             let session = cx.new_model(|_| DebugSession::new(session_id, config))?;
 
-            let client = start_client_task.await?;
+            let client = match start_client_task.await {
+                Ok(client) => client,
+                Err(error) => {
+                    this.update(&mut cx, |_, cx| {
+                        cx.emit(DapStoreEvent::Notification(error.to_string()));
+                    })
+                    .log_err();
+
+                    return Err(error);
+                }
+            };
 
             this.update(&mut cx, |store, cx| {
                 session.update(cx, |session, cx| {
