@@ -931,9 +931,16 @@ impl DapStore {
                 });
 
                 match task {
-                    Ok(task) => match task.await.log_err() {
-                        Some(_) => (true, None),
-                        None => (false, None),
+                    Ok(task) => match task.await {
+                        Ok(_) => (true, None),
+                        Err(error) => {
+                            this.update(&mut cx, |_, cx| {
+                                cx.emit(DapStoreEvent::Notification(error.to_string()));
+                            })
+                            .log_err();
+
+                            (false, None)
+                        }
                     },
                     Err(_) => (false, None),
                 }
