@@ -1529,12 +1529,12 @@ impl DapStore {
         mut cx: AsyncAppContext,
     ) -> Result<()> {
         this.update(&mut cx, |dap_store, cx| {
-            if matches!(dap_store.mode, DapStoreMode::Remote(_)) {
-                let client_id = DebugAdapterClientId::from_proto(envelope.payload.client_id);
+            let client_id = DebugAdapterClientId::from_proto(envelope.payload.client_id);
 
-                cx.emit(DapStoreEvent::DebugClientShutdown(client_id));
-                cx.notify();
-            }
+            dap_store.capabilities.remove(&client_id);
+
+            cx.emit(DapStoreEvent::DebugClientShutdown(client_id));
+            cx.notify();
         })
     }
 
@@ -1552,7 +1552,7 @@ impl DapStore {
 
         this.update(&mut cx, |store, cx| {
             store.active_debug_line = Some((
-                DebugAdapterClientId(envelope.payload.client_id as usize),
+                DebugAdapterClientId::from_proto(envelope.payload.client_id),
                 project_path,
                 envelope.payload.row,
             ));
