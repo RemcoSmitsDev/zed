@@ -90,6 +90,10 @@ impl DebugSession {
         self.clients.get(client_id).cloned()
     }
 
+    pub fn has_clients(&self) -> bool {
+        !self.clients.is_empty()
+    }
+
     pub fn clients(&self) -> impl Iterator<Item = Arc<DebugAdapterClient>> + '_ {
         self.clients.values().cloned()
     }
