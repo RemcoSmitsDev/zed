@@ -314,6 +314,7 @@ impl DebugPanel {
                 let thread_panel = item.downcast::<DebugPanelItem>().unwrap();
 
                 let thread_id = thread_panel.read(cx).thread_id();
+                let session_id = thread_panel.read(cx).session_id();
                 let client_id = thread_panel.read(cx).client_id();
 
                 self.thread_states.remove(&(client_id, thread_id));
@@ -322,7 +323,7 @@ impl DebugPanel {
 
                 self.dap_store.update(cx, |store, cx| {
                     store
-                        .terminate_threads(&client_id, Some(vec![thread_id; 1]), cx)
+                        .terminate_threads(&session_id, &client_id, Some(vec![thread_id; 1]), cx)
                         .detach()
                 });
             }
@@ -554,7 +555,9 @@ impl DebugPanel {
             Events::Stopped(event) => self.handle_stopped_event(&session_id, &client_id, event, cx),
             Events::Continued(event) => self.handle_continued_event(&client_id, event, cx),
             Events::Exited(event) => self.handle_exited_event(&client_id, event, cx),
-            Events::Terminated(event) => self.handle_terminated_event(&client_id, event, cx),
+            Events::Terminated(event) => {
+                self.handle_terminated_event(&session_id, &client_id, event, cx)
+            }
             Events::Thread(event) => self.handle_thread_event(&client_id, event, cx),
             Events::Output(event) => self.handle_output_event(&client_id, event, cx),
             Events::Breakpoint(_) => {}
@@ -752,6 +755,7 @@ impl DebugPanel {
 
     fn handle_terminated_event(
         &mut self,
+        session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         event: &Option<TerminatedEvent>,
         cx: &mut ViewContext<Self>,
@@ -778,7 +782,9 @@ impl DebugPanel {
                     .restart(&client_id, restart_args, cx)
                     .detach_and_log_err(cx);
             } else {
-                store.shutdown_client(&client_id, cx).detach_and_log_err(cx);
+                store
+                    .shutdown_session(&session_id, cx)
+                    .detach_and_log_err(cx);
             }
         });
 

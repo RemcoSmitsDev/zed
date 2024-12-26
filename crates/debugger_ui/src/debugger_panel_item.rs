@@ -472,6 +472,10 @@ impl DebugPanelItem {
         }
     }
 
+    pub fn session_id(&self) -> DebugSessionId {
+        self.session_id
+    }
+
     pub fn client_id(&self) -> DebugAdapterClientId {
         self.client_id
     }
@@ -651,7 +655,12 @@ impl DebugPanelItem {
     pub fn stop_thread(&self, cx: &mut ViewContext<Self>) {
         self.dap_store.update(cx, |store, cx| {
             store
-                .terminate_threads(&self.client_id, Some(vec![self.thread_id; 1]), cx)
+                .terminate_threads(
+                    &self.session_id,
+                    &self.client_id,
+                    Some(vec![self.thread_id; 1]),
+                    cx,
+                )
                 .detach_and_log_err(cx)
         });
     }

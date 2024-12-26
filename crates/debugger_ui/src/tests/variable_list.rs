@@ -61,7 +61,7 @@ async fn test_basic_fetch_initial_scope_and_variables(
         })
     });
 
-    let (_session, client) = task.await.unwrap();
+    let (session, client) = task.await.unwrap();
 
     client
         .on_request::<Initialize, _>(move |_, _| {
@@ -254,7 +254,7 @@ async fn test_basic_fetch_initial_scope_and_variables(
 
     let shutdown_client = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
-            dap_store.shutdown_client(&client.id(), cx)
+            dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
     });
 
@@ -311,7 +311,7 @@ async fn test_fetch_variables_for_multiple_scopes(
         })
     });
 
-    let (_session, client) = task.await.unwrap();
+    let (session, client) = task.await.unwrap();
 
     client
         .on_request::<Initialize, _>(move |_, _| {
@@ -554,7 +554,7 @@ async fn test_fetch_variables_for_multiple_scopes(
 
     let shutdown_client = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
-            dap_store.shutdown_client(&client.id(), cx)
+            dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
     });
 
@@ -608,7 +608,7 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
         })
     });
 
-    let (_session, client) = task.await.unwrap();
+    let (session, client) = task.await.unwrap();
 
     client
         .on_request::<Initialize, _>(move |_, _| {
@@ -1105,7 +1105,7 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
 
     let shutdown_client = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
-            dap_store.shutdown_client(&client.id(), cx)
+            dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
     });
 

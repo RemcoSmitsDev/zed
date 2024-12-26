@@ -1293,6 +1293,7 @@ impl DapStore {
 
     pub fn terminate_threads(
         &mut self,
+        session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         thread_ids: Option<Vec<u64>>,
         cx: &mut ModelContext<Self>,
@@ -1312,7 +1313,7 @@ impl DapStore {
                     .await
             })
         } else {
-            self.shutdown_client(client_id, cx)
+            self.shutdown_session(session_id, cx)
         }
     }
 
@@ -1386,7 +1387,7 @@ impl DapStore {
         })
     }
 
-    fn shutdown_session(
+    pub fn shutdown_session(
         &mut self,
         session_id: &DebugSessionId,
         cx: &mut ModelContext<Self>,
@@ -1401,7 +1402,7 @@ impl DapStore {
 
         let mut tasks = Vec::new();
         for client in session.read(cx).clients().collect::<Vec<_>>() {
-            tasks.push(self.shutdown_client(&client.id(), cx));
+            tasks.push(self.shutdown_client(&session, client, cx));
         }
 
         cx.background_executor().spawn(async move {
@@ -1410,35 +1411,22 @@ impl DapStore {
         })
     }
 
-    pub fn shutdown_client(
+    fn shutdown_client(
         &mut self,
-        client_id: &DebugAdapterClientId,
+        session: &Model<DebugSession>,
+        client: Arc<DebugAdapterClient>,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some(local_store) = self.as_local_mut() else {
             return Task::ready(Err(anyhow!("Cannot shutdown client on remote side")));
         };
 
-        let Some(session) = local_store.session_by_client_id(client_id) else {
-            return Task::ready(Err(anyhow!(
-                "Could not find debug session with client id: {:?}",
-                client_id
-            )));
-        };
+        let client_id = client.id();
 
-        let Some(client) = session.update(cx, |session, cx| session.remove_client(client_id, cx))
-        else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
-        };
+        cx.emit(DapStoreEvent::DebugClientShutdown(client_id));
 
-        if !session.read(cx).has_clients() {
-            local_store.sessions.remove(&session.read(cx).id());
-        }
-
-        cx.emit(DapStoreEvent::DebugClientShutdown(*client_id));
-
-        local_store.client_by_session.remove(client_id);
-        let capabilities = self.capabilities.remove(client_id).unwrap_or_default();
+        local_store.client_by_session.remove(&client_id);
+        let capabilities = self.capabilities.remove(&client_id).unwrap_or_default();
 
         if let Some((downstream_client, project_id)) = self.downstream_client.as_ref() {
             downstream_client

@@ -31,7 +31,7 @@ async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut Test
         })
     });
 
-    let (_session, client) = task.await.unwrap();
+    let (session, client) = task.await.unwrap();
 
     client
         .on_request::<Initialize, _>(move |_, _| {
@@ -100,7 +100,7 @@ async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut Test
 
     let shutdown_client = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
-            dap_store.shutdown_client(&client.id(), cx)
+            dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
     });
 
@@ -148,7 +148,7 @@ async fn test_we_can_only_have_one_panel_per_debug_thread(
         })
     });
 
-    let (_session, client) = task.await.unwrap();
+    let (session, client) = task.await.unwrap();
 
     client
         .on_request::<Initialize, _>(move |_, _| {
@@ -248,7 +248,7 @@ async fn test_we_can_only_have_one_panel_per_debug_thread(
 
     let shutdown_client = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
-            dap_store.shutdown_client(&client.id(), cx)
+            dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
     });
 
@@ -296,7 +296,7 @@ async fn test_client_can_open_multiple_thread_panels(
         })
     });
 
-    let (_session, client) = task.await.unwrap();
+    let (session, client) = task.await.unwrap();
 
     client
         .on_request::<Initialize, _>(move |_, _| {
@@ -396,7 +396,7 @@ async fn test_client_can_open_multiple_thread_panels(
 
     let shutdown_client = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
-            dap_store.shutdown_client(&client.id(), cx)
+            dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
     });
 
@@ -441,7 +441,7 @@ async fn test_handle_output_event(executor: BackgroundExecutor, cx: &mut TestApp
         })
     });
 
-    let (_session, client) = task.await.unwrap();
+    let (session, client) = task.await.unwrap();
 
     client
         .on_request::<Initialize, _>(move |_, _| {
@@ -555,7 +555,7 @@ async fn test_handle_output_event(executor: BackgroundExecutor, cx: &mut TestApp
 
     let shutdown_client = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
-            dap_store.shutdown_client(&client.id(), cx)
+            dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
     });
 

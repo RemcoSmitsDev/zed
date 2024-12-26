@@ -65,7 +65,7 @@ async fn test_fetch_initial_stack_frames_and_go_to_stack_frame(
         })
     });
 
-    let (_session, client) = task.await.unwrap();
+    let (session, client) = task.await.unwrap();
 
     client
         .on_request::<Initialize, _>(move |_, _| {
@@ -173,7 +173,7 @@ async fn test_fetch_initial_stack_frames_and_go_to_stack_frame(
 
     let shutdown_client = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
-            dap_store.shutdown_client(&client.id(), cx)
+            dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
     });
 
@@ -229,7 +229,7 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
         })
     });
 
-    let (_session, client) = task.await.unwrap();
+    let (session, client) = task.await.unwrap();
 
     client
         .on_request::<Initialize, _>(move |_, _| {
@@ -420,7 +420,7 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
 
     let shutdown_client = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
-            dap_store.shutdown_client(&client.id(), cx)
+            dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
     });
 
