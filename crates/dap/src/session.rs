@@ -97,19 +97,4 @@ impl DebugSession {
     pub fn clients(&self) -> impl Iterator<Item = Arc<DebugAdapterClient>> + '_ {
         self.clients.values().cloned()
     }
-
-    pub fn shutdown_clients(&self, cx: &mut ModelContext<Self>) -> Task<Result<()>> {
-        let mut tasks = Vec::new();
-        for client in self.clients.values() {
-            tasks.push(cx.spawn({
-                let client = client.clone();
-                |_, _| async move { client.shutdown().await }
-            }));
-        }
-
-        cx.background_executor().spawn(async move {
-            futures::future::join_all(tasks).await;
-            Ok(())
-        })
-    }
 }

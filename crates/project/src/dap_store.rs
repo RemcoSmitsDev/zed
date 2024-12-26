@@ -71,11 +71,6 @@ pub enum DapStoreEvent {
     UpdateDebugAdapter(UpdateDebugAdapter),
 }
 
-pub enum DebugAdapterClientState {
-    Starting(Task<Option<Arc<DebugAdapterClient>>>),
-    Running(Arc<DebugAdapterClient>),
-}
-
 #[allow(clippy::large_enum_variant)]
 pub enum DapStoreMode {
     Local(LocalDapStore),   // ssh host and collab host
