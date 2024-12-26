@@ -258,7 +258,7 @@ impl DapStore {
             .unwrap_or_default()
     }
 
-    pub fn merge_capabilities_for_client(
+    pub fn update_capabilities_for_client(
         &mut self,
         session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
@@ -668,7 +668,7 @@ impl DapStore {
                 .await?;
 
             this.update(&mut cx, |store, cx| {
-                store.merge_capabilities_for_client(&session_id, &client_id, &capabilities, cx);
+                store.update_capabilities_for_client(&session_id, &client_id, &capabilities, cx);
             })
         })
     }
@@ -1539,7 +1539,7 @@ impl DapStore {
         mut cx: AsyncAppContext,
     ) -> Result<()> {
         this.update(&mut cx, |dap_store, cx| {
-            dap_store.merge_capabilities_for_client(
+            dap_store.update_capabilities_for_client(
                 &DebugSessionId::from_proto(envelope.payload.session_id),
                 &DebugAdapterClientId::from_proto(envelope.payload.client_id),
                 &dap::proto_conversions::capabilities_from_proto(&envelope.payload),

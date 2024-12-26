@@ -582,7 +582,7 @@ impl DebugPanel {
     ) {
         if let Some(capabilities) = capabilities {
             self.dap_store.update(cx, |store, cx| {
-                store.merge_capabilities_for_client(&session_id, &client_id, capabilities, cx);
+                store.update_capabilities_for_client(&session_id, &client_id, capabilities, cx);
             });
 
             cx.emit(DebugPanelEvent::CapabilitiesChanged(*client_id));
@@ -923,7 +923,7 @@ impl DebugPanel {
         cx: &mut ViewContext<Self>,
     ) {
         self.dap_store.update(cx, |store, cx| {
-            store.merge_capabilities_for_client(session_id, client_id, &event.capabilities, cx);
+            store.update_capabilities_for_client(session_id, client_id, &event.capabilities, cx);
         });
 
         cx.emit(DebugPanelEvent::CapabilitiesChanged(*client_id));
