@@ -1,6 +1,5 @@
-use anyhow::Result;
 use collections::HashMap;
-use gpui::{ModelContext, Task};
+use gpui::ModelContext;
 use std::sync::Arc;
 use task::DebugAdapterConfig;
 
