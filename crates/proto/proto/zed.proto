@@ -2421,8 +2421,8 @@ enum BreakpointKind {
 }
 
 message DebuggerSession {
-    SetDebugClientCapabilities capabilities = 1;
-    SetDebuggerPanelItem debug_panel_item = 2;
+    uint64 client_id = 1;
+    SetDebugClientCapabilities capabilities = 2;
     SetActiveDebugLine active_debug_line = 3;
 }
 
