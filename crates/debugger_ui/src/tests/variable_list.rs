@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     debugger_panel::DebugPanel,
-    tests::{add_debugger_panel, init_test},
+    tests::{init_test, init_test_workspace},
     variable_list::{VariableContainer, VariableListEntry},
 };
 use collections::HashMap;
@@ -42,12 +42,12 @@ async fn test_basic_fetch_initial_scope_and_variables(
     .await;
 
     let project = Project::test(fs, ["/project".as_ref()], cx).await;
-    let workspace = add_debugger_panel(&project, cx).await;
+    let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
-            store.start_test_client(
+            store.start_debug_session(
                 task::DebugAdapterConfig {
                     label: "test config".into(),
                     kind: task::DebugAdapterKind::Fake,
@@ -61,7 +61,7 @@ async fn test_basic_fetch_initial_scope_and_variables(
         })
     });
 
-    let client = task.await.unwrap();
+    let (session, client) = task.await.unwrap();
 
     client
         .on_request::<Initialize, _>(move |_, _| {
@@ -252,13 +252,13 @@ async fn test_basic_fetch_initial_scope_and_variables(
         })
         .unwrap();
 
-    let shutdown_client = project.update(cx, |project, cx| {
+    let shutdown_session = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
-            dap_store.shutdown_client(&client.id(), cx)
+            dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
     });
 
-    shutdown_client.await.unwrap();
+    shutdown_session.await.unwrap();
 }
 
 /// This tests fetching multiple scopes and variables for them with a single stackframe
@@ -292,12 +292,12 @@ async fn test_fetch_variables_for_multiple_scopes(
     .await;
 
     let project = Project::test(fs, ["/project".as_ref()], cx).await;
-    let workspace = add_debugger_panel(&project, cx).await;
+    let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
-            store.start_test_client(
+            store.start_debug_session(
                 task::DebugAdapterConfig {
                     label: "test config".into(),
                     kind: task::DebugAdapterKind::Fake,
@@ -311,7 +311,7 @@ async fn test_fetch_variables_for_multiple_scopes(
         })
     });
 
-    let client = task.await.unwrap();
+    let (session, client) = task.await.unwrap();
 
     client
         .on_request::<Initialize, _>(move |_, _| {
@@ -552,13 +552,13 @@ async fn test_fetch_variables_for_multiple_scopes(
         })
         .unwrap();
 
-    let shutdown_client = project.update(cx, |project, cx| {
+    let shutdown_session = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
-            dap_store.shutdown_client(&client.id(), cx)
+            dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
     });
 
-    shutdown_client.await.unwrap();
+    shutdown_session.await.unwrap();
 }
 
 // tests that toggling a variable will fetch its children and show it
@@ -589,12 +589,12 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
     .await;
 
     let project = Project::test(fs, ["/project".as_ref()], cx).await;
-    let workspace = add_debugger_panel(&project, cx).await;
+    let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
-            store.start_test_client(
+            store.start_debug_session(
                 task::DebugAdapterConfig {
                     label: "test config".into(),
                     kind: task::DebugAdapterKind::Fake,
@@ -608,7 +608,7 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
         })
     });
 
-    let client = task.await.unwrap();
+    let (session, client) = task.await.unwrap();
 
     client
         .on_request::<Initialize, _>(move |_, _| {
@@ -1103,11 +1103,11 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
         })
         .unwrap();
 
-    let shutdown_client = project.update(cx, |project, cx| {
+    let shutdown_session = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
-            dap_store.shutdown_client(&client.id(), cx)
+            dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
     });
 
-    shutdown_client.await.unwrap();
+    shutdown_session.await.unwrap();
 }
