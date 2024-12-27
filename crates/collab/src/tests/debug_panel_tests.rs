@@ -200,7 +200,7 @@ async fn test_active_debug_panel_item_set_on_join_project(
 
     let task = project_a.update(cx_a, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
-            store.start_test_client(
+            store.start_debug_session(
                 dap::DebugAdapterConfig {
                     label: "test config".into(),
                     kind: dap::DebugAdapterKind::Fake,
@@ -214,7 +214,7 @@ async fn test_active_debug_panel_item_set_on_join_project(
         })
     });
 
-    let client = task.await.unwrap();
+    let (session, client) = task.await.unwrap();
 
     client
         .on_request::<Initialize, _>(move |_, _| {
@@ -278,7 +278,7 @@ async fn test_active_debug_panel_item_set_on_join_project(
 
     let shutdown_client = project_a.update(cx_a, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
-            dap_store.shutdown_client(&client.id(), cx)
+            dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
     });
 
