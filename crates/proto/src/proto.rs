@@ -381,6 +381,7 @@ messages!(
     (SetDebuggerPanelItem, Background),
     (ShutdownDebugClient, Background),
     (SetDebugClientCapabilities, Background),
+    (GetDebuggerSessions, Background),
 );
 
 request_messages!(

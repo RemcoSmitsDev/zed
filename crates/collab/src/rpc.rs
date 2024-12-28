@@ -422,7 +422,8 @@ impl Server {
             .add_message_handler(
                 broadcast_project_message_from_host::<proto::SetDebugClientCapabilities>,
             )
-            .add_message_handler(broadcast_project_message_from_host::<proto::ShutdownDebugClient>);
+            .add_message_handler(broadcast_project_message_from_host::<proto::ShutdownDebugClient>)
+            .add_message_handler(broadcast_project_message_from_host::<proto::GetDebuggerSessions>);
 
         Arc::new(server)
     }
