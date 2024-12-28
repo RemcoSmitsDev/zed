@@ -602,6 +602,7 @@ entity_messages!(
     SetDebuggerPanelItem,
     ShutdownDebugClient,
     SetDebugClientCapabilities,
+    GetDebuggerSessions,
 );
 
 entity_messages!(

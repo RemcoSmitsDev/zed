@@ -2,6 +2,7 @@ use crate::project_settings::ProjectSettings;
 use crate::{ProjectEnvironment, ProjectItem as _, ProjectPath};
 use anyhow::{anyhow, bail, Context as _, Result};
 use async_trait::async_trait;
+use client::ProjectId;
 use collections::HashMap;
 use dap::session::{DebugSession, DebugSessionId};
 use dap::{
@@ -69,6 +70,7 @@ pub enum DapStoreEvent {
     ActiveDebugLineChanged,
     SetDebugPanelItem(SetDebuggerPanelItem),
     UpdateDebugAdapter(UpdateDebugAdapter),
+    SendDebuggerSessions(ProjectId),
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -131,6 +133,7 @@ impl DapStore {
         client.add_model_message_handler(DapStore::handle_set_debug_panel_item);
         client.add_model_message_handler(DapStore::handle_synchronize_breakpoints);
         client.add_model_message_handler(DapStore::handle_update_debug_adapter);
+        client.add_model_message_handler(DapStore::handle_get_debugger_sessions);
     }
 
     pub fn new_local(
@@ -1570,6 +1573,20 @@ impl DapStore {
 
             cx.emit(DapStoreEvent::DebugClientShutdown(client_id));
             cx.notify();
+        })
+    }
+
+    async fn handle_get_debugger_sessions(
+        this: Model<Self>,
+        _envelope: TypedEnvelope<proto::GetDebuggerSessions>,
+        mut cx: AsyncAppContext,
+    ) -> Result<()> {
+        this.update(&mut cx, |dap_store, cx| {
+            if let Some((_, _)) = dap_store.downstream_client {
+                cx.emit(DapStoreEvent::SendDebuggerSessions(ProjectId(
+                    _envelope.payload.project_id,
+                )));
+            }
         })
     }
 
