@@ -2,7 +2,6 @@ use crate::project_settings::ProjectSettings;
 use crate::{ProjectEnvironment, ProjectItem as _, ProjectPath};
 use anyhow::{anyhow, bail, Context as _, Result};
 use async_trait::async_trait;
-use client::ProjectId;
 use collections::HashMap;
 use dap::session::{DebugSession, DebugSessionId};
 use dap::{
@@ -70,7 +69,7 @@ pub enum DapStoreEvent {
     ActiveDebugLineChanged,
     SetDebugPanelItem(SetDebuggerPanelItem),
     UpdateDebugAdapter(UpdateDebugAdapter),
-    SendDebuggerSessions(ProjectId),
+    SendDebuggerSessions,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -1583,9 +1582,7 @@ impl DapStore {
     ) -> Result<()> {
         this.update(&mut cx, |dap_store, cx| {
             if let Some((_, _)) = dap_store.downstream_client {
-                cx.emit(DapStoreEvent::SendDebuggerSessions(ProjectId(
-                    _envelope.payload.project_id,
-                )));
+                cx.emit(DapStoreEvent::SendDebuggerSessions);
             }
         })
     }
