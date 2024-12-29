@@ -326,7 +326,7 @@ impl ScopeVariableIndex {
             if variable.variable.variables_reference == container_reference {
                 found_insertion_point = true;
 
-                let start = cursor.start().clone();
+                let start = *cursor.start();
                 new_variables.push(variable.clone(), &());
                 new_variables.append(cursor.slice(&start, editor::Bias::Left, &()), &());
                 new_variables.extend(variables.iter().cloned(), &());
