@@ -10,7 +10,7 @@ use editor::{
 };
 use gpui::{
     anchored, deferred, list, AnyElement, ClipboardItem, DismissEvent, FocusHandle, FocusableView,
-    ListState, Model, MouseDownEvent, Point, Subscription, Task, View,
+    ListOffset, ListState, Model, MouseDownEvent, Point, Subscription, Task, View,
 };
 use menu::Confirm;
 use project::dap_store::DapStore;
@@ -727,9 +727,27 @@ impl VariableList {
             }
         }
 
+        let old_entries = self.entries.get(&stack_frame_id).cloned();
+        let old_scroll_top = self.list.logical_scroll_top();
+
         let len = entries.len();
         self.entries.insert(stack_frame_id, entries);
         self.list.reset(len);
+
+        if let Some(old_entries) = old_entries.as_ref() {
+            if let Some(old_top_entry) = old_entries.get(old_scroll_top.item_ix) {
+                let new_scroll_top = old_entries
+                    .iter()
+                    .position(|entry| entry == old_top_entry)
+                    .map(|item_ix| ListOffset {
+                        item_ix,
+                        offset_in_item: old_scroll_top.offset_in_item,
+                    });
+
+                self.list
+                    .scroll_to(new_scroll_top.unwrap_or(old_scroll_top));
+            }
+        }
 
         cx.notify();
 
