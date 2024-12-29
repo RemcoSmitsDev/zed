@@ -731,7 +731,7 @@ impl VariableList {
         let old_scroll_top = self.list.logical_scroll_top();
 
         let len = entries.len();
-        self.entries.insert(stack_frame_id, entries);
+        self.entries.insert(stack_frame_id, entries.clone());
         self.list.reset(len);
 
         if let Some(old_entries) = old_entries.as_ref() {
@@ -742,6 +742,27 @@ impl VariableList {
                     .map(|item_ix| ListOffset {
                         item_ix,
                         offset_in_item: old_scroll_top.offset_in_item,
+                    })
+                    .or_else(|| {
+                        let entry_after_old_top = old_entries.get(old_scroll_top.item_ix + 1)?;
+                        let item_ix = entries
+                            .iter()
+                            .position(|entry| entry == entry_after_old_top)?;
+                        Some(ListOffset {
+                            item_ix,
+                            offset_in_item: Pixels::ZERO,
+                        })
+                    })
+                    .or_else(|| {
+                        let entry_before_old_top =
+                            old_entries.get(old_scroll_top.item_ix.saturating_sub(1))?;
+                        let item_ix = entries
+                            .iter()
+                            .position(|entry| entry == entry_before_old_top)?;
+                        Some(ListOffset {
+                            item_ix,
+                            offset_in_item: Pixels::ZERO,
+                        })
                     });
 
                 self.list
