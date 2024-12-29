@@ -172,10 +172,6 @@ impl DapStore {
         upstream_client: AnyProtoClient,
         _: &mut ModelContext<Self>,
     ) -> Self {
-        upstream_client
-            .send(proto::GetDebuggerSessions { project_id })
-            .log_err();
-
         Self {
             mode: DapStoreMode::Remote(RemoteDapStore {
                 upstream_client: Some(upstream_client),
@@ -1581,7 +1577,7 @@ impl DapStore {
         mut cx: AsyncAppContext,
     ) -> Result<()> {
         this.update(&mut cx, |dap_store, cx| {
-            if let Some((_, _)) = dap_store.downstream_client {
+            if let Some((_, _)) = dap_store.downstream_client() {
                 cx.emit(DapStoreEvent::SendDebuggerSessions);
             }
         })
