@@ -1002,12 +1002,14 @@ pub(crate) struct FocusedBlock {
 }
 
 #[derive(Clone)]
-struct JumpData {
-    excerpt_id: ExcerptId,
-    position: Point,
-    anchor: text::Anchor,
-    path: Option<project::ProjectPath>,
-    line_offset_from_top: u32,
+enum JumpData {
+    MultiBufferRow(MultiBufferRow),
+    MultiBufferPoint {
+        excerpt_id: ExcerptId,
+        position: Point,
+        anchor: text::Anchor,
+        line_offset_from_top: u32,
+    },
 }
 
 impl Editor {
@@ -3534,7 +3536,7 @@ impl Editor {
         }
     }
 
-    fn visible_inlay_hints(&self, cx: &ViewContext<'_, Editor>) -> Vec<Inlay> {
+    fn visible_inlay_hints(&self, cx: &ViewContext<Editor>) -> Vec<Inlay> {
         self.display_map
             .read(cx)
             .current_inlays()
@@ -3851,8 +3853,11 @@ impl Editor {
         };
 
         let buffer_handle = completions_menu.buffer;
-        let completions = completions_menu.completions.borrow_mut();
-        let completion = completions.get(mat.candidate_id)?;
+        let completion = completions_menu
+            .completions
+            .borrow()
+            .get(mat.candidate_id)?
+            .clone();
         cx.stop_propagation();
 
         let snippet;
@@ -3996,9 +4001,11 @@ impl Editor {
         }
 
         let provider = self.completion_provider.as_ref()?;
+        drop(completion);
         let apply_edits = provider.apply_additional_edits_for_completion(
             buffer_handle,
-            completion.clone(),
+            completions_menu.completions.clone(),
+            mat.candidate_id,
             true,
             cx,
         );
@@ -4920,6 +4927,7 @@ impl Editor {
             Color::Muted
         };
 
+        let position = breakpoint.as_ref().and_then(|bp| bp.active_position);
         let bp_kind = Arc::new(
             breakpoint
                 .map(|bp| bp.kind.clone())
@@ -4956,25 +4964,13 @@ impl Editor {
                         );
                     }))
                     .on_right_click(cx.listener(move |editor, event: &ClickEvent, cx| {
-                        let source = editor
-                            .buffer
-                            .read(cx)
-                            .snapshot(cx)
-                            .anchor_at(Point::new(row.0, 0u32), Bias::Left);
-
-                        let anchor = source.text_anchor;
-
-                        let context_menu =
-                            editor.breakpoint_context_menu(anchor, bp_kind.clone(), row, cx);
-
-                        let clicked_point = event.down.position;
-                        editor.mouse_context_menu = MouseContextMenu::pinned_to_editor(
-                            editor,
-                            source,
-                            clicked_point,
-                            context_menu,
+                        editor.set_breakpoint_context_menu(
+                            row,
+                            position,
+                            bp_kind.clone(),
+                            event.down.position,
                             cx,
-                        )
+                        );
                     })),
             )
         } else {
@@ -5010,13 +5006,13 @@ impl Editor {
 
         let snapshot = self.snapshot(cx);
 
-        let opened_breakpoints = dap_store.read(cx).breakpoints();
+        let breakpoints = dap_store.read(cx).breakpoints();
 
         if let Some(buffer) = self.buffer.read(cx).as_singleton() {
             let buffer = buffer.read(cx);
 
             if let Some(project_path) = buffer.project_path(cx) {
-                if let Some(breakpoints) = opened_breakpoints.get(&project_path) {
+                if let Some(breakpoints) = breakpoints.get(&project_path) {
                     for breakpoint in breakpoints {
                         let point = breakpoint.point_for_buffer(&buffer);
 
@@ -5066,8 +5062,8 @@ impl Editor {
                     continue;
                 };
 
-                if let Some(breakpoints) = opened_breakpoints.get(&project_path) {
-                    for breakpoint in breakpoints {
+                if let Some(breakpoint_set) = breakpoints.get(&project_path) {
+                    for breakpoint in breakpoint_set {
                         let breakpoint_position =
                             breakpoint.point_for_buffer_snapshot(&info.buffer);
 
@@ -5098,11 +5094,10 @@ impl Editor {
         let editor_weak2 = editor_weak.clone();
         let focus_handle = self.focus_handle(cx);
 
-        let log_message = kind.log_message();
-        let second_entry_msg = if log_message.is_some() {
+        let second_entry_msg = if kind.log_message().is_some() {
             "Edit Log Breakpoint"
         } else {
-            "Toggle Log Breakpoint"
+            "Add Log Breakpoint"
         };
 
         ui::ContextMenu::build(cx, |menu, _cx| {
@@ -5122,41 +5117,8 @@ impl Editor {
                 })
                 .entry(second_entry_msg, None, move |cx| {
                     if let Some(editor) = editor_weak2.clone().upgrade() {
-                        let log_message = log_message.clone();
                         editor.update(cx, |this, cx| {
-                            let position = this
-                                .snapshot(cx)
-                                .display_point_to_anchor(DisplayPoint::new(row, 0), Bias::Right);
-
-                            let weak_editor = cx.view().downgrade();
-                            let bp_prompt = cx.new_view(|cx| {
-                                BreakpointPromptEditor::new(weak_editor, anchor, log_message, cx)
-                            });
-
-                            let height = bp_prompt.update(cx, |this, cx| {
-                                this.prompt
-                                    .update(cx, |prompt, cx| prompt.max_point(cx).row().0 + 1 + 2)
-                            });
-                            let cloned_prompt = bp_prompt.clone();
-                            let blocks = vec![BlockProperties {
-                                style: BlockStyle::Sticky,
-                                placement: BlockPlacement::Above(position),
-                                height,
-                                render: Arc::new(move |cx| {
-                                    *cloned_prompt.read(cx).gutter_dimensions.lock() =
-                                        *cx.gutter_dimensions;
-                                    cloned_prompt.clone().into_any_element()
-                                }),
-                                priority: 0,
-                            }];
-
-                            let focus_handle = bp_prompt.focus_handle(cx);
-                            cx.focus(&focus_handle);
-
-                            let block_ids = this.insert_blocks(blocks, None, cx);
-                            bp_prompt.update(cx, |prompt, _| {
-                                prompt.add_block_ids(block_ids);
-                            });
+                            this.add_edit_breakpoint_block(row, anchor, kind.as_ref(), cx);
                         });
                     }
                 })
@@ -5201,24 +5163,13 @@ impl Editor {
                 );
             }))
             .on_right_click(cx.listener(move |editor, event: &ClickEvent, cx| {
-                let source = editor
-                    .buffer
-                    .read(cx)
-                    .snapshot(cx)
-                    .anchor_at(Point::new(row.0, 0u32), Bias::Left);
-
-                let clicked_point = event.down.position;
-
-                let context_menu =
-                    editor.breakpoint_context_menu(position, arc_kind2.clone(), row, cx);
-
-                editor.mouse_context_menu = MouseContextMenu::pinned_to_editor(
-                    editor,
-                    source,
-                    clicked_point,
-                    context_menu,
+                editor.set_breakpoint_context_menu(
+                    row,
+                    Some(position),
+                    arc_kind2.clone(),
+                    event.down.position,
                     cx,
-                )
+                );
             }))
     }
 
@@ -5362,6 +5313,7 @@ impl Editor {
             Color::Muted
         };
 
+        let position = breakpoint.as_ref().and_then(|bp| bp.active_position);
         let bp_kind = Arc::new(
             breakpoint
                 .map(|bp| bp.kind)
@@ -5383,28 +5335,17 @@ impl Editor {
                 );
             }))
             .on_right_click(cx.listener(move |editor, event: &ClickEvent, cx| {
-                let source = editor
-                    .buffer
-                    .read(cx)
-                    .snapshot(cx)
-                    .anchor_at(Point::new(row.0, 0u32), Bias::Left);
-
-                let anchor = source.text_anchor;
-
-                let context_menu = editor.breakpoint_context_menu(anchor, bp_kind.clone(), row, cx);
-
-                let clicked_point = event.down.position;
-                editor.mouse_context_menu = MouseContextMenu::pinned_to_editor(
-                    editor,
-                    source,
-                    clicked_point,
-                    context_menu,
+                editor.set_breakpoint_context_menu(
+                    row,
+                    position,
+                    bp_kind.clone(),
+                    event.down.position,
                     cx,
-                )
+                );
             }))
     }
 
-    #[cfg(feature = "test-support")]
+    #[cfg(any(feature = "test-support", test))]
     pub fn context_menu_visible(&self) -> bool {
         self.context_menu
             .borrow()
@@ -6318,7 +6259,71 @@ impl Editor {
         }
     }
 
-    pub fn toggle_breakpoint(&mut self, _: &ToggleBreakpoint, cx: &mut ViewContext<Self>) {
+    fn set_breakpoint_context_menu(
+        &mut self,
+        row: DisplayRow,
+        position: Option<text::Anchor>,
+        kind: Arc<BreakpointKind>,
+        clicked_point: gpui::Point<Pixels>,
+        cx: &mut ViewContext<Self>,
+    ) {
+        let source = self
+            .buffer
+            .read(cx)
+            .snapshot(cx)
+            .breakpoint_anchor(Point::new(row.0, 0u32));
+
+        let context_menu =
+            self.breakpoint_context_menu(position.unwrap_or(source.text_anchor), kind, row, cx);
+
+        self.mouse_context_menu =
+            MouseContextMenu::pinned_to_editor(self, source, clicked_point, context_menu, cx);
+    }
+
+    fn add_edit_breakpoint_block(
+        &mut self,
+        row: DisplayRow,
+        anchor: text::Anchor,
+        kind: &BreakpointKind,
+        cx: &mut ViewContext<Self>,
+    ) {
+        let position = self
+            .snapshot(cx)
+            .display_point_to_anchor(DisplayPoint::new(row, 0), Bias::Right);
+
+        let weak_editor = cx.view().downgrade();
+        let bp_prompt =
+            cx.new_view(|cx| BreakpointPromptEditor::new(weak_editor, anchor, kind.clone(), cx));
+
+        let height = bp_prompt.update(cx, |this, cx| {
+            this.prompt
+                .update(cx, |prompt, cx| prompt.max_point(cx).row().0 + 1 + 2)
+        });
+        let cloned_prompt = bp_prompt.clone();
+        let blocks = vec![BlockProperties {
+            style: BlockStyle::Sticky,
+            placement: BlockPlacement::Above(position),
+            height,
+            render: Arc::new(move |cx| {
+                *cloned_prompt.read(cx).gutter_dimensions.lock() = *cx.gutter_dimensions;
+                cloned_prompt.clone().into_any_element()
+            }),
+            priority: 0,
+        }];
+
+        let focus_handle = bp_prompt.focus_handle(cx);
+        cx.focus(&focus_handle);
+
+        let block_ids = self.insert_blocks(blocks, None, cx);
+        bp_prompt.update(cx, |prompt, _| {
+            prompt.add_block_ids(block_ids);
+        });
+    }
+
+    pub(crate) fn breakpoint_at_cursor_head(
+        &mut self,
+        cx: &mut ViewContext<Self>,
+    ) -> Option<(text::Anchor, BreakpointKind)> {
         let cursor_position: Point = self.selections.newest(cx).head();
 
         // We Set the column position to zero so this function interacts correctly
@@ -6334,31 +6339,70 @@ impl Editor {
 
         let project = self.project.clone();
 
-        let found_bp = maybe!({
-            let buffer_id = breakpoint_position.buffer_id?;
-            let buffer =
-                project?.read_with(cx, |project, cx| project.buffer_for_id(buffer_id, cx))?;
-            let (buffer_snapshot, project_path) = (
-                buffer.read(cx).snapshot(),
-                buffer.read(cx).project_path(cx)?,
-            );
+        let buffer_id = breakpoint_position.buffer_id?;
+        let buffer = project?.read_with(cx, |project, cx| project.buffer_for_id(buffer_id, cx))?;
+        let (buffer_snapshot, project_path) = (
+            buffer.read(cx).snapshot(),
+            buffer.read(cx).project_path(cx)?,
+        );
 
-            let row = buffer_snapshot
-                .summary_for_anchor::<Point>(&breakpoint_position)
-                .row;
+        let row = buffer_snapshot
+            .summary_for_anchor::<Point>(&breakpoint_position)
+            .row;
 
-            let bp = self.dap_store.clone()?.read_with(cx, |store, _cx| {
-                store.breakpoint_at_row(row, &project_path, buffer_snapshot)
-            })?;
+        let bp = self.dap_store.clone()?.read_with(cx, |store, _cx| {
+            store.breakpoint_at_row(row, &project_path, buffer_snapshot)
+        })?;
 
-            Some((bp.active_position?, bp.kind))
+        Some((bp.active_position?, bp.kind))
+    }
+
+    pub fn edit_log_breakpoint(&mut self, _: &EditLogBreakpoint, cx: &mut ViewContext<Self>) {
+        let (anchor, kind) = self.breakpoint_at_cursor_head(cx).unwrap_or_else(|| {
+            let cursor_position: Point = self.selections.newest(cx).head();
+
+            let breakpoint_position = self
+                .snapshot(cx)
+                .display_snapshot
+                .buffer_snapshot
+                .breakpoint_anchor(Point::new(cursor_position.row, 0))
+                .text_anchor;
+
+            let kind = BreakpointKind::Standard;
+
+            (breakpoint_position, kind)
         });
 
+        if let Some(buffer) = self
+            .buffer()
+            .read(cx)
+            .as_singleton()
+            .map(|buffer| buffer.read(cx))
+        {
+            let row = buffer
+                .summary_for_anchor::<Point>(&anchor)
+                .to_display_point(&self.snapshot(cx))
+                .row();
+
+            self.add_edit_breakpoint_block(row, anchor, &kind, cx);
+        }
+    }
+
+    pub fn toggle_breakpoint(&mut self, _: &ToggleBreakpoint, cx: &mut ViewContext<Self>) {
         let edit_action = BreakpointEditAction::Toggle;
 
-        if let Some((anchor, kind)) = found_bp {
+        if let Some((anchor, kind)) = self.breakpoint_at_cursor_head(cx) {
             self.edit_breakpoint_at_anchor(anchor, kind, edit_action, cx);
         } else {
+            let cursor_position: Point = self.selections.newest(cx).head();
+
+            let breakpoint_position = self
+                .snapshot(cx)
+                .display_snapshot
+                .buffer_snapshot
+                .breakpoint_anchor(Point::new(cursor_position.row, 0))
+                .text_anchor;
+
             self.edit_breakpoint_at_anchor(
                 breakpoint_position,
                 BreakpointKind::Standard,
@@ -6417,7 +6461,7 @@ impl Editor {
     fn gather_revert_changes(
         &mut self,
         selections: &[Selection<Point>],
-        cx: &mut ViewContext<'_, Editor>,
+        cx: &mut ViewContext<Editor>,
     ) -> HashMap<BufferId, Vec<(Range<text::Anchor>, Rope)>> {
         let mut revert_changes = HashMap::default();
         let snapshot = self.snapshot(cx);
@@ -9344,7 +9388,7 @@ impl Editor {
     fn templates_with_tags(
         project: &Model<Project>,
         runnable: &mut Runnable,
-        cx: &WindowContext<'_>,
+        cx: &WindowContext,
     ) -> Vec<(TaskSourceKind, TaskTemplate)> {
         let (inventory, worktree_id, file) = project.read_with(cx, |project, cx| {
             let (worktree_id, file) = project
@@ -9656,7 +9700,7 @@ impl Editor {
         &mut self,
         snapshot: &EditorSnapshot,
         position: Point,
-        cx: &mut ViewContext<'_, Editor>,
+        cx: &mut ViewContext<Editor>,
     ) -> Option<MultiBufferDiffHunk> {
         for (ix, position) in [position, Point::zero()].into_iter().enumerate() {
             if let Some(hunk) = self.go_to_next_hunk_in_direction(
@@ -9685,7 +9729,7 @@ impl Editor {
         &mut self,
         snapshot: &EditorSnapshot,
         position: Point,
-        cx: &mut ViewContext<'_, Editor>,
+        cx: &mut ViewContext<Editor>,
     ) -> Option<MultiBufferDiffHunk> {
         for (ix, position) in [position, snapshot.buffer_snapshot.max_point()]
             .into_iter()
@@ -12924,26 +12968,44 @@ impl Editor {
 
         let mut new_selections_by_buffer = HashMap::default();
         match &jump_data {
-            Some(jump_data) => {
+            Some(JumpData::MultiBufferPoint {
+                excerpt_id,
+                position,
+                anchor,
+                line_offset_from_top,
+            }) => {
                 let multi_buffer_snapshot = self.buffer.read(cx).snapshot(cx);
                 if let Some(buffer) = multi_buffer_snapshot
-                    .buffer_id_for_excerpt(jump_data.excerpt_id)
+                    .buffer_id_for_excerpt(*excerpt_id)
                     .and_then(|buffer_id| self.buffer.read(cx).buffer(buffer_id))
                 {
                     let buffer_snapshot = buffer.read(cx).snapshot();
-                    let jump_to_point = if buffer_snapshot.can_resolve(&jump_data.anchor) {
-                        language::ToPoint::to_point(&jump_data.anchor, &buffer_snapshot)
+                    let jump_to_point = if buffer_snapshot.can_resolve(anchor) {
+                        language::ToPoint::to_point(anchor, &buffer_snapshot)
                     } else {
-                        buffer_snapshot.clip_point(jump_data.position, Bias::Left)
+                        buffer_snapshot.clip_point(*position, Bias::Left)
                     };
                     let jump_to_offset = buffer_snapshot.point_to_offset(jump_to_point);
                     new_selections_by_buffer.insert(
                         buffer,
                         (
                             vec![jump_to_offset..jump_to_offset],
-                            Some(jump_data.line_offset_from_top),
+                            Some(*line_offset_from_top),
                         ),
                     );
+                }
+            }
+            Some(JumpData::MultiBufferRow(row)) => {
+                let point = MultiBufferPoint::new(row.0, 0);
+                if let Some((buffer, buffer_point, _)) =
+                    self.buffer.read(cx).point_to_buffer_point(point, cx)
+                {
+                    let buffer_offset = buffer.read(cx).point_to_offset(buffer_point);
+                    new_selections_by_buffer
+                        .entry(buffer)
+                        .or_insert((Vec::new(), None))
+                        .0
+                        .push(buffer_offset..buffer_offset)
                 }
             }
             None => {
@@ -13918,11 +13980,14 @@ pub trait CompletionProvider {
 
     fn apply_additional_edits_for_completion(
         &self,
-        buffer: Model<Buffer>,
-        completion: Completion,
-        push_to_history: bool,
-        cx: &mut ViewContext<Editor>,
-    ) -> Task<Result<Option<language::Transaction>>>;
+        _buffer: Model<Buffer>,
+        _completions: Rc<RefCell<Box<[Completion]>>>,
+        _completion_index: usize,
+        _push_to_history: bool,
+        _cx: &mut ViewContext<Editor>,
+    ) -> Task<Result<Option<language::Transaction>>> {
+        Task::ready(Ok(None))
+    }
 
     fn is_completion_trigger(
         &self,
@@ -14081,6 +14146,7 @@ fn snippet_completions(
                 Some(Completion {
                     old_range: range,
                     new_text: snippet.body.clone(),
+                    resolved: false,
                     label: CodeLabel {
                         text: matching_prefix.clone(),
                         runs: vec![],
@@ -14146,19 +14212,30 @@ impl CompletionProvider for Model<Project> {
         cx: &mut ViewContext<Editor>,
     ) -> Task<Result<bool>> {
         self.update(cx, |project, cx| {
-            project.resolve_completions(buffer, completion_indices, completions, cx)
+            project.lsp_store().update(cx, |lsp_store, cx| {
+                lsp_store.resolve_completions(buffer, completion_indices, completions, cx)
+            })
         })
     }
 
     fn apply_additional_edits_for_completion(
         &self,
         buffer: Model<Buffer>,
-        completion: Completion,
+        completions: Rc<RefCell<Box<[Completion]>>>,
+        completion_index: usize,
         push_to_history: bool,
         cx: &mut ViewContext<Editor>,
     ) -> Task<Result<Option<language::Transaction>>> {
         self.update(cx, |project, cx| {
-            project.apply_additional_edits_for_completion(buffer, completion, push_to_history, cx)
+            project.lsp_store().update(cx, |lsp_store, cx| {
+                lsp_store.apply_additional_edits_for_completion(
+                    buffer,
+                    completions,
+                    completion_index,
+                    push_to_history,
+                    cx,
+                )
+            })
         })
     }
 
@@ -14293,7 +14370,7 @@ impl SemanticsProvider for Model<Project> {
 fn inlay_hint_settings(
     location: Anchor,
     snapshot: &MultiBufferSnapshot,
-    cx: &mut ViewContext<'_, Editor>,
+    cx: &mut ViewContext<Editor>,
 ) -> InlayHintSettings {
     let file = snapshot.file_at(location);
     let language = snapshot.language_at(location).map(|l| l.name());
@@ -15453,6 +15530,7 @@ struct BreakpointPromptEditor {
     pub(crate) prompt: View<Editor>,
     editor: WeakView<Editor>,
     breakpoint_anchor: text::Anchor,
+    kind: BreakpointKind,
     block_ids: HashSet<CustomBlockId>,
     gutter_dimensions: Arc<Mutex<GutterDimensions>>,
     _subscriptions: Vec<Subscription>,
@@ -15464,12 +15542,14 @@ impl BreakpointPromptEditor {
     fn new(
         editor: WeakView<Editor>,
         breakpoint_anchor: text::Anchor,
-        log_message: Option<Arc<str>>,
+        kind: BreakpointKind,
         cx: &mut ViewContext<Self>,
     ) -> Self {
         let buffer = cx.new_model(|cx| {
             Buffer::local(
-                log_message.map(|msg| msg.to_string()).unwrap_or_default(),
+                kind.log_message()
+                    .map(|msg| msg.to_string())
+                    .unwrap_or_default(),
                 cx,
             )
         });
@@ -15486,10 +15566,7 @@ impl BreakpointPromptEditor {
                 cx,
             );
             prompt.set_soft_wrap_mode(language::language_settings::SoftWrap::EditorWidth, cx);
-            // Since the prompt editors for all inline assistants are linked,
-            // always show the cursor (even when it isn't focused) because
-            // typing in one will make what you typed appear in all of them.
-            prompt.set_show_cursor_when_unfocused(true, cx);
+            prompt.set_show_cursor_when_unfocused(false, cx);
             prompt.set_placeholder_text(
                 "Message to log when breakpoint is hit. Expressions within {} are interpolated.",
                 cx,
@@ -15502,6 +15579,7 @@ impl BreakpointPromptEditor {
             prompt,
             editor,
             breakpoint_anchor,
+            kind,
             gutter_dimensions: Arc::new(Mutex::new(GutterDimensions::default())),
             block_ids: Default::default(),
             _subscriptions: vec![],
@@ -15528,12 +15606,13 @@ impl BreakpointPromptEditor {
             editor.update(cx, |editor, cx| {
                 editor.edit_breakpoint_at_anchor(
                     self.breakpoint_anchor,
-                    BreakpointKind::Log(log_message.into()),
-                    BreakpointEditAction::EditLogMessage,
+                    self.kind.clone(),
+                    BreakpointEditAction::EditLogMessage(log_message.into()),
                     cx,
                 );
 
                 editor.remove_blocks(self.block_ids.clone(), None, cx);
+                editor.focus(cx);
             });
         }
     }
@@ -15542,6 +15621,7 @@ impl BreakpointPromptEditor {
         if let Some(editor) = self.editor.upgrade() {
             editor.update(cx, |editor, cx| {
                 editor.remove_blocks(self.block_ids.clone(), None, cx);
+                editor.focus(cx);
             });
         }
     }

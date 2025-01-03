@@ -611,7 +611,7 @@ impl DebugPanel {
             this.update(&mut cx, |debug_panel, cx| {
                 debug_panel.workspace.update(cx, |workspace, cx| {
                     workspace.project().update(cx, |project, cx| {
-                        project.send_breakpoints(&session_id, &client_id, cx)
+                        project.initial_send_breakpoints(&session_id, &client_id, cx)
                     })
                 })
             })??
@@ -1061,6 +1061,10 @@ impl Panel for DebugPanel {
 
     fn toggle_action(&self) -> Box<dyn Action> {
         Box::new(ToggleFocus)
+    }
+
+    fn activation_priority(&self) -> u32 {
+        9
     }
 }
 

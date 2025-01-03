@@ -366,6 +366,7 @@ gpui::actions!(
         Tab,
         TabPrev,
         ToggleBreakpoint,
+        EditLogBreakpoint,
         ToggleAutoSignatureHelp,
         ToggleGitBlame,
         ToggleGitBlameInline,
@@ -388,7 +389,5 @@ gpui::actions!(
         UniqueLinesCaseSensitive,
     ]
 );
-
-action_as!(outline, ToggleOutline as Toggle);
 
 action_as!(go_to_line, ToggleGoToLine as Toggle);

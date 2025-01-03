@@ -941,10 +941,36 @@ impl DapStore {
                             })
                             .log_err();
 
-                            (false, None)
+                            (
+                                false,
+                                Some(serde_json::to_value(ErrorResponse {
+                                    error: Some(dap::Message {
+                                        id: seq,
+                                        format: error.to_string(),
+                                        variables: None,
+                                        send_telemetry: None,
+                                        show_user: None,
+                                        url: None,
+                                        url_label: None,
+                                    }),
+                                })?),
+                            )
                         }
                     },
-                    Err(_) => (false, None),
+                    Err(error) => (
+                        false,
+                        Some(serde_json::to_value(ErrorResponse {
+                            error: Some(dap::Message {
+                                id: seq,
+                                format: error.to_string(),
+                                variables: None,
+                                send_telemetry: None,
+                                show_user: None,
+                                url: None,
+                                url_label: None,
+                            }),
+                        })?),
+                    ),
                 }
             } else {
                 (
@@ -1469,14 +1495,13 @@ impl DapStore {
         breakpoints: Vec<proto::SynchronizeBreakpoints>,
         cx: &mut ModelContext<Self>,
     ) {
-        self.breakpoints.clear();
-
+        let mut new_breakpoints = BTreeMap::new();
         for project_breakpoints in breakpoints {
             let Some(project_path) = project_breakpoints.project_path else {
                 continue;
             };
 
-            self.breakpoints.insert(
+            new_breakpoints.insert(
                 ProjectPath::from_proto(project_path),
                 project_breakpoints
                     .breakpoints
@@ -1486,6 +1511,7 @@ impl DapStore {
             );
         }
 
+        std::mem::swap(&mut self.breakpoints, &mut new_breakpoints);
         cx.notify();
     }
 
@@ -1623,7 +1649,7 @@ impl DapStore {
     pub fn toggle_breakpoint_for_buffer(
         &mut self,
         project_path: &ProjectPath,
-        breakpoint: Breakpoint,
+        mut breakpoint: Breakpoint,
         buffer_path: PathBuf,
         buffer_snapshot: BufferSnapshot,
         edit_action: BreakpointEditAction,
@@ -1631,11 +1657,7 @@ impl DapStore {
     ) -> Task<Result<()>> {
         let upstream_client = self.upstream_client();
 
-        let mut breakpoint_set = self
-            .breakpoints
-            .get(project_path)
-            .cloned()
-            .unwrap_or_default();
+        let breakpoint_set = self.breakpoints.entry(project_path.clone()).or_default();
 
         match edit_action {
             BreakpointEditAction::Toggle => {
@@ -1643,20 +1665,16 @@ impl DapStore {
                     breakpoint_set.insert(breakpoint);
                 }
             }
-            BreakpointEditAction::EditLogMessage => {
-                breakpoint_set.remove(&breakpoint);
-                breakpoint_set.insert(breakpoint);
+            BreakpointEditAction::EditLogMessage(log_message) => {
+                if !log_message.is_empty() {
+                    breakpoint.kind = BreakpointKind::Log(log_message.clone());
+                    breakpoint_set.remove(&breakpoint);
+                    breakpoint_set.insert(breakpoint);
+                } else if matches!(&breakpoint.kind, BreakpointKind::Log(_)) {
+                    breakpoint_set.remove(&breakpoint);
+                }
             }
         }
-
-        if breakpoint_set.is_empty() {
-            self.breakpoints.remove(project_path);
-        } else {
-            self.breakpoints
-                .insert(project_path.clone(), breakpoint_set.clone());
-        }
-
-        cx.notify();
 
         if let Some((client, project_id)) = upstream_client.or(self.downstream_client.clone()) {
             client
@@ -1670,6 +1688,12 @@ impl DapStore {
                 })
                 .log_err();
         }
+
+        if breakpoint_set.is_empty() {
+            self.breakpoints.remove(project_path);
+        }
+
+        cx.notify();
 
         self.send_changed_breakpoints(project_path, buffer_path, buffer_snapshot, cx)
     }
@@ -1726,11 +1750,11 @@ impl DapStore {
             return Task::ready(Err(anyhow!("cannot start session on remote side")));
         };
 
-        let Some(breakpoints) = self.breakpoints.get(project_path) else {
-            return Task::ready(Ok(()));
-        };
-
-        let source_breakpoints = breakpoints
+        let source_breakpoints = self
+            .breakpoints
+            .get(project_path)
+            .cloned()
+            .unwrap_or_default()
             .iter()
             .map(|bp| bp.source_for_snapshot(&buffer_snapshot))
             .collect::<Vec<_>>();
@@ -1794,7 +1818,7 @@ type LogMessage = Arc<str>;
 #[derive(Clone, Debug)]
 pub enum BreakpointEditAction {
     Toggle,
-    EditLogMessage,
+    EditLogMessage(LogMessage),
 }
 
 #[derive(Clone, Debug)]

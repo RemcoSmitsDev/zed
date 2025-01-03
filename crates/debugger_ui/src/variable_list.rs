@@ -10,7 +10,7 @@ use editor::{
 };
 use gpui::{
     anchored, deferred, list, AnyElement, ClipboardItem, DismissEvent, FocusHandle, FocusableView,
-    ListState, Model, MouseDownEvent, Point, Subscription, Task, View,
+    ListOffset, ListState, Model, MouseDownEvent, Point, Subscription, Task, View,
 };
 use menu::Confirm;
 use project::dap_store::DapStore;
@@ -23,6 +23,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
 };
+use sum_tree::{Dimension, Item, SumTree, Summary};
 use ui::{prelude::*, ContextMenu, ListItem};
 use util::ResultExt;
 
@@ -229,7 +230,50 @@ impl VariableListEntry {
 #[derive(Debug)]
 pub struct ScopeVariableIndex {
     fetched_ids: HashSet<u64>,
-    variables: Vec<VariableContainer>,
+    variables: SumTree<VariableContainer>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ScopeVariableSummary {
+    count: usize,
+    max_depth: usize,
+    container_reference: u64,
+}
+
+impl Item for VariableContainer {
+    type Summary = ScopeVariableSummary;
+
+    fn summary(&self, _cx: &()) -> Self::Summary {
+        ScopeVariableSummary {
+            count: 1,
+            max_depth: self.depth,
+            container_reference: self.container_reference,
+        }
+    }
+}
+
+impl<'a> Dimension<'a, ScopeVariableSummary> for usize {
+    fn zero(_cx: &()) -> Self {
+        0
+    }
+
+    fn add_summary(&mut self, summary: &'a ScopeVariableSummary, _cx: &()) {
+        *self += summary.count;
+    }
+}
+
+impl Summary for ScopeVariableSummary {
+    type Context = ();
+
+    fn zero(_: &Self::Context) -> Self {
+        Self::default()
+    }
+
+    fn add_summary(&mut self, other: &Self, _: &Self::Context) {
+        self.count += other.count;
+        self.max_depth = self.max_depth.max(other.max_depth);
+        self.container_reference = self.container_reference.max(other.container_reference);
+    }
 }
 
 impl ProtoConversion for ScopeVariableIndex {
@@ -246,11 +290,13 @@ impl ProtoConversion for ScopeVariableIndex {
     fn from_proto(payload: Self::ProtoType) -> Self {
         Self {
             fetched_ids: payload.fetched_ids.iter().copied().collect(),
-            variables: payload
-                .variables
-                .iter()
-                .filter_map(|var| VariableContainer::from_proto(var.clone()).log_err())
-                .collect(),
+            variables: SumTree::from_iter(
+                payload
+                    .variables
+                    .iter()
+                    .filter_map(|var| VariableContainer::from_proto(var.clone()).log_err()),
+                &(),
+            ),
         }
     }
 }
@@ -258,7 +304,7 @@ impl ProtoConversion for ScopeVariableIndex {
 impl ScopeVariableIndex {
     pub fn new() -> Self {
         Self {
-            variables: Vec::new(),
+            variables: SumTree::default(),
             fetched_ids: HashSet::default(),
         }
     }
@@ -269,26 +315,45 @@ impl ScopeVariableIndex {
 
     /// All the variables should have the same depth and the same container reference
     pub fn add_variables(&mut self, container_reference: u64, variables: Vec<VariableContainer>) {
-        let position = self
-            .variables
-            .iter()
-            .position(|v| v.variable.variables_reference == container_reference);
-
         self.fetched_ids.insert(container_reference);
 
-        if let Some(position) = position {
-            self.variables.splice(position + 1..=position, variables);
-        } else {
-            self.variables.extend(variables);
+        let mut new_variables = SumTree::new(&());
+        let mut cursor = self.variables.cursor::<usize>(&());
+        let mut found_insertion_point = false;
+
+        cursor.seek(&0, editor::Bias::Left, &());
+        while let Some(variable) = cursor.item() {
+            if variable.variable.variables_reference == container_reference {
+                found_insertion_point = true;
+
+                let start = *cursor.start();
+                new_variables.push(variable.clone(), &());
+                new_variables.append(cursor.slice(&start, editor::Bias::Left, &()), &());
+                new_variables.extend(variables.iter().cloned(), &());
+
+                cursor.next(&());
+                new_variables.append(cursor.suffix(&()), &());
+
+                break;
+            }
+            new_variables.push(variable.clone(), &());
+            cursor.next(&());
         }
+        drop(cursor);
+
+        if !found_insertion_point {
+            new_variables.extend(variables.iter().cloned(), &());
+        }
+
+        self.variables = new_variables;
     }
 
     pub fn is_empty(&self) -> bool {
         self.variables.is_empty()
     }
 
-    pub fn variables(&self) -> &[VariableContainer] {
-        &self.variables
+    pub fn variables(&self) -> Vec<VariableContainer> {
+        self.variables.iter().cloned().collect()
     }
 }
 
@@ -662,9 +727,48 @@ impl VariableList {
             }
         }
 
+        let old_entries = self.entries.get(&stack_frame_id).cloned();
+        let old_scroll_top = self.list.logical_scroll_top();
+
         let len = entries.len();
-        self.entries.insert(stack_frame_id, entries);
+        self.entries.insert(stack_frame_id, entries.clone());
         self.list.reset(len);
+
+        if let Some(old_entries) = old_entries.as_ref() {
+            if let Some(old_top_entry) = old_entries.get(old_scroll_top.item_ix) {
+                let new_scroll_top = old_entries
+                    .iter()
+                    .position(|entry| entry == old_top_entry)
+                    .map(|item_ix| ListOffset {
+                        item_ix,
+                        offset_in_item: old_scroll_top.offset_in_item,
+                    })
+                    .or_else(|| {
+                        let entry_after_old_top = old_entries.get(old_scroll_top.item_ix + 1)?;
+                        let item_ix = entries
+                            .iter()
+                            .position(|entry| entry == entry_after_old_top)?;
+                        Some(ListOffset {
+                            item_ix,
+                            offset_in_item: Pixels::ZERO,
+                        })
+                    })
+                    .or_else(|| {
+                        let entry_before_old_top =
+                            old_entries.get(old_scroll_top.item_ix.saturating_sub(1))?;
+                        let item_ix = entries
+                            .iter()
+                            .position(|entry| entry == entry_before_old_top)?;
+                        Some(ListOffset {
+                            item_ix,
+                            offset_in_item: Pixels::ZERO,
+                        })
+                    });
+
+                self.list
+                    .scroll_to(new_scroll_top.unwrap_or(old_scroll_top));
+            }
+        }
 
         cx.notify();
 
@@ -1186,7 +1290,7 @@ mod tests {
     fn test_add_initial_variables_to_index() {
         let mut index = ScopeVariableIndex::new();
 
-        assert_eq!(index.variables(), &[]);
+        assert_eq!(index.variables(), vec![]);
         assert_eq!(index.fetched_ids, HashSet::default());
 
         let variable1 = VariableContainer {
@@ -1243,10 +1347,10 @@ mod tests {
         );
 
         assert_eq!(
+            vec![variable1.clone(), variable2.clone(), variable3.clone()],
             index.variables(),
-            &[variable1.clone(), variable2.clone(), variable3.clone()]
         );
-        assert_eq!(index.fetched_ids, HashSet::from([1]));
+        assert_eq!(HashSet::from([1]), index.fetched_ids,);
     }
 
     /// This covers when you click on a variable that has a nested variable
@@ -1255,7 +1359,7 @@ mod tests {
     fn test_add_sub_variables_to_index() {
         let mut index = ScopeVariableIndex::new();
 
-        assert_eq!(index.variables(), &[]);
+        assert_eq!(index.variables(), vec![]);
 
         let variable1 = VariableContainer {
             variable: Variable {
@@ -1311,10 +1415,10 @@ mod tests {
         );
 
         assert_eq!(
+            vec![variable1.clone(), variable2.clone(), variable3.clone()],
             index.variables(),
-            &[variable1.clone(), variable2.clone(), variable3.clone()]
         );
-        assert_eq!(index.fetched_ids, HashSet::from([1]));
+        assert_eq!(HashSet::from([1]), index.fetched_ids);
 
         let variable4 = VariableContainer {
             variable: Variable {
@@ -1351,14 +1455,14 @@ mod tests {
         index.add_variables(2, vec![variable4.clone(), variable5.clone()]);
 
         assert_eq!(
-            index.variables(),
-            &[
+            vec![
                 variable1.clone(),
                 variable2.clone(),
                 variable4.clone(),
                 variable5.clone(),
                 variable3.clone(),
-            ]
+            ],
+            index.variables(),
         );
         assert_eq!(index.fetched_ids, HashSet::from([1, 2]));
     }
@@ -1436,15 +1540,15 @@ mod tests {
         index.add_variables(2, vec![variable3.clone(), variable4.clone()]);
 
         assert_eq!(
-            index.variables(),
-            &[
+            vec![
                 variable1.clone(),
                 variable3.clone(),
                 variable4.clone(),
                 variable2.clone(),
-            ]
+            ],
+            index.variables(),
         );
-        assert_eq!(index.fetched_ids, HashSet::from([1, 2]));
+        assert_eq!(HashSet::from([1, 2]), index.fetched_ids);
 
         let from_proto = ScopeVariableIndex::from_proto(index.to_proto());
 
