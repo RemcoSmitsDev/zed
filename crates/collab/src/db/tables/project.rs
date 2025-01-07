@@ -53,6 +53,8 @@ pub enum Relation {
     Breakpoints,
     #[sea_orm(has_many = "super::debug_session::Entity")]
     DebugSessions,
+    #[sea_orm(has_many = "super::debug_client::Entity")]
+    DebugClients,
 }
 
 impl Related<super::user::Entity> for Entity {
@@ -94,6 +96,12 @@ impl Related<super::breakpoints::Entity> for Entity {
 impl Related<super::debug_session::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::DebugSessions.def()
+    }
+}
+
+impl Related<super::debug_client::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DebugClients.def()
     }
 }
 
