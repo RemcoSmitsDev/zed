@@ -572,6 +572,7 @@ message JoinProjectResponse {
     ChannelRole role = 6;
     reserved 7;
     repeated SynchronizeBreakpoints breakpoints = 8;
+    repeated DebuggerSession debug_sessions = 9;
 }
 
 message LeaveProject {
@@ -2423,8 +2424,14 @@ enum BreakpointKind {
 message DebuggerSession {
     uint64 session_id = 1;
     uint64 project_id = 2;
-    SetDebugClientCapabilities capabilities = 3;
-    SetActiveDebugLine active_debug_line = 4;
+    repeated DebugClient clients = 3;
+}
+
+message DebugClient {
+    uint64 client_id = 1;
+    SetDebugClientCapabilities capabilities = 2;
+    SetActiveDebugLine active_debug_line = 3;
+    optional SetDebuggerPanelItem debug_panel_item = 4;
 }
 
 message ShutdownDebugClient {

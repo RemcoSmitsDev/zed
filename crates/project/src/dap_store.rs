@@ -1488,6 +1488,34 @@ impl DapStore {
         })
     }
 
+    pub fn set_debug_sessions_from_proto(
+        &mut self,
+        debug_sessions: Vec<proto::DebuggerSession>,
+        cx: &mut ModelContext<Self>,
+    ) {
+        for (session_id, debug_clients) in debug_sessions
+            .into_iter()
+            .map(|session| (session.session_id, session.clients))
+        {
+            for debug_client in debug_clients {
+                if let Some(panel_item) = debug_client.debug_panel_item {
+                    cx.emit(DapStoreEvent::SetDebugPanelItem(panel_item));
+                }
+
+                self.update_capabilities_for_client(
+                    &DebugSessionId::from_proto(session_id),
+                    &DebugAdapterClientId::from_proto(debug_client.client_id),
+                    &dap::proto_conversions::capabilities_from_proto(
+                        &debug_client.capabilities.unwrap_or_default(),
+                    ),
+                    cx,
+                );
+            }
+        }
+
+        cx.notify();
+    }
+
     pub fn set_breakpoints_from_proto(
         &mut self,
         breakpoints: Vec<proto::SynchronizeBreakpoints>,

@@ -477,29 +477,78 @@ impl Database {
         .await
     }
 
-    pub async fn update_debug_session_capabilities(
+    pub async fn update_debug_client_panel_item(
+        &self,
+        connection_id: ConnectionId,
+        update: &proto::SetDebuggerPanelItem,
+    ) -> Result<TransactionGuard<HashSet<ConnectionId>>> {
+        let project_id = ProjectId::from_proto(update.project_id);
+        self.project_transaction(project_id, |tx| async move {
+            let mut debug_client = debug_clients::Entity::find()
+                .filter(
+                    Condition::all()
+                        .add(debug_clients::Column::ProjectId.eq(project_id))
+                        .add(debug_clients::Column::SessionId.eq(update.session_id)),
+                )
+                .one(&*tx)
+                .await?;
+
+            if debug_client.is_none() {
+                let new_debug_client = debug_clients::ActiveModel {
+                    id: ActiveValue::Set(update.client_id as i64),
+                    project_id: ActiveValue::Set(project_id),
+                    session_id: ActiveValue::Set(update.session_id as i64),
+                    capabilities: ActiveValue::Set(0),
+                    panel_item: ActiveValue::Set(vec![]),
+                };
+                debug_client = Some(new_debug_client.insert(&*tx).await?);
+            }
+
+            let mut debug_client = debug_client.unwrap();
+
+            debug_client
+                .set_panel_item(update)
+                .with_context(|| "attempting to set panel item")?;
+
+            debug_clients::Entity::update(debug_clients::ActiveModel {
+                id: ActiveValue::Unchanged(debug_client.id),
+                project_id: ActiveValue::Unchanged(debug_client.project_id),
+                session_id: ActiveValue::Unchanged(debug_client.session_id),
+                capabilities: ActiveValue::Unchanged(debug_client.capabilities),
+                panel_item: ActiveValue::Set(debug_client.panel_item),
+            })
+            .exec(&*tx)
+            .await?;
+
+            self.internal_project_connection_ids(project_id, connection_id, true, &tx)
+                .await
+        })
+        .await
+    }
+
+    pub async fn update_debug_client_capabilities(
         &self,
         connection_id: ConnectionId,
         update: &proto::SetDebugClientCapabilities,
     ) -> Result<TransactionGuard<HashSet<ConnectionId>>> {
         let project_id = ProjectId::from_proto(update.project_id);
         self.project_transaction(project_id, |tx| async move {
-            let mut debug_client = debug_client::Entity::find()
+            let mut debug_client = debug_clients::Entity::find()
                 .filter(
                     Condition::all()
-                        .add(debug_client::Column::ProjectId.eq(project_id))
-                        .add(debug_client::Column::SessionId.eq(update.session_id)),
+                        .add(debug_clients::Column::ProjectId.eq(project_id))
+                        .add(debug_clients::Column::SessionId.eq(update.session_id)),
                 )
                 .one(&*tx)
                 .await?;
 
             if debug_client.is_none() {
-                let new_debug_client = debug_client::ActiveModel {
+                let new_debug_client = debug_clients::ActiveModel {
+                    id: ActiveValue::Set(update.client_id as i64),
                     project_id: ActiveValue::Set(project_id),
-                    session_id: ActiveValue::Set(update.session_id),
+                    session_id: ActiveValue::Set(update.session_id as i64),
                     capabilities: ActiveValue::Set(0),
                     panel_item: ActiveValue::Set(vec![]),
-                    ..Default::default()
                 };
                 debug_client = Some(new_debug_client.insert(&*tx).await?);
             }
@@ -508,7 +557,7 @@ impl Database {
 
             debug_client.set_capabilities(update);
 
-            debug_client::Entity::update(debug_client::ActiveModel {
+            debug_clients::Entity::update(debug_clients::ActiveModel {
                 id: ActiveValue::Unchanged(debug_client.id),
                 project_id: ActiveValue::Unchanged(debug_client.project_id),
                 session_id: ActiveValue::Unchanged(debug_client.session_id),
@@ -822,7 +871,7 @@ impl Database {
         }
 
         let project_id = project.id.to_proto();
-        let debug_clients = project.find_related(debug_client::Entity).all(tx).await?;
+        let debug_clients = project.find_related(debug_clients::Entity).all(tx).await?;
         let mut debug_sessions: HashMap<_, Vec<_>> = HashMap::default();
 
         for debug_client in debug_clients {
@@ -838,15 +887,16 @@ impl Database {
                 let debug_clients = clients
                     .into_iter()
                     .map(|debug_client| proto::DebugClient {
-                        client_id: debug_client.id,
+                        client_id: debug_client.id as u64,
                         capabilities: Some(debug_client.capabilities()),
+                        debug_panel_item: debug_client.panel_item().log_err(),
                         ..Default::default()
                     })
                     .collect();
 
                 proto::DebuggerSession {
                     project_id,
-                    session_id,
+                    session_id: session_id as u64,
                     clients: debug_clients,
                 }
             })

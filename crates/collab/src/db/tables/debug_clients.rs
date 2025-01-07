@@ -1,5 +1,7 @@
 use crate::db::ProjectId;
-use rpc::proto::SetDebugClientCapabilities;
+use anyhow::Result;
+use prost::Message;
+use rpc::proto::{SetDebugClientCapabilities, SetDebuggerPanelItem};
 use sea_orm::entity::prelude::*;
 
 const SUPPORTS_LOADED_SOURCES_REQUEST_BIT: u32 = 0;
@@ -12,15 +14,15 @@ const SUPPORTS_STEPPING_GRANULARITY_BIT: u32 = 6;
 const SUPPORTS_TERMINATE_THREADS_REQUEST_BIT: u32 = 7;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "debug_client")]
+#[sea_orm(table_name = "debug_clients")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub id: u64,
+    pub id: i64,
     #[sea_orm(primary_key)]
     pub project_id: ProjectId,
-    pub session_id: u64,
+    pub session_id: i64,
     #[sea_orm(column_type = "Integer")]
-    pub capabilities: u32,
+    pub capabilities: i32,
     pub panel_item: Vec<u8>,
 }
 
@@ -52,24 +54,36 @@ impl Model {
     }
 
     pub fn set_capabilities(&mut self, capabilities: &SetDebugClientCapabilities) {
-        let mut capabilities_bit_mask = 0u32;
-        capabilities_bit_mask |= (capabilities.supports_loaded_sources_request as u32)
+        let mut capabilities_bit_mask = 0i32;
+        capabilities_bit_mask |= (capabilities.supports_loaded_sources_request as i32)
             << SUPPORTS_LOADED_SOURCES_REQUEST_BIT;
         capabilities_bit_mask |=
-            (capabilities.supports_modules_request as u32) << SUPPORTS_MODULES_REQUEST_BIT;
+            (capabilities.supports_modules_request as i32) << SUPPORTS_MODULES_REQUEST_BIT;
         capabilities_bit_mask |=
-            (capabilities.supports_restart_request as u32) << SUPPORTS_RESTART_REQUEST_BIT;
+            (capabilities.supports_restart_request as i32) << SUPPORTS_RESTART_REQUEST_BIT;
         capabilities_bit_mask |=
-            (capabilities.supports_set_expression as u32) << SUPPORTS_SET_EXPRESSION_BIT;
-        capabilities_bit_mask |= (capabilities.supports_single_thread_execution_requests as u32)
+            (capabilities.supports_set_expression as i32) << SUPPORTS_SET_EXPRESSION_BIT;
+        capabilities_bit_mask |= (capabilities.supports_single_thread_execution_requests as i32)
             << SUPPORTS_SINGLE_THREAD_EXECUTION_REQUESTS_BIT;
-        capabilities_bit_mask |= (capabilities.supports_step_back as u32) << SUPPORTS_STEP_BACK_BIT;
-        capabilities_bit_mask |= (capabilities.supports_stepping_granularity as u32)
+        capabilities_bit_mask |= (capabilities.supports_step_back as i32) << SUPPORTS_STEP_BACK_BIT;
+        capabilities_bit_mask |= (capabilities.supports_stepping_granularity as i32)
             << SUPPORTS_STEPPING_GRANULARITY_BIT;
-        capabilities_bit_mask |= (capabilities.supports_terminate_threads_request as u32)
+        capabilities_bit_mask |= (capabilities.supports_terminate_threads_request as i32)
             << SUPPORTS_TERMINATE_THREADS_REQUEST_BIT;
 
         self.capabilities = capabilities_bit_mask;
+    }
+
+    pub fn set_panel_item(&mut self, item: &SetDebuggerPanelItem) -> Result<()> {
+        let mut buf = Vec::new();
+        item.encode(&mut buf)?;
+        self.panel_item = buf;
+        Ok(())
+    }
+
+    pub fn panel_item(&self) -> Result<SetDebuggerPanelItem> {
+        SetDebuggerPanelItem::decode(&self.panel_item[..])
+            .map_err(|e| anyhow::anyhow!("Failed to decode panel item: {}", e))
     }
 }
 
