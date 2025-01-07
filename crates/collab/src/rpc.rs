@@ -419,9 +419,7 @@ impl Server {
             )
             .add_message_handler(broadcast_project_message_from_host::<proto::SetDebuggerPanelItem>)
             .add_message_handler(broadcast_project_message_from_host::<proto::UpdateDebugAdapter>)
-            .add_message_handler(
-                broadcast_project_message_from_host::<proto::SetDebugClientCapabilities>,
-            )
+            .add_message_handler(update_debug_session_capabilities)
             .add_message_handler(broadcast_project_message_from_host::<proto::ShutdownDebugClient>)
             .add_message_handler(broadcast_project_message_from_host::<proto::GetDebuggerSessions>);
 
@@ -2070,7 +2068,7 @@ async fn update_worktree_settings(
     Ok(())
 }
 
-/// Notify other participants that a  language server has started.
+/// Notify other participants that a language server has started.
 async fn start_language_server(
     request: proto::StartLanguageServer,
     session: Session,
@@ -2107,6 +2105,28 @@ async fn update_language_server(
     broadcast(
         Some(session.connection_id),
         project_connection_ids.iter().copied(),
+        |connection_id| {
+            session
+                .peer
+                .forward_send(session.connection_id, connection_id, request.clone())
+        },
+    );
+    Ok(())
+}
+
+async fn update_debug_session_capabilities(
+    request: proto::SetDebugClientCapabilities,
+    session: Session,
+) -> Result<()> {
+    let guest_connection_ids = session
+        .db()
+        .await
+        .update_debug_session_capabilities(session.connection_id, &request)
+        .await?;
+
+    broadcast(
+        Some(session.connection_id),
+        guest_connection_ids.iter().copied(),
         |connection_id| {
             session
                 .peer

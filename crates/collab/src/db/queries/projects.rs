@@ -477,6 +477,44 @@ impl Database {
         .await
     }
 
+    pub async fn update_debug_session_capabilities(
+        &self,
+        connection_id: ConnectionId,
+        update: &proto::SetDebugClientCapabilities,
+    ) -> Result<TransactionGuard<HashSet<ConnectionId>>> {
+        let project_id = ProjectId::from_proto(update.project_id);
+        self.project_transaction(project_id, |tx| async move {
+            let capabilities = debug_session::DebugClientCapabilities {
+                supports_loaded_sources_request: update.supports_loaded_sources_request,
+                supports_modules_request: update.supports_modules_request,
+                supports_restart_request: update.supports_restart_request,
+                supports_set_expression: update.supports_set_expression,
+                supports_single_thread_execution_requests: update
+                    .supports_single_thread_execution_requests,
+                supports_step_back: update.supports_step_back,
+                supports_stepping_granularity: update.supports_stepping_granularity,
+                supports_terminate_threads_request: update.supports_terminate_threads_request,
+            };
+
+            debug_session::Entity::insert(debug_session::ActiveModel {
+                project_id: ActiveValue::set(project_id),
+                capabilities: ActiveValue::set(capabilities.to_u32()),
+                ..Default::default()
+            })
+            .on_conflict(
+                OnConflict::columns([debug_session::Column::ProjectId])
+                    .update_column(debug_session::Column::Capabilities)
+                    .to_owned(),
+            )
+            .exec(&*tx)
+            .await?;
+
+            self.internal_project_connection_ids(project_id, connection_id, true, &tx)
+                .await
+        })
+        .await
+    }
+
     pub async fn update_breakpoints(
         &self,
         connection_id: ConnectionId,
