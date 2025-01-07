@@ -15,7 +15,7 @@ const SUPPORTS_TERMINATE_THREADS_REQUEST_BIT: u32 = 7;
 #[sea_orm(table_name = "debug_client")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub id: i32,
+    pub id: u64,
     #[sea_orm(primary_key)]
     pub project_id: ProjectId,
     pub session_id: u64,

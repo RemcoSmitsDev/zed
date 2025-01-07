@@ -821,9 +821,36 @@ impl Database {
             }
         }
 
-        let db_debug_session_capabilities =
-            project.find_related(debug_session::Entity).all(tx).await?;
-        let debug_sessions = vec![];
+        let project_id = project.id.to_proto();
+        let debug_clients = project.find_related(debug_client::Entity).all(tx).await?;
+        let mut debug_sessions: HashMap<_, Vec<_>> = HashMap::default();
+
+        for debug_client in debug_clients {
+            debug_sessions
+                .entry(debug_client.session_id)
+                .or_default()
+                .push(debug_client);
+        }
+
+        let debug_sessions = debug_sessions
+            .into_iter()
+            .map(|(session_id, clients)| {
+                let debug_clients = clients
+                    .into_iter()
+                    .map(|debug_client| proto::DebugClient {
+                        client_id: debug_client.id,
+                        capabilities: Some(debug_client.capabilities()),
+                        ..Default::default()
+                    })
+                    .collect();
+
+                proto::DebuggerSession {
+                    project_id,
+                    session_id,
+                    clients: debug_clients,
+                }
+            })
+            .collect();
 
         let mut breakpoints: HashMap<proto::ProjectPath, HashSet<proto::Breakpoint>> =
             HashMap::default();
