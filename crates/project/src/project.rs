@@ -1011,6 +1011,7 @@ impl Project {
             let mut dap_store = DapStore::new_remote(remote_id, client.clone().into(), cx);
 
             dap_store.set_breakpoints_from_proto(response.payload.breakpoints, cx);
+            dap_store.set_debug_sessions_from_proto(response.payload.debug_sessions, cx);
             dap_store
         })?;
 
@@ -1074,12 +1075,6 @@ impl Project {
                 .detach();
 
             cx.subscribe(&dap_store, Self::on_dap_store_event).detach();
-
-            // set_debug_seesion can emit an event that project has to handle to properly
-            // set debug panel items.
-            dap_store.update(cx, |this, cx| {
-                this.set_debug_sessions_from_proto(response.payload.debug_sessions, cx)
-            });
 
             let mut this = Self {
                 buffer_ordered_messages_tx: tx,

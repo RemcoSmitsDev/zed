@@ -42,6 +42,7 @@ use rpc::{proto, AnyProtoClient, TypedEnvelope};
 use serde_json::Value;
 use settings::{Settings as _, WorktreeId};
 use smol::lock::Mutex;
+use std::collections::VecDeque;
 use std::{
     collections::{BTreeMap, HashSet},
     ffi::OsStr,
@@ -108,6 +109,7 @@ impl LocalDapStore {
 pub struct RemoteDapStore {
     upstream_client: Option<AnyProtoClient>,
     upstream_project_id: u64,
+    event_queue: Option<VecDeque<DapStoreEvent>>,
 }
 
 pub struct DapStore {
@@ -174,6 +176,7 @@ impl DapStore {
             mode: DapStoreMode::Remote(RemoteDapStore {
                 upstream_client: Some(upstream_client),
                 upstream_project_id: project_id,
+                event_queue: Some(VecDeque::default()),
             }),
             downstream_client: None,
             active_debug_line: None,
@@ -186,6 +189,14 @@ impl DapStore {
         match &self.mode {
             DapStoreMode::Remote(remote_dap_store) => Some(remote_dap_store),
             _ => None,
+        }
+    }
+
+    pub fn remote_event_queue(&mut self) -> Option<VecDeque<DapStoreEvent>> {
+        if let DapStoreMode::Remote(remote) = &mut self.mode {
+            remote.event_queue.take()
+        } else {
+            None
         }
     }
 
@@ -1499,7 +1510,11 @@ impl DapStore {
         {
             for debug_client in debug_clients {
                 if let Some(panel_item) = debug_client.debug_panel_item {
-                    cx.emit(DapStoreEvent::SetDebugPanelItem(panel_item));
+                    if let DapStoreMode::Remote(remote) = &mut self.mode {
+                        if let Some(queue) = &mut remote.event_queue {
+                            queue.push_back(DapStoreEvent::SetDebugPanelItem(panel_item));
+                        }
+                    }
                 }
 
                 self.update_capabilities_for_client(
