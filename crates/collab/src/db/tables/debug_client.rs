@@ -76,12 +76,6 @@ impl Model {
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::debug_session::Entity",
-        from = "Column::SessionId",
-        to = "super::debug_session::Column::Id"
-    )]
-    DebugSession,
-    #[sea_orm(
         belongs_to = "super::project::Entity",
         from = "Column::ProjectId",
         to = "super::project::Column::Id"
@@ -92,12 +86,6 @@ pub enum Relation {
 impl Related<super::project::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Project.def()
-    }
-}
-
-impl Related<super::debug_session::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::DebugSession.def()
     }
 }
 
