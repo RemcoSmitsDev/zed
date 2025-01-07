@@ -831,9 +831,6 @@ impl DebugPanel {
             project::dap_store::DapStoreEvent::UpdateDebugAdapter(debug_adapter_update) => {
                 self.handle_debug_adapter_update(debug_adapter_update, cx);
             }
-            project::dap_store::DapStoreEvent::SendDebuggerSessions => {
-                self.handle_send_debugger_sessions(cx);
-            }
             _ => {}
         }
     }
@@ -862,19 +859,6 @@ impl DebugPanel {
             debug_panel_item.update(cx, |this, cx| {
                 this.update_adapter(update, cx);
             });
-        }
-    }
-
-    pub(crate) fn handle_send_debugger_sessions(&mut self, cx: &mut ViewContext<Self>) {
-        if let Some((downstream_client, project_id)) = self.dap_store.read(cx).downstream_client() {
-            self.pane
-                .read(cx)
-                .items()
-                .filter_map(|item| item.downcast::<DebugPanelItem>())
-                .map(|item| item.read(cx).to_proto(*project_id, cx))
-                .for_each(|request| {
-                    downstream_client.send(request).log_err();
-                });
         }
     }
 

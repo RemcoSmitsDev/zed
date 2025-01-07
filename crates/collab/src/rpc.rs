@@ -420,8 +420,7 @@ impl Server {
             .add_message_handler(broadcast_project_message_from_host::<proto::SetDebuggerPanelItem>)
             .add_message_handler(broadcast_project_message_from_host::<proto::UpdateDebugAdapter>)
             .add_message_handler(update_debug_session_capabilities)
-            .add_message_handler(broadcast_project_message_from_host::<proto::ShutdownDebugClient>)
-            .add_message_handler(broadcast_project_message_from_host::<proto::GetDebuggerSessions>);
+            .add_message_handler(broadcast_project_message_from_host::<proto::ShutdownDebugClient>);
 
         Arc::new(server)
     }

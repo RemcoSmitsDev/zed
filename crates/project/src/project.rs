@@ -1010,12 +1010,6 @@ impl Project {
         let dap_store = cx.new_model(|cx| {
             let mut dap_store = DapStore::new_remote(remote_id, client.clone().into(), cx);
 
-            client
-                .send(proto::GetDebuggerSessions {
-                    project_id: remote_id,
-                })
-                .log_err();
-
             dap_store.set_breakpoints_from_proto(response.payload.breakpoints, cx);
             dap_store
         })?;

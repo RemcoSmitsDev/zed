@@ -314,8 +314,7 @@ message Envelope {
         SetDebuggerPanelItem set_debugger_panel_item = 294;
         UpdateDebugAdapter update_debug_adapter = 295;
         ShutdownDebugClient shutdown_debug_client = 296;
-        SetDebugClientCapabilities set_debug_client_capabilities = 297;
-        GetDebuggerSessions get_debugger_sessions = 298; // current max
+        SetDebugClientCapabilities set_debug_client_capabilities = 297; // current max
     }
 
     reserved 87 to 88;
@@ -2421,12 +2420,8 @@ enum BreakpointKind {
     Log = 1;
 }
 
-message GetDebuggerSessions {
-    uint64 project_id = 1;
-}
-
 message DebuggerSession {
-    uint64 client_id = 1;
+    uint64 session_id = 1;
     uint64 project_id = 2;
     SetDebugClientCapabilities capabilities = 3;
     SetActiveDebugLine active_debug_line = 4;
