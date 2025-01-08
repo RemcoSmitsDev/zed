@@ -1,37 +1,33 @@
-use anyhow::Result;
 use async_trait::async_trait;
-use dap::{
-    client::DebugAdapterClient,
-    requests::{Next, Request},
-    NextArguments,
-};
+use dap::{requests::Next, NextArguments};
 use rpc::proto;
-use std::sync::Arc;
 
-#[async_trait(?Send)]
-pub trait DapCommand<R: Request>: 'static + Sized + Send + std::fmt::Debug
-where
-    R: proto::RequestMessage,
-{
-    // fn to_proto(&self, arguments: R::Arguments) -> proto::RequestMessage;
+pub trait DapCommand: 'static + Sized + Send + std::fmt::Debug {
+    type Response: 'static + Send + std::fmt::Debug;
+    type DapRequest: 'static + Send + dap::requests::Request;
+    type ProtoRequest: 'static + Send + proto::RequestMessage;
 
-    async fn to_dap_client(
-        &self,
-        arguments: R::Arguments,
-        client: &Arc<DebugAdapterClient>,
-    ) -> Result<<R as proto::RequestMessage>::Response>;
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments;
+
+    fn response_from_dap(
+        self,
+        message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Self::Response;
 }
 
-#[derive(Debug)]
-struct NextProto {}
+impl DapCommand for NextArguments {
+    type Response = <Next as dap::requests::Request>::Response;
+    type DapRequest = Next;
+    type ProtoRequest = proto::PrepareRename;
 
-#[async_trait(?Send)]
-impl DapCommand<Next> for NextProto {
-    async fn to_dap_client(
-        &self,
-        arguments: NextArguments,
-        client: &Arc<DebugAdapterClient>,
-    ) -> Result<()> {
-        client.request::<Next>(arguments).await
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        todo!()
+    }
+
+    fn response_from_dap(
+        self,
+        _message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Self::Response {
+        todo!()
     }
 }

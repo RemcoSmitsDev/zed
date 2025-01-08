@@ -314,8 +314,7 @@ message Envelope {
         SetDebuggerPanelItem set_debugger_panel_item = 294;
         UpdateDebugAdapter update_debug_adapter = 295;
         ShutdownDebugClient shutdown_debug_client = 296;
-        SetDebugClientCapabilities set_debug_client_capabilities = 297;
-        Result result = 298; // current max
+        SetDebugClientCapabilities set_debug_client_capabilities = 297; // current max
     }
 
     reserved 87 to 88;
@@ -344,13 +343,6 @@ message Hello {
 message Ping {}
 
 message Ack {}
-
-message Result {
-    oneof result {
-        Ack ok = 1;
-        String error_msg = 2;
-    }
-}
 
 message Error {
     string message = 1;
