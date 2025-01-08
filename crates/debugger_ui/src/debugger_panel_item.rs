@@ -239,6 +239,7 @@ impl DebugPanelItem {
 
     pub(crate) fn from_proto(&mut self, state: &SetDebuggerPanelItem, cx: &mut ViewContext<Self>) {
         self.active_thread_item = ThreadItem::from_proto(state.active_thread_item());
+        self.update_thread_state_status(ThreadStatus::Stopped, cx);
 
         if let Some(stack_frame_list) = state.stack_frame_list.as_ref() {
             self.stack_frame_list.update(cx, |this, cx| {
