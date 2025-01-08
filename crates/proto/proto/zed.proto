@@ -2431,7 +2431,7 @@ message DebugClient {
     uint64 client_id = 1;
     SetDebugClientCapabilities capabilities = 2;
     SetActiveDebugLine active_debug_line = 3;
-    optional SetDebuggerPanelItem debug_panel_item = 4;
+    repeated SetDebuggerPanelItem debug_panel_items = 4;
 }
 
 message ShutdownDebugClient {

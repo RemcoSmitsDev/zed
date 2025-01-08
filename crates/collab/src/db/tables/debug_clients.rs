@@ -1,7 +1,6 @@
 use crate::db::ProjectId;
 use anyhow::Result;
-use prost::Message;
-use rpc::proto::{SetDebugClientCapabilities, SetDebuggerPanelItem};
+use rpc::proto::SetDebugClientCapabilities;
 use sea_orm::entity::prelude::*;
 
 const SUPPORTS_LOADED_SOURCES_REQUEST_BIT: u32 = 0;
@@ -23,7 +22,6 @@ pub struct Model {
     pub session_id: i64,
     #[sea_orm(column_type = "Integer")]
     pub capabilities: i32,
-    pub panel_item: Vec<u8>,
 }
 
 impl Model {
@@ -73,18 +71,6 @@ impl Model {
 
         self.capabilities = capabilities_bit_mask;
     }
-
-    pub fn set_panel_item(&mut self, item: &SetDebuggerPanelItem) -> Result<()> {
-        let mut buf = Vec::new();
-        item.encode(&mut buf)?;
-        self.panel_item = buf;
-        Ok(())
-    }
-
-    pub fn panel_item(&self) -> Result<SetDebuggerPanelItem> {
-        SetDebuggerPanelItem::decode(&self.panel_item[..])
-            .map_err(|e| anyhow::anyhow!("Failed to decode panel item: {}", e))
-    }
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -105,52 +91,10 @@ impl Related<super::project::Entity> for Entity {
     }
 }
 
+impl Related<super::debug_panel_items::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DebugPanelItems.def()
+    }
+}
+
 impl ActiveModelBehavior for ActiveModel {}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugClientCapabilities {
-    pub supports_loaded_sources_request: bool,
-    pub supports_modules_request: bool,
-    pub supports_restart_request: bool,
-    pub supports_set_expression: bool,
-    pub supports_single_thread_execution_requests: bool,
-    pub supports_step_back: bool,
-    pub supports_stepping_granularity: bool,
-    pub supports_terminate_threads_request: bool,
-}
-
-impl DebugClientCapabilities {
-    pub fn to_u32(&self) -> u32 {
-        let mut result = 0;
-        result |=
-            (self.supports_loaded_sources_request as u32) << SUPPORTS_LOADED_SOURCES_REQUEST_BIT;
-        result |= (self.supports_modules_request as u32) << SUPPORTS_MODULES_REQUEST_BIT;
-        result |= (self.supports_restart_request as u32) << SUPPORTS_RESTART_REQUEST_BIT;
-        result |= (self.supports_set_expression as u32) << SUPPORTS_SET_EXPRESSION_BIT;
-        result |= (self.supports_single_thread_execution_requests as u32)
-            << SUPPORTS_SINGLE_THREAD_EXECUTION_REQUESTS_BIT;
-        result |= (self.supports_step_back as u32) << SUPPORTS_STEP_BACK_BIT;
-        result |= (self.supports_stepping_granularity as u32) << SUPPORTS_STEPPING_GRANULARITY_BIT;
-        result |= (self.supports_terminate_threads_request as u32)
-            << SUPPORTS_TERMINATE_THREADS_REQUEST_BIT;
-        result
-    }
-
-    pub fn from_u32(value: u32) -> Self {
-        Self {
-            supports_loaded_sources_request: (value & (1 << SUPPORTS_LOADED_SOURCES_REQUEST_BIT))
-                != 0,
-            supports_modules_request: (value & (1 << SUPPORTS_MODULES_REQUEST_BIT)) != 0,
-            supports_restart_request: (value & (1 << SUPPORTS_RESTART_REQUEST_BIT)) != 0,
-            supports_set_expression: (value & (1 << SUPPORTS_SET_EXPRESSION_BIT)) != 0,
-            supports_single_thread_execution_requests: (value
-                & (1 << SUPPORTS_SINGLE_THREAD_EXECUTION_REQUESTS_BIT))
-                != 0,
-            supports_step_back: (value & (1 << SUPPORTS_STEP_BACK_BIT)) != 0,
-            supports_stepping_granularity: (value & (1 << SUPPORTS_STEPPING_GRANULARITY_BIT)) != 0,
-            supports_terminate_threads_request: (value
-                & (1 << SUPPORTS_TERMINATE_THREADS_REQUEST_BIT))
-                != 0,
-        }
-    }
-}

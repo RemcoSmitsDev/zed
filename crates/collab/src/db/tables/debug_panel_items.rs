@@ -27,7 +27,7 @@ pub struct Model {
 }
 
 impl Model {
-    pub fn set_panel_item(&mut self, item: &SetDebuggerPanelItem) -> Result<()> {
+    pub fn set_panel_item(&mut self, item: &SetDebuggerPanelItem) {
         let mut buf = Vec::new();
 
         self.active_thread_item = item.active_thread_item;
@@ -72,8 +72,6 @@ impl Model {
                 self.loaded_source_list.clone_from(&buf);
             }
         }
-
-        Ok(())
     }
 
     pub fn panel_item(&self) -> SetDebuggerPanelItem {

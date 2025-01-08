@@ -1509,11 +1509,11 @@ impl DapStore {
             .map(|session| (session.session_id, session.clients))
         {
             for debug_client in debug_clients {
-                if let Some(panel_item) = debug_client.debug_panel_item {
-                    if let DapStoreMode::Remote(remote) = &mut self.mode {
-                        if let Some(queue) = &mut remote.event_queue {
-                            queue.push_back(DapStoreEvent::SetDebugPanelItem(panel_item));
-                        }
+                if let DapStoreMode::Remote(remote) = &mut self.mode {
+                    if let Some(queue) = &mut remote.event_queue {
+                        debug_client.debug_panel_items.into_iter().for_each(|item| {
+                            queue.push_back(DapStoreEvent::SetDebugPanelItem(item));
+                        });
                     }
                 }
 
