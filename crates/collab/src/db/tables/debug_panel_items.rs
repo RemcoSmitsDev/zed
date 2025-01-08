@@ -1,5 +1,5 @@
 use crate::db::ProjectId;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use prost::Message;
 use rpc::{proto, proto::SetDebuggerPanelItem};
 use sea_orm::entity::prelude::*;
@@ -93,6 +93,33 @@ impl Model {
             )
             .log_err(),
         }
+    }
+
+    pub fn update_panel_item(&mut self, update: &proto::UpdateDebugAdapter) -> Result<()> {
+        match update
+            .variant
+            .as_ref()
+            .ok_or(anyhow!("All update debug adapter RPCs must have a variant"))?
+        {
+            proto::update_debug_adapter::Variant::ThreadState(thread_state) => {
+                let encoded = thread_state.encode_to_vec();
+                self.thread_state = encoded;
+            }
+            proto::update_debug_adapter::Variant::StackFrameList(stack_frame_list) => {
+                let encoded = stack_frame_list.encode_to_vec();
+                self.stack_frame_list = encoded;
+            }
+            proto::update_debug_adapter::Variant::VariableList(variable_list) => {
+                let encoded = variable_list.encode_to_vec();
+                self.variable_list = encoded;
+            }
+            proto::update_debug_adapter::Variant::Modules(module_list) => {
+                let encoded = module_list.encode_to_vec();
+                self.module_list = encoded;
+            }
+        }
+
+        Ok(())
     }
 }
 

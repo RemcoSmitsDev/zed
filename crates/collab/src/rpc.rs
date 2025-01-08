@@ -418,7 +418,7 @@ impl Server {
                 broadcast_project_message_from_host::<proto::RemoveActiveDebugLine>,
             )
             .add_message_handler(update_debug_client_panel_item)
-            .add_message_handler(broadcast_project_message_from_host::<proto::UpdateDebugAdapter>)
+            .add_message_handler(update_debug_adapter)
             .add_message_handler(update_debug_client_capabilities)
             .add_message_handler(broadcast_project_message_from_host::<proto::ShutdownDebugClient>);
 
@@ -2105,6 +2105,26 @@ async fn update_language_server(
     broadcast(
         Some(session.connection_id),
         project_connection_ids.iter().copied(),
+        |connection_id| {
+            session
+                .peer
+                .forward_send(session.connection_id, connection_id, request.clone())
+        },
+    );
+    Ok(())
+}
+
+/// Notify other participants that a debug panel item has been updated
+async fn update_debug_adapter(request: proto::UpdateDebugAdapter, session: Session) -> Result<()> {
+    let guest_connection_ids = session
+        .db()
+        .await
+        .update_debug_adapter(session.connection_id, &request)
+        .await?;
+
+    broadcast(
+        Some(session.connection_id),
+        guest_connection_ids.iter().copied(),
         |connection_id| {
             session
                 .peer

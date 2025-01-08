@@ -477,6 +477,57 @@ impl Database {
         .await
     }
 
+    pub async fn update_debug_adapter(
+        &self,
+        connection_id: ConnectionId,
+        update: &proto::UpdateDebugAdapter,
+    ) -> Result<TransactionGuard<HashSet<ConnectionId>>> {
+        let project_id = ProjectId::from_proto(update.project_id);
+        self.project_transaction(project_id, |tx| async move {
+            let mut debug_panel_items = debug_panel_items::Entity::find()
+                .filter(
+                    Condition::all()
+                        .add(debug_panel_items::Column::ProjectId.eq(project_id))
+                        .add(debug_panel_items::Column::SessionId.eq(update.session_id))
+                        .add(debug_panel_items::Column::Id.eq(update.client_id)),
+                )
+                .all(&*tx)
+                .await?;
+
+            if let Some(thread_id) = update.thread_id {
+                debug_panel_items = debug_panel_items
+                    .into_iter()
+                    .filter(|item| item.thread_id == thread_id as i64)
+                    .collect();
+            }
+
+            for mut item in debug_panel_items {
+                item.update_panel_item(&update)?;
+
+                debug_panel_items::Entity::update(debug_panel_items::ActiveModel {
+                    id: ActiveValue::Unchanged(item.id),
+                    project_id: ActiveValue::Unchanged(item.project_id),
+                    session_id: ActiveValue::Unchanged(item.session_id),
+                    thread_id: ActiveValue::Unchanged(item.thread_id),
+                    active_thread_item: ActiveValue::Unchanged(item.active_thread_item),
+                    seassion_name: ActiveValue::Unchanged(item.seassion_name),
+                    console: ActiveValue::Unchanged(item.console),
+                    module_list: ActiveValue::Set(item.module_list),
+                    thread_state: ActiveValue::Set(item.thread_state),
+                    variable_list: ActiveValue::Set(item.variable_list),
+                    stack_frame_list: ActiveValue::Set(item.stack_frame_list),
+                    loaded_source_list: ActiveValue::Unchanged(item.loaded_source_list),
+                })
+                .exec(&*tx)
+                .await?;
+            }
+
+            self.internal_project_connection_ids(project_id, connection_id, true, &tx)
+                .await
+        })
+        .await
+    }
+
     pub async fn update_debug_client_panel_item(
         &self,
         connection_id: ConnectionId,
