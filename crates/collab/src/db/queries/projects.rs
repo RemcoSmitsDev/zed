@@ -521,7 +521,13 @@ impl Database {
                     session_id: ActiveValue::Set(update.session_id as i64),
                     thread_id: ActiveValue::Set(update.thread_id as i64),
                     seassion_name: ActiveValue::Set(update.session_name.clone()),
-                    ..Default::default()
+                    active_thread_item: ActiveValue::Set(0),
+                    console: ActiveValue::Set(Vec::new()),
+                    module_list: ActiveValue::Set(Vec::new()),
+                    thread_state: ActiveValue::Set(Vec::new()),
+                    variable_list: ActiveValue::Set(Vec::new()),
+                    stack_frame_list: ActiveValue::Set(Vec::new()),
+                    loaded_source_list: ActiveValue::Set(Vec::new()),
                 };
 
                 debug_panel_item = Some(new_debug_panel_item.insert(&*tx).await?);
