@@ -528,7 +528,28 @@ impl Database {
         .await
     }
 
-    pub async fn update_debug_client_panel_item(
+    pub async fn shutdown_debug_client(
+        &self,
+        connection_id: ConnectionId,
+        update: &proto::ShutdownDebugClient,
+    ) -> Result<TransactionGuard<HashSet<ConnectionId>>> {
+        let project_id = ProjectId::from_proto(update.project_id);
+        self.project_transaction(project_id, |tx| async move {
+            debug_clients::Entity::delete_by_id((
+                update.client_id as i64,
+                ProjectId::from_proto(update.project_id),
+                update.session_id as i64,
+            ))
+            .exec(&*tx)
+            .await?;
+
+            self.internal_project_connection_ids(project_id, connection_id, true, &tx)
+                .await
+        })
+        .await
+    }
+
+    pub async fn set_debug_client_panel_item(
         &self,
         connection_id: ConnectionId,
         update: &proto::SetDebuggerPanelItem,

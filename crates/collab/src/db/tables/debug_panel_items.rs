@@ -13,8 +13,9 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub project_id: ProjectId,
     #[sea_orm(primary_key)]
-    pub thread_id: i64,
     pub session_id: i64,
+    #[sea_orm(primary_key)]
+    pub thread_id: i64,
     // Below are fields for a debug panel item
     pub active_thread_item: i32,
     pub seassion_name: String,

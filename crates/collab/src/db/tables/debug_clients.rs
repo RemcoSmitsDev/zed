@@ -19,6 +19,7 @@ pub struct Model {
     pub id: i64,
     #[sea_orm(primary_key)]
     pub project_id: ProjectId,
+    #[sea_orm(primary_key)]
     pub session_id: i64,
     #[sea_orm(column_type = "Integer")]
     pub capabilities: i32,
