@@ -95,6 +95,8 @@ pub enum Relation {
         to = "super::project::Column::Id"
     )]
     Project,
+    #[sea_orm(has_many = "super::debug_panel_items::Entity")]
+    DebugPanelItems,
 }
 
 impl Related<super::project::Entity> for Entity {
