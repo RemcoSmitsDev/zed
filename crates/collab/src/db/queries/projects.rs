@@ -567,10 +567,7 @@ impl Database {
                 .await?;
 
             if let Some(thread_id) = update.thread_id {
-                debug_panel_items = debug_panel_items
-                    .into_iter()
-                    .filter(|item| item.thread_id == thread_id as i64)
-                    .collect();
+                debug_panel_items.retain(|item| item.thread_id == thread_id as i64);
             }
 
             for mut item in debug_panel_items {
