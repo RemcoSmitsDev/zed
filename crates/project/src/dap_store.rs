@@ -1074,7 +1074,7 @@ impl DapStore {
         <R::DapRequest as dap::requests::Request>::Arguments: 'static,
     {
         if let Some((upstream_client, upstream_project_id)) = self.upstream_client() {
-            return self._send_proto_client_request::<R>(
+            return self.send_proto_client_request::<R>(
                 upstream_client,
                 upstream_project_id,
                 client_id,
@@ -1083,27 +1083,30 @@ impl DapStore {
             );
         }
 
-        let Some(client) = self.client_by_id(client_id, cx) else {
+        let Some((_, client)) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
         cx.background_executor().spawn(async move {
             let args = request.to_dap();
-            // Ok(request.response_from_dap(client.1.request::<R::DapRequest>(args).await?))
-            todo!()
+            request.response_from_dap(client.request::<R::DapRequest>(args).await?)
         })
     }
 
     // TODO Debugger Collab
-    fn _send_proto_client_request<R: DapCommand>(
+    fn send_proto_client_request<R: DapCommand>(
         &self,
-        _upstream_client: AnyProtoClient,
-        _upstream_project_id: u64,
-        _client_id: &DebugAdapterClientId,
-        _request: R,
-        _cx: &mut ModelContext<Self>,
+        upstream_client: AnyProtoClient,
+        upstream_project_id: u64,
+        client_id: &DebugAdapterClientId,
+        request: R,
+        cx: &mut ModelContext<Self>,
     ) -> Task<Result<R::Response>> {
-        todo!()
+        let message = request.to_proto(client_id, upstream_project_id);
+        cx.background_executor().spawn(async move {
+            let response = upstream_client.request(message).await?;
+            request.response_from_proto(response)
+        })
     }
 
     pub fn step_over(

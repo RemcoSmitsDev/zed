@@ -314,7 +314,9 @@ message Envelope {
         SetDebuggerPanelItem set_debugger_panel_item = 294;
         UpdateDebugAdapter update_debug_adapter = 295;
         ShutdownDebugClient shutdown_debug_client = 296;
-        SetDebugClientCapabilities set_debug_client_capabilities = 297; // current max
+        SetDebugClientCapabilities set_debug_client_capabilities = 297;
+        DapNextRequest dap_next_request = 298; // current max
+
     }
 
     reserved 87 to 88;
@@ -2596,10 +2598,12 @@ enum SteppingGranularity {
     Instruction = 2;
 }
 
-message DapNext {
-    uint64 thread_id = 1;
-    optional bool single_thread = 2;
-    optional SteppingGranularity granularity = 3;
+message DapNextRequest {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    uint64 thread_id = 3;
+    optional bool single_thread = 4;
+    optional SteppingGranularity granularity = 5;
 }
 
 message DapStackFrame {
