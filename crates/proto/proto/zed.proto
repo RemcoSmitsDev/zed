@@ -315,8 +315,10 @@ message Envelope {
         UpdateDebugAdapter update_debug_adapter = 295;
         ShutdownDebugClient shutdown_debug_client = 296;
         SetDebugClientCapabilities set_debug_client_capabilities = 297;
-        DapNextRequest dap_next_request = 298; // current max
 
+        DapNextRequest dap_next_request = 298;
+        DapContinueRequest dap_continue_request = 299;
+        DapContinueResponse dap_continue_response = 300; // current max
     }
 
     reserved 87 to 88;
@@ -2604,6 +2606,17 @@ message DapNextRequest {
     uint64 thread_id = 3;
     optional bool single_thread = 4;
     optional SteppingGranularity granularity = 5;
+}
+
+message DapContinueRequest {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    uint64 thread_id = 3;
+    optional bool single_thread = 4;
+}
+
+message DapContinueResponse {
+    optional bool all_threads_continued = 1;
 }
 
 message DapStackFrame {
