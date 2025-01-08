@@ -135,6 +135,7 @@ actions!(
         StepInto,
         StepOver,
         StepOut,
+        StepBack,
         Stop,
         ToggleIgnoreBreakpoints
     ]
@@ -760,6 +761,7 @@ pub struct Workspace {
     weak_self: WeakView<Self>,
     workspace_actions: Vec<Box<dyn Fn(Div, &mut ViewContext<Self>) -> Div>>,
     zoomed: Option<AnyWeakView>,
+    previous_dock_drag_coordinates: Option<Point<Pixels>>,
     zoomed_position: Option<DockPosition>,
     center: PaneGroup,
     left_dock: View<Dock>,
@@ -1012,7 +1014,7 @@ impl Workspace {
                     this.update(&mut cx, |this, cx| {
                         if let Some(display) = cx.display() {
                             if let Ok(display_uuid) = display.uuid() {
-                                let window_bounds = cx.window_bounds();
+                                let window_bounds = cx.inner_window_bounds();
                                 if let Some(database_id) = workspace_id {
                                     cx.background_executor()
                                         .spawn(DB.set_window_open_status(
@@ -1037,18 +1039,6 @@ impl Workspace {
 
                 ThemeSettings::reload_current_theme(cx);
             }),
-            cx.observe(&left_dock, |this, _, cx| {
-                this.serialize_workspace(cx);
-                cx.notify();
-            }),
-            cx.observe(&bottom_dock, |this, _, cx| {
-                this.serialize_workspace(cx);
-                cx.notify();
-            }),
-            cx.observe(&right_dock, |this, _, cx| {
-                this.serialize_workspace(cx);
-                cx.notify();
-            }),
             cx.on_release(|this, window, cx| {
                 this.app_state.workspace_store.update(cx, |store, _| {
                     let window = window.downcast::<Self>().unwrap();
@@ -1064,6 +1054,7 @@ impl Workspace {
             weak_self: weak_handle.clone(),
             zoomed: None,
             zoomed_position: None,
+            previous_dock_drag_coordinates: None,
             center: PaneGroup::new(center_pane.clone()),
             panes: vec![center_pane.clone()],
             panes_by_item: Default::default(),
@@ -1144,22 +1135,14 @@ impl Workspace {
                 .as_ref()
                 .map(|ws| &ws.location)
                 .and_then(|loc| match loc {
-                    SerializedWorkspaceLocation::Local(paths, order) => {
-                        Some((paths.paths(), order.order()))
+                    SerializedWorkspaceLocation::Local(_, order) => {
+                        Some((loc.sorted_paths(), order.order()))
                     }
                     _ => None,
                 });
 
             if let Some((paths, order)) = workspace_location {
-                // todo: should probably move this logic to a method on the SerializedWorkspaceLocation
-                // it's only valid for Local and would be more clear there and be able to be tested
-                // and reused elsewhere
-                paths_to_open = order
-                    .iter()
-                    .zip(paths.iter())
-                    .sorted_by_key(|(i, _)| *i)
-                    .map(|(_, path)| path.clone())
-                    .collect();
+                paths_to_open = paths.iter().cloned().collect();
 
                 if order.iter().enumerate().any(|(i, &j)| i != j) {
                     project_handle
@@ -1724,11 +1707,11 @@ impl Workspace {
         cx.defer(|cx| {
             cx.windows().iter().find(|window| {
                 window
-                    .update(cx, |_, window| {
-                        if window.is_window_active() {
+                    .update(cx, |_, cx| {
+                        if cx.is_window_active() {
                             //This can only get called when the window's project connection has been lost
                             //so we don't need to prompt the user for anything and instead just close the window
-                            window.remove_window();
+                            cx.remove_window();
                             true
                         } else {
                             false
@@ -2314,6 +2297,10 @@ impl Workspace {
             let other_is_zoomed = self.zoomed.is_some() && self.zoomed_position != Some(dock_side);
             let was_visible = dock.is_open() && !other_is_zoomed;
             dock.set_open(!was_visible, cx);
+
+            if dock.active_panel().is_none() && dock.panels_len() > 0 {
+                dock.activate_panel(0, cx);
+            }
 
             if let Some(active_panel) = dock.active_panel() {
                 if was_visible {
@@ -3082,6 +3069,7 @@ impl Workspace {
         event: &pane::Event,
         cx: &mut ViewContext<Self>,
     ) {
+        let mut serialize_workspace = true;
         match event {
             pane::Event::AddItem { item } => {
                 item.added_to_pane(self, pane, cx);
@@ -3092,10 +3080,14 @@ impl Workspace {
             pane::Event::Split(direction) => {
                 self.split_and_clone(pane, *direction, cx);
             }
-            pane::Event::JoinIntoNext => self.join_pane_into_next(pane, cx),
-            pane::Event::JoinAll => self.join_all_panes(cx),
+            pane::Event::JoinIntoNext => {
+                self.join_pane_into_next(pane, cx);
+            }
+            pane::Event::JoinAll => {
+                self.join_all_panes(cx);
+            }
             pane::Event::Remove { focus_on_pane } => {
-                self.remove_pane(pane, focus_on_pane.clone(), cx)
+                self.remove_pane(pane, focus_on_pane.clone(), cx);
             }
             pane::Event::ActivateItem { local } => {
                 cx.on_next_frame(|_, cx| {
@@ -3113,16 +3105,20 @@ impl Workspace {
                     self.update_active_view_for_followers(cx);
                 }
             }
-            pane::Event::UserSavedItem { item, save_intent } => cx.emit(Event::UserSavedItem {
-                pane: pane.downgrade(),
-                item: item.boxed_clone(),
-                save_intent: *save_intent,
-            }),
+            pane::Event::UserSavedItem { item, save_intent } => {
+                cx.emit(Event::UserSavedItem {
+                    pane: pane.downgrade(),
+                    item: item.boxed_clone(),
+                    save_intent: *save_intent,
+                });
+                serialize_workspace = false;
+            }
             pane::Event::ChangeItemTitle => {
                 if pane == self.active_pane {
                     self.active_item_path_changed(cx);
                 }
                 self.update_window_edited(cx);
+                serialize_workspace = false;
             }
             pane::Event::RemoveItem { .. } => {}
             pane::Event::RemovedItem { item } => {
@@ -3161,7 +3157,9 @@ impl Workspace {
             }
         }
 
-        self.serialize_workspace(cx);
+        if serialize_workspace {
+            self.serialize_workspace(cx);
+        }
     }
 
     pub fn unfollow_in_pane(
@@ -4601,7 +4599,7 @@ impl Workspace {
         div
     }
 
-    pub fn has_active_modal(&self, cx: &WindowContext<'_>) -> bool {
+    pub fn has_active_modal(&self, cx: &WindowContext) -> bool {
         self.modal_layer.read(cx).has_active_modal()
     }
 
@@ -4944,32 +4942,39 @@ impl Render for Workspace {
                                 })
                                 .when(self.zoomed.is_none(), |this| {
                                     this.on_drag_move(cx.listener(
-                                        |workspace, e: &DragMoveEvent<DraggedDock>, cx| {
-                                            match e.drag(cx).0 {
-                                                DockPosition::Left => {
-                                                    resize_left_dock(
-                                                        e.event.position.x
-                                                            - workspace.bounds.left(),
-                                                        workspace,
-                                                        cx,
-                                                    );
-                                                }
-                                                DockPosition::Right => {
-                                                    resize_right_dock(
-                                                        workspace.bounds.right()
-                                                            - e.event.position.x,
-                                                        workspace,
-                                                        cx,
-                                                    );
-                                                }
-                                                DockPosition::Bottom => {
-                                                    resize_bottom_dock(
-                                                        workspace.bounds.bottom()
-                                                            - e.event.position.y,
-                                                        workspace,
-                                                        cx,
-                                                    );
-                                                }
+                                        move |workspace, e: &DragMoveEvent<DraggedDock>, cx| {
+                                            if workspace.previous_dock_drag_coordinates
+                                                != Some(e.event.position)
+                                            {
+                                                workspace.previous_dock_drag_coordinates =
+                                                    Some(e.event.position);
+                                                match e.drag(cx).0 {
+                                                    DockPosition::Left => {
+                                                        resize_left_dock(
+                                                            e.event.position.x
+                                                                - workspace.bounds.left(),
+                                                            workspace,
+                                                            cx,
+                                                        );
+                                                    }
+                                                    DockPosition::Right => {
+                                                        resize_right_dock(
+                                                            workspace.bounds.right()
+                                                                - e.event.position.x,
+                                                            workspace,
+                                                            cx,
+                                                        );
+                                                    }
+                                                    DockPosition::Bottom => {
+                                                        resize_bottom_dock(
+                                                            workspace.bounds.bottom()
+                                                                - e.event.position.y,
+                                                            workspace,
+                                                            cx,
+                                                        );
+                                                    }
+                                                };
+                                                workspace.serialize_workspace(cx);
                                             }
                                         },
                                     ))
@@ -5058,7 +5063,7 @@ impl Render for Workspace {
 fn resize_bottom_dock(
     new_size: Pixels,
     workspace: &mut Workspace,
-    cx: &mut ViewContext<'_, Workspace>,
+    cx: &mut ViewContext<Workspace>,
 ) {
     let size = new_size.min(workspace.bounds.bottom() - RESIZE_HANDLE_SIZE);
     workspace.bottom_dock.update(cx, |bottom_dock, cx| {
@@ -5066,22 +5071,14 @@ fn resize_bottom_dock(
     });
 }
 
-fn resize_right_dock(
-    new_size: Pixels,
-    workspace: &mut Workspace,
-    cx: &mut ViewContext<'_, Workspace>,
-) {
+fn resize_right_dock(new_size: Pixels, workspace: &mut Workspace, cx: &mut ViewContext<Workspace>) {
     let size = new_size.max(workspace.bounds.left() - RESIZE_HANDLE_SIZE);
     workspace.right_dock.update(cx, |right_dock, cx| {
         right_dock.resize_active_panel(Some(size), cx);
     });
 }
 
-fn resize_left_dock(
-    new_size: Pixels,
-    workspace: &mut Workspace,
-    cx: &mut ViewContext<'_, Workspace>,
-) {
+fn resize_left_dock(new_size: Pixels, workspace: &mut Workspace, cx: &mut ViewContext<Workspace>) {
     let size = new_size.min(workspace.bounds.right() - RESIZE_HANDLE_SIZE);
 
     workspace.left_dock.update(cx, |left_dock, cx| {
@@ -5605,15 +5602,22 @@ pub fn open_paths(
         }
 
         if let Some(existing) = existing {
-            Ok((
-                existing,
-                existing
-                    .update(&mut cx, |workspace, cx| {
-                        cx.activate_window();
-                        workspace.open_paths(abs_paths, open_visible, None, cx)
-                    })?
-                    .await,
-            ))
+            let open_task = existing
+                .update(&mut cx, |workspace, cx| {
+                    cx.activate_window();
+                    workspace.open_paths(abs_paths, open_visible, None, cx)
+                })?
+                .await;
+
+            _ = existing.update(&mut cx, |workspace, cx| {
+                for item in open_task.iter().flatten() {
+                    if let Err(e) = item {
+                        workspace.show_error(&e, cx);
+                    }
+                }
+            });
+
+            Ok((existing, open_task))
         } else {
             cx.update(move |cx| {
                 Workspace::new_local(
@@ -6189,7 +6193,7 @@ fn resize_edge(
     }
 }
 
-fn join_pane_into_active(active_pane: &View<Pane>, pane: &View<Pane>, cx: &mut WindowContext<'_>) {
+fn join_pane_into_active(active_pane: &View<Pane>, pane: &View<Pane>, cx: &mut WindowContext) {
     if pane == active_pane {
         return;
     } else if pane.read(cx).items_len() == 0 {
@@ -6203,7 +6207,7 @@ fn join_pane_into_active(active_pane: &View<Pane>, pane: &View<Pane>, cx: &mut W
     }
 }
 
-fn move_all_items(from_pane: &View<Pane>, to_pane: &View<Pane>, cx: &mut WindowContext<'_>) {
+fn move_all_items(from_pane: &View<Pane>, to_pane: &View<Pane>, cx: &mut WindowContext) {
     let destination_is_different = from_pane != to_pane;
     let mut moved_items = 0;
     for (item_ix, item_handle) in from_pane
@@ -6235,7 +6239,7 @@ pub fn move_item(
     destination: &View<Pane>,
     item_id_to_move: EntityId,
     destination_index: usize,
-    cx: &mut WindowContext<'_>,
+    cx: &mut WindowContext,
 ) {
     let Some((item_ix, item_handle)) = source
         .read(cx)
@@ -6267,7 +6271,7 @@ pub fn move_active_item(
     destination: &View<Pane>,
     focus_destination: bool,
     close_if_empty: bool,
-    cx: &mut WindowContext<'_>,
+    cx: &mut WindowContext,
 ) {
     if source == destination {
         return;
@@ -7315,14 +7319,10 @@ mod tests {
         let (panel_1, panel_2) = workspace.update(cx, |workspace, cx| {
             let panel_1 = cx.new_view(|cx| TestPanel::new(DockPosition::Left, cx));
             workspace.add_panel(panel_1.clone(), cx);
-            workspace
-                .left_dock()
-                .update(cx, |left_dock, cx| left_dock.set_open(true, cx));
+            workspace.toggle_dock(DockPosition::Left, cx);
             let panel_2 = cx.new_view(|cx| TestPanel::new(DockPosition::Right, cx));
             workspace.add_panel(panel_2.clone(), cx);
-            workspace
-                .right_dock()
-                .update(cx, |right_dock, cx| right_dock.set_open(true, cx));
+            workspace.toggle_dock(DockPosition::Right, cx);
 
             let left_dock = workspace.left_dock();
             assert_eq!(

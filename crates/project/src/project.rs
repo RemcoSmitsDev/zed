@@ -34,6 +34,7 @@ use dap::{
     client::{DebugAdapterClient, DebugAdapterClientId},
     debugger_settings::DebuggerSettings,
     messages::Message,
+    session::DebugSessionId,
 };
 
 use collections::{BTreeSet, HashMap, HashSet};
@@ -48,7 +49,10 @@ use futures::{
 pub use image_store::{ImageItem, ImageStore};
 use image_store::{ImageItemEvent, ImageStoreEvent};
 
-use git::{blame::Blame, repository::GitRepository};
+use git::{
+    blame::Blame,
+    repository::{GitFileStatus, GitRepository},
+};
 use gpui::{
     AnyModel, AppContext, AsyncAppContext, BorrowAppContext, Context as _, EventEmitter, Hsla,
     Model, ModelContext, SharedString, Task, WeakModel, WindowContext,
@@ -82,10 +86,8 @@ use snippet::Snippet;
 use snippet_provider::SnippetProvider;
 use std::{
     borrow::Cow,
-    cell::RefCell,
     ops::Range,
     path::{Component, Path, PathBuf},
-    rc::Rc,
     str,
     sync::Arc,
     time::Duration,
@@ -107,9 +109,8 @@ pub use task_inventory::{
     BasicContextProvider, ContextProviderWithTasks, Inventory, TaskSourceKind,
 };
 pub use worktree::{
-    Entry, EntryKind, File, LocalWorktree, PathChange, ProjectEntryId, RepositoryEntry,
-    UpdatedEntriesSet, UpdatedGitRepositoriesSet, Worktree, WorktreeId, WorktreeSettings,
-    FS_WATCH_LATENCY,
+    Entry, EntryKind, File, LocalWorktree, PathChange, ProjectEntryId, UpdatedEntriesSet,
+    UpdatedGitRepositoriesSet, Worktree, WorktreeId, WorktreeSettings, FS_WATCH_LATENCY,
 };
 
 pub use buffer_store::ProjectTransaction;
@@ -251,11 +252,12 @@ pub enum Event {
     },
     LanguageServerPrompt(LanguageServerPromptRequest),
     LanguageNotFound(Model<Buffer>),
-    DebugClientStarted(DebugAdapterClientId),
-    DebugClientStopped(DebugAdapterClientId),
+    DebugClientStarted((DebugSessionId, DebugAdapterClientId)),
+    DebugClientShutdown(DebugAdapterClientId),
     SetDebugClient(SetDebuggerPanelItem),
     ActiveDebugLineChanged,
     DebugClientEvent {
+        session_id: DebugSessionId,
         client_id: DebugAdapterClientId,
         message: Message,
     },
@@ -378,6 +380,8 @@ pub struct Completion {
     pub documentation: Option<Documentation>,
     /// The raw completion provided by the language server.
     pub lsp_completion: lsp::CompletionItem,
+    /// Whether this completion has been resolved, to ensure it happens once per completion.
+    pub resolved: bool,
     /// An optional callback to invoke when this completion is confirmed.
     /// Returns, whether new completions should be retriggered after the current one.
     /// If `true` is returned, the editor will show a new completion menu after this completion is confirmed.
@@ -405,6 +409,7 @@ pub(crate) struct CoreCompletion {
     new_text: String,
     server_id: LanguageServerId,
     lsp_completion: lsp::CompletionItem,
+    resolved: bool,
 }
 
 /// A code action provided by a language server.
@@ -1008,6 +1013,7 @@ impl Project {
             let mut dap_store = DapStore::new_remote(remote_id, client.clone().into(), cx);
 
             dap_store.set_breakpoints_from_proto(response.payload.breakpoints, cx);
+            dap_store.set_debug_sessions_from_proto(response.payload.debug_sessions, cx);
             dap_store
         })?;
 
@@ -1238,14 +1244,19 @@ impl Project {
         all_breakpoints
     }
 
-    pub fn send_breakpoints(
+    pub fn initial_send_breakpoints(
         &self,
+        session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
     ) -> Task<()> {
         let mut tasks = Vec::new();
 
-        for (abs_path, serialized_breakpoints) in self.all_breakpoints(true, cx) {
+        for (abs_path, serialized_breakpoints) in self
+            .all_breakpoints(true, cx)
+            .into_iter()
+            .filter(|(_, bps)| !bps.is_empty())
+        {
             let source_breakpoints = serialized_breakpoints
                 .iter()
                 .map(|bp| bp.to_source_breakpoint())
@@ -1256,7 +1267,7 @@ impl Project {
                     client_id,
                     abs_path,
                     source_breakpoints,
-                    store.ignore_breakpoints(client_id),
+                    store.ignore_breakpoints(session_id, cx),
                     cx,
                 )
             }));
@@ -1272,9 +1283,9 @@ impl Project {
         debug_task: task::ResolvedTask,
         cx: &mut ModelContext<Self>,
     ) {
-        if let Some(adapter_config) = debug_task.debug_adapter_config() {
+        if let Some(config) = debug_task.debug_adapter_config() {
             self.dap_store.update(cx, |store, cx| {
-                store.start_client_from_debug_config(adapter_config, cx);
+                store.start_debug_session(config, cx).detach_and_log_err(cx);
             });
         }
     }
@@ -1354,11 +1365,12 @@ impl Project {
 
     pub fn toggle_ignore_breakpoints(
         &self,
+        session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let tasks = self.dap_store.update(cx, |store, cx| {
-            store.toggle_ignore_breakpoints(client_id);
+            store.toggle_ignore_breakpoints(session_id, cx);
 
             let mut tasks = Vec::new();
 
@@ -1387,7 +1399,7 @@ impl Project {
                             .into_iter()
                             .map(|breakpoint| breakpoint.to_source_breakpoint(buffer))
                             .collect::<Vec<_>>(),
-                        store.ignore_breakpoints(client_id),
+                        store.ignore_breakpoints(session_id, cx),
                         cx,
                     ),
                 );
@@ -1521,13 +1533,6 @@ impl Project {
                 })
                 .await
                 .unwrap();
-
-            project.update(cx, |project, cx| {
-                let tree_id = tree.read(cx).id();
-                project.environment.update(cx, |environment, _| {
-                    environment.set_cached(&[(tree_id, HashMap::default())])
-                });
-            });
 
             tree.update(cx, |tree, _| tree.as_local().unwrap().scan_complete())
                 .await;
@@ -1756,6 +1761,15 @@ impl Project {
                     .is_some_and(|e| e.id == entry_id)
             })
             .unwrap_or(false)
+    }
+
+    pub fn project_path_git_status(
+        &self,
+        project_path: &ProjectPath,
+        cx: &AppContext,
+    ) -> Option<GitFileStatus> {
+        self.worktree_for_id(project_path.worktree_id, cx)
+            .and_then(|worktree| worktree.read(cx).status_for_file(&project_path.path))
     }
 
     pub fn visibility_for_paths(&self, paths: &[PathBuf], cx: &AppContext) -> Option<bool> {
@@ -2499,11 +2513,16 @@ impl Project {
             DapStoreEvent::DebugClientStarted(client_id) => {
                 cx.emit(Event::DebugClientStarted(*client_id));
             }
-            DapStoreEvent::DebugClientStopped(client_id) => {
-                cx.emit(Event::DebugClientStopped(*client_id));
+            DapStoreEvent::DebugClientShutdown(client_id) => {
+                cx.emit(Event::DebugClientShutdown(*client_id));
             }
-            DapStoreEvent::DebugClientEvent { client_id, message } => {
+            DapStoreEvent::DebugClientEvent {
+                session_id,
+                client_id,
+                message,
+            } => {
                 cx.emit(Event::DebugClientEvent {
+                    session_id: *session_id,
                     client_id: *client_id,
                     message: message.clone(),
                 });
@@ -3236,35 +3255,6 @@ impl Project {
         })
     }
 
-    pub fn resolve_completions(
-        &self,
-        buffer: Model<Buffer>,
-        completion_indices: Vec<usize>,
-        completions: Rc<RefCell<Box<[Completion]>>>,
-        cx: &mut ModelContext<Self>,
-    ) -> Task<Result<bool>> {
-        self.lsp_store.update(cx, |lsp_store, cx| {
-            lsp_store.resolve_completions(buffer, completion_indices, completions, cx)
-        })
-    }
-
-    pub fn apply_additional_edits_for_completion(
-        &self,
-        buffer_handle: Model<Buffer>,
-        completion: Completion,
-        push_to_history: bool,
-        cx: &mut ModelContext<Self>,
-    ) -> Task<Result<Option<Transaction>>> {
-        self.lsp_store.update(cx, |lsp_store, cx| {
-            lsp_store.apply_additional_edits_for_completion(
-                buffer_handle,
-                completion,
-                push_to_history,
-                cx,
-            )
-        })
-    }
-
     pub fn code_actions<T: Clone + ToOffset>(
         &mut self,
         buffer_handle: &Model<Buffer>,
@@ -3948,17 +3938,6 @@ impl Project {
         )
     }
 
-    pub fn get_repo(
-        &self,
-        project_path: &ProjectPath,
-        cx: &AppContext,
-    ) -> Option<Arc<dyn GitRepository>> {
-        self.worktree_for_id(project_path.worktree_id, cx)?
-            .read(cx)
-            .as_local()?
-            .local_git_repo(&project_path.path)
-    }
-
     pub fn get_first_worktree_root_repo(&self, cx: &AppContext) -> Option<Arc<dyn GitRepository>> {
         let worktree = self.visible_worktrees(cx).next()?.read(cx).as_local()?;
         let root_entry = worktree.root_git_entry()?;
@@ -4593,21 +4572,6 @@ impl Project {
             .language_servers_for_local_buffer(buffer, cx)
     }
 
-    pub fn debug_clients<'a>(
-        &'a self,
-        cx: &'a AppContext,
-    ) -> impl 'a + Iterator<Item = Arc<DebugAdapterClient>> {
-        self.dap_store.read(cx).running_clients()
-    }
-
-    pub fn debug_client_for_id(
-        &self,
-        id: &DebugAdapterClientId,
-        cx: &AppContext,
-    ) -> Option<Arc<DebugAdapterClient>> {
-        self.dap_store.read(cx).client_by_id(id)
-    }
-
     pub fn buffer_store(&self) -> &Model<BufferStore> {
         &self.buffer_store
     }
@@ -4873,8 +4837,10 @@ impl Completion {
     }
 }
 
-pub fn sort_worktree_entries(entries: &mut [Entry]) {
+pub fn sort_worktree_entries(entries: &mut [impl AsRef<Entry>]) {
     entries.sort_by(|entry_a, entry_b| {
+        let entry_a = entry_a.as_ref();
+        let entry_b = entry_b.as_ref();
         compare_paths(
             (&entry_a.path, entry_a.is_file()),
             (&entry_b.path, entry_b.is_file()),

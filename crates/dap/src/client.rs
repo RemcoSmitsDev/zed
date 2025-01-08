@@ -14,16 +14,15 @@ use std::{
     hash::Hash,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc,
     },
     time::Duration,
 };
-use task::{DebugAdapterConfig, DebugRequestType};
 
-#[cfg(debug_assertions)]
+#[cfg(any(test, feature = "test-support"))]
 const DAP_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 
-#[cfg(not(debug_assertions))]
+#[cfg(not(any(test, feature = "test-support")))]
 const DAP_REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -47,13 +46,11 @@ pub struct DebugAdapterClient {
     executor: BackgroundExecutor,
     adapter: Arc<dyn DebugAdapter>,
     transport_delegate: TransportDelegate,
-    config: Arc<Mutex<DebugAdapterConfig>>,
 }
 
 impl DebugAdapterClient {
     pub fn new(
         id: DebugAdapterClientId,
-        config: DebugAdapterConfig,
         adapter: Arc<dyn DebugAdapter>,
         binary: DebugAdapterBinary,
         cx: &AsyncAppContext,
@@ -66,7 +63,6 @@ impl DebugAdapterClient {
             adapter,
             transport_delegate,
             sequence_count: AtomicU64::new(1),
-            config: Arc::new(Mutex::new(config)),
             executor: cx.background_executor().clone(),
         }
     }
@@ -78,13 +74,21 @@ impl DebugAdapterClient {
         let (server_rx, server_tx) = self.transport_delegate.reconnect(cx).await?;
         log::info!("Successfully reconnected to debug adapter");
 
+        let client_id = self.id;
+
         // start handling events/reverse requests
         cx.update(|cx| {
             cx.spawn({
                 let server_tx = server_tx.clone();
                 |mut cx| async move {
-                    Self::handle_receive_messages(server_rx, server_tx, message_handler, &mut cx)
-                        .await
+                    Self::handle_receive_messages(
+                        client_id,
+                        server_rx,
+                        server_tx,
+                        message_handler,
+                        &mut cx,
+                    )
+                    .await
                 }
             })
             .detach_and_log_err(cx);
@@ -98,13 +102,21 @@ impl DebugAdapterClient {
         let (server_rx, server_tx) = self.transport_delegate.start(&self.binary, cx).await?;
         log::info!("Successfully connected to debug adapter");
 
+        let client_id = self.id;
+
         // start handling events/reverse requests
         cx.update(|cx| {
             cx.spawn({
                 let server_tx = server_tx.clone();
                 |mut cx| async move {
-                    Self::handle_receive_messages(server_rx, server_tx, message_handler, &mut cx)
-                        .await
+                    Self::handle_receive_messages(
+                        client_id,
+                        server_rx,
+                        server_tx,
+                        message_handler,
+                        &mut cx,
+                    )
+                    .await
                 }
             })
             .detach_and_log_err(cx);
@@ -112,6 +124,7 @@ impl DebugAdapterClient {
     }
 
     async fn handle_receive_messages<F>(
+        client_id: DebugAdapterClientId,
         server_rx: Receiver<Message>,
         client_tx: Sender<Message>,
         mut event_handler: F,
@@ -128,7 +141,7 @@ impl DebugAdapterClient {
 
             if let Err(e) = match message {
                 Message::Event(ev) => {
-                    log::debug!("Received event `{}`", &ev);
+                    log::debug!("Client {} received event `{}`", client_id.0, &ev);
 
                     cx.update(|cx| event_handler(Message::Event(ev), cx))
                 }
@@ -172,18 +185,13 @@ impl DebugAdapterClient {
             .await;
 
         log::debug!(
-            "Send `{}` request with sequence_id: {}",
+            "Client {} send `{}` request with sequence_id: {}",
+            self.id.0,
             R::COMMAND.to_string(),
             sequence_id
         );
 
         self.send_message(Message::Request(request)).await?;
-
-        log::debug!(
-            "Start receiving response for: `{}` sequence_id: {}",
-            R::COMMAND.to_string(),
-            sequence_id
-        );
 
         let mut timeout = self.executor.timer(DAP_REQUEST_TIMEOUT).fuse();
         let command = R::COMMAND.to_string();
@@ -191,7 +199,8 @@ impl DebugAdapterClient {
         select! {
             response = callback_rx.fuse() => {
                 log::debug!(
-                    "Received response for: `{}` sequence_id: {}",
+                    "Client {} received response for: `{}` sequence_id: {}",
+                    self.id.0,
                     command,
                     sequence_id
                 );
@@ -219,10 +228,6 @@ impl DebugAdapterClient {
         self.id
     }
 
-    pub fn config(&self) -> DebugAdapterConfig {
-        self.config.lock().unwrap().clone()
-    }
-
     pub fn adapter(&self) -> &Arc<dyn DebugAdapter> {
         &self.adapter
     }
@@ -233,14 +238,6 @@ impl DebugAdapterClient {
 
     pub fn adapter_id(&self) -> String {
         self.adapter.name().to_string()
-    }
-
-    pub fn set_process_id(&self, process_id: u32) {
-        let mut config = self.config.lock().unwrap();
-
-        config.request = DebugRequestType::Attach(task::AttachConfig {
-            process_id: Some(process_id),
-        });
     }
 
     /// Get the next sequence id to be used in a request
@@ -266,11 +263,34 @@ impl DebugAdapterClient {
     #[cfg(any(test, feature = "test-support"))]
     pub async fn on_request<R: dap_types::requests::Request, F>(&self, handler: F)
     where
-        F: 'static + Send + FnMut(u64, R::Arguments) -> Result<R::Response>,
+        F: 'static
+            + Send
+            + FnMut(u64, R::Arguments) -> Result<R::Response, dap_types::ErrorResponse>,
     {
         let transport = self.transport_delegate.transport();
 
         transport.as_fake().on_request::<R, F>(handler).await;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn fake_reverse_request<R: dap_types::requests::Request>(&self, args: R::Arguments) {
+        self.send_message(Message::Request(dap_types::messages::Request {
+            seq: self.sequence_count.load(Ordering::Relaxed),
+            command: R::COMMAND.into(),
+            arguments: serde_json::to_value(args).ok(),
+        }))
+        .await
+        .unwrap();
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn on_response<R: dap_types::requests::Request, F>(&self, handler: F)
+    where
+        F: 'static + Send + Fn(Response),
+    {
+        let transport = self.transport_delegate.transport();
+
+        transport.as_fake().on_response::<R, F>(handler).await;
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -288,13 +308,15 @@ mod tests {
         adapters::FakeAdapter, client::DebugAdapterClient, debugger_settings::DebuggerSettings,
     };
     use dap_types::{
-        messages::Events, requests::Initialize, Capabilities, InitializeRequestArguments,
-        InitializeRequestArgumentsPathFormat,
+        messages::Events,
+        requests::{Initialize, Request, RunInTerminal},
+        Capabilities, InitializeRequestArguments, InitializeRequestArgumentsPathFormat,
+        RunInTerminalRequestArguments,
     };
     use gpui::TestAppContext;
+    use serde_json::json;
     use settings::{Settings, SettingsStore};
     use std::sync::atomic::{AtomicBool, Ordering};
-    use task::DebugAdapterConfig;
 
     pub fn init_test(cx: &mut gpui::TestAppContext) {
         if std::env::var("RUST_LOG").is_ok() {
@@ -316,13 +338,6 @@ mod tests {
 
         let mut client = DebugAdapterClient::new(
             crate::client::DebugAdapterClientId(1),
-            DebugAdapterConfig {
-                kind: task::DebugAdapterKind::Fake,
-                request: task::DebugRequestType::Launch,
-                program: None,
-                cwd: None,
-                initialize_args: None,
-            },
             adapter,
             DebugAdapterBinary {
                 command: "command".into(),
@@ -392,18 +407,10 @@ mod tests {
         init_test(cx);
 
         let adapter = Arc::new(FakeAdapter::new());
-        let was_called = Arc::new(AtomicBool::new(false));
-        let was_called_clone = was_called.clone();
+        let called_event_handler = Arc::new(AtomicBool::new(false));
 
         let mut client = DebugAdapterClient::new(
             crate::client::DebugAdapterClientId(1),
-            DebugAdapterConfig {
-                kind: task::DebugAdapterKind::Fake,
-                request: task::DebugRequestType::Launch,
-                program: None,
-                cwd: None,
-                initialize_args: None,
-            },
             adapter,
             DebugAdapterBinary {
                 command: "command".into(),
@@ -416,15 +423,18 @@ mod tests {
 
         client
             .start(
-                move |event, _| {
-                    was_called_clone.store(true, Ordering::SeqCst);
+                {
+                    let called_event_handler = called_event_handler.clone();
+                    move |event, _| {
+                        called_event_handler.store(true, Ordering::SeqCst);
 
-                    assert_eq!(
-                        Message::Event(Box::new(Events::Initialized(
-                            Some(Capabilities::default())
-                        ))),
-                        event
-                    );
+                        assert_eq!(
+                            Message::Event(Box::new(Events::Initialized(Some(
+                                Capabilities::default()
+                            )))),
+                            event
+                        );
+                    }
                 },
                 &mut cx.to_async(),
             )
@@ -440,7 +450,74 @@ mod tests {
         cx.run_until_parked();
 
         assert!(
-            was_called.load(std::sync::atomic::Ordering::SeqCst),
+            called_event_handler.load(std::sync::atomic::Ordering::SeqCst),
+            "Event handler was not called"
+        );
+
+        client.shutdown().await.unwrap();
+    }
+
+    #[gpui::test]
+    pub async fn test_calls_event_handler_for_reverse_request(cx: &mut TestAppContext) {
+        init_test(cx);
+
+        let adapter = Arc::new(FakeAdapter::new());
+        let called_event_handler = Arc::new(AtomicBool::new(false));
+
+        let mut client = DebugAdapterClient::new(
+            crate::client::DebugAdapterClientId(1),
+            adapter,
+            DebugAdapterBinary {
+                command: "command".into(),
+                arguments: Default::default(),
+                envs: Default::default(),
+                cwd: None,
+            },
+            &mut cx.to_async(),
+        );
+
+        client
+            .start(
+                {
+                    let called_event_handler = called_event_handler.clone();
+                    move |event, _| {
+                        called_event_handler.store(true, Ordering::SeqCst);
+
+                        assert_eq!(
+                            Message::Request(dap_types::messages::Request {
+                                seq: 1,
+                                command: RunInTerminal::COMMAND.into(),
+                                arguments: Some(json!({
+                                    "cwd": "/project/path/src",
+                                    "args": ["node", "test.js"],
+                                }))
+                            }),
+                            event
+                        );
+                    }
+                },
+                &mut cx.to_async(),
+            )
+            .await
+            .unwrap();
+
+        cx.run_until_parked();
+
+        client
+            .fake_reverse_request::<RunInTerminal>(RunInTerminalRequestArguments {
+                kind: None,
+                title: None,
+                cwd: "/project/path/src".into(),
+                args: vec!["node".into(), "test.js".into()],
+                env: None,
+                args_can_be_interpreted_by_shell: None,
+            })
+            .await;
+
+        cx.run_until_parked();
+
+        assert!(
+            called_event_handler.load(std::sync::atomic::Ordering::SeqCst),
             "Event handler was not called"
         );
 

@@ -1,8 +1,8 @@
 use crate::stack_frame_list::{StackFrameList, StackFrameListEvent};
 use anyhow::{anyhow, Result};
 use dap::{
-    client::DebugAdapterClientId, proto_conversions::ProtoConversion, Scope, ScopePresentationHint,
-    Variable,
+    client::DebugAdapterClientId, proto_conversions::ProtoConversion, session::DebugSessionId,
+    Scope, ScopePresentationHint, Variable,
 };
 use editor::{
     actions::{self, SelectAll},
@@ -10,7 +10,7 @@ use editor::{
 };
 use gpui::{
     anchored, deferred, list, AnyElement, ClipboardItem, DismissEvent, FocusHandle, FocusableView,
-    ListState, Model, MouseDownEvent, Point, Subscription, Task, View,
+    ListOffset, ListState, Model, MouseDownEvent, Point, Subscription, Task, View,
 };
 use menu::Confirm;
 use project::dap_store::DapStore;
@@ -23,6 +23,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
 };
+use sum_tree::{Dimension, Item, SumTree, Summary};
 use ui::{prelude::*, ContextMenu, ListItem};
 use util::ResultExt;
 
@@ -56,7 +57,7 @@ impl ProtoConversion for VariableContainer {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SetVariableState {
     name: String,
     scope: Scope,
@@ -127,7 +128,7 @@ impl SetVariableState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum OpenEntry {
+pub enum OpenEntry {
     Scope { name: String },
     Variable { name: String, depth: usize },
 }
@@ -164,7 +165,7 @@ impl OpenEntry {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VariableListEntry {
     Scope(Scope),
     SetVariableEditor {
@@ -227,9 +228,52 @@ impl VariableListEntry {
 }
 
 #[derive(Debug)]
-struct ScopeVariableIndex {
+pub struct ScopeVariableIndex {
     fetched_ids: HashSet<u64>,
-    variables: Vec<VariableContainer>,
+    variables: SumTree<VariableContainer>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ScopeVariableSummary {
+    count: usize,
+    max_depth: usize,
+    container_reference: u64,
+}
+
+impl Item for VariableContainer {
+    type Summary = ScopeVariableSummary;
+
+    fn summary(&self, _cx: &()) -> Self::Summary {
+        ScopeVariableSummary {
+            count: 1,
+            max_depth: self.depth,
+            container_reference: self.container_reference,
+        }
+    }
+}
+
+impl<'a> Dimension<'a, ScopeVariableSummary> for usize {
+    fn zero(_cx: &()) -> Self {
+        0
+    }
+
+    fn add_summary(&mut self, summary: &'a ScopeVariableSummary, _cx: &()) {
+        *self += summary.count;
+    }
+}
+
+impl Summary for ScopeVariableSummary {
+    type Context = ();
+
+    fn zero(_: &Self::Context) -> Self {
+        Self::default()
+    }
+
+    fn add_summary(&mut self, other: &Self, _: &Self::Context) {
+        self.count += other.count;
+        self.max_depth = self.max_depth.max(other.max_depth);
+        self.container_reference = self.container_reference.max(other.container_reference);
+    }
 }
 
 impl ProtoConversion for ScopeVariableIndex {
@@ -246,11 +290,13 @@ impl ProtoConversion for ScopeVariableIndex {
     fn from_proto(payload: Self::ProtoType) -> Self {
         Self {
             fetched_ids: payload.fetched_ids.iter().copied().collect(),
-            variables: payload
-                .variables
-                .iter()
-                .filter_map(|var| VariableContainer::from_proto(var.clone()).log_err())
-                .collect(),
+            variables: SumTree::from_iter(
+                payload
+                    .variables
+                    .iter()
+                    .filter_map(|var| VariableContainer::from_proto(var.clone()).log_err()),
+                &(),
+            ),
         }
     }
 }
@@ -258,7 +304,7 @@ impl ProtoConversion for ScopeVariableIndex {
 impl ScopeVariableIndex {
     pub fn new() -> Self {
         Self {
-            variables: Vec::new(),
+            variables: SumTree::default(),
             fetched_ids: HashSet::default(),
         }
     }
@@ -269,26 +315,45 @@ impl ScopeVariableIndex {
 
     /// All the variables should have the same depth and the same container reference
     pub fn add_variables(&mut self, container_reference: u64, variables: Vec<VariableContainer>) {
-        let position = self
-            .variables
-            .iter()
-            .position(|v| v.variable.variables_reference == container_reference);
-
         self.fetched_ids.insert(container_reference);
 
-        if let Some(position) = position {
-            self.variables.splice(position + 1..=position, variables);
-        } else {
-            self.variables.extend(variables);
+        let mut new_variables = SumTree::new(&());
+        let mut cursor = self.variables.cursor::<usize>(&());
+        let mut found_insertion_point = false;
+
+        cursor.seek(&0, editor::Bias::Left, &());
+        while let Some(variable) = cursor.item() {
+            if variable.variable.variables_reference == container_reference {
+                found_insertion_point = true;
+
+                let start = *cursor.start();
+                new_variables.push(variable.clone(), &());
+                new_variables.append(cursor.slice(&start, editor::Bias::Left, &()), &());
+                new_variables.extend(variables.iter().cloned(), &());
+
+                cursor.next(&());
+                new_variables.append(cursor.suffix(&()), &());
+
+                break;
+            }
+            new_variables.push(variable.clone(), &());
+            cursor.next(&());
         }
+        drop(cursor);
+
+        if !found_insertion_point {
+            new_variables.extend(variables.iter().cloned(), &());
+        }
+
+        self.variables = new_variables;
     }
 
     pub fn is_empty(&self) -> bool {
         self.variables.is_empty()
     }
 
-    pub fn variables(&self) -> &[VariableContainer] {
-        &self.variables
+    pub fn variables(&self) -> Vec<VariableContainer> {
+        self.variables.iter().cloned().collect()
     }
 }
 
@@ -301,6 +366,7 @@ pub struct VariableList {
     dap_store: Model<DapStore>,
     open_entries: Vec<OpenEntry>,
     client_id: DebugAdapterClientId,
+    session_id: DebugSessionId,
     scopes: HashMap<StackFrameId, Vec<Scope>>,
     set_variable_editor: View<Editor>,
     _subscriptions: Vec<Subscription>,
@@ -317,6 +383,7 @@ impl VariableList {
         stack_frame_list: &View<StackFrameList>,
         dap_store: Model<DapStore>,
         client_id: &DebugAdapterClientId,
+        session_id: &DebugSessionId,
         cx: &mut ViewContext<Self>,
     ) -> Self {
         let weakview = cx.view().downgrade();
@@ -351,6 +418,7 @@ impl VariableList {
             _subscriptions,
             set_variable_editor,
             client_id: *client_id,
+            session_id: *session_id,
             open_context_menu: None,
             set_variable_state: None,
             fetch_variables_task: None,
@@ -422,7 +490,7 @@ impl VariableList {
             .iter()
             .filter_map(|variable| {
                 Some((
-                    (variable.stack_frame_id, variable.stack_frame_id),
+                    (variable.stack_frame_id, variable.scope_id),
                     ScopeVariableIndex::from_proto(variable.variables.clone()?),
                 ))
             })
@@ -471,7 +539,7 @@ impl VariableList {
             })
             .collect();
 
-        self.list.reset(self.entries.len());
+        self.build_entries(true, true, cx);
         cx.notify();
     }
 
@@ -489,6 +557,24 @@ impl VariableList {
                 self.fetch_variables(cx);
             }
         }
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn scopes(&self) -> &HashMap<StackFrameId, Vec<Scope>> {
+        &self.scopes
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn entries(&self) -> &HashMap<StackFrameId, Vec<VariableListEntry>> {
+        &self.entries
+    }
+
+    pub fn variables_by_scope(
+        &self,
+        stack_frame_id: StackFrameId,
+        scope_id: ScopeId,
+    ) -> Option<&ScopeVariableIndex> {
+        self.variables.get(&(stack_frame_id, scope_id))
     }
 
     pub fn variables(&self, cx: &mut ViewContext<Self>) -> Vec<VariableContainer> {
@@ -529,7 +615,7 @@ impl VariableList {
         }
     }
 
-    fn toggle_entry(&mut self, entry_id: &OpenEntry, cx: &mut ViewContext<Self>) {
+    pub fn toggle_entry(&mut self, entry_id: &OpenEntry, cx: &mut ViewContext<Self>) {
         match self.open_entries.binary_search(&entry_id) {
             Ok(ix) => {
                 self.open_entries.remove(ix);
@@ -644,15 +730,55 @@ impl VariableList {
             }
         }
 
+        let old_entries = self.entries.get(&stack_frame_id).cloned();
+        let old_scroll_top = self.list.logical_scroll_top();
+
         let len = entries.len();
-        self.entries.insert(stack_frame_id, entries);
+        self.entries.insert(stack_frame_id, entries.clone());
         self.list.reset(len);
+
+        if let Some(old_entries) = old_entries.as_ref() {
+            if let Some(old_top_entry) = old_entries.get(old_scroll_top.item_ix) {
+                let new_scroll_top = old_entries
+                    .iter()
+                    .position(|entry| entry == old_top_entry)
+                    .map(|item_ix| ListOffset {
+                        item_ix,
+                        offset_in_item: old_scroll_top.offset_in_item,
+                    })
+                    .or_else(|| {
+                        let entry_after_old_top = old_entries.get(old_scroll_top.item_ix + 1)?;
+                        let item_ix = entries
+                            .iter()
+                            .position(|entry| entry == entry_after_old_top)?;
+                        Some(ListOffset {
+                            item_ix,
+                            offset_in_item: Pixels::ZERO,
+                        })
+                    })
+                    .or_else(|| {
+                        let entry_before_old_top =
+                            old_entries.get(old_scroll_top.item_ix.saturating_sub(1))?;
+                        let item_ix = entries
+                            .iter()
+                            .position(|entry| entry == entry_before_old_top)?;
+                        Some(ListOffset {
+                            item_ix,
+                            offset_in_item: Pixels::ZERO,
+                        })
+                    });
+
+                self.list
+                    .scroll_to(new_scroll_top.unwrap_or(old_scroll_top));
+            }
+        }
 
         cx.notify();
 
         if let Some((client, project_id)) = self.dap_store.read(cx).downstream_client() {
             let request = UpdateDebugAdapter {
                 client_id: self.client_id.to_proto(),
+                session_id: self.session_id.to_proto(),
                 thread_id: Some(self.stack_frame_list.read(cx).thread_id()),
                 project_id: *project_id,
                 variant: Some(rpc::proto::update_debug_adapter::Variant::VariableList(
@@ -813,12 +939,12 @@ impl VariableList {
     ) {
         let this = cx.view().clone();
 
-        let support_set_variable = self.dap_store.read_with(cx, |store, _| {
-            store
-                .capabilities_by_id(&self.client_id)
-                .supports_set_variable
-                .unwrap_or_default()
-        });
+        let support_set_variable = self
+            .dap_store
+            .read(cx)
+            .capabilities_by_id(&self.client_id)
+            .supports_set_variable
+            .unwrap_or_default();
 
         let context_menu = ContextMenu::build(cx, |menu, cx| {
             menu.entry(
@@ -926,28 +1052,20 @@ impl VariableList {
             return cx.notify();
         }
 
-        let client_id = self.client_id;
-        let variables_reference = state.parent_variables_reference;
-        let name = state.name;
-        let evaluate_name = state.evaluate_name;
-        let stack_frame_id = state.stack_frame_id;
+        let set_value_task = self.dap_store.update(cx, |store, cx| {
+            store.set_variable_value(
+                &self.client_id,
+                state.stack_frame_id,
+                state.parent_variables_reference,
+                state.name,
+                new_variable_value,
+                state.evaluate_name,
+                cx,
+            )
+        });
 
         cx.spawn(|this, mut cx| async move {
-            let set_value_task = this.update(&mut cx, |this, cx| {
-                this.dap_store.update(cx, |store, cx| {
-                    store.set_variable_value(
-                        &client_id,
-                        stack_frame_id,
-                        variables_reference,
-                        name,
-                        new_variable_value,
-                        evaluate_name,
-                        cx,
-                    )
-                })
-            });
-
-            set_value_task?.await?;
+            set_value_task.await?;
 
             this.update(&mut cx, |this, cx| {
                 this.build_entries(false, true, cx);
@@ -983,23 +1101,18 @@ impl VariableList {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn on_toggle_variable(
+    pub fn on_toggle_variable(
         &mut self,
         scope_id: u64,
         entry_id: &OpenEntry,
         variable_reference: u64,
         depth: usize,
-        has_children: bool,
         disclosed: Option<bool>,
         cx: &mut ViewContext<Self>,
     ) {
-        if !has_children {
-            return;
-        }
-
         let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
 
-        let Some(index) = self.variables.get(&(stack_frame_id, scope_id)) else {
+        let Some(index) = self.variables_by_scope(stack_frame_id, scope_id) else {
             return;
         };
 
@@ -1076,17 +1189,18 @@ impl VariableList {
                 .indent_step_size(px(20.))
                 .always_show_disclosure_icon(true)
                 .toggle(disclosed)
-                .on_toggle(cx.listener(move |this, _, cx| {
-                    this.on_toggle_variable(
-                        scope_id,
-                        &entry_id,
-                        variable_reference,
-                        depth,
-                        has_children,
-                        disclosed,
-                        cx,
-                    )
-                }))
+                .when(has_children, |list_item| {
+                    list_item.on_toggle(cx.listener(move |this, _, cx| {
+                        this.on_toggle_variable(
+                            scope_id,
+                            &entry_id,
+                            variable_reference,
+                            depth,
+                            disclosed,
+                            cx,
+                        )
+                    }))
+                })
                 .on_secondary_mouse_down(cx.listener({
                     let scope = scope.clone();
                     let variable = variable.clone();
@@ -1180,7 +1294,7 @@ mod tests {
     fn test_add_initial_variables_to_index() {
         let mut index = ScopeVariableIndex::new();
 
-        assert_eq!(index.variables(), &[]);
+        assert_eq!(index.variables(), vec![]);
         assert_eq!(index.fetched_ids, HashSet::default());
 
         let variable1 = VariableContainer {
@@ -1237,10 +1351,10 @@ mod tests {
         );
 
         assert_eq!(
+            vec![variable1.clone(), variable2.clone(), variable3.clone()],
             index.variables(),
-            &[variable1.clone(), variable2.clone(), variable3.clone()]
         );
-        assert_eq!(index.fetched_ids, HashSet::from([1]));
+        assert_eq!(HashSet::from([1]), index.fetched_ids,);
     }
 
     /// This covers when you click on a variable that has a nested variable
@@ -1249,7 +1363,7 @@ mod tests {
     fn test_add_sub_variables_to_index() {
         let mut index = ScopeVariableIndex::new();
 
-        assert_eq!(index.variables(), &[]);
+        assert_eq!(index.variables(), vec![]);
 
         let variable1 = VariableContainer {
             variable: Variable {
@@ -1305,10 +1419,10 @@ mod tests {
         );
 
         assert_eq!(
+            vec![variable1.clone(), variable2.clone(), variable3.clone()],
             index.variables(),
-            &[variable1.clone(), variable2.clone(), variable3.clone()]
         );
-        assert_eq!(index.fetched_ids, HashSet::from([1]));
+        assert_eq!(HashSet::from([1]), index.fetched_ids);
 
         let variable4 = VariableContainer {
             variable: Variable {
@@ -1345,14 +1459,14 @@ mod tests {
         index.add_variables(2, vec![variable4.clone(), variable5.clone()]);
 
         assert_eq!(
-            index.variables(),
-            &[
+            vec![
                 variable1.clone(),
                 variable2.clone(),
                 variable4.clone(),
                 variable5.clone(),
                 variable3.clone(),
-            ]
+            ],
+            index.variables(),
         );
         assert_eq!(index.fetched_ids, HashSet::from([1, 2]));
     }
@@ -1430,15 +1544,15 @@ mod tests {
         index.add_variables(2, vec![variable3.clone(), variable4.clone()]);
 
         assert_eq!(
-            index.variables(),
-            &[
+            vec![
                 variable1.clone(),
                 variable3.clone(),
                 variable4.clone(),
                 variable2.clone(),
-            ]
+            ],
+            index.variables(),
         );
-        assert_eq!(index.fetched_ids, HashSet::from([1, 2]));
+        assert_eq!(HashSet::from([1, 2]), index.fetched_ids);
 
         let from_proto = ScopeVariableIndex::from_proto(index.to_proto());
 

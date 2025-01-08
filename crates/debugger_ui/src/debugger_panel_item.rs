@@ -5,6 +5,8 @@ use crate::module_list::ModuleList;
 use crate::stack_frame_list::{StackFrameList, StackFrameListEvent};
 use crate::variable_list::VariableList;
 
+use dap::proto_conversions;
+use dap::session::DebugSessionId;
 use dap::{
     client::DebugAdapterClientId, debugger_settings::DebuggerSettings, Capabilities,
     ContinuedEvent, LoadedSourceEvent, ModuleEvent, OutputEvent, OutputEventCategory, StoppedEvent,
@@ -64,14 +66,15 @@ impl ThreadItem {
 
 pub struct DebugPanelItem {
     thread_id: u64,
-    remote_id: Option<ViewId>,
     console: View<Console>,
-    show_console_indicator: bool,
     focus_handle: FocusHandle,
+    remote_id: Option<ViewId>,
+    session_name: SharedString,
     dap_store: Model<DapStore>,
+    session_id: DebugSessionId,
     output_editor: View<Editor>,
+    show_console_indicator: bool,
     module_list: View<ModuleList>,
-    client_name: SharedString,
     active_thread_item: ThreadItem,
     workspace: WeakView<Workspace>,
     client_id: DebugAdapterClientId,
@@ -89,8 +92,9 @@ impl DebugPanelItem {
         workspace: WeakView<Workspace>,
         dap_store: Model<DapStore>,
         thread_state: Model<ThreadState>,
+        session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
-        client_name: SharedString,
+        session_name: SharedString,
         thread_id: u64,
         cx: &mut ViewContext<Self>,
     ) -> Self {
@@ -98,13 +102,23 @@ impl DebugPanelItem {
 
         let this = cx.view().clone();
         let stack_frame_list = cx.new_view(|cx| {
-            StackFrameList::new(&workspace, &this, &dap_store, client_id, thread_id, cx)
+            StackFrameList::new(
+                &workspace, &this, &dap_store, client_id, session_id, thread_id, cx,
+            )
         });
 
-        let variable_list = cx
-            .new_view(|cx| VariableList::new(&stack_frame_list, dap_store.clone(), &client_id, cx));
+        let variable_list = cx.new_view(|cx| {
+            VariableList::new(
+                &stack_frame_list,
+                dap_store.clone(),
+                &client_id,
+                session_id,
+                cx,
+            )
+        });
 
-        let module_list = cx.new_view(|cx| ModuleList::new(dap_store.clone(), &client_id, cx));
+        let module_list =
+            cx.new_view(|cx| ModuleList::new(dap_store.clone(), &client_id, &session_id, cx));
 
         let loaded_source_list =
             cx.new_view(|cx| LoadedSourceList::new(&this, dap_store.clone(), &client_id, cx));
@@ -140,8 +154,8 @@ impl DebugPanelItem {
                         DebugPanelEvent::LoadedSource((client_id, event)) => {
                             this.handle_loaded_source_event(client_id, event, cx)
                         }
-                        DebugPanelEvent::ClientStopped(client_id) => {
-                            this.handle_client_stopped_event(client_id, cx)
+                        DebugPanelEvent::ClientShutdown(client_id) => {
+                            this.handle_client_shutdown_event(client_id, cx)
                         }
                         DebugPanelEvent::Continued((client_id, event)) => {
                             this.handle_thread_continued_event(client_id, event, cx);
@@ -184,7 +198,7 @@ impl DebugPanelItem {
             thread_id,
             dap_store,
             workspace,
-            client_name,
+            session_name,
             module_list,
             thread_state,
             focus_handle,
@@ -195,19 +209,21 @@ impl DebugPanelItem {
             stack_frame_list,
             loaded_source_list,
             client_id: *client_id,
+            session_id: *session_id,
             show_console_indicator: false,
             active_thread_item: ThreadItem::Variables,
         }
     }
 
-    pub(crate) fn to_proto(&self, cx: &ViewContext<Self>, project_id: u64) -> SetDebuggerPanelItem {
-        let thread_state = Some(self.thread_state.read_with(cx, |this, _| this.to_proto()));
+    pub(crate) fn to_proto(&self, project_id: u64, cx: &AppContext) -> SetDebuggerPanelItem {
+        let thread_state = Some(self.thread_state.read(cx).to_proto());
         let module_list = Some(self.module_list.read(cx).to_proto());
         let variable_list = Some(self.variable_list.read(cx).to_proto());
         let stack_frame_list = Some(self.stack_frame_list.read(cx).to_proto());
 
         SetDebuggerPanelItem {
             project_id,
+            session_id: self.session_id.to_proto(),
             client_id: self.client_id.to_proto(),
             thread_id: self.thread_id,
             console: None,
@@ -217,7 +233,7 @@ impl DebugPanelItem {
             variable_list,
             stack_frame_list,
             loaded_source_list: None,
-            client_name: self.client_name.to_string(),
+            session_name: self.session_name.to_string(),
         }
     }
 
@@ -290,7 +306,7 @@ impl DebugPanelItem {
 
         if let Some((downstream_client, project_id)) = self.dap_store.read(cx).downstream_client() {
             downstream_client
-                .send(self.to_proto(cx, *project_id))
+                .send(self.to_proto(*project_id, cx))
                 .log_err();
         }
     }
@@ -377,7 +393,7 @@ impl DebugPanelItem {
             });
     }
 
-    fn handle_client_stopped_event(
+    fn handle_client_shutdown_event(
         &mut self,
         client_id: &DebugAdapterClientId,
         cx: &mut ViewContext<Self>,
@@ -422,7 +438,19 @@ impl DebugPanelItem {
             return;
         }
 
+        // notify the view that the capabilities have changed
         cx.notify();
+
+        if let Some((downstream_client, project_id)) = self.dap_store.read(cx).downstream_client() {
+            let message = proto_conversions::capabilities_to_proto(
+                &self.dap_store.read(cx).capabilities_by_id(client_id),
+                *project_id,
+                self.session_id.to_proto(),
+                self.client_id.to_proto(),
+            );
+
+            downstream_client.send(message).log_err();
+        }
     }
 
     pub(crate) fn update_adapter(
@@ -454,6 +482,10 @@ impl DebugPanelItem {
         }
     }
 
+    pub fn session_id(&self) -> DebugSessionId {
+        self.session_id
+    }
+
     pub fn client_id(&self) -> DebugAdapterClientId {
         self.client_id
     }
@@ -467,9 +499,23 @@ impl DebugPanelItem {
         &self.stack_frame_list
     }
 
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn output_editor(&self) -> &View<Editor> {
+        &self.output_editor
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn console(&self) -> &View<Console> {
+        &self.console
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn variable_list(&self) -> &View<VariableList> {
+        &self.variable_list
+    }
+
     pub fn capabilities(&self, cx: &mut ViewContext<Self>) -> Capabilities {
-        self.dap_store
-            .read_with(cx, |store, _| store.capabilities_by_id(&self.client_id))
+        self.dap_store.read(cx).capabilities_by_id(&self.client_id)
     }
 
     fn clear_highlights(&self, cx: &mut ViewContext<Self>) {
@@ -588,6 +634,18 @@ impl DebugPanelItem {
         });
     }
 
+    pub fn step_back(&mut self, cx: &mut ViewContext<Self>) {
+        self.update_thread_state_status(ThreadStatus::Running, cx);
+
+        let granularity = DebuggerSettings::get_global(cx).stepping_granularity;
+
+        self.dap_store.update(cx, |store, cx| {
+            store
+                .step_back(&self.client_id, self.thread_id, granularity, cx)
+                .detach_and_log_err(cx);
+        });
+    }
+
     pub fn restart_client(&self, cx: &mut ViewContext<Self>) {
         self.dap_store.update(cx, |store, cx| {
             store
@@ -607,7 +665,12 @@ impl DebugPanelItem {
     pub fn stop_thread(&self, cx: &mut ViewContext<Self>) {
         self.dap_store.update(cx, |store, cx| {
             store
-                .terminate_threads(&self.client_id, Some(vec![self.thread_id; 1]), cx)
+                .terminate_threads(
+                    &self.session_id,
+                    &self.client_id,
+                    Some(vec![self.thread_id; 1]),
+                    cx,
+                )
                 .detach_and_log_err(cx)
         });
     }
@@ -625,7 +688,7 @@ impl DebugPanelItem {
             .update(cx, |workspace, cx| {
                 workspace.project().update(cx, |project, cx| {
                     project
-                        .toggle_ignore_breakpoints(&self.client_id, cx)
+                        .toggle_ignore_breakpoints(&self.session_id, &self.client_id, cx)
                         .detach_and_log_err(cx);
                 })
             })
@@ -649,7 +712,7 @@ impl Item for DebugPanelItem {
         params: workspace::item::TabContentParams,
         _: &WindowContext,
     ) -> AnyElement {
-        Label::new(format!("{} - Thread {}", self.client_name, self.thread_id))
+        Label::new(format!("{} - Thread {}", self.session_name, self.thread_id))
             .color(if params.selected {
                 Color::Default
             } else {
@@ -661,7 +724,7 @@ impl Item for DebugPanelItem {
     fn tab_tooltip_text(&self, cx: &AppContext) -> Option<SharedString> {
         Some(SharedString::from(format!(
             "{} Thread {} - {:?}",
-            self.client_name,
+            self.session_name,
             self.thread_id,
             self.thread_state.read(cx).status,
         )))
@@ -780,6 +843,17 @@ impl Render for DebugPanelItem {
                                     )
                                 }
                             })
+                            .when(capabilities.supports_step_back.unwrap_or(false), |this| {
+                                this.child(
+                                    IconButton::new("debug-step-back", IconName::DebugStepBack)
+                                        .icon_size(IconSize::Small)
+                                        .on_click(cx.listener(|this, _, cx| {
+                                            this.step_back(cx);
+                                        }))
+                                        .disabled(thread_status != ThreadStatus::Stopped)
+                                        .tooltip(move |cx| Tooltip::text("Step back", cx)),
+                                )
+                            })
                             .child(
                                 IconButton::new("debug-step-over", IconName::DebugStepOver)
                                     .icon_size(IconSize::Small)
@@ -845,7 +919,9 @@ impl Render for DebugPanelItem {
                             .child(
                                 IconButton::new(
                                     "debug-ignore-breakpoints",
-                                    if self.dap_store.read(cx).ignore_breakpoints(&self.client_id) {
+                                    if self.dap_store.update(cx, |store, cx| {
+                                        store.ignore_breakpoints(&self.session_id, cx)
+                                    }) {
                                         IconName::DebugIgnoreBreakpoints
                                     } else {
                                         IconName::DebugBreakpoint

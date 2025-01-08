@@ -71,6 +71,16 @@ impl Console {
         }
     }
 
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn editor(&self) -> &View<Editor> {
+        &self.console
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn query_bar(&self) -> &View<Editor> {
+        &self.query_bar
+    }
+
     fn handle_stack_frame_list_events(
         &mut self,
         _: View<StackFrameList>,
@@ -92,7 +102,7 @@ impl Console {
         });
     }
 
-    fn evaluate(&mut self, _: &Confirm, cx: &mut ViewContext<Self>) {
+    pub fn evaluate(&mut self, _: &Confirm, cx: &mut ViewContext<Self>) {
         let expression = self.query_bar.update(cx, |editor, cx| {
             let expression = editor.text(cx);
 
@@ -211,13 +221,13 @@ impl CompletionProvider for ConsoleQueryBarCompletionProvider {
             return Task::ready(Ok(Vec::new()));
         };
 
-        let support_completions = console.update(cx, |this, cx| {
-            this.dap_store
-                .read(cx)
-                .capabilities_by_id(&this.client_id)
-                .supports_completions_request
-                .unwrap_or_default()
-        });
+        let support_completions = console
+            .read(cx)
+            .dap_store
+            .read(cx)
+            .capabilities_by_id(&console.read(cx).client_id)
+            .supports_completions_request
+            .unwrap_or_default();
 
         if support_completions {
             self.client_completions(&console, buffer, buffer_position, cx)
@@ -239,7 +249,8 @@ impl CompletionProvider for ConsoleQueryBarCompletionProvider {
     fn apply_additional_edits_for_completion(
         &self,
         _buffer: Model<Buffer>,
-        _completion: project::Completion,
+        _completions: Rc<RefCell<Box<[Completion]>>>,
+        _completion_index: usize,
         _push_to_history: bool,
         _cx: &mut ViewContext<Editor>,
     ) -> gpui::Task<gpui::Result<Option<language::Transaction>>> {
@@ -326,6 +337,7 @@ impl ConsoleQueryBarCompletionProvider {
                         documentation: None,
                         lsp_completion: Default::default(),
                         confirm: None,
+                        resolved: true,
                     })
                 })
                 .collect())
@@ -371,6 +383,7 @@ impl ConsoleQueryBarCompletionProvider {
                     documentation: None,
                     lsp_completion: Default::default(),
                     confirm: None,
+                    resolved: true,
                 })
                 .collect())
         })

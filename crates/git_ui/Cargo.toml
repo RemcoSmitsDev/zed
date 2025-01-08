@@ -14,8 +14,11 @@ path = "src/git_ui.rs"
 
 [dependencies]
 anyhow.workspace = true
+collections.workspace = true
 db.workspace = true
+git.workspace = true
 gpui.workspace = true
+menu.workspace = true
 project.workspace = true
 schemars.workspace = true
 serde.workspace = true
@@ -25,8 +28,7 @@ settings.workspace = true
 ui.workspace = true
 util.workspace = true
 workspace.workspace = true
-git.workspace = true
-collections.workspace = true
+worktree.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows.workspace = true

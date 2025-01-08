@@ -312,7 +312,9 @@ message Envelope {
         SetActiveDebugLine set_active_debug_line = 292;
         RemoveActiveDebugLine remove_active_debug_line = 293;
         SetDebuggerPanelItem set_debugger_panel_item = 294;
-        UpdateDebugAdapter update_debug_adapter = 295; // current max
+        UpdateDebugAdapter update_debug_adapter = 295;
+        ShutdownDebugClient shutdown_debug_client = 296;
+        SetDebugClientCapabilities set_debug_client_capabilities = 297; // current max
     }
 
     reserved 87 to 88;
@@ -570,6 +572,7 @@ message JoinProjectResponse {
     ChannelRole role = 6;
     reserved 7;
     repeated SynchronizeBreakpoints breakpoints = 8;
+    repeated DebuggerSession debug_sessions = 9;
 }
 
 message LeaveProject {
@@ -935,6 +938,7 @@ message Completion {
     string new_text = 3;
     uint64 server_id = 4;
     bytes lsp_completion = 5;
+    bool resolved = 6;
 }
 
 message GetCodeActions {
@@ -1777,7 +1781,7 @@ message Entry {
     bool is_ignored = 7;
     bool is_external = 8;
     reserved 6;
-    optional GitStatus git_status = 9;
+    reserved 9;
     bool is_fifo = 10;
     optional uint64 size = 11;
     optional string canonical_path = 12;
@@ -1786,6 +1790,8 @@ message Entry {
 message RepositoryEntry {
     uint64 work_directory_id = 1;
     optional string branch = 2;
+    repeated StatusEntry updated_statuses = 3;
+    repeated string removed_statuses = 4;
 }
 
 message StatusEntry {
@@ -1797,6 +1803,7 @@ enum GitStatus {
     Added = 0;
     Modified = 1;
     Conflict = 2;
+    Deleted = 3;
 }
 
 message BufferState {
@@ -2417,6 +2424,39 @@ enum BreakpointKind {
     Log = 1;
 }
 
+message DebuggerSession {
+    uint64 session_id = 1;
+    uint64 project_id = 2;
+    repeated DebugClient clients = 3;
+}
+
+message DebugClient {
+    uint64 client_id = 1;
+    SetDebugClientCapabilities capabilities = 2;
+    SetActiveDebugLine active_debug_line = 3;
+    repeated SetDebuggerPanelItem debug_panel_items = 4;
+}
+
+message ShutdownDebugClient {
+    uint64 session_id = 1;
+    uint64 client_id = 2;
+    uint64 project_id = 3;
+}
+
+message SetDebugClientCapabilities {
+    uint64 session_id = 1;
+    uint64 client_id = 2;
+    uint64 project_id = 3;
+    bool supports_loaded_sources_request = 4;
+    bool supports_modules_request = 5;
+    bool supports_restart_request = 6;
+    bool supports_set_expression = 7;
+    bool supports_single_thread_execution_requests = 8;
+    bool supports_step_back = 9;
+    bool supports_stepping_granularity = 10;
+    bool supports_terminate_threads_request = 11;
+}
+
 message Breakpoint {
     Anchor position = 1;
     uint32 cached_position = 2;
@@ -2581,27 +2621,29 @@ message DebuggerModuleList {
 
 message SetDebuggerPanelItem {
     uint64 project_id = 1;
-    uint64 client_id = 2;
-    uint64 thread_id = 3;
-    DebuggerConsole console = 4;
-    DebuggerModuleList module_list = 5;
-    DebuggerThreadItem active_thread_item = 6;
-    DebuggerThreadState thread_state = 7;
-    DebuggerVariableList variable_list = 8;
-    DebuggerStackFrameList stack_frame_list = 9;
-    DebuggerLoadedSourceList loaded_source_list = 10;
-    string client_name = 11;
+    uint64 session_id = 2;
+    uint64 client_id = 3;
+    uint64 thread_id = 4;
+    string session_name = 5;
+    DebuggerConsole console = 6;
+    DebuggerModuleList module_list = 7;
+    DebuggerThreadItem active_thread_item = 8;
+    DebuggerThreadState thread_state = 9;
+    DebuggerVariableList variable_list = 10;
+    DebuggerStackFrameList stack_frame_list = 11;
+    DebuggerLoadedSourceList loaded_source_list = 12;
 }
 
 message UpdateDebugAdapter {
     uint64 project_id = 1;
     uint64 client_id = 2;
     optional uint64 thread_id = 3;
+    uint64 session_id = 4;
     oneof variant {
-        DebuggerThreadState thread_state = 4;
-        DebuggerStackFrameList stack_frame_list = 5;
-        DebuggerVariableList variable_list = 6;
-        DebuggerModuleList modules = 7;
+        DebuggerThreadState thread_state = 5;
+        DebuggerStackFrameList stack_frame_list = 6;
+        DebuggerVariableList variable_list = 7;
+        DebuggerModuleList modules = 8;
     }
 }
 

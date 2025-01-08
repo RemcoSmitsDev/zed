@@ -105,6 +105,7 @@ mod deserialization_tests {
     #[test]
     fn deserialize_task_type_debug() {
         let adapter_config = DebugAdapterConfig {
+            label: "test config".into(),
             kind: DebugAdapterKind::Python(TCPHost::default()),
             request: crate::DebugRequestType::Launch,
             program: Some("main".to_string()),
@@ -112,6 +113,7 @@ mod deserialization_tests {
             initialize_args: None,
         };
         let json = json!({
+            "label": "test config",
             "type": "debug",
             "adapter": "python",
             "program": "main"
@@ -209,13 +211,13 @@ impl TaskTemplate {
         let truncated_variables = truncate_variables(&task_variables);
         let cwd = match self.cwd.as_deref() {
             Some(cwd) => {
-                let substitured_cwd = substitute_all_template_variables_in_str(
+                let substituted_cwd = substitute_all_template_variables_in_str(
                     cwd,
                     &task_variables,
                     &variable_names,
                     &mut substituted_variables,
                 )?;
-                Some(PathBuf::from(substitured_cwd))
+                Some(PathBuf::from(substituted_cwd))
             }
             None => None,
         }
@@ -653,7 +655,7 @@ mod tests {
                 spawn_in_terminal.label,
                 format!(
                     "test label for 1234 and …{}",
-                    &long_value[..=MAX_DISPLAY_VARIABLE_LENGTH]
+                    &long_value[long_value.len() - MAX_DISPLAY_VARIABLE_LENGTH..]
                 ),
                 "Human-readable label should have long substitutions trimmed"
             );

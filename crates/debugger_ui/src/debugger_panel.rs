@@ -8,15 +8,19 @@ use dap::{
     debugger_settings::DebuggerSettings,
     messages::{Events, Message},
     requests::{Request, RunInTerminal, StartDebugging},
-    Capabilities, CapabilitiesEvent, ContinuedEvent, ExitedEvent, LoadedSourceEvent, ModuleEvent,
-    OutputEvent, RunInTerminalRequestArguments, StoppedEvent, TerminatedEvent, ThreadEvent,
-    ThreadEventReason,
+    session::DebugSessionId,
+    Capabilities, CapabilitiesEvent, ContinuedEvent, ErrorResponse, ExitedEvent, LoadedSourceEvent,
+    ModuleEvent, OutputEvent, RunInTerminalRequestArguments, RunInTerminalResponse, StoppedEvent,
+    TerminatedEvent, ThreadEvent, ThreadEventReason,
 };
 use gpui::{
     actions, Action, AppContext, AsyncWindowContext, EventEmitter, FocusHandle, FocusableView,
     FontWeight, Model, Subscription, Task, View, ViewContext, WeakView,
 };
-use project::{dap_store::DapStore, terminals::TerminalKind};
+use project::{
+    dap_store::{DapStore, DapStoreEvent},
+    terminals::TerminalKind,
+};
 use rpc::proto::{SetDebuggerPanelItem, UpdateDebugAdapter};
 use serde_json::Value;
 use settings::Settings;
@@ -24,10 +28,11 @@ use std::{any::TypeId, collections::VecDeque, path::PathBuf, u64};
 use task::DebugRequestType;
 use terminal_view::terminal_panel::TerminalPanel;
 use ui::prelude::*;
+use util::ResultExt as _;
 use workspace::{
     dock::{DockPosition, Panel, PanelEvent},
-    pane, Continue, Disconnect, Pane, Pause, Restart, Start, StepInto, StepOut, StepOver, Stop,
-    ToggleIgnoreBreakpoints, Workspace,
+    pane, Continue, Disconnect, Pane, Pause, Restart, Start, StepBack, StepInto, StepOut, StepOver,
+    Stop, ToggleIgnoreBreakpoints, Workspace,
 };
 
 pub enum DebugPanelEvent {
@@ -43,7 +48,7 @@ pub enum DebugPanelEvent {
     Output((DebugAdapterClientId, OutputEvent)),
     Module((DebugAdapterClientId, ModuleEvent)),
     LoadedSource((DebugAdapterClientId, LoadedSourceEvent)),
-    ClientStopped(DebugAdapterClientId),
+    ClientShutdown(DebugAdapterClientId),
     CapabilitiesChanged(DebugAdapterClientId),
 }
 
@@ -148,16 +153,21 @@ impl DebugPanel {
                 cx.subscribe(&dap_store, Self::on_dap_store_event),
                 cx.subscribe(&project, {
                     move |this: &mut Self, _, event, cx| match event {
-                        project::Event::DebugClientStarted(client_id) => {
-                            this.handle_debug_client_started(client_id, cx);
+                        project::Event::DebugClientStarted((session_id, client_id)) => {
+                            this.handle_debug_client_started(session_id, client_id, cx);
                         }
-                        project::Event::DebugClientEvent { message, client_id } => match message {
+                        project::Event::DebugClientEvent {
+                            session_id,
+                            client_id,
+                            message,
+                        } => match message {
                             Message::Event(event) => {
-                                this.handle_debug_client_events(client_id, event, cx);
+                                this.handle_debug_client_events(session_id, client_id, event, cx);
                             }
                             Message::Request(request) => {
                                 if StartDebugging::COMMAND == request.command {
                                     this.handle_start_debugging_request(
+                                        session_id,
                                         client_id,
                                         request.seq,
                                         request.arguments.clone(),
@@ -165,6 +175,7 @@ impl DebugPanel {
                                     );
                                 } else if RunInTerminal::COMMAND == request.command {
                                     this.handle_run_in_terminal_request(
+                                        session_id,
                                         client_id,
                                         request.seq,
                                         request.arguments.clone(),
@@ -174,8 +185,8 @@ impl DebugPanel {
                             }
                             _ => unreachable!(),
                         },
-                        project::Event::DebugClientStopped(client_id) => {
-                            cx.emit(DebugPanelEvent::ClientStopped(*client_id));
+                        project::Event::DebugClientShutdown(client_id) => {
+                            cx.emit(DebugPanelEvent::ClientShutdown(*client_id));
 
                             this.message_queue.remove(client_id);
                             this.thread_states
@@ -191,7 +202,9 @@ impl DebugPanel {
                 }),
             ];
 
-            Self {
+            let dap_store = project.read(cx).dap_store();
+
+            let mut debug_panel = Self {
                 pane,
                 size: px(300.),
                 _subscriptions,
@@ -200,8 +213,20 @@ impl DebugPanel {
                 thread_states: Default::default(),
                 message_queue: Default::default(),
                 workspace: workspace.weak_handle(),
-                dap_store: project.read(cx).dap_store(),
+                dap_store: dap_store.clone(),
+            };
+
+            if let Some(mut dap_event_queue) = debug_panel
+                .dap_store
+                .clone()
+                .update(cx, |this, _| this.remote_event_queue())
+            {
+                while let Some(dap_event) = dap_event_queue.pop_front() {
+                    debug_panel.on_dap_store_event(debug_panel.dap_store.clone(), &dap_event, cx);
+                }
             }
+
+            debug_panel
         })
     }
 
@@ -214,8 +239,19 @@ impl DebugPanel {
                 let debug_panel = DebugPanel::new(workspace, cx);
 
                 cx.observe(&debug_panel, |_, debug_panel, cx| {
-                    let has_active_session = debug_panel
-                        .update(cx, |this, cx| this.active_debug_panel_item(cx).is_some());
+                    let (has_active_session, support_step_back) =
+                        debug_panel.update(cx, |this, cx| {
+                            this.active_debug_panel_item(cx)
+                                .map(|item| {
+                                    (
+                                        true,
+                                        item.update(cx, |this, cx| this.capabilities(cx))
+                                            .supports_step_back
+                                            .unwrap_or(false),
+                                    )
+                                })
+                                .unwrap_or((false, false))
+                        });
 
                     let filter = CommandPaletteFilter::global_mut(cx);
                     let debugger_action_types = [
@@ -230,11 +266,20 @@ impl DebugPanel {
                         TypeId::of::<ToggleIgnoreBreakpoints>(),
                     ];
 
+                    let step_back_action_type = [TypeId::of::<StepBack>()];
+
                     if has_active_session {
                         filter.show_action_types(debugger_action_types.iter());
+
+                        if support_step_back {
+                            filter.show_action_types(step_back_action_type.iter());
+                        } else {
+                            filter.hide_action_types(&step_back_action_type);
+                        }
                     } else {
                         // show only the `debug: start`
                         filter.hide_action_types(&debugger_action_types);
+                        filter.hide_action_types(&step_back_action_type);
                     }
                 })
                 .detach();
@@ -242,6 +287,11 @@ impl DebugPanel {
                 debug_panel
             })
         })
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn message_queue(&self) -> &HashMap<DebugAdapterClientId, VecDeque<OutputEvent>> {
+        &self.message_queue
     }
 
     pub fn active_debug_panel_item(
@@ -282,6 +332,7 @@ impl DebugPanel {
                 let thread_panel = item.downcast::<DebugPanelItem>().unwrap();
 
                 let thread_id = thread_panel.read(cx).thread_id();
+                let session_id = thread_panel.read(cx).session_id();
                 let client_id = thread_panel.read(cx).client_id();
 
                 self.thread_states.remove(&(client_id, thread_id));
@@ -290,7 +341,7 @@ impl DebugPanel {
 
                 self.dap_store.update(cx, |store, cx| {
                     store
-                        .terminate_threads(&client_id, Some(vec![thread_id; 1]), cx)
+                        .terminate_threads(&session_id, &client_id, Some(vec![thread_id; 1]), cx)
                         .detach()
                 });
             }
@@ -323,6 +374,7 @@ impl DebugPanel {
 
     fn handle_start_debugging_request(
         &mut self,
+        session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         seq: u64,
         request_args: Option<Value>,
@@ -336,33 +388,52 @@ impl DebugPanel {
 
         self.dap_store.update(cx, |store, cx| {
             store
-                .respond_to_start_debugging(client_id, seq, args, cx)
+                .respond_to_start_debugging(session_id, client_id, seq, args, cx)
                 .detach_and_log_err(cx);
         });
     }
 
     fn handle_run_in_terminal_request(
         &mut self,
+        session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         seq: u64,
         request_args: Option<Value>,
         cx: &mut ViewContext<Self>,
     ) {
+        let request_args = request_args.and_then(|request_args| {
+            serde_json::from_value::<RunInTerminalRequestArguments>(request_args).ok()
+        });
         let Some(request_args) = request_args else {
             self.dap_store.update(cx, |store, cx| {
                 store
-                    .respond_to_run_in_terminal(client_id, false, seq, None, cx)
+                    .respond_to_run_in_terminal(
+                        session_id,
+                        client_id,
+                        false,
+                        seq,
+                        serde_json::to_value(ErrorResponse {
+                            error: Some(dap::Message {
+                                id: seq,
+                                format:
+                                    "Request arguments must be provided when spawnng debug terminal"
+                                        .into(),
+                                variables: None,
+                                send_telemetry: None,
+                                show_user: None,
+                                url: None,
+                                url_label: None,
+                            }),
+                        })
+                        .ok(),
+                        cx,
+                    )
                     .detach_and_log_err(cx);
             });
-
             return;
         };
 
-        let request_args: RunInTerminalRequestArguments =
-            serde_json::from_value(request_args).unwrap();
-
         let mut envs: HashMap<String, String> = Default::default();
-
         if let Some(Value::Object(env)) = request_args.env {
             for (key, value) in env {
                 let value_str = match (key.as_str(), value) {
@@ -397,6 +468,7 @@ impl DebugPanel {
                         args,
                         envs,
                         cwd: PathBuf::from(request_args.cwd),
+                        title: request_args.title,
                     },
                     task::RevealStrategy::Always,
                     cx,
@@ -414,25 +486,71 @@ impl DebugPanel {
             })
         });
 
+        let session_id = *session_id;
         let client_id = *client_id;
         cx.spawn(|this, mut cx| async move {
             // Ensure a response is always sent, even in error cases,
             // to maintain proper communication with the debug adapter
-            let (success, pid) = match terminal_task {
+            let (success, body) = match terminal_task {
                 Ok(pid_task) => match pid_task.await {
-                    Ok(pid) => (true, pid),
-                    Err(_) => (false, None),
+                    Ok(pid) => (
+                        true,
+                        serde_json::to_value(RunInTerminalResponse {
+                            process_id: None,
+                            shell_process_id: pid.map(|pid| pid.as_u32() as u64),
+                        })
+                        .ok(),
+                    ),
+                    Err(error) => {
+                        this.update(&mut cx, |this, cx| {
+                            this.dap_store.update(cx, |_, cx| {
+                                cx.emit(DapStoreEvent::Notification(error.to_string()));
+                            })
+                        })
+                        .log_err();
+
+                        (
+                            false,
+                            serde_json::to_value(ErrorResponse {
+                                error: Some(dap::Message {
+                                    id: seq,
+                                    format: error.to_string(),
+                                    variables: None,
+                                    send_telemetry: None,
+                                    show_user: None,
+                                    url: None,
+                                    url_label: None,
+                                }),
+                            })
+                            .ok(),
+                        )
+                    }
                 },
-                Err(_) => (false, None),
+                Err(error) => (
+                    false,
+                    serde_json::to_value(ErrorResponse {
+                        error: Some(dap::Message {
+                            id: seq,
+                            format: error.to_string(),
+                            variables: None,
+                            send_telemetry: None,
+                            show_user: None,
+                            url: None,
+                            url_label: None,
+                        }),
+                    })
+                    .ok(),
+                ),
             };
 
             let respond_task = this.update(&mut cx, |this, cx| {
                 this.dap_store.update(cx, |store, cx| {
                     store.respond_to_run_in_terminal(
+                        &session_id,
                         &client_id,
                         success,
                         seq,
-                        pid.map(|pid| pid.as_u32() as u64),
+                        body,
                         cx,
                     )
                 })
@@ -445,20 +563,23 @@ impl DebugPanel {
 
     fn handle_debug_client_started(
         &self,
+        session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         cx: &mut ViewContext<Self>,
     ) {
-        let Some(client) = self.dap_store.read(cx).client_by_id(&client_id) else {
+        let Some(session) = self.dap_store.read(cx).session_by_id(session_id) else {
             return;
         };
 
+        let session_id = *session_id;
         let client_id = *client_id;
         let workspace = self.workspace.clone();
-        let request_type = client.config().request;
+        let request_type = session.read(cx).configuration().request.clone();
         cx.spawn(|this, mut cx| async move {
             let task = this.update(&mut cx, |this, cx| {
-                this.dap_store
-                    .update(cx, |store, cx| store.initialize(&client_id, cx))
+                this.dap_store.update(cx, |store, cx| {
+                    store.initialize(&session_id, &client_id, cx)
+                })
             })?;
 
             task.await?;
@@ -467,7 +588,7 @@ impl DebugPanel {
                 DebugRequestType::Launch => {
                     let task = this.update(&mut cx, |this, cx| {
                         this.dap_store
-                            .update(cx, |store, cx| store.launch(&client_id, cx))
+                            .update(cx, |store, cx| store.launch(&session_id, &client_id, cx))
                     });
 
                     task?.await
@@ -475,8 +596,9 @@ impl DebugPanel {
                 DebugRequestType::Attach(config) => {
                     if let Some(process_id) = config.process_id {
                         let task = this.update(&mut cx, |this, cx| {
-                            this.dap_store
-                                .update(cx, |store, cx| store.attach(&client_id, process_id, cx))
+                            this.dap_store.update(cx, |store, cx| {
+                                store.attach(&session_id, &client_id, process_id, cx)
+                            })
                         })?;
 
                         task.await
@@ -484,7 +606,12 @@ impl DebugPanel {
                         this.update(&mut cx, |this, cx| {
                             workspace.update(cx, |workspace, cx| {
                                 workspace.toggle_modal(cx, |cx| {
-                                    AttachModal::new(&client_id, this.dap_store.clone(), cx)
+                                    AttachModal::new(
+                                        &session_id,
+                                        &client_id,
+                                        this.dap_store.clone(),
+                                        cx,
+                                    )
                                 })
                             })
                         })?
@@ -497,23 +624,28 @@ impl DebugPanel {
 
     fn handle_debug_client_events(
         &mut self,
+        session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         event: &Events,
         cx: &mut ViewContext<Self>,
     ) {
         match event {
-            Events::Initialized(event) => self.handle_initialized_event(&client_id, event, cx),
-            Events::Stopped(event) => self.handle_stopped_event(&client_id, event, cx),
+            Events::Initialized(event) => {
+                self.handle_initialized_event(&session_id, &client_id, event, cx)
+            }
+            Events::Stopped(event) => self.handle_stopped_event(&session_id, &client_id, event, cx),
             Events::Continued(event) => self.handle_continued_event(&client_id, event, cx),
             Events::Exited(event) => self.handle_exited_event(&client_id, event, cx),
-            Events::Terminated(event) => self.handle_terminated_event(&client_id, event, cx),
+            Events::Terminated(event) => {
+                self.handle_terminated_event(&session_id, &client_id, event, cx)
+            }
             Events::Thread(event) => self.handle_thread_event(&client_id, event, cx),
             Events::Output(event) => self.handle_output_event(&client_id, event, cx),
             Events::Breakpoint(_) => {}
             Events::Module(event) => self.handle_module_event(&client_id, event, cx),
             Events::LoadedSource(event) => self.handle_loaded_source_event(&client_id, event, cx),
             Events::Capabilities(event) => {
-                self.handle_capabilities_changed_event(client_id, event, cx);
+                self.handle_capabilities_changed_event(session_id, client_id, event, cx);
             }
             Events::Memory(_) => {}
             Events::Process(_) => {}
@@ -527,35 +659,40 @@ impl DebugPanel {
 
     fn handle_initialized_event(
         &mut self,
+        session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         capabilities: &Option<Capabilities>,
         cx: &mut ViewContext<Self>,
     ) {
         if let Some(capabilities) = capabilities {
             self.dap_store.update(cx, |store, cx| {
-                store.merge_capabilities_for_client(&client_id, capabilities, cx);
+                store.update_capabilities_for_client(&session_id, &client_id, capabilities, cx);
             });
 
             cx.emit(DebugPanelEvent::CapabilitiesChanged(*client_id));
         }
 
-        let send_breakpoints_task = self.workspace.update(cx, |workspace, cx| {
-            workspace
-                .project()
-                .update(cx, |project, cx| project.send_breakpoints(&client_id, cx))
-        });
+        let session_id = *session_id;
+        let client_id = *client_id;
 
-        let configuration_done_task = self
-            .dap_store
-            .update(cx, |store, cx| store.configuration_done(&client_id, cx));
+        cx.spawn(|this, mut cx| async move {
+            this.update(&mut cx, |debug_panel, cx| {
+                debug_panel.workspace.update(cx, |workspace, cx| {
+                    workspace.project().update(cx, |project, cx| {
+                        project.initial_send_breakpoints(&session_id, &client_id, cx)
+                    })
+                })
+            })??
+            .await;
 
-        cx.background_executor()
-            .spawn(async move {
-                send_breakpoints_task?.await;
-
-                configuration_done_task.await
-            })
-            .detach_and_log_err(cx);
+            this.update(&mut cx, |debug_panel, cx| {
+                debug_panel
+                    .dap_store
+                    .update(cx, |store, cx| store.configuration_done(&client_id, cx))
+            })?
+            .await
+        })
+        .detach_and_log_err(cx);
     }
 
     fn handle_continued_event(
@@ -569,6 +706,7 @@ impl DebugPanel {
 
     fn handle_stopped_event(
         &mut self,
+        session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         event: &StoppedEvent,
         cx: &mut ViewContext<Self>,
@@ -577,18 +715,19 @@ impl DebugPanel {
             return;
         };
 
-        let Some(client_kind) = self
+        let Some(session_name) = self
             .dap_store
             .read(cx)
-            .client_by_id(client_id)
-            .map(|client| client.config().kind)
+            .session_by_id(session_id)
+            .map(|session| session.read(cx).name())
         else {
             return; // this can never happen
         };
 
+        let session_id = *session_id;
         let client_id = *client_id;
 
-        let client_name = SharedString::from(client_kind.display_name().to_string());
+        let session_name = SharedString::from(session_name);
 
         cx.spawn({
             let event = event.clone();
@@ -615,8 +754,9 @@ impl DebugPanel {
                                     this.workspace.clone(),
                                     this.dap_store.clone(),
                                     thread_state.clone(),
+                                    &session_id,
                                     &client_id,
-                                    client_name,
+                                    session_name,
                                     thread_id,
                                     cx,
                                 )
@@ -696,6 +836,7 @@ impl DebugPanel {
 
     fn handle_terminated_event(
         &mut self,
+        session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         event: &Option<TerminatedEvent>,
         cx: &mut ViewContext<Self>,
@@ -722,7 +863,9 @@ impl DebugPanel {
                     .restart(&client_id, restart_args, cx)
                     .detach_and_log_err(cx);
             } else {
-                store.shutdown_client(&client_id, cx).detach_and_log_err(cx);
+                store
+                    .shutdown_session(&session_id, cx)
+                    .detach_and_log_err(cx);
             }
         });
 
@@ -749,7 +892,6 @@ impl DebugPanel {
         event: &project::dap_store::DapStoreEvent,
         cx: &mut ViewContext<Self>,
     ) {
-        //handle the even
         match event {
             project::dap_store::DapStoreEvent::SetDebugPanelItem(set_debug_panel_item) => {
                 self.handle_set_debug_panel_item(set_debug_panel_item, cx);
@@ -793,6 +935,7 @@ impl DebugPanel {
         payload: &SetDebuggerPanelItem,
         cx: &mut ViewContext<Self>,
     ) {
+        let session_id = DebugSessionId::from_proto(payload.session_id);
         let client_id = DebugAdapterClientId::from_proto(payload.client_id);
         let thread_id = payload.thread_id;
         let thread_state = payload.thread_state.clone().unwrap();
@@ -818,8 +961,9 @@ impl DebugPanel {
                         self.workspace.clone(),
                         self.dap_store.clone(),
                         thread_state,
+                        &session_id,
                         &client_id,
-                        payload.client_name.clone().into(),
+                        payload.session_name.clone().into(),
                         thread_id,
                         cx,
                     )
@@ -835,6 +979,8 @@ impl DebugPanel {
         debug_panel_item.update(cx, |this, cx| {
             this.from_proto(payload, cx);
         });
+
+        cx.notify();
     }
 
     fn handle_module_event(
@@ -857,58 +1003,16 @@ impl DebugPanel {
 
     fn handle_capabilities_changed_event(
         &mut self,
+        session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         event: &CapabilitiesEvent,
         cx: &mut ViewContext<Self>,
     ) {
         self.dap_store.update(cx, |store, cx| {
-            store.merge_capabilities_for_client(client_id, &event.capabilities, cx);
+            store.update_capabilities_for_client(session_id, client_id, &event.capabilities, cx);
         });
 
         cx.emit(DebugPanelEvent::CapabilitiesChanged(*client_id));
-    }
-
-    pub fn open_remote_debug_panel_item(
-        &self,
-        client_id: DebugAdapterClientId,
-        thread_id: u64,
-        cx: &mut ViewContext<DebugPanel>,
-    ) -> View<DebugPanelItem> {
-        let existing_item = self.pane.read(cx).items().find_map(|item| {
-            let item = item.downcast::<DebugPanelItem>()?;
-            let item_ref = item.read(cx);
-
-            if item_ref.client_id() == client_id && item_ref.thread_id() == thread_id {
-                Some(item)
-            } else {
-                None
-            }
-        });
-
-        if let Some(existing_item) = existing_item {
-            return existing_item;
-        }
-
-        let debug_panel = cx.view().clone();
-
-        let debug_panel_item = cx.new_view(|cx| {
-            DebugPanelItem::new(
-                debug_panel,
-                self.workspace.clone(),
-                self.dap_store.clone(),
-                cx.new_model(|_| Default::default()), // change this
-                &client_id,
-                SharedString::from("test"), // change this
-                thread_id,
-                cx,
-            )
-        });
-
-        self.pane.update(cx, |pane, cx| {
-            pane.add_item(Box::new(debug_panel_item.clone()), true, true, None, cx);
-        });
-
-        debug_panel_item
     }
 
     fn render_did_not_stop_warning(&self, cx: &mut ViewContext<Self>) -> impl IntoElement {
@@ -1009,6 +1113,10 @@ impl Panel for DebugPanel {
 
     fn toggle_action(&self) -> Box<dyn Action> {
         Box::new(ToggleFocus)
+    }
+
+    fn activation_priority(&self) -> u32 {
+        9
     }
 }
 

@@ -1,12 +1,16 @@
 use gpui::{Model, TestAppContext, WindowHandle};
 use project::Project;
 use settings::SettingsStore;
+use terminal_view::terminal_panel::TerminalPanel;
 use workspace::Workspace;
 
 use crate::debugger_panel::DebugPanel;
 
+mod attach_modal;
+mod console;
 mod debugger_panel;
 mod stack_frame_list;
+mod variable_list;
 
 pub fn init_test(cx: &mut gpui::TestAppContext) {
     if std::env::var("RUST_LOG").is_ok() {
@@ -16,6 +20,7 @@ pub fn init_test(cx: &mut gpui::TestAppContext) {
     cx.update(|cx| {
         let settings = SettingsStore::test(cx);
         cx.set_global(settings);
+        terminal_view::init(cx);
         theme::init(theme::LoadThemes::JustBase, cx);
         command_palette_hooks::init(cx);
         language::init(cx);
@@ -26,7 +31,7 @@ pub fn init_test(cx: &mut gpui::TestAppContext) {
     });
 }
 
-pub async fn add_debugger_panel(
+pub async fn init_test_workspace(
     project: &Model<Project>,
     cx: &mut TestAppContext,
 ) -> WindowHandle<Workspace> {
@@ -38,9 +43,16 @@ pub async fn add_debugger_panel(
         .await
         .expect("Failed to load debug panel");
 
+    let terminal_panel = window
+        .update(cx, |_, cx| cx.spawn(TerminalPanel::load))
+        .unwrap()
+        .await
+        .expect("Failed to load terminal panel");
+
     window
         .update(cx, |workspace, cx| {
             workspace.add_panel(debugger_panel, cx);
+            workspace.add_panel(terminal_panel, cx);
         })
         .unwrap();
     window

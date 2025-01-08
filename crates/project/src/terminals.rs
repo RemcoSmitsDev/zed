@@ -41,6 +41,7 @@ pub enum TerminalKind {
         args: Vec<String>,
         envs: HashMap<String, String>,
         cwd: PathBuf,
+        title: Option<String>,
     },
 }
 
@@ -280,6 +281,7 @@ impl Project {
                 command,
                 args,
                 envs,
+                title,
                 ..
             } => {
                 env.extend(envs);
@@ -288,7 +290,7 @@ impl Project {
                     Shell::WithArguments {
                         program,
                         args,
-                        title_override: Some("debugger".into()),
+                        title_override: Some(title.unwrap_or("Debug Terminal".into()).into()),
                     }
                 } else {
                     settings.shell.clone()
@@ -464,7 +466,10 @@ impl Project {
             "windows" => "\r",
             _ => "\n",
         };
-        Some(format!("{} {}{}", activate_keyword, quoted, line_ending))
+        Some(format!(
+            "{} {} ; clear{}",
+            activate_keyword, quoted, line_ending
+        ))
     }
 
     fn activate_python_virtual_environment(
@@ -481,7 +486,7 @@ impl Project {
     }
 }
 
-pub fn wrap_for_ssh(
+fn wrap_for_ssh(
     ssh_command: &SshCommand,
     command: Option<(&String, &Vec<String>)>,
     path: Option<&Path>,

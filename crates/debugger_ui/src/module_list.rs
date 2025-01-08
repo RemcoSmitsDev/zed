@@ -1,5 +1,8 @@
 use anyhow::Result;
-use dap::{client::DebugAdapterClientId, proto_conversions::ProtoConversion, Module, ModuleEvent};
+use dap::{
+    client::DebugAdapterClientId, proto_conversions::ProtoConversion, session::DebugSessionId,
+    Module, ModuleEvent,
+};
 use gpui::{list, AnyElement, FocusHandle, FocusableView, ListState, Model, Task};
 use project::dap_store::DapStore;
 use rpc::proto::{DebuggerModuleList, UpdateDebugAdapter};
@@ -12,12 +15,14 @@ pub struct ModuleList {
     focus_handle: FocusHandle,
     dap_store: Model<DapStore>,
     client_id: DebugAdapterClientId,
+    session_id: DebugSessionId,
 }
 
 impl ModuleList {
     pub fn new(
         dap_store: Model<DapStore>,
         client_id: &DebugAdapterClientId,
+        session_id: &DebugSessionId,
         cx: &mut ViewContext<Self>,
     ) -> Self {
         let weakview = cx.view().downgrade();
@@ -35,6 +40,7 @@ impl ModuleList {
             dap_store,
             focus_handle,
             client_id: *client_id,
+            session_id: *session_id,
             modules: Vec::default(),
         };
 
@@ -97,9 +103,11 @@ impl ModuleList {
             this.update(&mut cx, |this, cx| {
                 std::mem::swap(&mut this.modules, &mut modules);
                 this.list.reset(this.modules.len());
+                cx.notify();
 
                 if let Some((client, id)) = this.dap_store.read(cx).downstream_client() {
                     let request = UpdateDebugAdapter {
+                        session_id: this.session_id.to_proto(),
                         client_id: this.client_id.to_proto(),
                         project_id: *id,
                         thread_id: None,
@@ -110,7 +118,6 @@ impl ModuleList {
 
                     client.send(request).log_err();
                 }
-                cx.notify();
             })
         })
     }

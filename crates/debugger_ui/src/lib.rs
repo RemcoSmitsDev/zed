@@ -5,18 +5,18 @@ use gpui::AppContext;
 use settings::Settings;
 use ui::ViewContext;
 use workspace::{
-    Continue, Pause, Restart, ShutdownDebugAdapters, Start, StepInto, StepOut, StepOver, Stop,
-    ToggleIgnoreBreakpoints, Workspace,
+    Continue, Pause, Restart, ShutdownDebugAdapters, Start, StepBack, StepInto, StepOut, StepOver,
+    Stop, ToggleIgnoreBreakpoints, Workspace,
 };
 
-mod attach_modal;
-mod console;
+pub mod attach_modal;
+pub mod console;
 pub mod debugger_panel;
-mod debugger_panel_item;
-mod loaded_source_list;
-mod module_list;
-mod stack_frame_list;
-mod variable_list;
+pub mod debugger_panel_item;
+pub mod loaded_source_list;
+pub mod module_list;
+pub mod stack_frame_list;
+pub mod variable_list;
 
 #[cfg(test)]
 mod tests;
@@ -24,9 +24,6 @@ mod tests;
 pub fn init(cx: &mut AppContext) {
     DebuggerSettings::register(cx);
     workspace::FollowableViewRegistry::register::<DebugPanelItem>(cx);
-
-    // let client: AnyProtoClient = client.clone().into();
-    // client.add_model_message_handler(DebugPanel::handle_set_debug_panel_item);
 
     cx.observe_new_views(
         |workspace: &mut Workspace, _cx: &mut ViewContext<Workspace>| {
@@ -41,7 +38,7 @@ pub fn init(cx: &mut AppContext) {
                 .register_action(|workspace: &mut Workspace, _: &ShutdownDebugAdapters, cx| {
                     workspace.project().update(cx, |project, cx| {
                         project.dap_store().update(cx, |store, cx| {
-                            store.shutdown_clients(cx).detach();
+                            store.shutdown_sessions(cx).detach();
                         })
                     })
                 })
@@ -76,6 +73,17 @@ pub fn init(cx: &mut AppContext) {
                         };
 
                         active_item.update(cx, |item, cx| item.step_in(cx))
+                    });
+                })
+                .register_action(|workspace: &mut Workspace, _: &StepBack, cx| {
+                    let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
+
+                    debug_panel.update(cx, |panel, cx| {
+                        let Some(active_item) = panel.active_debug_panel_item(cx) else {
+                            return;
+                        };
+
+                        active_item.update(cx, |item, cx| item.step_back(cx))
                     });
                 })
                 .register_action(|workspace: &mut Workspace, _: &StepOut, cx| {
