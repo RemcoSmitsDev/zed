@@ -250,6 +250,9 @@ async fn test_active_debug_panel_item_set_on_join_project(
         }))
         .await;
 
+    // Give client_a time to send a debug panel item to collab server
+    cx_a.run_until_parked();
+
     let project_b = client_b.join_remote_project(project_id, cx_b).await;
     let (workspace_b, cx_b) = client_b.build_workspace(&project_b, cx_b);
     add_debugger_panel(&workspace_b, cx_b).await;
