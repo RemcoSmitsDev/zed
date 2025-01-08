@@ -2590,6 +2590,18 @@ message DebuggerStackFrameList {
     repeated DapStackFrame stack_frames = 4;
 }
 
+enum SteppingGranularity {
+    Statement = 0;
+    Line = 1;
+    Instruction = 2;
+}
+
+message DapNext {
+    uint64 thread_id = 1;
+    optional bool single_thread = 2;
+    optional SteppingGranularity granularity = 3;
+}
+
 message DapStackFrame {
     uint64 id = 1;
     string name = 2;

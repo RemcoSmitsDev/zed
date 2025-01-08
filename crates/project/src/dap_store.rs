@@ -1,3 +1,4 @@
+use crate::dap_command::DapCommand;
 use crate::project_settings::ProjectSettings;
 use crate::{ProjectEnvironment, ProjectItem as _, ProjectPath};
 use anyhow::{anyhow, bail, Context as _, Result};
@@ -1062,22 +1063,22 @@ impl DapStore {
         })
     }
 
-    fn request_dap<R: dap::requests::Request>(
+    fn request_dap<R: DapCommand>(
         &self,
         client_id: &DebugAdapterClientId,
-        arguments: R::Arguments,
+        request: R,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<R::Response>>
     where
-        <R as dap::requests::Request>::Response: 'static,
-        <R as dap::requests::Request>::Arguments: 'static,
+        <R::DapRequest as dap::requests::Request>::Response: 'static,
+        <R::DapRequest as dap::requests::Request>::Arguments: 'static,
     {
         if let Some((upstream_client, upstream_project_id)) = self.upstream_client() {
             return self._send_proto_client_request::<R>(
                 upstream_client,
                 upstream_project_id,
                 client_id,
-                arguments,
+                request,
                 cx,
             );
         }
@@ -1086,17 +1087,20 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
-        cx.background_executor()
-            .spawn(async move { client.1.request::<R>(arguments).await })
+        cx.background_executor().spawn(async move {
+            let args = request.to_dap();
+            // Ok(request.response_from_dap(client.1.request::<R::DapRequest>(args).await?))
+            todo!()
+        })
     }
 
     // TODO Debugger Collab
-    fn _send_proto_client_request<R: dap::requests::Request>(
+    fn _send_proto_client_request<R: DapCommand>(
         &self,
         _upstream_client: AnyProtoClient,
         _upstream_project_id: u64,
         _client_id: &DebugAdapterClientId,
-        _arguments: R::Arguments,
+        _request: R,
         _cx: &mut ModelContext<Self>,
     ) -> Task<Result<R::Response>> {
         todo!()
@@ -1123,7 +1127,8 @@ impl DapStore {
             single_thread: supports_single_thread_execution_requests.then(|| true),
         };
 
-        self.request_dap::<Next>(client_id, arguments, cx)
+        // self.request_dap::<Next>(client_id, arguments, cx)
+        todo!()
     }
 
     pub fn step_in(
@@ -1148,7 +1153,8 @@ impl DapStore {
             target_id: None,
         };
 
-        self.request_dap::<StepIn>(client_id, arguments, cx)
+        // self.request_dap::<StepIn>(client_id, arguments, cx)
+        todo!()
     }
 
     pub fn step_out(
@@ -1172,7 +1178,8 @@ impl DapStore {
             single_thread: supports_single_thread_execution_requests.then(|| true),
         };
 
-        self.request_dap::<StepOut>(client_id, arguments, cx)
+        // self.request_dap::<StepOut>(client_id, arguments, cx)
+        todo!()
     }
 
     pub fn step_back(
@@ -1223,10 +1230,11 @@ impl DapStore {
             format: None,
         };
 
-        let task = self.request_dap::<Variables>(client_id, arguments, cx);
+        // let task = self.request_dap::<Variables>(client_id, arguments, cx);
 
-        cx.background_executor()
-            .spawn(async move { Ok(task.await?.variables) })
+        // cx.background_executor()
+        //     .spawn(async move { Ok(task.await?.variables) })
+        todo!()
     }
 
     pub fn evaluate(
@@ -1247,7 +1255,8 @@ impl DapStore {
             source: None,
         };
 
-        self.request_dap::<Evaluate>(client_id, arguments, cx)
+        // self.request_dap::<Evaluate>(client_id, arguments, cx)
+        todo!()
     }
 
     pub fn completions(
@@ -1265,10 +1274,11 @@ impl DapStore {
             column: completion_column,
         };
 
-        let task = self.request_dap::<Completions>(client_id, arguments, cx);
+        // let task = self.request_dap::<Completions>(client_id, arguments, cx);
 
-        cx.background_executor()
-            .spawn(async move { Ok(task.await?.targets) })
+        // cx.background_executor()
+        //     .spawn(async move { Ok(task.await?.targets) })
+        todo!()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1295,13 +1305,14 @@ impl DapStore {
                 format: None,
             };
 
-            let task = self.request_dap::<SetExpression>(client_id, arguments, cx);
+            // let task = self.request_dap::<SetExpression>(client_id, arguments, cx);
 
-            cx.background_executor().spawn(async move {
-                task.await?;
+            // cx.background_executor().spawn(async move {
+            //     task.await?;
 
-                Ok(())
-            })
+            //     Ok(())
+            // })
+            todo!()
         } else {
             let arguments = SetVariableArguments {
                 variables_reference,
@@ -1310,13 +1321,14 @@ impl DapStore {
                 format: None,
             };
 
-            let task = self.request_dap::<SetVariable>(client_id, arguments, cx);
+            // let task = self.request_dap::<SetVariable>(client_id, arguments, cx);
 
-            cx.background_executor().spawn(async move {
-                task.await?;
+            // cx.background_executor().spawn(async move {
+            //     task.await?;
 
-                Ok(())
-            })
+            //     Ok(())
+            // })
+            todo!()
         }
     }
 
@@ -1326,7 +1338,8 @@ impl DapStore {
         thread_id: u64,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        self.request_dap::<Pause>(client_id, PauseArguments { thread_id }, cx)
+        // self.request_dap::<Pause>(client_id, PauseArguments { thread_id }, cx)
+        todo!()
     }
 
     pub fn terminate_threads(
