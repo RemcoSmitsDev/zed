@@ -508,6 +508,7 @@ request_messages!(
     (SyncExtensions, SyncExtensionsResponse),
     (InstallExtension, Ack),
     (RegisterBufferWithLanguageServers, Ack),
+    (DapNext, Result)
 );
 
 entity_messages!(

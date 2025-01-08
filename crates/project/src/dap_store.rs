@@ -4,7 +4,10 @@ use crate::{ProjectEnvironment, ProjectItem as _, ProjectPath};
 use anyhow::{anyhow, bail, Context as _, Result};
 use async_trait::async_trait;
 use collections::HashMap;
+use dap::proto_conversions::ProtoConversion;
+use dap::requests::Request;
 use dap::session::{DebugSession, DebugSessionId};
+use dap::ContinueResponse;
 use dap::{
     adapters::{DapDelegate, DapStatus, DebugAdapter, DebugAdapterBinary, DebugAdapterName},
     client::{DebugAdapterClient, DebugAdapterClientId},
@@ -134,6 +137,7 @@ impl DapStore {
         client.add_model_message_handler(DapStore::handle_set_debug_panel_item);
         client.add_model_message_handler(DapStore::handle_synchronize_breakpoints);
         client.add_model_message_handler(DapStore::handle_update_debug_adapter);
+        client.add_model_request_handler(DapStore::handle_incoming_dap_request);
     }
 
     pub fn new_local(
@@ -1046,32 +1050,25 @@ impl DapStore {
         client_id: &DebugAdapterClientId,
         thread_id: u64,
         cx: &mut ModelContext<Self>,
-    ) -> Task<Result<()>> {
-        let Some((_, client)) = self.client_by_id(client_id, cx) else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
-        };
-
-        cx.background_executor().spawn(async move {
-            client
-                .request::<Continue>(ContinueArguments {
-                    thread_id,
-                    single_thread: Some(true),
-                })
-                .await?;
-
-            Ok(())
-        })
+    ) -> Task<Result<ContinueResponse>> {
+        self.request_dap::<Continue>(
+            client_id,
+            ContinueArguments {
+                thread_id,
+                single_thread: Some(true),
+            },
+            cx,
+        )
     }
 
-    fn request_dap<R: DapCommand>(
+    fn request_dap<R: dap::requests::Request>(
         &self,
         client_id: &DebugAdapterClientId,
-        request: R,
+        command: impl DapCommand<R>,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<R::Response>>
     where
-        <R::DapRequest as dap::requests::Request>::Response: 'static,
-        <R::DapRequest as dap::requests::Request>::Arguments: 'static,
+        R::Arguments: ProtoConversion,
     {
         if let Some((upstream_client, upstream_project_id)) = self.upstream_client() {
             return self._send_proto_client_request::<R>(
@@ -1083,7 +1080,7 @@ impl DapStore {
             );
         }
 
-        let Some(client) = self.client_by_id(client_id, cx) else {
+        let Some((_, client)) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
@@ -1103,6 +1100,12 @@ impl DapStore {
         _request: R,
         _cx: &mut ModelContext<Self>,
     ) -> Task<Result<R::Response>> {
+        // 1. parse the request to rpc format
+        // 2. send the request
+        // 3. parse the response from rpc format
+
+        // let message = _request
+
         todo!()
     }
 
