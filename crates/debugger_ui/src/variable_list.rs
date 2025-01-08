@@ -4,15 +4,12 @@ use dap::{
     client::DebugAdapterClientId, proto_conversions::ProtoConversion, session::DebugSessionId,
     Scope, ScopePresentationHint, Variable,
 };
-use editor::{
-    actions::{self, SelectAll},
-    Editor, EditorEvent,
-};
+use editor::{actions::SelectAll, Editor, EditorEvent};
 use gpui::{
-    anchored, deferred, list, AnyElement, ClipboardItem, DismissEvent, FocusHandle, FocusableView,
-    ListOffset, ListState, Model, MouseDownEvent, Point, Subscription, Task, View,
+    actions, anchored, deferred, list, AnyElement, ClipboardItem, DismissEvent, FocusHandle,
+    FocusableView, ListOffset, ListState, Model, MouseDownEvent, Point, Subscription, Task, View,
 };
-use menu::Confirm;
+use menu::{Confirm, SelectFirst, SelectNext, SelectPrev};
 use project::dap_store::DapStore;
 use proto::debugger_variable_list_entry::Entry;
 use rpc::proto::{
@@ -26,6 +23,8 @@ use std::{
 use sum_tree::{Dimension, Item, SumTree, Summary};
 use ui::{prelude::*, ContextMenu, ListItem};
 use util::ResultExt;
+
+actions!(variable_list, [ExpandSelectedEntry, CollapseSelectedEntry]);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VariableContainer {
@@ -364,16 +363,17 @@ pub struct VariableList {
     list: ListState,
     focus_handle: FocusHandle,
     dap_store: Model<DapStore>,
+    session_id: DebugSessionId,
     open_entries: Vec<OpenEntry>,
     client_id: DebugAdapterClientId,
-    session_id: DebugSessionId,
-    scopes: HashMap<StackFrameId, Vec<Scope>>,
     set_variable_editor: View<Editor>,
     _subscriptions: Vec<Subscription>,
+    selection: Option<VariableListEntry>,
     stack_frame_list: View<StackFrameList>,
+    scopes: HashMap<StackFrameId, Vec<Scope>>,
     set_variable_state: Option<SetVariableState>,
-    entries: HashMap<StackFrameId, Vec<VariableListEntry>>,
     fetch_variables_task: Option<Task<Result<()>>>,
+    entries: HashMap<StackFrameId, Vec<VariableListEntry>>,
     variables: BTreeMap<(StackFrameId, ScopeId), ScopeVariableIndex>,
     open_context_menu: Option<(View<ContextMenu>, Point<Pixels>, Subscription)>,
 }
@@ -416,6 +416,7 @@ impl VariableList {
             dap_store,
             focus_handle,
             _subscriptions,
+            selection: None,
             set_variable_editor,
             client_id: *client_id,
             session_id: *session_id,
@@ -593,8 +594,12 @@ impl VariableList {
             return div().into_any_element();
         };
 
-        match &entries[ix] {
-            VariableListEntry::Scope(scope) => self.render_scope(scope, cx),
+        let entry = &entries[ix];
+
+        match entry {
+            VariableListEntry::Scope(scope) => {
+                self.render_scope(scope, Some(entry) == self.selection.as_ref(), cx)
+            }
             VariableListEntry::SetVariableEditor { depth, state } => {
                 self.render_set_variable_editor(*depth, state, cx)
             }
@@ -610,6 +615,7 @@ impl VariableList {
                 scope,
                 *depth,
                 *has_children,
+                Some(entry) == self.selection.as_ref(),
                 cx,
             ),
         }
@@ -1081,6 +1087,128 @@ impl VariableList {
         });
     }
 
+    fn select_first(&mut self, _: &SelectFirst, cx: &mut ViewContext<Self>) {
+        let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
+        if let Some(entries) = self.entries.get(&stack_frame_id) {
+            self.selection = entries.first().cloned();
+            cx.notify();
+        };
+    }
+
+    fn select_prev(&mut self, _: &SelectPrev, cx: &mut ViewContext<Self>) {
+        if let Some(selection) = &self.selection {
+            let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
+            if let Some(entries) = self.entries.get(&stack_frame_id) {
+                if let Some(ix) = entries.iter().position(|entry| entry == selection) {
+                    self.selection = entries.get(ix.saturating_sub(1)).cloned();
+                    cx.notify();
+                }
+            }
+        } else {
+            self.select_first(&SelectFirst, cx);
+        }
+    }
+
+    fn select_next(&mut self, _: &SelectNext, cx: &mut ViewContext<Self>) {
+        if let Some(selection) = &self.selection {
+            let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
+            if let Some(entries) = self.entries.get(&stack_frame_id) {
+                if let Some(ix) = entries.iter().position(|entry| entry == selection) {
+                    self.selection = entries.get(ix + 1).cloned();
+                    cx.notify();
+                }
+            }
+        } else {
+            self.select_first(&SelectFirst, cx);
+        }
+    }
+
+    fn collapse_selected_entry(&mut self, _: &CollapseSelectedEntry, cx: &mut ViewContext<Self>) {
+        if let Some(selection) = &self.selection {
+            match selection {
+                VariableListEntry::Scope(scope) => {
+                    let entry_id = &OpenEntry::Scope {
+                        name: scope.name.clone(),
+                    };
+
+                    if self.open_entries.binary_search(entry_id).is_err() {
+                        self.select_prev(&SelectPrev, cx);
+                    } else {
+                        self.toggle_entry(entry_id, cx);
+                    }
+                }
+                VariableListEntry::Variable {
+                    depth,
+                    variable,
+                    scope,
+                    ..
+                } => {
+                    let entry_id = &OpenEntry::Variable {
+                        name: variable.name.clone(),
+                        depth: *depth,
+                    };
+
+                    if self.open_entries.binary_search(entry_id).is_err() {
+                        self.select_prev(&SelectPrev, cx);
+                    } else {
+                        self.on_toggle_variable(
+                            scope.variables_reference,
+                            entry_id,
+                            variable.variables_reference,
+                            *depth,
+                            Some(false),
+                            cx,
+                        );
+                    }
+                }
+                VariableListEntry::SetVariableEditor { .. } => {}
+            }
+        }
+    }
+
+    fn expand_selected_entry(&mut self, _: &ExpandSelectedEntry, cx: &mut ViewContext<Self>) {
+        if let Some(selection) = &self.selection {
+            match selection {
+                VariableListEntry::Scope(scope) => {
+                    let entry_id = &OpenEntry::Scope {
+                        name: scope.name.clone(),
+                    };
+
+                    if self.open_entries.binary_search(entry_id).is_ok() {
+                        self.select_next(&SelectNext, cx);
+                    } else {
+                        self.toggle_entry(entry_id, cx);
+                    }
+                }
+                VariableListEntry::Variable {
+                    depth,
+                    variable,
+                    scope,
+                    ..
+                } => {
+                    let entry_id = &OpenEntry::Variable {
+                        name: variable.name.clone(),
+                        depth: *depth,
+                    };
+
+                    if self.open_entries.binary_search(entry_id).is_ok() {
+                        self.select_next(&SelectNext, cx);
+                    } else {
+                        self.on_toggle_variable(
+                            scope.variables_reference,
+                            entry_id,
+                            variable.variables_reference,
+                            *depth,
+                            Some(false),
+                            cx,
+                        );
+                    }
+                }
+                VariableListEntry::SetVariableEditor { .. } => {}
+            }
+        }
+    }
+
     fn render_set_variable_editor(
         &self,
         depth: usize,
@@ -1161,6 +1289,7 @@ impl VariableList {
         scope: &Scope,
         depth: usize,
         has_children: bool,
+        is_selected: bool,
         cx: &mut ViewContext<Self>,
     ) -> AnyElement {
         let scope_id = scope.variables_reference;
@@ -1172,19 +1301,38 @@ impl VariableList {
         };
         let disclosed = has_children.then(|| self.open_entries.binary_search(&entry_id).is_ok());
 
+        let colors = cx.theme().colors();
+
+        let bg_hover_color = if !is_selected {
+            colors.ghost_element_hover
+        } else {
+            colors.panel_background
+        };
+
+        let border_color = if is_selected {
+            colors.ghost_element_selected
+        } else {
+            colors.panel_background
+        };
+
         div()
             .id(SharedString::from(format!(
                 "variable-{}-{}-{}",
                 scope.variables_reference, variable.name, depth
             )))
-            .group("")
+            .group("variable_list_entry")
+            .border_1()
+            .border_r_2()
+            .border_color(border_color)
             .h_4()
             .size_full()
+            .hover(|style| style.bg(bg_hover_color))
             .child(
                 ListItem::new(SharedString::from(format!(
                     "variable-item-{}-{}-{}",
                     scope.variables_reference, variable.name, depth
                 )))
+                .selectable(false)
                 .indent_level(depth + 1)
                 .indent_step_size(px(20.))
                 .always_show_disclosure_icon(true)
@@ -1230,7 +1378,12 @@ impl VariableList {
             .into_any()
     }
 
-    fn render_scope(&self, scope: &Scope, cx: &mut ViewContext<Self>) -> AnyElement {
+    fn render_scope(
+        &self,
+        scope: &Scope,
+        is_selected: bool,
+        cx: &mut ViewContext<Self>,
+    ) -> AnyElement {
         let element_id = scope.variables_reference;
 
         let entry_id = OpenEntry::Scope {
@@ -1238,17 +1391,36 @@ impl VariableList {
         };
         let disclosed = self.open_entries.binary_search(&entry_id).is_ok();
 
+        let colors = cx.theme().colors();
+
+        let bg_hover_color = if !is_selected {
+            colors.ghost_element_hover
+        } else {
+            colors.panel_background
+        };
+
+        let border_color = if is_selected {
+            colors.ghost_element_selected
+        } else {
+            colors.panel_background
+        };
+
         div()
             .id(element_id as usize)
-            .group("")
+            .group("variable_list_entry")
+            .border_1()
+            .border_r_2()
+            .border_color(border_color)
             .flex()
             .w_full()
             .h_full()
+            .hover(|style| style.bg(bg_hover_color))
             .child(
                 ListItem::new(SharedString::from(format!(
                     "scope-{}",
                     scope.variables_reference
                 )))
+                .selectable(false)
                 .indent_level(1)
                 .indent_step_size(px(20.))
                 .always_show_disclosure_icon(true)
@@ -1269,10 +1441,18 @@ impl FocusableView for VariableList {
 impl Render for VariableList {
     fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         div()
+            .key_context("VariableList")
+            .id("variable-list")
+            .group("variable-list")
             .size_full()
-            .on_action(
-                cx.listener(|this, _: &actions::Cancel, cx| this.cancel_set_variable_value(cx)),
-            )
+            .track_focus(&self.focus_handle(cx))
+            .on_action(cx.listener(Self::select_prev))
+            .on_action(cx.listener(Self::select_next))
+            .on_action(cx.listener(Self::expand_selected_entry))
+            .on_action(cx.listener(Self::collapse_selected_entry))
+            .on_action(cx.listener(|this, _: &editor::actions::Cancel, cx| {
+                this.cancel_set_variable_value(cx)
+            }))
             .child(list(self.list.clone()).gap_1_5().size_full())
             .children(self.open_context_menu.as_ref().map(|(menu, position, _)| {
                 deferred(
