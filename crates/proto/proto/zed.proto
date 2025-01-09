@@ -316,9 +316,9 @@ message Envelope {
         ShutdownDebugClient shutdown_debug_client = 296;
         SetDebugClientCapabilities set_debug_client_capabilities = 297;
 
-        DapNextRequest dap_next_request = 298;
-        DapContinueRequest dap_continue_request = 299;
-        DapContinueResponse dap_continue_response = 300; // current max
+        DapStepRequest dap_step_request = 298;
+        // DapContinueRequest dap_continue_request = 299;
+        // DapContinueResponse dap_continue_response = 300; // current max
     }
 
     reserved 87 to 88;
@@ -2600,19 +2600,13 @@ enum SteppingGranularity {
     Instruction = 2;
 }
 
-message DapNextRequest {
+message DapStepRequest {
     uint64 project_id = 1;
     uint64 client_id = 2;
     uint64 thread_id = 3;
-    optional bool single_thread = 4;
-    optional SteppingGranularity granularity = 5;
-}
-
-message DapContinueRequest {
-    uint64 project_id = 1;
-    uint64 client_id = 2;
-    uint64 thread_id = 3;
-    optional bool single_thread = 4;
+    optional uint64 target_id = 4;
+    optional bool single_thread = 5;
+    optional SteppingGranularity granularity = 6;
 }
 
 message DapContinueResponse {

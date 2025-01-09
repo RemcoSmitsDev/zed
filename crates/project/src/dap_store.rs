@@ -1,4 +1,4 @@
-use crate::dap_command::{DapCommand, NextCommand};
+use crate::dap_command::{DapCommand, NextCommand, StepCommand};
 use crate::project_settings::ProjectSettings;
 use crate::{ProjectEnvironment, ProjectItem as _, ProjectPath};
 use anyhow::{anyhow, bail, Context as _, Result};
@@ -19,7 +19,7 @@ use dap::{
     ConfigurationDoneArguments, ContinueArguments, DisconnectArguments, ErrorResponse,
     EvaluateArguments, EvaluateArgumentsContext, EvaluateResponse, InitializeRequestArguments,
     InitializeRequestArgumentsPathFormat, LaunchRequestArguments, LoadedSourcesArguments, Module,
-    ModulesArguments, NextArguments, PauseArguments, RestartArguments, Scope, ScopesArguments,
+    ModulesArguments, PauseArguments, RestartArguments, Scope, ScopesArguments,
     SetBreakpointsArguments, SetExpressionArguments, SetVariableArguments, Source,
     SourceBreakpoint, StackFrame, StackTraceArguments, StartDebuggingRequestArguments,
     StartDebuggingRequestArgumentsRequest, StepBackArguments, StepInArguments, StepOutArguments,
@@ -1127,7 +1127,7 @@ impl DapStore {
             .unwrap_or_default();
 
         let next_command = NextCommand {
-            args: NextArguments {
+            inner: StepCommand {
                 thread_id,
                 granularity: supports_stepping_granularity.then(|| granularity),
                 single_thread: supports_single_thread_execution_requests.then(|| true),

@@ -1,5 +1,8 @@
 use anyhow::Result;
-use dap::{client::DebugAdapterClientId, requests::Next, NextArguments};
+use dap::{
+    client::DebugAdapterClientId, proto_conversions::ProtoConversion, requests::Next,
+    NextArguments, SteppingGranularity,
+};
 use rpc::proto;
 
 pub trait DapCommand: 'static + Sized + Send + std::fmt::Debug {
@@ -35,14 +38,57 @@ pub trait DapCommand: 'static + Sized + Send + std::fmt::Debug {
 }
 
 #[derive(Debug)]
+pub struct StepCommand {
+    pub thread_id: u64,
+    pub granularity: Option<SteppingGranularity>,
+    pub single_thread: Option<bool>,
+}
+
+impl StepCommand {
+    fn from_proto(message: proto::DapStepRequest) -> Self {
+        const LINE: i32 = proto::SteppingGranularity::Line as i32;
+        const STATEMENT: i32 = proto::SteppingGranularity::Statement as i32;
+        const INSTRUCTION: i32 = proto::SteppingGranularity::Instruction as i32;
+
+        let granularity = message.granularity.map(|granularity| match granularity {
+            LINE => SteppingGranularity::Line,
+            INSTRUCTION => SteppingGranularity::Instruction,
+            STATEMENT | _ => SteppingGranularity::Statement,
+        });
+
+        Self {
+            thread_id: message.thread_id,
+            granularity,
+            single_thread: message.single_thread,
+        }
+    }
+
+    fn to_proto(
+        &self,
+        debug_client_id: &DebugAdapterClientId,
+        upstream_project_id: u64,
+        target_id: Option<u64>,
+    ) -> proto::DapStepRequest {
+        proto::DapStepRequest {
+            target_id,
+            project_id: upstream_project_id,
+            client_id: debug_client_id.to_proto(),
+            thread_id: self.thread_id,
+            single_thread: self.single_thread,
+            granularity: self.granularity.map(|gran| gran.to_proto() as i32),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub(crate) struct NextCommand {
-    pub args: NextArguments,
+    pub inner: StepCommand,
 }
 
 impl DapCommand for NextCommand {
     type Response = <Next as dap::requests::Request>::Response;
     type DapRequest = Next;
-    type ProtoRequest = proto::DapNextRequest;
+    type ProtoRequest = proto::DapStepRequest;
 
     fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
         DebugAdapterClientId::from_proto(request.client_id)
@@ -50,11 +96,7 @@ impl DapCommand for NextCommand {
 
     fn from_proto(request: &Self::ProtoRequest) -> Self {
         Self {
-            args: NextArguments {
-                thread_id: request.thread_id,
-                single_thread: request.single_thread,
-                granularity: None,
-            },
+            inner: StepCommand::from_proto(request.clone()),
         }
     }
 
@@ -68,26 +110,17 @@ impl DapCommand for NextCommand {
         &self,
         debug_client_id: &DebugAdapterClientId,
         upstream_project_id: u64,
-    ) -> proto::DapNextRequest {
-        proto::DapNextRequest {
-            project_id: upstream_project_id,
-            client_id: debug_client_id.to_proto(),
-            thread_id: self.args.thread_id,
-            single_thread: self.args.single_thread,
-            granularity: Some(match self.args.granularity {
-                Some(dap::SteppingGranularity::Line) => proto::SteppingGranularity::Line.into(),
-                Some(dap::SteppingGranularity::Instruction) => {
-                    proto::SteppingGranularity::Instruction.into()
-                }
-                Some(dap::SteppingGranularity::Statement) | None => {
-                    proto::SteppingGranularity::Statement.into()
-                }
-            }),
-        }
+    ) -> proto::DapStepRequest {
+        self.inner
+            .to_proto(debug_client_id, upstream_project_id, None)
     }
 
     fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
-        self.args.clone()
+        NextArguments {
+            thread_id: self.inner.thread_id,
+            single_thread: self.inner.single_thread,
+            granularity: self.inner.granularity,
+        }
     }
 
     fn response_from_dap(

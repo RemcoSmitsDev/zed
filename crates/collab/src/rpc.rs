@@ -421,7 +421,7 @@ impl Server {
             .add_message_handler(update_debug_adapter)
             .add_message_handler(update_debug_client_capabilities)
             .add_message_handler(shutdown_debug_client)
-            .add_request_handler(forward_mutating_project_request::<proto::DapNextRequest>);
+            .add_request_handler(forward_mutating_project_request::<proto::DapStepRequest>);
 
         Arc::new(server)
     }
