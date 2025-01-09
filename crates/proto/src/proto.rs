@@ -381,7 +381,10 @@ messages!(
     (SetDebuggerPanelItem, Background),
     (ShutdownDebugClient, Background),
     (SetDebugClientCapabilities, Background),
-    (DapStepRequest, Background),
+    (DapNextRequest, Background),
+    (DapStepInRequest, Background),
+    (DapStepOutRequest, Background),
+    (DapStepBackRequest, Background),
 );
 
 request_messages!(
@@ -509,7 +512,10 @@ request_messages!(
     (SyncExtensions, SyncExtensionsResponse),
     (InstallExtension, Ack),
     (RegisterBufferWithLanguageServers, Ack),
-    (DapStepRequest, Ack),
+    (DapNextRequest, Ack),
+    (DapStepInRequest, Ack),
+    (DapStepOutRequest, Ack),
+    (DapStepBackRequest, Ack),
 );
 
 entity_messages!(
@@ -603,7 +609,10 @@ entity_messages!(
     SetDebuggerPanelItem,
     ShutdownDebugClient,
     SetDebugClientCapabilities,
-    DapStepRequest,
+    DapNextRequest,
+    DapStepInRequest,
+    DapStepOutRequest,
+    DapStepBackRequest,
 );
 
 entity_messages!(

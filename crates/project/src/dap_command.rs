@@ -1,7 +1,7 @@
 use anyhow::Result;
 use dap::{
     client::DebugAdapterClientId, proto_conversions::ProtoConversion, requests::Next,
-    NextArguments, SteppingGranularity,
+    NextArguments, StepInArguments, StepOutArguments, SteppingGranularity,
 };
 use rpc::proto;
 
@@ -45,7 +45,7 @@ pub struct StepCommand {
 }
 
 impl StepCommand {
-    fn from_proto(message: proto::DapStepRequest) -> Self {
+    fn from_proto(message: proto::DapNextRequest) -> Self {
         const LINE: i32 = proto::SteppingGranularity::Line as i32;
         const STATEMENT: i32 = proto::SteppingGranularity::Statement as i32;
         const INSTRUCTION: i32 = proto::SteppingGranularity::Instruction as i32;
@@ -62,22 +62,6 @@ impl StepCommand {
             single_thread: message.single_thread,
         }
     }
-
-    fn to_proto(
-        &self,
-        debug_client_id: &DebugAdapterClientId,
-        upstream_project_id: u64,
-        target_id: Option<u64>,
-    ) -> proto::DapStepRequest {
-        proto::DapStepRequest {
-            target_id,
-            project_id: upstream_project_id,
-            client_id: debug_client_id.to_proto(),
-            thread_id: self.thread_id,
-            single_thread: self.single_thread,
-            granularity: self.granularity.map(|gran| gran.to_proto() as i32),
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -88,7 +72,7 @@ pub(crate) struct NextCommand {
 impl DapCommand for NextCommand {
     type Response = <Next as dap::requests::Request>::Response;
     type DapRequest = Next;
-    type ProtoRequest = proto::DapStepRequest;
+    type ProtoRequest = proto::DapNextRequest;
 
     fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
         DebugAdapterClientId::from_proto(request.client_id)
@@ -110,13 +94,227 @@ impl DapCommand for NextCommand {
         &self,
         debug_client_id: &DebugAdapterClientId,
         upstream_project_id: u64,
-    ) -> proto::DapStepRequest {
-        self.inner
-            .to_proto(debug_client_id, upstream_project_id, None)
+    ) -> proto::DapNextRequest {
+        proto::DapNextRequest {
+            project_id: upstream_project_id,
+            client_id: debug_client_id.to_proto(),
+            thread_id: self.inner.thread_id,
+            single_thread: self.inner.single_thread,
+            granularity: self.inner.granularity.map(|gran| gran.to_proto() as i32),
+        }
     }
 
     fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
         NextArguments {
+            thread_id: self.inner.thread_id,
+            single_thread: self.inner.single_thread,
+            granularity: self.inner.granularity,
+        }
+    }
+
+    fn response_from_dap(
+        self,
+        _message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Result<Self::Response> {
+        Ok(())
+    }
+
+    fn response_from_proto(
+        self,
+        _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct StepInCommand {
+    pub inner: StepCommand,
+}
+
+impl DapCommand for StepInCommand {
+    type Response = <dap::requests::StepIn as dap::requests::Request>::Response;
+    type DapRequest = dap::requests::StepIn;
+    type ProtoRequest = proto::DapStepInRequest;
+
+    fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
+        DebugAdapterClientId::from_proto(request.client_id)
+    }
+
+    fn from_proto(request: &Self::ProtoRequest) -> Self {
+        Self {
+            inner: StepCommand::from_proto(proto::DapNextRequest {
+                project_id: request.project_id,
+                client_id: request.client_id,
+                thread_id: request.thread_id,
+                single_thread: request.single_thread,
+                granularity: request.granularity,
+            }),
+        }
+    }
+
+    fn response_to_proto(
+        _message: Self::Response,
+    ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
+        proto::Ack {}
+    }
+
+    fn to_proto(
+        &self,
+        debug_client_id: &DebugAdapterClientId,
+        upstream_project_id: u64,
+    ) -> proto::DapStepInRequest {
+        proto::DapStepInRequest {
+            project_id: upstream_project_id,
+            client_id: debug_client_id.to_proto(),
+            thread_id: self.inner.thread_id,
+            single_thread: self.inner.single_thread,
+            granularity: self.inner.granularity.map(|gran| gran.to_proto() as i32),
+            target_id: None,
+        }
+    }
+
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        StepInArguments {
+            thread_id: self.inner.thread_id,
+            single_thread: self.inner.single_thread,
+            target_id: None,
+            granularity: self.inner.granularity,
+        }
+    }
+
+    fn response_from_dap(
+        self,
+        _message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Result<Self::Response> {
+        Ok(())
+    }
+
+    fn response_from_proto(
+        self,
+        _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct StepOutCommand {
+    pub inner: StepCommand,
+}
+
+impl DapCommand for StepOutCommand {
+    type Response = <dap::requests::StepOut as dap::requests::Request>::Response;
+    type DapRequest = dap::requests::StepOut;
+    type ProtoRequest = proto::DapStepOutRequest;
+
+    fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
+        DebugAdapterClientId::from_proto(request.client_id)
+    }
+
+    fn from_proto(request: &Self::ProtoRequest) -> Self {
+        Self {
+            inner: StepCommand::from_proto(proto::DapNextRequest {
+                project_id: request.project_id,
+                client_id: request.client_id,
+                thread_id: request.thread_id,
+                single_thread: request.single_thread,
+                granularity: request.granularity,
+            }),
+        }
+    }
+
+    fn response_to_proto(
+        _message: Self::Response,
+    ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
+        proto::Ack {}
+    }
+
+    fn to_proto(
+        &self,
+        debug_client_id: &DebugAdapterClientId,
+        upstream_project_id: u64,
+    ) -> proto::DapStepOutRequest {
+        proto::DapStepOutRequest {
+            project_id: upstream_project_id,
+            client_id: debug_client_id.to_proto(),
+            thread_id: self.inner.thread_id,
+            single_thread: self.inner.single_thread,
+            granularity: self.inner.granularity.map(|gran| gran.to_proto() as i32),
+        }
+    }
+
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        StepOutArguments {
+            thread_id: self.inner.thread_id,
+            single_thread: self.inner.single_thread,
+            granularity: self.inner.granularity,
+        }
+    }
+
+    fn response_from_dap(
+        self,
+        _message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Result<Self::Response> {
+        Ok(())
+    }
+
+    fn response_from_proto(
+        self,
+        _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct StepBackCommand {
+    pub inner: StepCommand,
+}
+
+impl DapCommand for StepBackCommand {
+    type Response = <dap::requests::StepBack as dap::requests::Request>::Response;
+    type DapRequest = dap::requests::StepBack;
+    type ProtoRequest = proto::DapStepBackRequest;
+
+    fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
+        DebugAdapterClientId::from_proto(request.client_id)
+    }
+
+    fn from_proto(request: &Self::ProtoRequest) -> Self {
+        Self {
+            inner: StepCommand::from_proto(proto::DapNextRequest {
+                project_id: request.project_id,
+                client_id: request.client_id,
+                thread_id: request.thread_id,
+                single_thread: request.single_thread,
+                granularity: request.granularity,
+            }),
+        }
+    }
+
+    fn response_to_proto(
+        _message: Self::Response,
+    ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
+        proto::Ack {}
+    }
+
+    fn to_proto(
+        &self,
+        debug_client_id: &DebugAdapterClientId,
+        upstream_project_id: u64,
+    ) -> proto::DapStepBackRequest {
+        proto::DapStepBackRequest {
+            project_id: upstream_project_id,
+            client_id: debug_client_id.to_proto(),
+            thread_id: self.inner.thread_id,
+            single_thread: self.inner.single_thread,
+            granularity: self.inner.granularity.map(|gran| gran.to_proto() as i32),
+        }
+    }
+
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        dap::StepBackArguments {
             thread_id: self.inner.thread_id,
             single_thread: self.inner.single_thread,
             granularity: self.inner.granularity,
