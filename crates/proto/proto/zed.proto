@@ -319,9 +319,9 @@ message Envelope {
         DapNextRequest dap_next_request = 298;
         DapStepInRequest dap_step_in_request = 299;
         DapStepOutRequest dap_step_out_request = 300;
-        DapStepBackRequest dap_step_back_request = 301; // current max
-        // DapContinueRequest dap_continue_request = 302;
-        // DapContinueResponse dap_continue_response = 303;
+        DapStepBackRequest dap_step_back_request = 301;
+        DapContinueRequest dap_continue_request = 302;
+        DapContinueResponse dap_continue_response = 303; // current max
     }
 
     reserved 87 to 88;
@@ -2636,8 +2636,16 @@ message DapStepBackRequest {
     optional SteppingGranularity granularity = 5;
 }
 
+message DapContinueRequest {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    uint64 thread_id = 3;
+    optional bool single_thread = 4;
+}
+
 message DapContinueResponse {
-    optional bool all_threads_continued = 1;
+    uint64 client_id = 1;
+    optional bool all_threads_continued = 2;
 }
 
 message DapStackFrame {

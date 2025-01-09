@@ -385,6 +385,8 @@ messages!(
     (DapStepInRequest, Background),
     (DapStepOutRequest, Background),
     (DapStepBackRequest, Background),
+    (DapContinueRequest, Background),
+    (DapContinueResponse, Background),
 );
 
 request_messages!(
@@ -516,6 +518,7 @@ request_messages!(
     (DapStepInRequest, Ack),
     (DapStepOutRequest, Ack),
     (DapStepBackRequest, Ack),
+    (DapContinueRequest, DapContinueResponse),
 );
 
 entity_messages!(
@@ -613,6 +616,7 @@ entity_messages!(
     DapStepInRequest,
     DapStepOutRequest,
     DapStepBackRequest,
+    DapContinueRequest,
 );
 
 entity_messages!(

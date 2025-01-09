@@ -424,7 +424,8 @@ impl Server {
             .add_request_handler(forward_mutating_project_request::<proto::DapNextRequest>)
             .add_request_handler(forward_mutating_project_request::<proto::DapStepInRequest>)
             .add_request_handler(forward_mutating_project_request::<proto::DapStepOutRequest>)
-            .add_request_handler(forward_mutating_project_request::<proto::DapStepBackRequest>);
+            .add_request_handler(forward_mutating_project_request::<proto::DapStepBackRequest>)
+            .add_request_handler(forward_mutating_project_request::<proto::DapContinueRequest>);
 
         Arc::new(server)
     }

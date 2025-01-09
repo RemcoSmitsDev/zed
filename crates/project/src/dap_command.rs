@@ -1,7 +1,9 @@
-use anyhow::Result;
+use anyhow::{Ok, Result};
 use dap::{
-    client::DebugAdapterClientId, proto_conversions::ProtoConversion, requests::Next,
-    NextArguments, StepInArguments, StepOutArguments, SteppingGranularity,
+    client::DebugAdapterClientId,
+    proto_conversions::ProtoConversion,
+    requests::{Continue, Next},
+    ContinueArguments, NextArguments, StepInArguments, StepOutArguments, SteppingGranularity,
 };
 use rpc::proto;
 
@@ -21,19 +23,20 @@ pub trait DapCommand: 'static + Sized + Send + std::fmt::Debug {
     ) -> Self::ProtoRequest;
 
     fn response_to_proto(
+        debug_client_id: &DebugAdapterClientId,
         message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response;
+
+    fn response_from_proto(
+        self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response>;
 
     fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments;
 
     fn response_from_dap(
         self,
         message: <Self::DapRequest as dap::requests::Request>::Response,
-    ) -> Result<Self::Response>;
-
-    fn response_from_proto(
-        self,
-        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
     ) -> Result<Self::Response>;
 }
 
@@ -85,6 +88,7 @@ impl DapCommand for NextCommand {
     }
 
     fn response_to_proto(
+        _debug_client_id: &DebugAdapterClientId,
         _message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::Ack {}
@@ -154,6 +158,7 @@ impl DapCommand for StepInCommand {
     }
 
     fn response_to_proto(
+        _debug_client_id: &DebugAdapterClientId,
         _message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::Ack {}
@@ -225,6 +230,7 @@ impl DapCommand for StepOutCommand {
     }
 
     fn response_to_proto(
+        _debug_client_id: &DebugAdapterClientId,
         _message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::Ack {}
@@ -294,6 +300,7 @@ impl DapCommand for StepBackCommand {
     }
 
     fn response_to_proto(
+        _debug_client_id: &DebugAdapterClientId,
         _message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::Ack {}
@@ -336,53 +343,69 @@ impl DapCommand for StepBackCommand {
     }
 }
 
-// #[derive(Debug)]
-// pub(crate) struct ContinueCommand {
-//     pub args: ContinueArguments,
-// }
+#[derive(Debug)]
+pub(crate) struct ContinueCommand {
+    pub args: ContinueArguments,
+}
 
-// impl DapCommand for ContinueCommand {
-//     type Response = <Continue as dap::requests::Request>::Response;
-//     type DapRequest = Continue;
-//     type ProtoRequest = proto::DapContinueRequest;
+impl DapCommand for ContinueCommand {
+    type Response = <Continue as dap::requests::Request>::Response;
+    type DapRequest = Continue;
+    type ProtoRequest = proto::DapContinueRequest;
 
-//     fn to_proto(
-//         &self,
-//         debug_client_id: &DebugAdapterClientId,
-//         upstream_project_id: u64,
-//     ) -> proto::DapContinueRequest {
-//         proto::DapContinueRequest {
-//             project_id: upstream_project_id,
-//             client_id: debug_client_id.to_proto(),
-//             thread_id: self.args.thread_id,
-//             single_thread: self.args.single_thread,
-//             granularity: Some(match self.args.granularity {
-//                 Some(dap::SteppingGranularity::Line) => proto::SteppingGranularity::Line.into(),
-//                 Some(dap::SteppingGranularity::Instruction) => {
-//                     proto::SteppingGranularity::Instruction.into()
-//                 }
-//                 Some(dap::SteppingGranularity::Statement) | None => {
-//                     proto::SteppingGranularity::Statement.into()
-//                 }
-//             }),
-//         }
-//     }
+    fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
+        DebugAdapterClientId::from_proto(request.client_id)
+    }
 
-//     fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
-//         self.args.clone()
-//     }
+    fn to_proto(
+        &self,
+        debug_client_id: &DebugAdapterClientId,
+        upstream_project_id: u64,
+    ) -> proto::DapContinueRequest {
+        proto::DapContinueRequest {
+            project_id: upstream_project_id,
+            client_id: debug_client_id.to_proto(),
+            thread_id: self.args.thread_id,
+            single_thread: self.args.single_thread,
+        }
+    }
 
-//     fn response_from_dap(
-//         self,
-//         _message: <Self::DapRequest as dap::requests::Request>::Response,
-//     ) -> Result<Self::Response> {
-//         Ok(())
-//     }
+    fn from_proto(request: &Self::ProtoRequest) -> Self {
+        Self {
+            args: ContinueArguments {
+                thread_id: request.thread_id,
+                single_thread: request.single_thread,
+            },
+        }
+    }
 
-//     fn response_from_proto(
-//         self,
-//         _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
-//     ) -> Result<Self::Response> {
-//         Ok(())
-//     }
-// }
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        self.args.clone()
+    }
+
+    fn response_from_dap(
+        self,
+        message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Result<Self::Response> {
+        Ok(message)
+    }
+
+    fn response_from_proto(
+        self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
+        Ok(Self::Response {
+            all_threads_continued: message.all_threads_continued,
+        })
+    }
+
+    fn response_to_proto(
+        debug_client_id: &DebugAdapterClientId,
+        message: Self::Response,
+    ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
+        proto::DapContinueResponse {
+            client_id: debug_client_id.to_proto(),
+            all_threads_continued: message.all_threads_continued,
+        }
+    }
+}

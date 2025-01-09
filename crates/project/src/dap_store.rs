@@ -1,6 +1,7 @@
 use crate::{
     dap_command::{
-        DapCommand, NextCommand, StepBackCommand, StepCommand, StepInCommand, StepOutCommand,
+        ContinueCommand, DapCommand, NextCommand, StepBackCommand, StepCommand, StepInCommand,
+        StepOutCommand,
     },
     project_settings::ProjectSettings,
     ProjectEnvironment, ProjectItem as _, ProjectPath,
@@ -8,13 +9,12 @@ use crate::{
 use anyhow::{anyhow, bail, Context as _, Result};
 use async_trait::async_trait;
 use collections::HashMap;
-use dap::session::{DebugSession, DebugSessionId};
 use dap::{
     adapters::{DapDelegate, DapStatus, DebugAdapter, DebugAdapterBinary, DebugAdapterName},
     client::{DebugAdapterClient, DebugAdapterClientId},
     messages::{Message, Response},
     requests::{
-        Attach, Completions, ConfigurationDone, Continue, Disconnect, Evaluate, Initialize, Launch,
+        Attach, Completions, ConfigurationDone, Disconnect, Evaluate, Initialize, Launch,
         LoadedSources, Modules, Pause, Request as _, Restart, RunInTerminal, Scopes,
         SetBreakpoints, SetExpression, SetVariable, StackTrace, StartDebugging, Terminate,
         TerminateThreads, Variables,
@@ -28,6 +28,10 @@ use dap::{
     SourceBreakpoint, StackFrame, StackTraceArguments, StartDebuggingRequestArguments,
     StartDebuggingRequestArgumentsRequest, SteppingGranularity, TerminateArguments,
     TerminateThreadsArguments, Variable, VariablesArguments,
+};
+use dap::{
+    session::{DebugSession, DebugSessionId},
+    ContinueResponse,
 };
 use dap_adapters::build_adapter;
 use fs::Fs;
@@ -142,6 +146,7 @@ impl DapStore {
         client.add_model_request_handler(Self::handle_dap_command::<StepInCommand>);
         client.add_model_request_handler(Self::handle_dap_command::<StepOutCommand>);
         client.add_model_request_handler(Self::handle_dap_command::<StepBackCommand>);
+        client.add_model_request_handler(Self::handle_dap_command::<ContinueCommand>);
     }
 
     pub fn new_local(
@@ -1054,21 +1059,15 @@ impl DapStore {
         client_id: &DebugAdapterClientId,
         thread_id: u64,
         cx: &mut ModelContext<Self>,
-    ) -> Task<Result<()>> {
-        let Some((_, client)) = self.client_by_id(client_id, cx) else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
+    ) -> Task<Result<ContinueResponse>> {
+        let command = ContinueCommand {
+            args: ContinueArguments {
+                thread_id,
+                single_thread: Some(true),
+            },
         };
 
-        cx.background_executor().spawn(async move {
-            client
-                .request::<Continue>(ContinueArguments {
-                    thread_id,
-                    single_thread: Some(true),
-                })
-                .await?;
-
-            Ok(())
-        })
+        self.request_dap(client_id, command, cx)
     }
 
     fn request_dap<R: DapCommand>(
@@ -1606,7 +1605,7 @@ impl DapStore {
             })?
             .await?;
 
-        Ok(T::response_to_proto(response))
+        Ok(T::response_to_proto(&client_id, response))
     }
 
     async fn handle_synchronize_breakpoints(
