@@ -1281,6 +1281,62 @@ impl VariableList {
         .detach_and_log_err(cx);
     }
 
+    #[track_caller]
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn assert_visual_entries(&self, expected: Vec<&str>, cx: &ViewContext<Self>) {
+        const INDENT: &'static str = "    ";
+
+        let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
+        let entries = self.entries.get(&stack_frame_id).cloned().unwrap();
+
+        let mut visual_entries = Vec::with_capacity(entries.len());
+        for entry in entries {
+            match entry {
+                VariableListEntry::Scope(scope) => {
+                    let is_expanded = self
+                        .open_entries
+                        .binary_search(&OpenEntry::Scope {
+                            name: scope.name.clone(),
+                        })
+                        .is_ok();
+
+                    visual_entries.push(format!(
+                        "{} {}",
+                        if is_expanded { "v" } else { ">" },
+                        scope.name
+                    ));
+                }
+                VariableListEntry::SetVariableEditor { depth, state } => {
+                    visual_entries.push(format!(
+                        "{}  [EDITOR: {}]",
+                        INDENT.repeat(depth),
+                        state.name
+                    ));
+                }
+                VariableListEntry::Variable {
+                    depth, variable, ..
+                } => {
+                    let is_expanded = self
+                        .open_entries
+                        .binary_search(&OpenEntry::Variable {
+                            name: variable.name.clone(),
+                            depth,
+                        })
+                        .is_ok();
+
+                    visual_entries.push(format!(
+                        "{}{} {}",
+                        INDENT.repeat(depth),
+                        if is_expanded { "v" } else { ">" },
+                        variable.name
+                    ));
+                }
+            };
+        }
+
+        assert_eq!(expected, visual_entries);
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn render_variable(
         &self,

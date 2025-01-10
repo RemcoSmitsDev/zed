@@ -227,25 +227,9 @@ async fn test_basic_fetch_initial_scope_and_variables(
                         );
 
                         // assert visual entries
-                        assert_eq!(
-                            vec![
-                                VariableListEntry::Scope(scopes[0].clone()),
-                                VariableListEntry::Variable {
-                                    depth: 1,
-                                    scope: Arc::new(scopes[0].clone()),
-                                    has_children: false,
-                                    variable: Arc::new(variables[0].clone()),
-                                    container_reference: scopes[0].variables_reference,
-                                },
-                                VariableListEntry::Variable {
-                                    depth: 1,
-                                    scope: Arc::new(scopes[0].clone()),
-                                    has_children: false,
-                                    variable: Arc::new(variables[1].clone()),
-                                    container_reference: scopes[0].variables_reference,
-                                },
-                            ],
-                            variable_list.entries().get(&1).unwrap().clone()
+                        variable_list.assert_visual_entries(
+                            vec!["v Scope 1", "    > variable1", "    > variable2"],
+                            cx,
                         );
                     });
             });
@@ -488,7 +472,7 @@ async fn test_fetch_variables_for_multiple_scopes(
 
                 debug_panel_item
                     .variable_list()
-                    .update(cx, |variable_list, _| {
+                    .update(cx, |variable_list, cx| {
                         assert_eq!(1, variable_list.scopes().len());
                         assert_eq!(scopes, variable_list.scopes().get(&1).unwrap().clone());
 
@@ -520,32 +504,14 @@ async fn test_fetch_variables_for_multiple_scopes(
                         );
 
                         // assert visual entries
-                        assert_eq!(
+                        variable_list.assert_visual_entries(
                             vec![
-                                VariableListEntry::Scope(scopes[0].clone()),
-                                VariableListEntry::Variable {
-                                    depth: 1,
-                                    scope: Arc::new(scopes[0].clone()),
-                                    has_children: false,
-                                    variable: Arc::new(
-                                        variables.get(&scopes[0].variables_reference).unwrap()[0]
-                                            .clone()
-                                    ),
-                                    container_reference: scopes[0].variables_reference,
-                                },
-                                VariableListEntry::Variable {
-                                    depth: 1,
-                                    scope: Arc::new(scopes[0].clone()),
-                                    has_children: false,
-                                    variable: Arc::new(
-                                        variables.get(&scopes[0].variables_reference).unwrap()[1]
-                                            .clone()
-                                    ),
-                                    container_reference: scopes[0].variables_reference,
-                                },
-                                VariableListEntry::Scope(scopes[1].clone()),
+                                "v Scope 1",
+                                "    > variable1",
+                                "    > variable2",
+                                "> Scope 2",
                             ],
-                            variable_list.entries().get(&1).unwrap().clone()
+                            cx,
                         );
                     });
             });
@@ -808,7 +774,7 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
             active_debug_panel_item.update(cx, |debug_panel_item, cx| {
                 debug_panel_item
                     .variable_list()
-                    .update(cx, |variable_list, _| {
+                    .update(cx, |variable_list, cx| {
                         // scope 1
                         assert_eq!(
                             vec![
@@ -837,26 +803,14 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
                         );
 
                         // assert visual entries
-                        assert_eq!(
+                        variable_list.assert_visual_entries(
                             vec![
-                                VariableListEntry::Scope(scopes[0].clone()),
-                                VariableListEntry::Variable {
-                                    depth: 1,
-                                    scope: Arc::new(scopes[0].clone()),
-                                    has_children: true,
-                                    variable: Arc::new(scope1_variables[0].clone()),
-                                    container_reference: scopes[0].variables_reference,
-                                },
-                                VariableListEntry::Variable {
-                                    depth: 1,
-                                    scope: Arc::new(scopes[0].clone()),
-                                    has_children: false,
-                                    variable: Arc::new(scope1_variables[1].clone()),
-                                    container_reference: scopes[0].variables_reference,
-                                },
-                                VariableListEntry::Scope(scopes[1].clone()),
+                                "v Scope 1",
+                                "    > variable1",
+                                "    > variable2",
+                                "> Scope 2",
                             ],
-                            variable_list.entries().get(&1).unwrap().clone()
+                            cx,
                         );
                     });
             });
@@ -903,7 +857,7 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
             active_debug_panel_item.update(cx, |debug_panel_item, cx| {
                 debug_panel_item
                     .variable_list()
-                    .update(cx, |variable_list, _| {
+                    .update(cx, |variable_list, cx| {
                         // scope 1
                         assert_eq!(
                             vec![
@@ -942,40 +896,16 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
                         );
 
                         // assert visual entries
-                        assert_eq!(
+                        variable_list.assert_visual_entries(
                             vec![
-                                VariableListEntry::Scope(scopes[0].clone()),
-                                VariableListEntry::Variable {
-                                    depth: 1,
-                                    scope: Arc::new(scopes[0].clone()),
-                                    has_children: true,
-                                    variable: Arc::new(scope1_variables[0].clone()),
-                                    container_reference: scopes[0].variables_reference,
-                                },
-                                VariableListEntry::Variable {
-                                    depth: 2,
-                                    scope: Arc::new(scopes[0].clone()),
-                                    has_children: false,
-                                    variable: Arc::new(nested_variables[0].clone()),
-                                    container_reference: scope1_variables[0].variables_reference,
-                                },
-                                VariableListEntry::Variable {
-                                    depth: 2,
-                                    scope: Arc::new(scopes[0].clone()),
-                                    has_children: false,
-                                    variable: Arc::new(nested_variables[1].clone()),
-                                    container_reference: scope1_variables[0].variables_reference,
-                                },
-                                VariableListEntry::Variable {
-                                    depth: 1,
-                                    scope: Arc::new(scopes[0].clone()),
-                                    has_children: false,
-                                    variable: Arc::new(scope1_variables[1].clone()),
-                                    container_reference: scopes[0].variables_reference,
-                                },
-                                VariableListEntry::Scope(scopes[1].clone()),
+                                "v Scope 1",
+                                "    v variable1",
+                                "        > nested1",
+                                "        > nested2",
+                                "    > variable2",
+                                "> Scope 2",
                             ],
-                            variable_list.entries().get(&1).unwrap().clone()
+                            cx,
                         );
                     });
             });
@@ -1017,7 +947,7 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
             active_debug_panel_item.update(cx, |debug_panel_item, cx| {
                 debug_panel_item
                     .variable_list()
-                    .update(cx, |variable_list, _| {
+                    .update(cx, |variable_list, cx| {
                         // scope 1
                         assert_eq!(
                             vec![
@@ -1056,47 +986,17 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
                         );
 
                         // assert visual entries
-                        assert_eq!(
+                        variable_list.assert_visual_entries(
                             vec![
-                                VariableListEntry::Scope(scopes[0].clone()),
-                                VariableListEntry::Variable {
-                                    depth: 1,
-                                    scope: Arc::new(scopes[0].clone()),
-                                    has_children: true,
-                                    variable: Arc::new(scope1_variables[0].clone()),
-                                    container_reference: scopes[0].variables_reference,
-                                },
-                                VariableListEntry::Variable {
-                                    depth: 2,
-                                    scope: Arc::new(scopes[0].clone()),
-                                    has_children: false,
-                                    variable: Arc::new(nested_variables[0].clone()),
-                                    container_reference: scope1_variables[0].variables_reference,
-                                },
-                                VariableListEntry::Variable {
-                                    depth: 2,
-                                    scope: Arc::new(scopes[0].clone()),
-                                    has_children: false,
-                                    variable: Arc::new(nested_variables[1].clone()),
-                                    container_reference: scope1_variables[0].variables_reference,
-                                },
-                                VariableListEntry::Variable {
-                                    depth: 1,
-                                    scope: Arc::new(scopes[0].clone()),
-                                    has_children: false,
-                                    variable: Arc::new(scope1_variables[1].clone()),
-                                    container_reference: scopes[0].variables_reference,
-                                },
-                                VariableListEntry::Scope(scopes[1].clone()),
-                                VariableListEntry::Variable {
-                                    depth: 1,
-                                    scope: Arc::new(scopes[1].clone()),
-                                    has_children: false,
-                                    variable: Arc::new(scope2_variables[0].clone()),
-                                    container_reference: scopes[1].variables_reference,
-                                },
+                                "v Scope 1",
+                                "    v variable1",
+                                "        > nested1",
+                                "        > nested2",
+                                "    > variable2",
+                                "v Scope 2",
+                                "    > variable3",
                             ],
-                            variable_list.entries().get(&1).unwrap().clone()
+                            cx,
                         );
                     });
             });
@@ -1139,7 +1039,7 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
             active_debug_panel_item.update(cx, |debug_panel_item, cx| {
                 debug_panel_item
                     .variable_list()
-                    .update(cx, |variable_list, _| {
+                    .update(cx, |variable_list, cx| {
                         // scope 1
                         assert_eq!(
                             vec![
@@ -1178,33 +1078,15 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
                         );
 
                         // assert visual entries
-                        assert_eq!(
+                        variable_list.assert_visual_entries(
                             vec![
-                                VariableListEntry::Scope(scopes[0].clone()),
-                                VariableListEntry::Variable {
-                                    depth: 1,
-                                    scope: Arc::new(scopes[0].clone()),
-                                    has_children: true,
-                                    variable: Arc::new(scope1_variables[0].clone()),
-                                    container_reference: scopes[0].variables_reference,
-                                },
-                                VariableListEntry::Variable {
-                                    depth: 1,
-                                    scope: Arc::new(scopes[0].clone()),
-                                    has_children: false,
-                                    variable: Arc::new(scope1_variables[1].clone()),
-                                    container_reference: scopes[0].variables_reference,
-                                },
-                                VariableListEntry::Scope(scopes[1].clone()),
-                                VariableListEntry::Variable {
-                                    depth: 1,
-                                    scope: Arc::new(scopes[1].clone()),
-                                    has_children: false,
-                                    variable: Arc::new(scope2_variables[0].clone()),
-                                    container_reference: scopes[1].variables_reference,
-                                },
+                                "v Scope 1",
+                                "    > variable1",
+                                "    > variable2",
+                                "v Scope 2",
+                                "    > variable3",
                             ],
-                            variable_list.entries().get(&1).unwrap().clone()
+                            cx,
                         );
                     });
             });
