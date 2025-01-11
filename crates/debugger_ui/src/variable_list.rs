@@ -1331,11 +1331,7 @@ impl VariableList {
                         "{} {}{}",
                         if is_expanded { "v" } else { ">" },
                         scope.name,
-                        if is_selected {
-                            format!("{}<== selected", INDENT)
-                        } else {
-                            "".to_string()
-                        }
+                        if is_selected { " <=== selected" } else { "" }
                     ));
                 }
                 VariableListEntry::SetVariableEditor { depth, state } => {
@@ -1343,11 +1339,7 @@ impl VariableList {
                         "{}  [EDITOR: {}]{}",
                         INDENT.repeat(*depth),
                         state.name,
-                        if is_selected {
-                            format!("{}<== selected", INDENT)
-                        } else {
-                            "".to_string()
-                        }
+                        if is_selected { " <=== selected" } else { "" }
                     ));
                 }
                 VariableListEntry::Variable {
@@ -1370,11 +1362,7 @@ impl VariableList {
                         INDENT.repeat(*depth),
                         if is_expanded { "v" } else { ">" },
                         variable.name,
-                        if is_selected {
-                            format!("{}<== selected", INDENT)
-                        } else {
-                            "".to_string()
-                        }
+                        if is_selected { " <=== selected" } else { "" }
                     ));
                 }
             };
