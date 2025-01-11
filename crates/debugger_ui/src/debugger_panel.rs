@@ -813,8 +813,6 @@ impl DebugPanel {
                 self.dap_store.update(cx, |_, cx| {
                     cx.emit(DapStoreEvent::Notification(MESSAGE.into()));
                 });
-
-                cx.notify();
             };
         }
 
@@ -826,6 +824,7 @@ impl DebugPanel {
         }
 
         cx.emit(DebugPanelEvent::Thread((*client_id, event.clone())));
+        cx.notify();
     }
 
     fn handle_exited_event(
