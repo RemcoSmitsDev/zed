@@ -227,7 +227,6 @@ async fn test_basic_fetch_initial_scope_and_variables(
                             variable_list.variables(cx)
                         );
 
-                        // assert visual entries
                         variable_list.assert_visual_entries(
                             vec!["v Scope 1", "    > variable1", "    > variable2"],
                             cx,
@@ -504,7 +503,6 @@ async fn test_fetch_variables_for_multiple_scopes(
                             variable_list.variables_by_scope(1, 3).unwrap().variables()
                         );
 
-                        // assert visual entries
                         variable_list.assert_visual_entries(
                             vec![
                                 "v Scope 1",
@@ -803,7 +801,6 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
                             variable_list.variables_by_scope(1, 4).unwrap().variables()
                         );
 
-                        // assert visual entries
                         variable_list.assert_visual_entries(
                             vec![
                                 "v Scope 1",
@@ -893,7 +890,6 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
                             variable_list.variables_by_scope(1, 4).unwrap().variables()
                         );
 
-                        // assert visual entries
                         variable_list.assert_visual_entries(
                             vec![
                                 "v Scope 1",
@@ -983,7 +979,6 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
                             variable_list.variables_by_scope(1, 4).unwrap().variables()
                         );
 
-                        // assert visual entries
                         variable_list.assert_visual_entries(
                             vec![
                                 "v Scope 1",
@@ -1076,7 +1071,6 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
                             variable_list.variables_by_scope(1, 4).unwrap().variables()
                         );
 
-                        // assert visual entries
                         variable_list.assert_visual_entries(
                             vec![
                                 "v Scope 1",
@@ -1348,7 +1342,6 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
         debug_panel_item
             .variable_list()
             .update(cx, |variable_list, cx| {
-                // assert visual entries
                 variable_list.assert_visual_entries(
                     vec![
                         "v Scope 1 <=== selected",
@@ -1368,7 +1361,6 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
         debug_panel_item
             .variable_list()
             .update(cx, |variable_list, cx| {
-                // assert visual entries
                 variable_list.assert_visual_entries(
                     vec![
                         "v Scope 1",
@@ -1388,7 +1380,6 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
         debug_panel_item
             .variable_list()
             .update(cx, |variable_list, cx| {
-                // assert visual entries
                 variable_list.assert_visual_entries(
                     vec![
                         "v Scope 1",
@@ -1410,7 +1401,6 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
         debug_panel_item
             .variable_list()
             .update(cx, |variable_list, cx| {
-                // assert visual entries
                 variable_list.assert_visual_entries(
                     vec![
                         "v Scope 1",
@@ -1432,7 +1422,6 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
         debug_panel_item
             .variable_list()
             .update(cx, |variable_list, cx| {
-                // assert visual entries
                 variable_list.assert_visual_entries(
                     vec![
                         "v Scope 1",
@@ -1454,7 +1443,6 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
         debug_panel_item
             .variable_list()
             .update(cx, |variable_list, cx| {
-                // assert visual entries
                 variable_list.assert_visual_entries(
                     vec![
                         "v Scope 1",
@@ -1476,7 +1464,6 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
         debug_panel_item
             .variable_list()
             .update(cx, |variable_list, cx| {
-                // assert visual entries
                 variable_list.assert_visual_entries(
                     vec![
                         "v Scope 1",
@@ -1498,7 +1485,6 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
         debug_panel_item
             .variable_list()
             .update(cx, |variable_list, cx| {
-                // assert visual entries
                 variable_list.assert_visual_entries(
                     vec![
                         "v Scope 1",
@@ -1521,7 +1507,6 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
         debug_panel_item
             .variable_list()
             .update(cx, |variable_list, cx| {
-                // assert visual entries
                 variable_list.assert_visual_entries(
                     vec![
                         "v Scope 1",
@@ -1544,7 +1529,6 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
         debug_panel_item
             .variable_list()
             .update(cx, |variable_list, cx| {
-                // assert visual entries
                 variable_list.assert_visual_entries(
                     vec![
                         "v Scope 1",
@@ -1567,7 +1551,6 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
         debug_panel_item
             .variable_list()
             .update(cx, |variable_list, cx| {
-                // assert visual entries
                 variable_list.assert_visual_entries(
                     vec![
                         "v Scope 1",
@@ -1589,7 +1572,6 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
         debug_panel_item
             .variable_list()
             .update(cx, |variable_list, cx| {
-                // assert visual entries
                 variable_list.assert_visual_entries(
                     vec![
                         "v Scope 1",
@@ -1611,7 +1593,6 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
         debug_panel_item
             .variable_list()
             .update(cx, |variable_list, cx| {
-                // assert visual entries
                 variable_list.assert_visual_entries(
                     vec![
                         "v Scope 1",
@@ -1633,7 +1614,6 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
         debug_panel_item
             .variable_list()
             .update(cx, |variable_list, cx| {
-                // assert visual entries
                 variable_list.assert_visual_entries(
                     vec![
                         "v Scope 1",
@@ -1655,7 +1635,6 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
         debug_panel_item
             .variable_list()
             .update(cx, |variable_list, cx| {
-                // assert visual entries
                 variable_list.assert_visual_entries(
                     vec![
                         "v Scope 1",
@@ -1677,7 +1656,6 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
         debug_panel_item
             .variable_list()
             .update(cx, |variable_list, cx| {
-                // assert visual entries
                 variable_list.assert_visual_entries(
                     vec![
                         "v Scope 1",
@@ -1697,7 +1675,6 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
         debug_panel_item
             .variable_list()
             .update(cx, |variable_list, cx| {
-                // assert visual entries
                 variable_list.assert_visual_entries(
                     vec![
                         "v Scope 1 <=== selected",
@@ -1717,7 +1694,6 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
         debug_panel_item
             .variable_list()
             .update(cx, |variable_list, cx| {
-                // assert visual entries
                 variable_list
                     .assert_visual_entries(vec!["> Scope 1 <=== selected", "> Scope 2"], cx);
             });
