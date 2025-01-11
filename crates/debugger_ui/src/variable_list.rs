@@ -1372,7 +1372,7 @@ impl VariableList {
             };
         }
 
-        assert_eq!(expected, visual_entries);
+        pretty_assertions::assert_eq!(expected, visual_entries);
     }
 
     #[allow(clippy::too_many_arguments)]

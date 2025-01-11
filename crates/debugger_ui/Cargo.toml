@@ -51,7 +51,8 @@ dap = { workspace = true, features = ["test-support"] }
 editor = { workspace = true, features = ["test-support"] }
 env_logger.workspace = true
 gpui = { workspace = true, features = ["test-support"] }
+pretty_assertions.workspace = true
 project = { workspace = true, features = ["test-support"] }
-util = { workspace = true, features = ["test-support"] }
 unindent.workspace = true
+util = { workspace = true, features = ["test-support"] }
 workspace = { workspace = true, features = ["test-support"] }
