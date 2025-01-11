@@ -608,7 +608,6 @@ impl VariableList {
         };
 
         let entry = &entries[ix];
-
         match entry {
             VariableListEntry::Scope(scope) => {
                 self.render_scope(scope, Some(entry) == self.selection.as_ref(), cx)
@@ -1363,8 +1362,8 @@ impl VariableList {
     fn render_variable(
         &self,
         container_reference: u64,
-        variable: &Variable,
-        scope: &Scope,
+        variable: &Arc<Variable>,
+        scope: &Arc<Scope>,
         depth: usize,
         has_children: bool,
         is_selected: bool,
@@ -1402,6 +1401,20 @@ impl VariableList {
             .h_4()
             .size_full()
             .hover(|style| style.bg(bg_hover_color))
+            .on_click(cx.listener({
+                let scope = scope.clone();
+                let variable = variable.clone();
+                move |this, _, cx| {
+                    this.selection = Some(VariableListEntry::Variable {
+                        depth,
+                        has_children,
+                        container_reference,
+                        scope: scope.clone(),
+                        variable: variable.clone(),
+                    });
+                    cx.notify();
+                }
+            }))
             .child(
                 ListItem::new(SharedString::from(format!(
                     "variable-item-{}-{}-{}",
@@ -1482,6 +1495,13 @@ impl VariableList {
             .w_full()
             .h_full()
             .hover(|style| style.bg(bg_hover_color))
+            .on_click(cx.listener({
+                let scope = scope.clone();
+                move |this, _, cx| {
+                    this.selection = Some(VariableListEntry::Scope(scope.clone()));
+                    cx.notify();
+                }
+            }))
             .child(
                 ListItem::new(SharedString::from(format!(
                     "scope-{}",
