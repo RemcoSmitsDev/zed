@@ -148,7 +148,7 @@ impl OpenEntry {
             proto::variable_list_open_entry::Entry::Variable(state) => Some(Self::Variable {
                 name: state.name.clone(),
                 depth: state.depth as usize,
-                scope_id: state.scope_id as u64,
+                scope_id: state.scope_id,
             }),
         }
     }
@@ -665,7 +665,7 @@ impl VariableList {
             store.variables(&self.client_id, variable.variables_reference, cx)
         });
 
-        let container_reference = variable.variables_reference.clone();
+        let container_reference = variable.variables_reference;
         let entry_id = entry_id.clone();
 
         self.fetch_variables_task = Some(cx.spawn(|this, mut cx| async move {
