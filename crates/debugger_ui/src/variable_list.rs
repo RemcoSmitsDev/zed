@@ -1304,10 +1304,12 @@ impl VariableList {
         const INDENT: &'static str = "    ";
 
         let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
-        let entries = self.entries.get(&stack_frame_id).cloned().unwrap();
+        let entries = self.entries.get(&stack_frame_id).unwrap();
 
         let mut visual_entries = Vec::with_capacity(entries.len());
         for entry in entries {
+            let is_selected = Some(entry) == self.selection.as_ref();
+
             match entry {
                 VariableListEntry::Scope(scope) => {
                     let is_expanded = self
@@ -1318,16 +1320,26 @@ impl VariableList {
                         .is_ok();
 
                     visual_entries.push(format!(
-                        "{} {}",
+                        "{} {}{}",
                         if is_expanded { "v" } else { ">" },
-                        scope.name
+                        scope.name,
+                        if is_selected {
+                            format!("{}<== selected", INDENT)
+                        } else {
+                            "".to_string()
+                        }
                     ));
                 }
                 VariableListEntry::SetVariableEditor { depth, state } => {
                     visual_entries.push(format!(
-                        "{}  [EDITOR: {}]",
-                        INDENT.repeat(depth),
-                        state.name
+                        "{}  [EDITOR: {}]{}",
+                        INDENT.repeat(*depth),
+                        state.name,
+                        if is_selected {
+                            format!("{}<== selected", INDENT)
+                        } else {
+                            "".to_string()
+                        }
                     ));
                 }
                 VariableListEntry::Variable {
@@ -1339,17 +1351,22 @@ impl VariableList {
                     let is_expanded = self
                         .open_entries
                         .binary_search(&OpenEntry::Variable {
-                            depth,
+                            depth: *depth,
                             name: variable.name.clone(),
                             scope_id: scope.variables_reference,
                         })
                         .is_ok();
 
                     visual_entries.push(format!(
-                        "{}{} {}",
-                        INDENT.repeat(depth),
+                        "{}{} {}{}",
+                        INDENT.repeat(*depth),
                         if is_expanded { "v" } else { ">" },
-                        variable.name
+                        variable.name,
+                        if is_selected {
+                            format!("{}<== selected", INDENT)
+                        } else {
+                            "".to_string()
+                        }
                     ));
                 }
             };
