@@ -18,7 +18,7 @@ use gpui::{
     View, WeakView,
 };
 use project::dap_store::DapStore;
-use rpc::proto::{self, PeerId, SetDebuggerPanelItem, UpdateDebugAdapter};
+use rpc::proto::{self, DebuggerThreadStatus, PeerId, SetDebuggerPanelItem, UpdateDebugAdapter};
 use settings::Settings;
 use ui::{prelude::*, Indicator, Tooltip, WindowContext};
 use util::ResultExt as _;
@@ -238,6 +238,18 @@ impl DebugPanelItem {
     }
 
     pub(crate) fn from_proto(&mut self, state: &SetDebuggerPanelItem, cx: &mut ViewContext<Self>) {
+        self.thread_state.update(cx, |thread_state, _| {
+            let (status, stopped) = state
+                .thread_state
+                .as_ref()
+                .map_or((DebuggerThreadStatus::Stopped, true), |thread_state| {
+                    (thread_state.thread_status(), true)
+                });
+
+            thread_state.status = ThreadStatus::from_proto(status);
+            thread_state.stopped = stopped;
+        });
+
         self.active_thread_item = ThreadItem::from_proto(state.active_thread_item());
         self.update_thread_state_status(ThreadStatus::Stopped, cx);
 
@@ -463,7 +475,7 @@ impl DebugPanelItem {
             match update_variant {
                 proto::update_debug_adapter::Variant::StackFrameList(stack_frame_list) => {
                     self.stack_frame_list.update(cx, |this, cx| {
-                        this.set_from_proto(stack_frame_list.clone(), cx)
+                        this.set_from_proto(stack_frame_list.clone(), cx);
                     })
                 }
                 proto::update_debug_adapter::Variant::ThreadState(thread_state) => {
@@ -513,6 +525,11 @@ impl DebugPanelItem {
     #[cfg(any(test, feature = "test-support"))]
     pub fn variable_list(&self) -> &View<VariableList> {
         &self.variable_list
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn thread_status(&self, cx: &ViewContext<Self>) -> ThreadStatus {
+        self.thread_state.read(cx).status
     }
 
     pub fn capabilities(&self, cx: &mut ViewContext<Self>) -> Capabilities {
@@ -592,59 +609,100 @@ impl DebugPanelItem {
     pub fn continue_thread(&mut self, cx: &mut ViewContext<Self>) {
         self.update_thread_state_status(ThreadStatus::Running, cx);
 
-        self.dap_store.update(cx, |store, cx| {
-            store
-                .continue_thread(&self.client_id, self.thread_id, cx)
-                .detach_and_log_err(cx);
+        let task = self.dap_store.update(cx, |store, cx| {
+            store.continue_thread(&self.client_id, self.thread_id, cx)
         });
+
+        let task = cx.spawn(|weak, mut cx| async move {
+            if let Err(_) = task.await {
+                weak.update(&mut cx, |this, cx| {
+                    this.update_thread_state_status(ThreadStatus::Stopped, cx);
+                })
+                .log_err();
+            }
+        });
+
+        cx.background_executor().spawn(task).detach();
     }
 
     pub fn step_over(&mut self, cx: &mut ViewContext<Self>) {
         self.update_thread_state_status(ThreadStatus::Running, cx);
-
         let granularity = DebuggerSettings::get_global(cx).stepping_granularity;
 
-        self.dap_store.update(cx, |store, cx| {
-            store
-                .step_over(&self.client_id, self.thread_id, granularity, cx)
-                .detach_and_log_err(cx);
+        let task = self.dap_store.update(cx, |store, cx| {
+            store.step_over(&self.client_id, self.thread_id, granularity, cx)
         });
+
+        let task = cx.spawn(|weak, mut cx| async move {
+            if let Err(_) = task.await {
+                weak.update(&mut cx, |this, cx| {
+                    this.update_thread_state_status(ThreadStatus::Stopped, cx);
+                })
+                .log_err();
+            }
+        });
+
+        cx.background_executor().spawn(task).detach();
     }
 
     pub fn step_in(&mut self, cx: &mut ViewContext<Self>) {
         self.update_thread_state_status(ThreadStatus::Running, cx);
-
         let granularity = DebuggerSettings::get_global(cx).stepping_granularity;
 
-        self.dap_store.update(cx, |store, cx| {
-            store
-                .step_in(&self.client_id, self.thread_id, granularity, cx)
-                .detach_and_log_err(cx);
+        let task = self.dap_store.update(cx, |store, cx| {
+            store.step_in(&self.client_id, self.thread_id, granularity, cx)
         });
+
+        let task = cx.spawn(|weak, mut cx| async move {
+            if let Err(_) = task.await {
+                weak.update(&mut cx, |this, cx| {
+                    this.update_thread_state_status(ThreadStatus::Stopped, cx);
+                })
+                .log_err();
+            }
+        });
+
+        cx.background_executor().spawn(task).detach();
     }
 
     pub fn step_out(&mut self, cx: &mut ViewContext<Self>) {
         self.update_thread_state_status(ThreadStatus::Running, cx);
-
         let granularity = DebuggerSettings::get_global(cx).stepping_granularity;
 
-        self.dap_store.update(cx, |store, cx| {
-            store
-                .step_out(&self.client_id, self.thread_id, granularity, cx)
-                .detach_and_log_err(cx);
+        let task = self.dap_store.update(cx, |store, cx| {
+            store.step_out(&self.client_id, self.thread_id, granularity, cx)
         });
+
+        let task = cx.spawn(|weak, mut cx| async move {
+            if let Err(_) = task.await {
+                weak.update(&mut cx, |this, cx| {
+                    this.update_thread_state_status(ThreadStatus::Stopped, cx);
+                })
+                .log_err();
+            }
+        });
+
+        cx.background_executor().spawn(task).detach();
     }
 
     pub fn step_back(&mut self, cx: &mut ViewContext<Self>) {
         self.update_thread_state_status(ThreadStatus::Running, cx);
-
         let granularity = DebuggerSettings::get_global(cx).stepping_granularity;
 
-        self.dap_store.update(cx, |store, cx| {
-            store
-                .step_back(&self.client_id, self.thread_id, granularity, cx)
-                .detach_and_log_err(cx);
+        let task = self.dap_store.update(cx, |store, cx| {
+            store.step_back(&self.client_id, self.thread_id, granularity, cx)
         });
+
+        let task = cx.spawn(|weak, mut cx| async move {
+            if let Err(_) = task.await {
+                weak.update(&mut cx, |this, cx| {
+                    this.update_thread_state_status(ThreadStatus::Stopped, cx);
+                })
+                .log_err();
+            }
+        });
+
+        cx.background_executor().spawn(task).detach();
     }
 
     pub fn restart_client(&self, cx: &mut ViewContext<Self>) {
