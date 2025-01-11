@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use crate::{
     debugger_panel::DebugPanel,
-    tests::{init_test, init_test_workspace},
-    variable_list::{self, VariableContainer},
+    tests::{active_debug_panel_item, init_test, init_test_workspace},
+    variable_list::{self, CollapseSelectedEntry, ExpandSelectedEntry, VariableContainer},
 };
 use collections::HashMap;
 use dap::{
@@ -11,6 +11,7 @@ use dap::{
     Scope, StackFrame, Variable,
 };
 use gpui::{BackgroundExecutor, TestAppContext, VisualTestContext};
+use menu::{SelectFirst, SelectNext};
 use project::{FakeFs, Project};
 use serde_json::json;
 use unindent::Unindent as _;
@@ -1090,6 +1091,637 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
             });
         })
         .unwrap();
+
+    let shutdown_session = project.update(cx, |project, cx| {
+        project.dap_store().update(cx, |dap_store, cx| {
+            dap_store.shutdown_session(&session.read(cx).id(), cx)
+        })
+    });
+
+    shutdown_session.await.unwrap();
+}
+
+#[gpui::test]
+async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestAppContext) {
+    init_test(cx);
+
+    let fs = FakeFs::new(executor.clone());
+
+    let test_file_content = r#"
+        const variable1 = {
+            nested1: "Nested 1",
+            nested2: "Nested 2",
+        };
+        const variable2 = "Value 2";
+        const variable3 = "Value 3";
+    "#
+    .unindent();
+
+    fs.insert_tree(
+        "/project",
+        json!({
+           "src": {
+               "test.js": test_file_content,
+           }
+        }),
+    )
+    .await;
+
+    let project = Project::test(fs, ["/project".as_ref()], cx).await;
+    let workspace = init_test_workspace(&project, cx).await;
+    let cx = &mut VisualTestContext::from_window(*workspace, cx);
+
+    let task = project.update(cx, |project, cx| {
+        project.dap_store().update(cx, |store, cx| {
+            store.start_debug_session(
+                task::DebugAdapterConfig {
+                    label: "test config".into(),
+                    kind: task::DebugAdapterKind::Fake,
+                    request: task::DebugRequestType::Launch,
+                    program: None,
+                    cwd: None,
+                    initialize_args: None,
+                },
+                cx,
+            )
+        })
+    });
+
+    let (session, client) = task.await.unwrap();
+
+    client
+        .on_request::<Initialize, _>(move |_, _| {
+            Ok(dap::Capabilities {
+                supports_step_back: Some(false),
+                ..Default::default()
+            })
+        })
+        .await;
+
+    client.on_request::<Launch, _>(move |_, _| Ok(())).await;
+
+    let stack_frames = vec![StackFrame {
+        id: 1,
+        name: "Stack Frame 1".into(),
+        source: Some(dap::Source {
+            name: Some("test.js".into()),
+            path: Some("/project/src/test.js".into()),
+            source_reference: None,
+            presentation_hint: None,
+            origin: None,
+            sources: None,
+            adapter_data: None,
+            checksums: None,
+        }),
+        line: 1,
+        column: 1,
+        end_line: None,
+        end_column: None,
+        can_restart: None,
+        instruction_pointer_reference: None,
+        module_id: None,
+        presentation_hint: None,
+    }];
+
+    client
+        .on_request::<StackTrace, _>({
+            let stack_frames = Arc::new(stack_frames.clone());
+            move |_, args| {
+                assert_eq!(1, args.thread_id);
+
+                Ok(dap::StackTraceResponse {
+                    stack_frames: (*stack_frames).clone(),
+                    total_frames: None,
+                })
+            }
+        })
+        .await;
+
+    let scopes = vec![
+        Scope {
+            name: "Scope 1".into(),
+            presentation_hint: None,
+            variables_reference: 2,
+            named_variables: None,
+            indexed_variables: None,
+            expensive: false,
+            source: None,
+            line: None,
+            column: None,
+            end_line: None,
+            end_column: None,
+        },
+        Scope {
+            name: "Scope 2".into(),
+            presentation_hint: None,
+            variables_reference: 4,
+            named_variables: None,
+            indexed_variables: None,
+            expensive: false,
+            source: None,
+            line: None,
+            column: None,
+            end_line: None,
+            end_column: None,
+        },
+    ];
+
+    client
+        .on_request::<Scopes, _>({
+            let scopes = Arc::new(scopes.clone());
+            move |_, args| {
+                assert_eq!(1, args.frame_id);
+
+                Ok(dap::ScopesResponse {
+                    scopes: (*scopes).clone(),
+                })
+            }
+        })
+        .await;
+
+    let scope1_variables = vec![
+        Variable {
+            name: "variable1".into(),
+            value: "{nested1: \"Nested 1\", nested2: \"Nested 2\"}".into(),
+            type_: None,
+            presentation_hint: None,
+            evaluate_name: None,
+            variables_reference: 3,
+            named_variables: None,
+            indexed_variables: None,
+            memory_reference: None,
+        },
+        Variable {
+            name: "variable2".into(),
+            value: "Value 2".into(),
+            type_: None,
+            presentation_hint: None,
+            evaluate_name: None,
+            variables_reference: 0,
+            named_variables: None,
+            indexed_variables: None,
+            memory_reference: None,
+        },
+    ];
+
+    let nested_variables = vec![
+        Variable {
+            name: "nested1".into(),
+            value: "Nested 1".into(),
+            type_: None,
+            presentation_hint: None,
+            evaluate_name: None,
+            variables_reference: 0,
+            named_variables: None,
+            indexed_variables: None,
+            memory_reference: None,
+        },
+        Variable {
+            name: "nested2".into(),
+            value: "Nested 2".into(),
+            type_: None,
+            presentation_hint: None,
+            evaluate_name: None,
+            variables_reference: 0,
+            named_variables: None,
+            indexed_variables: None,
+            memory_reference: None,
+        },
+    ];
+
+    let scope2_variables = vec![Variable {
+        name: "variable3".into(),
+        value: "Value 3".into(),
+        type_: None,
+        presentation_hint: None,
+        evaluate_name: None,
+        variables_reference: 0,
+        named_variables: None,
+        indexed_variables: None,
+        memory_reference: None,
+    }];
+
+    client
+        .on_request::<Variables, _>({
+            let scope1_variables = Arc::new(scope1_variables.clone());
+            let nested_variables = Arc::new(nested_variables.clone());
+            let scope2_variables = Arc::new(scope2_variables.clone());
+            move |_, args| match args.variables_reference {
+                4 => Ok(dap::VariablesResponse {
+                    variables: (*scope2_variables).clone(),
+                }),
+                3 => Ok(dap::VariablesResponse {
+                    variables: (*nested_variables).clone(),
+                }),
+                2 => Ok(dap::VariablesResponse {
+                    variables: (*scope1_variables).clone(),
+                }),
+                id => unreachable!("unexpected variables reference {id}"),
+            }
+        })
+        .await;
+
+    client.on_request::<Disconnect, _>(move |_, _| Ok(())).await;
+
+    client
+        .fake_event(dap::messages::Events::Stopped(dap::StoppedEvent {
+            reason: dap::StoppedEventReason::Pause,
+            description: None,
+            thread_id: Some(1),
+            preserve_focus_hint: None,
+            text: None,
+            all_threads_stopped: None,
+            hit_breakpoint_ids: None,
+        }))
+        .await;
+
+    cx.run_until_parked();
+
+    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
+        debug_panel_item.variable_list().focus_handle(cx).focus(cx);
+    });
+
+    cx.dispatch_action(SelectFirst);
+    cx.run_until_parked();
+
+    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
+        debug_panel_item
+            .variable_list()
+            .update(cx, |variable_list, cx| {
+                // assert visual entries
+                variable_list.assert_visual_entries(
+                    vec![
+                        "v Scope 1 <=== selected",
+                        "    > variable1",
+                        "    > variable2",
+                        "> Scope 2",
+                    ],
+                    cx,
+                );
+            });
+    });
+
+    // select the first variable of scope 1
+    cx.dispatch_action(SelectNext);
+    cx.run_until_parked();
+    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
+        debug_panel_item
+            .variable_list()
+            .update(cx, |variable_list, cx| {
+                // assert visual entries
+                variable_list.assert_visual_entries(
+                    vec![
+                        "v Scope 1",
+                        "    > variable1 <=== selected",
+                        "    > variable2",
+                        "> Scope 2",
+                    ],
+                    cx,
+                );
+            });
+    });
+
+    // expand the nested variables of variable 1
+    cx.dispatch_action(ExpandSelectedEntry);
+    cx.run_until_parked();
+    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
+        debug_panel_item
+            .variable_list()
+            .update(cx, |variable_list, cx| {
+                // assert visual entries
+                variable_list.assert_visual_entries(
+                    vec![
+                        "v Scope 1",
+                        "    v variable1 <=== selected",
+                        "        > nested1",
+                        "        > nested2",
+                        "    > variable2",
+                        "> Scope 2",
+                    ],
+                    cx,
+                );
+            });
+    });
+
+    // select the first nested variable of variable 1
+    cx.dispatch_action(SelectNext);
+    cx.run_until_parked();
+    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
+        debug_panel_item
+            .variable_list()
+            .update(cx, |variable_list, cx| {
+                // assert visual entries
+                variable_list.assert_visual_entries(
+                    vec![
+                        "v Scope 1",
+                        "    v variable1",
+                        "        > nested1 <=== selected",
+                        "        > nested2",
+                        "    > variable2",
+                        "> Scope 2",
+                    ],
+                    cx,
+                );
+            });
+    });
+
+    // select the second nested variable of variable 1
+    cx.dispatch_action(SelectNext);
+    cx.run_until_parked();
+    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
+        debug_panel_item
+            .variable_list()
+            .update(cx, |variable_list, cx| {
+                // assert visual entries
+                variable_list.assert_visual_entries(
+                    vec![
+                        "v Scope 1",
+                        "    v variable1",
+                        "        > nested1",
+                        "        > nested2 <=== selected",
+                        "    > variable2",
+                        "> Scope 2",
+                    ],
+                    cx,
+                );
+            });
+    });
+
+    // select variable 2 of scope 1
+    cx.dispatch_action(SelectNext);
+    cx.run_until_parked();
+    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
+        debug_panel_item
+            .variable_list()
+            .update(cx, |variable_list, cx| {
+                // assert visual entries
+                variable_list.assert_visual_entries(
+                    vec![
+                        "v Scope 1",
+                        "    v variable1",
+                        "        > nested1",
+                        "        > nested2",
+                        "    > variable2 <=== selected",
+                        "> Scope 2",
+                    ],
+                    cx,
+                );
+            });
+    });
+
+    // select scope 2
+    cx.dispatch_action(SelectNext);
+    cx.run_until_parked();
+    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
+        debug_panel_item
+            .variable_list()
+            .update(cx, |variable_list, cx| {
+                // assert visual entries
+                variable_list.assert_visual_entries(
+                    vec![
+                        "v Scope 1",
+                        "    v variable1",
+                        "        > nested1",
+                        "        > nested2",
+                        "    > variable2",
+                        "> Scope 2 <=== selected",
+                    ],
+                    cx,
+                );
+            });
+    });
+
+    // expand the nested variables of scope 2
+    cx.dispatch_action(ExpandSelectedEntry);
+    cx.run_until_parked();
+    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
+        debug_panel_item
+            .variable_list()
+            .update(cx, |variable_list, cx| {
+                // assert visual entries
+                variable_list.assert_visual_entries(
+                    vec![
+                        "v Scope 1",
+                        "    v variable1",
+                        "        > nested1",
+                        "        > nested2",
+                        "    > variable2",
+                        "v Scope 2 <=== selected",
+                        "    > variable3",
+                    ],
+                    cx,
+                );
+            });
+    });
+
+    // select variable 3 of scope 2
+    cx.dispatch_action(SelectNext);
+    cx.run_until_parked();
+    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
+        debug_panel_item
+            .variable_list()
+            .update(cx, |variable_list, cx| {
+                // assert visual entries
+                variable_list.assert_visual_entries(
+                    vec![
+                        "v Scope 1",
+                        "    v variable1",
+                        "        > nested1",
+                        "        > nested2",
+                        "    > variable2",
+                        "v Scope 2",
+                        "    > variable3 <=== selected",
+                    ],
+                    cx,
+                );
+            });
+    });
+
+    // select scope 2
+    cx.dispatch_action(CollapseSelectedEntry);
+    cx.run_until_parked();
+    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
+        debug_panel_item
+            .variable_list()
+            .update(cx, |variable_list, cx| {
+                // assert visual entries
+                variable_list.assert_visual_entries(
+                    vec![
+                        "v Scope 1",
+                        "    v variable1",
+                        "        > nested1",
+                        "        > nested2",
+                        "    > variable2",
+                        "v Scope 2 <=== selected",
+                        "    > variable3",
+                    ],
+                    cx,
+                );
+            });
+    });
+
+    // collapse variables of scope 2
+    cx.dispatch_action(CollapseSelectedEntry);
+    cx.run_until_parked();
+    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
+        debug_panel_item
+            .variable_list()
+            .update(cx, |variable_list, cx| {
+                // assert visual entries
+                variable_list.assert_visual_entries(
+                    vec![
+                        "v Scope 1",
+                        "    v variable1",
+                        "        > nested1",
+                        "        > nested2",
+                        "    > variable2",
+                        "> Scope 2 <=== selected",
+                    ],
+                    cx,
+                );
+            });
+    });
+
+    // select variable 2 of scope 1
+    cx.dispatch_action(CollapseSelectedEntry);
+    cx.run_until_parked();
+    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
+        debug_panel_item
+            .variable_list()
+            .update(cx, |variable_list, cx| {
+                // assert visual entries
+                variable_list.assert_visual_entries(
+                    vec![
+                        "v Scope 1",
+                        "    v variable1",
+                        "        > nested1",
+                        "        > nested2",
+                        "    > variable2 <=== selected",
+                        "> Scope 2",
+                    ],
+                    cx,
+                );
+            });
+    });
+
+    // select nested2 of variable 1
+    cx.dispatch_action(CollapseSelectedEntry);
+    cx.run_until_parked();
+    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
+        debug_panel_item
+            .variable_list()
+            .update(cx, |variable_list, cx| {
+                // assert visual entries
+                variable_list.assert_visual_entries(
+                    vec![
+                        "v Scope 1",
+                        "    v variable1",
+                        "        > nested1",
+                        "        > nested2 <=== selected",
+                        "    > variable2",
+                        "> Scope 2",
+                    ],
+                    cx,
+                );
+            });
+    });
+
+    // select nested1 of variable 1
+    cx.dispatch_action(CollapseSelectedEntry);
+    cx.run_until_parked();
+    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
+        debug_panel_item
+            .variable_list()
+            .update(cx, |variable_list, cx| {
+                // assert visual entries
+                variable_list.assert_visual_entries(
+                    vec![
+                        "v Scope 1",
+                        "    v variable1",
+                        "        > nested1 <=== selected",
+                        "        > nested2",
+                        "    > variable2",
+                        "> Scope 2",
+                    ],
+                    cx,
+                );
+            });
+    });
+
+    // select variable 1 of scope 1
+    cx.dispatch_action(CollapseSelectedEntry);
+    cx.run_until_parked();
+    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
+        debug_panel_item
+            .variable_list()
+            .update(cx, |variable_list, cx| {
+                // assert visual entries
+                variable_list.assert_visual_entries(
+                    vec![
+                        "v Scope 1",
+                        "    v variable1 <=== selected",
+                        "        > nested1",
+                        "        > nested2",
+                        "    > variable2",
+                        "> Scope 2",
+                    ],
+                    cx,
+                );
+            });
+    });
+
+    // collapse variables of variable 1
+    cx.dispatch_action(CollapseSelectedEntry);
+    cx.run_until_parked();
+    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
+        debug_panel_item
+            .variable_list()
+            .update(cx, |variable_list, cx| {
+                // assert visual entries
+                variable_list.assert_visual_entries(
+                    vec![
+                        "v Scope 1",
+                        "    > variable1 <=== selected",
+                        "    > variable2",
+                        "> Scope 2",
+                    ],
+                    cx,
+                );
+            });
+    });
+
+    // select scope 1
+    cx.dispatch_action(CollapseSelectedEntry);
+    cx.run_until_parked();
+    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
+        debug_panel_item
+            .variable_list()
+            .update(cx, |variable_list, cx| {
+                // assert visual entries
+                variable_list.assert_visual_entries(
+                    vec![
+                        "v Scope 1 <=== selected",
+                        "    > variable1",
+                        "    > variable2",
+                        "> Scope 2",
+                    ],
+                    cx,
+                );
+            });
+    });
+
+    // collapse variables of scope 1
+    cx.dispatch_action(CollapseSelectedEntry);
+    cx.run_until_parked();
+    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
+        debug_panel_item
+            .variable_list()
+            .update(cx, |variable_list, cx| {
+                // assert visual entries
+                variable_list
+                    .assert_visual_entries(vec!["> Scope 1 <=== selected", "> Scope 2"], cx);
+            });
+    });
 
     let shutdown_session = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
