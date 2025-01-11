@@ -1298,59 +1298,6 @@ impl VariableList {
             .into_any_element()
     }
 
-    // #[allow(clippy::too_many_arguments)]
-    // pub fn on_toggle_variable(
-    //     &mut self,
-    //     scope_id: u64,
-    //     entry_id: &OpenEntry,
-    //     variable_reference: u64,
-    //     depth: usize,
-    //     disclosed: Option<bool>,
-    //     cx: &mut ViewContext<Self>,
-    // ) {
-    //     let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
-
-    //     let Some(index) = self.variables_by_scope(stack_frame_id, scope_id) else {
-    //         return;
-    //     };
-
-    //     // if we already opened the variable/we already fetched it
-    //     // we can just toggle it because we already have the nested variable
-    //     if disclosed.unwrap_or(true) || index.fetched(&variable_reference) {
-    //         return self.toggle_entry(&entry_id, cx);
-    //     }
-
-    //     let fetch_variables_task = self.dap_store.update(cx, |store, cx| {
-    //         store.variables(&self.client_id, variable_reference, cx)
-    //     });
-
-    //     let entry_id = entry_id.clone();
-    //     cx.spawn(|this, mut cx| async move {
-    //         let new_variables = fetch_variables_task.await?;
-
-    //         this.update(&mut cx, |this, cx| {
-    //             let Some(index) = this.variables.get_mut(&(stack_frame_id, scope_id)) else {
-    //                 return;
-    //             };
-
-    //             index.add_variables(
-    //                 variable_reference,
-    //                 new_variables
-    //                     .into_iter()
-    //                     .map(|variable| VariableContainer {
-    //                         container_reference: variable_reference,
-    //                         variable,
-    //                         depth: depth + 1,
-    //                     })
-    //                     .collect::<Vec<_>>(),
-    //             );
-
-    //             this.toggle_entry(&entry_id, cx);
-    //         })
-    //     })
-    //     .detach_and_log_err(cx);
-    // }
-
     #[track_caller]
     #[cfg(any(test, feature = "test-support"))]
     pub fn assert_visual_entries(&self, expected: Vec<&str>, cx: &ViewContext<Self>) {
