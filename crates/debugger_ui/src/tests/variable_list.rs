@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     debugger_panel::DebugPanel,
     tests::{init_test, init_test_workspace},
-    variable_list::{VariableContainer, VariableListEntry},
+    variable_list::{self, VariableContainer},
 };
 use collections::HashMap;
 use dap::{
@@ -829,15 +829,12 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
                 debug_panel_item
                     .variable_list()
                     .update(cx, |variable_list, cx| {
-                        variable_list.on_toggle_variable(
-                            scopes[0].variables_reference, // scope id
-                            &crate::variable_list::OpenEntry::Variable {
+                        variable_list.toggle_entry(
+                            &variable_list::OpenEntry::Variable {
+                                scope_id: scopes[0].variables_reference,
                                 name: scope1_variables[0].name.clone(),
                                 depth: 1,
                             },
-                            scope1_variables[0].variables_reference,
-                            1, // depth
-                            Some(false),
                             cx,
                         );
                     });
@@ -1019,6 +1016,7 @@ async fn test_toggle_scope_and_variable(executor: BackgroundExecutor, cx: &mut T
                             &crate::variable_list::OpenEntry::Variable {
                                 name: scope1_variables[0].name.clone(),
                                 depth: 1,
+                                scope_id: scopes[0].variables_reference,
                             },
                             cx,
                         );

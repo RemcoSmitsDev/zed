@@ -294,15 +294,12 @@ async fn test_evaluate_expression(executor: BackgroundExecutor, cx: &mut TestApp
                 debug_panel_item
                     .variable_list()
                     .update(cx, |variable_list, cx| {
-                        variable_list.on_toggle_variable(
-                            scopes[0].variables_reference, // scope id
-                            &crate::variable_list::OpenEntry::Variable {
+                        variable_list.toggle_entry(
+                            &variable_list::OpenEntry::Variable {
+                                scope_id: scopes[0].variables_reference,
                                 name: scope1_variables[0].name.clone(),
                                 depth: 1,
                             },
-                            scope1_variables[0].variables_reference,
-                            1, // depth
-                            Some(false),
                             cx,
                         );
                     });
