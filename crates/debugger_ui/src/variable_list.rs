@@ -7,7 +7,8 @@ use dap::{
 use editor::{actions::SelectAll, Editor, EditorEvent};
 use gpui::{
     actions, anchored, deferred, list, AnyElement, ClipboardItem, DismissEvent, FocusHandle,
-    FocusableView, ListOffset, ListState, Model, MouseDownEvent, Point, Subscription, Task, View,
+    FocusableView, Hsla, ListOffset, ListState, Model, MouseDownEvent, Point, Subscription, Task,
+    View,
 };
 use menu::{Confirm, SelectFirst, SelectNext, SelectPrev};
 use project::dap_store::DapStore;
@@ -1377,18 +1378,16 @@ impl VariableList {
         };
         let disclosed = has_children.then(|| self.open_entries.binary_search(&entry_id).is_ok());
 
-        let colors = cx.theme().colors();
-
+        let colors = get_entry_color(cx);
         let bg_hover_color = if !is_selected {
-            colors.ghost_element_hover
+            colors.hover
         } else {
-            colors.panel_background
+            colors.default
         };
-
         let border_color = if is_selected {
-            colors.ghost_element_selected
+            colors.marked_active
         } else {
-            colors.panel_background
+            colors.default
         };
 
         div()
@@ -1461,18 +1460,16 @@ impl VariableList {
         };
         let disclosed = self.open_entries.binary_search(&entry_id).is_ok();
 
-        let colors = cx.theme().colors();
-
+        let colors = get_entry_color(cx);
         let bg_hover_color = if !is_selected {
-            colors.ghost_element_hover
+            colors.hover
         } else {
-            colors.panel_background
+            colors.default
         };
-
         let border_color = if is_selected {
-            colors.ghost_element_selected
+            colors.marked_active
         } else {
-            colors.panel_background
+            colors.default
         };
 
         div()
@@ -1533,6 +1530,22 @@ impl Render for VariableList {
                 )
                 .with_priority(1)
             }))
+    }
+}
+
+struct EntryColors {
+    default: Hsla,
+    hover: Hsla,
+    marked_active: Hsla,
+}
+
+fn get_entry_color(cx: &ViewContext<VariableList>) -> EntryColors {
+    let colors = cx.theme().colors();
+
+    EntryColors {
+        default: colors.panel_background,
+        hover: colors.ghost_element_hover,
+        marked_active: colors.ghost_element_selected,
     }
 }
 
