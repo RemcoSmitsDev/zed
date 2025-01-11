@@ -1,7 +1,8 @@
 use crate::{
     dap_command::{
-        ContinueCommand, DapCommand, DisconnectCommand, NextCommand, PauseCommand, StepBackCommand,
-        StepCommand, StepInCommand, StepOutCommand, TerminateThreadsCommand,
+        ContinueCommand, DapCommand, DisconnectCommand, NextCommand, PauseCommand, RestartCommand,
+        StepBackCommand, StepCommand, StepInCommand, StepOutCommand, TerminateCommand,
+        TerminateThreadsCommand,
     },
     project_settings::ProjectSettings,
     ProjectEnvironment, ProjectItem as _, ProjectPath,
@@ -15,17 +16,17 @@ use dap::{
     messages::{Message, Response},
     requests::{
         Attach, Completions, ConfigurationDone, Disconnect, Evaluate, Initialize, Launch,
-        LoadedSources, Modules, Request as _, Restart, RunInTerminal, Scopes, SetBreakpoints,
-        SetExpression, SetVariable, StackTrace, StartDebugging, Terminate, Variables,
+        LoadedSources, Modules, Request as _, RunInTerminal, Scopes, SetBreakpoints, SetExpression,
+        SetVariable, StackTrace, StartDebugging, Terminate, Variables,
     },
     AttachRequestArguments, Capabilities, CompletionItem, CompletionsArguments,
     ConfigurationDoneArguments, ContinueArguments, DisconnectArguments, ErrorResponse,
     EvaluateArguments, EvaluateArgumentsContext, EvaluateResponse, InitializeRequestArguments,
     InitializeRequestArgumentsPathFormat, LaunchRequestArguments, LoadedSourcesArguments, Module,
-    ModulesArguments, RestartArguments, Scope, ScopesArguments, SetBreakpointsArguments,
-    SetExpressionArguments, SetVariableArguments, Source, SourceBreakpoint, StackFrame,
-    StackTraceArguments, StartDebuggingRequestArguments, StartDebuggingRequestArgumentsRequest,
-    SteppingGranularity, TerminateArguments, Variable, VariablesArguments,
+    ModulesArguments, Scope, ScopesArguments, SetBreakpointsArguments, SetExpressionArguments,
+    SetVariableArguments, Source, SourceBreakpoint, StackFrame, StackTraceArguments,
+    StartDebuggingRequestArguments, StartDebuggingRequestArgumentsRequest, SteppingGranularity,
+    TerminateArguments, Variable, VariablesArguments,
 };
 use dap::{
     session::{DebugSession, DebugSessionId},
@@ -148,6 +149,8 @@ impl DapStore {
         client.add_model_request_handler(DapStore::handle_dap_command::<PauseCommand>);
         client.add_model_request_handler(DapStore::handle_dap_command::<DisconnectCommand>);
         client.add_model_request_handler(DapStore::handle_dap_command::<TerminateThreadsCommand>);
+        client.add_model_request_handler(DapStore::handle_dap_command::<TerminateCommand>);
+        client.add_model_request_handler(DapStore::handle_dap_command::<RestartCommand>);
         client.add_model_request_handler(DapStore::handle_shutdown_session);
     }
 
@@ -1382,32 +1385,32 @@ impl DapStore {
         args: Option<Value>,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some((_, client)) = self.client_by_id(client_id, cx) else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
-        };
-
         let supports_restart = self
             .capabilities_by_id(client_id)
             .supports_restart_request
             .unwrap_or_default();
 
-        let raw = args.unwrap_or(Value::Null);
+        if supports_restart {
+            let command = RestartCommand {
+                raw: args.unwrap_or(Value::Null),
+            };
 
-        cx.background_executor().spawn(async move {
-            if supports_restart {
-                client.request::<Restart>(RestartArguments { raw }).await?;
-            } else {
-                client
-                    .request::<Disconnect>(DisconnectArguments {
-                        restart: Some(false),
-                        terminate_debuggee: Some(true),
-                        suspend_debuggee: Some(false),
-                    })
-                    .await?;
-            }
+            let task = self.request_dap(client_id, command, cx);
 
-            Ok(())
-        })
+            cx.background_executor()
+                .spawn(async move { task.await.map(|_| ()) })
+        } else {
+            let command = DisconnectCommand {
+                restart: Some(false),
+                terminate_debuggee: Some(true),
+                suspend_debuggee: Some(false),
+            };
+
+            let task = self.request_dap(client_id, command, cx);
+
+            cx.background_executor()
+                .spawn(async move { task.await.map(|_| ()) })
+        }
     }
 
     pub fn shutdown_sessions(&mut self, cx: &mut ModelContext<Self>) -> Task<()> {

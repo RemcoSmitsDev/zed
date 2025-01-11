@@ -390,6 +390,8 @@ messages!(
     (DapPauseRequest, Background),
     (DapDisconnectRequest, Background),
     (DapTerminateThreadsRequest, Background),
+    (DapTerminateRequest, Background),
+    (DapRestartRequest, Background),
     (DapShutdownSession, Background),
 );
 
@@ -526,6 +528,8 @@ request_messages!(
     (DapPauseRequest, Ack),
     (DapDisconnectRequest, Ack),
     (DapTerminateThreadsRequest, Ack),
+    (DapTerminateRequest, Ack),
+    (DapRestartRequest, Ack),
     (DapShutdownSession, Ack),
 );
 
@@ -628,6 +632,8 @@ entity_messages!(
     DapPauseRequest,
     DapDisconnectRequest,
     DapTerminateThreadsRequest,
+    DapTerminateRequest,
+    DapRestartRequest,
     DapShutdownSession,
 );
 

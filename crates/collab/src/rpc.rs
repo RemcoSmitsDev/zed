@@ -431,6 +431,8 @@ impl Server {
             .add_request_handler(
                 forward_mutating_project_request::<proto::DapTerminateThreadsRequest>,
             )
+            .add_request_handler(forward_mutating_project_request::<proto::DapRestartRequest>)
+            .add_request_handler(forward_mutating_project_request::<proto::DapTerminateRequest>)
             .add_request_handler(forward_mutating_project_request::<proto::DapShutdownSession>);
 
         Arc::new(server)

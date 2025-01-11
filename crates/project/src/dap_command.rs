@@ -6,6 +6,7 @@ use dap::{
     ContinueArguments, NextArguments, StepInArguments, StepOutArguments, SteppingGranularity,
 };
 use rpc::proto;
+use util::ResultExt;
 
 pub trait DapCommand: 'static + Sized + Send + std::fmt::Debug {
     type Response: 'static + Send + std::fmt::Debug;
@@ -584,6 +585,130 @@ impl DapCommand for TerminateThreadsCommand {
     fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
         dap::TerminateThreadsArguments {
             thread_ids: self.thread_ids.clone(),
+        }
+    }
+
+    fn response_from_dap(
+        self,
+        _message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Result<Self::Response> {
+        Ok(())
+    }
+
+    fn response_from_proto(
+        self,
+        _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct TerminateCommand {
+    pub restart: Option<bool>,
+}
+
+impl DapCommand for TerminateCommand {
+    type Response = <dap::requests::Terminate as dap::requests::Request>::Response;
+    type DapRequest = dap::requests::Terminate;
+    type ProtoRequest = proto::DapTerminateRequest;
+
+    fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
+        DebugAdapterClientId::from_proto(request.client_id)
+    }
+
+    fn from_proto(request: &Self::ProtoRequest) -> Self {
+        Self {
+            restart: request.restart,
+        }
+    }
+
+    fn to_proto(
+        &self,
+        debug_client_id: &DebugAdapterClientId,
+        upstream_project_id: u64,
+    ) -> proto::DapTerminateRequest {
+        proto::DapTerminateRequest {
+            project_id: upstream_project_id,
+            client_id: debug_client_id.to_proto(),
+            restart: self.restart,
+        }
+    }
+
+    fn response_to_proto(
+        _debug_client_id: &DebugAdapterClientId,
+        _message: Self::Response,
+    ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
+        proto::Ack {}
+    }
+
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        dap::TerminateArguments {
+            restart: self.restart,
+        }
+    }
+
+    fn response_from_dap(
+        self,
+        _message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Result<Self::Response> {
+        Ok(())
+    }
+
+    fn response_from_proto(
+        self,
+        _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct RestartCommand {
+    pub raw: serde_json::Value,
+}
+
+impl DapCommand for RestartCommand {
+    type Response = <dap::requests::Restart as dap::requests::Request>::Response;
+    type DapRequest = dap::requests::Restart;
+    type ProtoRequest = proto::DapRestartRequest;
+
+    fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
+        DebugAdapterClientId::from_proto(request.client_id)
+    }
+
+    fn from_proto(request: &Self::ProtoRequest) -> Self {
+        Self {
+            raw: serde_json::from_slice(&request.raw_args)
+                .log_err()
+                .unwrap_or(serde_json::Value::Null),
+        }
+    }
+
+    fn to_proto(
+        &self,
+        debug_client_id: &DebugAdapterClientId,
+        upstream_project_id: u64,
+    ) -> proto::DapRestartRequest {
+        let raw_args = serde_json::to_vec(&self.raw).log_err().unwrap_or_default();
+
+        proto::DapRestartRequest {
+            project_id: upstream_project_id,
+            client_id: debug_client_id.to_proto(),
+            raw_args,
+        }
+    }
+
+    fn response_to_proto(
+        _debug_client_id: &DebugAdapterClientId,
+        _message: Self::Response,
+    ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
+        proto::Ack {}
+    }
+
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        dap::RestartArguments {
+            raw: self.raw.clone(),
         }
     }
 

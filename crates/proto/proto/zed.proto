@@ -325,7 +325,9 @@ message Envelope {
         DapPauseRequest dap_pause_request = 304;
         DapDisconnectRequest dap_disconnect_request = 305;
         DapTerminateThreadsRequest dap_terminate_threads_request = 306;
-        DapShutdownSession dap_shutdown_session = 307; // current max
+        DapTerminateRequest dap_terminate_request = 307;
+        DapRestartRequest dap_restart_request = 308;
+        DapShutdownSession dap_shutdown_session = 309; // current max
     }
 
     reserved 87 to 88;
@@ -2626,6 +2628,19 @@ message DapTerminateThreadsRequest {
     uint64 client_id = 2;
     repeated uint64 thread_ids = 3;
 }
+
+message DapTerminateRequest {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    optional bool restart = 3;
+}
+
+message DapRestartRequest {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    bytes raw_args = 3;
+}
+
 
 message DapShutdownSession {
     uint64 project_id = 1;
