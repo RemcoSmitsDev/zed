@@ -10,7 +10,7 @@ use gpui::{
     FocusableView, Hsla, ListOffset, ListState, Model, MouseDownEvent, Point, Subscription, Task,
     View,
 };
-use menu::{Confirm, SelectFirst, SelectNext, SelectPrev};
+use menu::{Confirm, SelectFirst, SelectLast, SelectNext, SelectPrev};
 use project::dap_store::DapStore;
 use proto::debugger_variable_list_entry::Entry;
 use rpc::proto::{
@@ -1167,6 +1167,14 @@ impl VariableList {
         };
     }
 
+    fn select_last(&mut self, _: &SelectLast, cx: &mut ViewContext<Self>) {
+        let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
+        if let Some(entries) = self.entries.get(&stack_frame_id) {
+            self.selection = entries.last().cloned();
+            cx.notify();
+        };
+    }
+
     fn select_prev(&mut self, _: &SelectPrev, cx: &mut ViewContext<Self>) {
         if let Some(selection) = &self.selection {
             let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
@@ -1550,6 +1558,8 @@ impl Render for VariableList {
             .group("variable-list")
             .size_full()
             .track_focus(&self.focus_handle(cx))
+            .on_action(cx.listener(Self::select_first))
+            .on_action(cx.listener(Self::select_last))
             .on_action(cx.listener(Self::select_prev))
             .on_action(cx.listener(Self::select_next))
             .on_action(cx.listener(Self::expand_selected_entry))
