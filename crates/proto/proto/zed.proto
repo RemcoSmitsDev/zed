@@ -321,7 +321,11 @@ message Envelope {
         DapStepOutRequest dap_step_out_request = 300;
         DapStepBackRequest dap_step_back_request = 301;
         DapContinueRequest dap_continue_request = 302;
-        DapContinueResponse dap_continue_response = 303; // current max
+        DapContinueResponse dap_continue_response = 303;
+        DapPauseRequest dap_pause_request = 304;
+        DapDisconnectRequest dap_disconnect_request = 305;
+        DapTerminateThreadsRequest dap_terminate_threads_request = 306;
+        DapShutdownSession dap_shutdown_session = 307; // current max
     }
 
     reserved 87 to 88;
@@ -2601,6 +2605,31 @@ enum SteppingGranularity {
     Statement = 0;
     Line = 1;
     Instruction = 2;
+}
+
+message DapPauseRequest {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    uint64 thread_id = 3;
+}
+
+message DapDisconnectRequest {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    optional bool restart = 3;
+    optional bool terminate_debuggee = 4;
+    optional bool suspend_debuggee = 5;
+}
+
+message DapTerminateThreadsRequest {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    repeated uint64 thread_ids = 3;
+}
+
+message DapShutdownSession {
+    uint64 project_id = 1;
+    optional uint64 session_id = 2; // Shutdown all sessions if this is None
 }
 
 message DapNextRequest {

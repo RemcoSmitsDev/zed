@@ -409,3 +409,195 @@ impl DapCommand for ContinueCommand {
         }
     }
 }
+
+#[derive(Debug)]
+pub(crate) struct PauseCommand {
+    pub thread_id: u64,
+}
+
+impl DapCommand for PauseCommand {
+    type Response = <dap::requests::Pause as dap::requests::Request>::Response;
+    type DapRequest = dap::requests::Pause;
+    type ProtoRequest = proto::DapPauseRequest;
+
+    fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
+        DebugAdapterClientId::from_proto(request.client_id)
+    }
+
+    fn from_proto(request: &Self::ProtoRequest) -> Self {
+        Self {
+            thread_id: request.thread_id,
+        }
+    }
+
+    fn to_proto(
+        &self,
+        debug_client_id: &DebugAdapterClientId,
+        upstream_project_id: u64,
+    ) -> proto::DapPauseRequest {
+        proto::DapPauseRequest {
+            project_id: upstream_project_id,
+            client_id: debug_client_id.to_proto(),
+            thread_id: self.thread_id,
+        }
+    }
+
+    fn response_to_proto(
+        _debug_client_id: &DebugAdapterClientId,
+        _message: Self::Response,
+    ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
+        proto::Ack {}
+    }
+
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        dap::PauseArguments {
+            thread_id: self.thread_id,
+        }
+    }
+
+    fn response_from_dap(
+        self,
+        _message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Result<Self::Response> {
+        Ok(())
+    }
+
+    fn response_from_proto(
+        self,
+        _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct DisconnectCommand {
+    pub restart: Option<bool>,
+    pub terminate_debuggee: Option<bool>,
+    pub suspend_debuggee: Option<bool>,
+}
+
+impl DapCommand for DisconnectCommand {
+    type Response = <dap::requests::Disconnect as dap::requests::Request>::Response;
+    type DapRequest = dap::requests::Disconnect;
+    type ProtoRequest = proto::DapDisconnectRequest;
+
+    fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
+        DebugAdapterClientId::from_proto(request.client_id)
+    }
+
+    fn from_proto(request: &Self::ProtoRequest) -> Self {
+        Self {
+            restart: request.restart,
+            terminate_debuggee: request.terminate_debuggee,
+            suspend_debuggee: request.suspend_debuggee,
+        }
+    }
+
+    fn to_proto(
+        &self,
+        debug_client_id: &DebugAdapterClientId,
+        upstream_project_id: u64,
+    ) -> proto::DapDisconnectRequest {
+        proto::DapDisconnectRequest {
+            project_id: upstream_project_id,
+            client_id: debug_client_id.to_proto(),
+            restart: self.restart,
+            terminate_debuggee: self.terminate_debuggee,
+            suspend_debuggee: self.suspend_debuggee,
+        }
+    }
+
+    fn response_to_proto(
+        _debug_client_id: &DebugAdapterClientId,
+        _message: Self::Response,
+    ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
+        proto::Ack {}
+    }
+
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        dap::DisconnectArguments {
+            restart: self.restart,
+            terminate_debuggee: self.terminate_debuggee,
+            suspend_debuggee: self.suspend_debuggee,
+        }
+    }
+
+    fn response_from_dap(
+        self,
+        _message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Result<Self::Response> {
+        Ok(())
+    }
+
+    fn response_from_proto(
+        self,
+        _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct TerminateThreadsCommand {
+    pub thread_ids: Option<Vec<u64>>,
+}
+
+impl DapCommand for TerminateThreadsCommand {
+    type Response = <dap::requests::TerminateThreads as dap::requests::Request>::Response;
+    type DapRequest = dap::requests::TerminateThreads;
+    type ProtoRequest = proto::DapTerminateThreadsRequest;
+
+    fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
+        DebugAdapterClientId::from_proto(request.client_id)
+    }
+
+    fn from_proto(request: &Self::ProtoRequest) -> Self {
+        let thread_ids = if request.thread_ids.is_empty() {
+            None
+        } else {
+            Some(request.thread_ids.clone())
+        };
+
+        Self { thread_ids }
+    }
+
+    fn to_proto(
+        &self,
+        debug_client_id: &DebugAdapterClientId,
+        upstream_project_id: u64,
+    ) -> proto::DapTerminateThreadsRequest {
+        proto::DapTerminateThreadsRequest {
+            project_id: upstream_project_id,
+            client_id: debug_client_id.to_proto(),
+            thread_ids: self.thread_ids.clone().unwrap_or_default(),
+        }
+    }
+
+    fn response_to_proto(
+        _debug_client_id: &DebugAdapterClientId,
+        _message: Self::Response,
+    ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
+        proto::Ack {}
+    }
+
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        dap::TerminateThreadsArguments {
+            thread_ids: self.thread_ids.clone(),
+        }
+    }
+
+    fn response_from_dap(
+        self,
+        _message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Result<Self::Response> {
+        Ok(())
+    }
+
+    fn response_from_proto(
+        self,
+        _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
+        Ok(())
+    }
+}
