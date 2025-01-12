@@ -327,35 +327,20 @@ impl DebugPanelItem {
             return;
         }
 
+        // skip telemetry output as it pollutes the users output view
         let output_category = event
             .category
             .as_ref()
             .unwrap_or(&OutputEventCategory::Console);
-
-        // skip telementry output as it pollutes the users output view
         if output_category == &OutputEventCategory::Telemetry {
             return;
         }
 
-        match output_category {
-            OutputEventCategory::Console => {
-                self.console.update(cx, |console, cx| {
-                    console.add_message(&event.output, cx);
-                });
-
-                if !matches!(self.active_thread_item, ThreadItem::Console) {
-                    self.show_console_indicator = true;
-                }
-            }
-            _ => {
-                self.output_editor.update(cx, |editor, cx| {
-                    editor.set_read_only(false);
-                    editor.move_to_end(&editor::actions::MoveToEnd, cx);
-                    editor.insert(format!("{}\n", &event.output.trim_end()).as_str(), cx);
-                    editor.set_read_only(true);
-                });
-            }
-        }
+        self.console.update(cx, |console, cx| {
+            console.add_message(event, cx);
+        });
+        self.show_console_indicator = true;
+        cx.notify();
     }
 
     fn handle_module_event(
