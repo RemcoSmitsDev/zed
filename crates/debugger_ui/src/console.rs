@@ -148,17 +148,12 @@ impl Console {
                 }
                 Some(OutputEventGroup::StartCollapsed) => todo!(),
                 Some(OutputEventGroup::End) => {
-                    if let Some(group) = self
-                        .groups
-                        .iter_mut()
-                        .rev()
-                        .find(|group| group.end.is_none())
-                    {
-                        group.end = Some(end);
+                    if let Some(index) = self.groups.iter().rposition(|group| group.end.is_none()) {
+                        let group = self.groups.remove(index);
 
                         console.remove_creases(group.crease_ids.clone(), cx);
 
-                        group.crease_ids = console.insert_creases(
+                        console.insert_creases(
                             vec![Self::create_crease(group.start.clone(), end)],
                             cx,
                         );
