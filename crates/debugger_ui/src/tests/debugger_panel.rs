@@ -558,7 +558,7 @@ async fn test_handle_output_event(executor: BackgroundExecutor, cx: &mut TestApp
 
             assert_eq!(
                 "First output line before thread stopped!\nSecond output line after thread stopped!\n",
-                active_debug_panel_item.read(cx).output_editor().read(cx).text(cx).as_str()
+                active_debug_panel_item.read(cx).console().read(cx).editor().read(cx).text(cx).as_str()
             );
 
             assert_eq!(
