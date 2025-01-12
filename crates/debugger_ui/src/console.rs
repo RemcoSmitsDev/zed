@@ -15,7 +15,7 @@ use project::{dap_store::DapStore, Completion};
 use settings::Settings;
 use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 use theme::ThemeSettings;
-use ui::{prelude::*, Disclosure};
+use ui::{prelude::*, ButtonLike, Disclosure, ElevationIndex};
 
 pub struct OutputGroup {
     pub start: Anchor,
@@ -142,8 +142,10 @@ impl Console {
                     self.groups.push(OutputGroup {
                         start,
                         end: None,
-                        crease_ids: console
-                            .insert_creases(vec![Self::create_crease(start, end)], cx),
+                        crease_ids: console.insert_creases(
+                            vec![Self::create_crease(event.output.clone(), start, end)],
+                            cx,
+                        ),
                     });
                     cx.notify();
                 }
@@ -155,7 +157,11 @@ impl Console {
                         console.remove_creases(group.crease_ids.clone(), cx);
 
                         console.insert_creases(
-                            vec![Self::create_crease(group.start.clone(), end)],
+                            vec![Self::create_crease(
+                                event.output.clone(),
+                                group.start.clone(),
+                                end,
+                            )],
                             cx,
                         );
 
@@ -167,9 +173,20 @@ impl Console {
         });
     }
 
-    fn create_crease(start: Anchor, end: Anchor) -> Crease<Anchor> {
+    fn create_crease(placeholder: String, start: Anchor, end: Anchor) -> Crease<Anchor> {
         let placeholder = FoldPlaceholder {
-            render: Arc::new(move |_id, _range, _cx| div().into_any_element()),
+            render: Arc::new(move |_id, _range, _cx| {
+                ButtonLike::new("output-group-placeholder")
+                    .style(ButtonStyle::Filled)
+                    .layer(ElevationIndex::ElevatedSurface)
+                    .child(
+                        Label::new(placeholder.clone())
+                            .single_line()
+                            .color(Color::Success),
+                    )
+                    .into_any_element()
+            }),
+            merge_adjacent: false,
             ..Default::default()
         };
 
@@ -179,10 +196,10 @@ impl Console {
             move |row, is_folded, fold, _cx| {
                 Disclosure::new(("output-group", row.0 as u64), !is_folded)
                     .toggle_state(is_folded)
-                    .on_click(move |_e, cx| fold(!is_folded, cx))
+                    .on_click(move |_event, cx| fold(!is_folded, cx))
                     .into_any_element()
             },
-            move |_id, _range, _cx| div().into_any_element(),
+            move |_id, _range, _cx| gpui::Empty.into_any_element(),
         )
     }
 
