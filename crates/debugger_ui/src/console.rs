@@ -48,6 +48,7 @@ impl Console {
             editor.set_read_only(true);
             editor.set_show_gutter(true, cx);
             editor.set_show_runnables(false, cx);
+            editor.set_show_code_actions(false, cx);
             editor.set_show_line_numbers(false, cx);
             editor.set_show_git_diff_gutter(false, cx);
             editor.set_autoindent(false);
