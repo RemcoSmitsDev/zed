@@ -3,7 +3,9 @@ use crate::{ProjectEnvironment, ProjectItem as _, ProjectPath};
 use anyhow::{anyhow, bail, Context as _, Result};
 use async_trait::async_trait;
 use collections::HashMap;
+use dap::requests::RestartFrame;
 use dap::session::{DebugSession, DebugSessionId};
+use dap::RestartFrameArguments;
 use dap::{
     adapters::{DapDelegate, DapStatus, DebugAdapter, DebugAdapterBinary, DebugAdapterName},
     client::{DebugAdapterClient, DebugAdapterClientId},
@@ -829,6 +831,33 @@ impl DapStore {
                 })
                 .await?
                 .stack_frames)
+        })
+    }
+
+    pub fn restart_stack_frame(
+        &mut self,
+        client_id: &DebugAdapterClientId,
+        stack_frame_id: u64,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<()>> {
+        let Some((_, client)) = self.client_by_id(client_id, cx) else {
+            return Task::ready(Err(anyhow!("Client was not found")));
+        };
+
+        if !self
+            .capabilities_by_id(client_id)
+            .supports_restart_frame
+            .unwrap_or_default()
+        {
+            return Task::ready(Ok(()));
+        }
+
+        cx.background_executor().spawn(async move {
+            client
+                .request::<RestartFrame>(RestartFrameArguments {
+                    frame_id: stack_frame_id,
+                })
+                .await
         })
     }
 
