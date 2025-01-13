@@ -51,13 +51,12 @@ pub struct StepCommand {
 impl StepCommand {
     fn from_proto(message: proto::DapNextRequest) -> Self {
         const LINE: i32 = proto::SteppingGranularity::Line as i32;
-        const STATEMENT: i32 = proto::SteppingGranularity::Statement as i32;
         const INSTRUCTION: i32 = proto::SteppingGranularity::Instruction as i32;
 
         let granularity = message.granularity.map(|granularity| match granularity {
             LINE => SteppingGranularity::Line,
             INSTRUCTION => SteppingGranularity::Instruction,
-            STATEMENT | _ => SteppingGranularity::Statement,
+            _ => SteppingGranularity::Statement,
         });
 
         Self {
