@@ -19,9 +19,10 @@ use ui::{prelude::*, ButtonLike, Disclosure, ElevationIndex};
 
 pub struct OutputGroup {
     pub start: Anchor,
+    pub collapsed: bool,
     pub end: Option<Anchor>,
     pub crease_ids: Vec<CreaseId>,
-    pub collapsed: bool,
+    pub placeholder: SharedString,
 }
 
 pub struct Console {
@@ -144,26 +145,30 @@ impl Console {
 
             match event.group {
                 Some(OutputEventGroup::Start) => {
+                    let placeholder = event.output.trim().to_string();
                     self.groups.push(OutputGroup {
                         start,
                         end: None,
+                        collapsed: false,
+                        placeholder: placeholder.clone().into(),
                         crease_ids: console.insert_creases(
-                            vec![Self::create_crease(event.output.clone(), start, end)],
+                            vec![Self::create_crease(placeholder.into(), start, end)],
                             cx,
                         ),
-                        collapsed: false,
                     });
                     cx.notify();
                 }
                 Some(OutputEventGroup::StartCollapsed) => {
+                    let placeholder = event.output.trim().to_string();
                     self.groups.push(OutputGroup {
                         start,
                         end: None,
+                        collapsed: true,
+                        placeholder: placeholder.clone().into(),
                         crease_ids: console.insert_creases(
-                            vec![Self::create_crease(event.output.clone(), start, end)],
+                            vec![Self::create_crease(placeholder.into(), start, end)],
                             cx,
                         ),
-                        collapsed: true,
                     });
                     cx.notify();
                 }
@@ -174,7 +179,7 @@ impl Console {
                         console.remove_creases(group.crease_ids.clone(), cx);
 
                         let creases = vec![Self::create_crease(
-                            event.output.clone(),
+                            group.placeholder,
                             group.start.clone(),
                             end,
                         )];
@@ -192,26 +197,22 @@ impl Console {
         });
     }
 
-    fn create_crease(placeholder: String, start: Anchor, end: Anchor) -> Crease<Anchor> {
-        let placeholder = FoldPlaceholder {
-            render: Arc::new(move |_id, _range, _cx| {
-                ButtonLike::new("output-group-placeholder")
-                    .style(ButtonStyle::Filled)
-                    .layer(ElevationIndex::ElevatedSurface)
-                    .child(
-                        Label::new(placeholder.clone())
-                            .single_line()
-                            .color(Color::Success),
-                    )
-                    .into_any_element()
-            }),
-            merge_adjacent: false,
-            ..Default::default()
-        };
-
+    fn create_crease(placeholder: SharedString, start: Anchor, end: Anchor) -> Crease<Anchor> {
         Crease::inline(
             start..end,
-            placeholder,
+            FoldPlaceholder {
+                render: Arc::new({
+                    let placeholder = placeholder.clone();
+                    move |_id, _range, _cx| {
+                        ButtonLike::new("output-group-placeholder")
+                            .style(ButtonStyle::Transparent)
+                            .layer(ElevationIndex::ElevatedSurface)
+                            .child(Label::new(placeholder.clone()).single_line())
+                            .into_any_element()
+                    }
+                }),
+                ..Default::default()
+            },
             move |row, is_folded, fold, _cx| {
                 Disclosure::new(("output-group", row.0 as u64), !is_folded)
                     .toggle_state(is_folded)
