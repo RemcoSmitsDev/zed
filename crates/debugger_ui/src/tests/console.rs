@@ -339,6 +339,58 @@ async fn test_grouped_output(executor: BackgroundExecutor, cx: &mut TestAppConte
     client
         .fake_event(dap::messages::Events::Output(dap::OutputEvent {
             category: Some(dap::OutputEventCategory::Stdout),
+            output: "Third group".to_string(),
+            data: None,
+            variables_reference: None,
+            source: None,
+            line: None,
+            column: None,
+            group: Some(dap::OutputEventGroup::StartCollapsed),
+        }))
+        .await;
+
+    client
+        .fake_event(dap::messages::Events::Output(dap::OutputEvent {
+            category: Some(dap::OutputEventCategory::Stdout),
+            output: "First item in group 3".to_string(),
+            data: None,
+            variables_reference: None,
+            source: None,
+            line: None,
+            column: None,
+            group: None,
+        }))
+        .await;
+
+    client
+        .fake_event(dap::messages::Events::Output(dap::OutputEvent {
+            category: Some(dap::OutputEventCategory::Stdout),
+            output: "Second item in group 3".to_string(),
+            data: None,
+            variables_reference: None,
+            source: None,
+            line: None,
+            column: None,
+            group: None,
+        }))
+        .await;
+
+    client
+        .fake_event(dap::messages::Events::Output(dap::OutputEvent {
+            category: Some(dap::OutputEventCategory::Stdout),
+            output: "End group 3".to_string(),
+            data: None,
+            variables_reference: None,
+            source: None,
+            line: None,
+            column: None,
+            group: Some(dap::OutputEventGroup::End),
+        }))
+        .await;
+
+    client
+        .fake_event(dap::messages::Events::Output(dap::OutputEvent {
+            category: Some(dap::OutputEventCategory::Stdout),
             output: "Third item in group 1".to_string(),
             data: None,
             variables_reference: None,
@@ -377,6 +429,8 @@ async fn test_grouped_output(executor: BackgroundExecutor, cx: &mut TestAppConte
                                 First item in group 2
                                 Second item in group 2
                             End group 2
+                            Third group⋯
+                            End group 3
                             Third item in group 1
                         Second item
                     "

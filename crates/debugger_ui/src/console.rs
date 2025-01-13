@@ -21,6 +21,7 @@ pub struct OutputGroup {
     pub start: Anchor,
     pub end: Option<Anchor>,
     pub crease_ids: Vec<CreaseId>,
+    pub collapsed: bool,
 }
 
 pub struct Console {
@@ -150,24 +151,38 @@ impl Console {
                             vec![Self::create_crease(event.output.clone(), start, end)],
                             cx,
                         ),
+                        collapsed: false,
                     });
                     cx.notify();
                 }
-                Some(OutputEventGroup::StartCollapsed) => todo!(),
+                Some(OutputEventGroup::StartCollapsed) => {
+                    self.groups.push(OutputGroup {
+                        start,
+                        end: None,
+                        crease_ids: console.insert_creases(
+                            vec![Self::create_crease(event.output.clone(), start, end)],
+                            cx,
+                        ),
+                        collapsed: true,
+                    });
+                    cx.notify();
+                }
                 Some(OutputEventGroup::End) => {
                     if let Some(index) = self.groups.iter().rposition(|group| group.end.is_none()) {
                         let group = self.groups.remove(index);
 
                         console.remove_creases(group.crease_ids.clone(), cx);
 
-                        console.insert_creases(
-                            vec![Self::create_crease(
-                                event.output.clone(),
-                                group.start.clone(),
-                                end,
-                            )],
-                            cx,
-                        );
+                        let creases = vec![Self::create_crease(
+                            event.output.clone(),
+                            group.start.clone(),
+                            end,
+                        )];
+                        console.insert_creases(creases.clone(), cx);
+
+                        if group.collapsed {
+                            console.fold_creases(creases, false, cx);
+                        }
 
                         cx.notify();
                     }
