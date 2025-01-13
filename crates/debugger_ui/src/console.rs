@@ -116,13 +116,17 @@ impl Console {
 
             let start = snapshot.anchor_before(snapshot.max_point());
 
-            let indent_size = self
+            let mut indent_size = self
                 .groups
                 .iter()
                 .filter(|group| group.end.is_none())
                 .count();
+            if Some(OutputEventGroup::End) == event.group {
+                indent_size = indent_size.saturating_sub(1);
+            }
+
             let indent = if indent_size > 0 {
-                "   ".repeat(indent_size)
+                "    ".repeat(indent_size)
             } else {
                 "".to_string()
             };
