@@ -347,12 +347,15 @@ impl DebugPanelItem {
             return;
         }
 
-        // The default value of an event category is console
-        // so we assume that is the output type if it doesn't exist
         let output_category = event
             .category
             .as_ref()
             .unwrap_or(&OutputEventCategory::Console);
+
+        // skip telemetry output as it pollutes the users output view
+        if output_category == &OutputEventCategory::Telemetry {
+            return;
+        }
 
         match output_category {
             OutputEventCategory::Console => {
@@ -528,8 +531,8 @@ impl DebugPanelItem {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub fn thread_status(&self, cx: &ViewContext<Self>) -> ThreadStatus {
-        self.thread_state.read(cx).status
+    pub fn thread_state(&self) -> &Model<ThreadState> {
+        &self.thread_state
     }
 
     pub fn capabilities(&self, cx: &mut ViewContext<Self>) -> Capabilities {
@@ -613,16 +616,15 @@ impl DebugPanelItem {
             store.continue_thread(&self.client_id, self.thread_id, cx)
         });
 
-        let task = cx.spawn(|weak, mut cx| async move {
-            if let Err(_) = task.await {
-                weak.update(&mut cx, |this, cx| {
-                    this.update_thread_state_status(ThreadStatus::Stopped, cx);
+        cx.spawn(|this, mut cx| async move {
+            if task.await.log_err().is_none() {
+                this.update(&mut cx, |debug_panel_item, cx| {
+                    debug_panel_item.update_thread_state_status(ThreadStatus::Stopped, cx);
                 })
                 .log_err();
             }
-        });
-
-        cx.background_executor().spawn(task).detach();
+        })
+        .detach();
     }
 
     pub fn step_over(&mut self, cx: &mut ViewContext<Self>) {
@@ -633,16 +635,15 @@ impl DebugPanelItem {
             store.step_over(&self.client_id, self.thread_id, granularity, cx)
         });
 
-        let task = cx.spawn(|weak, mut cx| async move {
-            if let Err(_) = task.await {
-                weak.update(&mut cx, |this, cx| {
-                    this.update_thread_state_status(ThreadStatus::Stopped, cx);
+        cx.spawn(|this, mut cx| async move {
+            if task.await.log_err().is_none() {
+                this.update(&mut cx, |debug_panel_item, cx| {
+                    debug_panel_item.update_thread_state_status(ThreadStatus::Stopped, cx);
                 })
                 .log_err();
             }
-        });
-
-        cx.background_executor().spawn(task).detach();
+        })
+        .detach();
     }
 
     pub fn step_in(&mut self, cx: &mut ViewContext<Self>) {
@@ -653,16 +654,15 @@ impl DebugPanelItem {
             store.step_in(&self.client_id, self.thread_id, granularity, cx)
         });
 
-        let task = cx.spawn(|weak, mut cx| async move {
-            if let Err(_) = task.await {
-                weak.update(&mut cx, |this, cx| {
-                    this.update_thread_state_status(ThreadStatus::Stopped, cx);
+        cx.spawn(|this, mut cx| async move {
+            if task.await.log_err().is_none() {
+                this.update(&mut cx, |debug_panel_item, cx| {
+                    debug_panel_item.update_thread_state_status(ThreadStatus::Stopped, cx);
                 })
                 .log_err();
             }
-        });
-
-        cx.background_executor().spawn(task).detach();
+        })
+        .detach();
     }
 
     pub fn step_out(&mut self, cx: &mut ViewContext<Self>) {
@@ -673,16 +673,15 @@ impl DebugPanelItem {
             store.step_out(&self.client_id, self.thread_id, granularity, cx)
         });
 
-        let task = cx.spawn(|weak, mut cx| async move {
-            if let Err(_) = task.await {
-                weak.update(&mut cx, |this, cx| {
-                    this.update_thread_state_status(ThreadStatus::Stopped, cx);
+        cx.spawn(|this, mut cx| async move {
+            if task.await.log_err().is_none() {
+                this.update(&mut cx, |debug_panel_item, cx| {
+                    debug_panel_item.update_thread_state_status(ThreadStatus::Stopped, cx);
                 })
                 .log_err();
             }
-        });
-
-        cx.background_executor().spawn(task).detach();
+        })
+        .detach();
     }
 
     pub fn step_back(&mut self, cx: &mut ViewContext<Self>) {
@@ -693,16 +692,15 @@ impl DebugPanelItem {
             store.step_back(&self.client_id, self.thread_id, granularity, cx)
         });
 
-        let task = cx.spawn(|weak, mut cx| async move {
-            if let Err(_) = task.await {
-                weak.update(&mut cx, |this, cx| {
-                    this.update_thread_state_status(ThreadStatus::Stopped, cx);
+        cx.spawn(|this, mut cx| async move {
+            if task.await.log_err().is_none() {
+                this.update(&mut cx, |debug_panel_item, cx| {
+                    debug_panel_item.update_thread_state_status(ThreadStatus::Stopped, cx);
                 })
                 .log_err();
             }
-        });
-
-        cx.background_executor().spawn(task).detach();
+        })
+        .detach();
     }
 
     pub fn restart_client(&self, cx: &mut ViewContext<Self>) {
@@ -864,7 +862,7 @@ impl Render for DebugPanelItem {
 
         h_flex()
             .key_context("DebugPanelItem")
-            .track_focus(&self.focus_handle)
+            .track_focus(&self.focus_handle(cx))
             .size_full()
             .items_start()
             .child(
