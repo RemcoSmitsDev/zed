@@ -1,8 +1,8 @@
 use crate::{
     dap_command::{
         ContinueCommand, DapCommand, DisconnectCommand, NextCommand, PauseCommand, RestartCommand,
-        StepBackCommand, StepCommand, StepInCommand, StepOutCommand, TerminateCommand,
-        TerminateThreadsCommand,
+        RestartStackFrameCommand, StepBackCommand, StepCommand, StepInCommand, StepOutCommand,
+        TerminateCommand, TerminateThreadsCommand,
     },
     project_settings::ProjectSettings,
     ProjectEnvironment, ProjectItem as _, ProjectPath,
@@ -156,6 +156,7 @@ impl DapStore {
         client.add_model_request_handler(DapStore::handle_dap_command::<TerminateThreadsCommand>);
         client.add_model_request_handler(DapStore::handle_dap_command::<TerminateCommand>);
         client.add_model_request_handler(DapStore::handle_dap_command::<RestartCommand>);
+        client.add_model_request_handler(DapStore::handle_dap_command::<RestartStackFrameCommand>);
         client.add_model_request_handler(DapStore::handle_shutdown_session);
     }
 
@@ -877,10 +878,6 @@ impl DapStore {
         stack_frame_id: u64,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
-        let Some((_, client)) = self.client_by_id(client_id, cx) else {
-            return Task::ready(Err(anyhow!("Client was not found")));
-        };
-
         if !self
             .capabilities_by_id(client_id)
             .supports_restart_frame
@@ -889,13 +886,7 @@ impl DapStore {
             return Task::ready(Ok(()));
         }
 
-        cx.background_executor().spawn(async move {
-            client
-                .request::<RestartFrame>(RestartFrameArguments {
-                    frame_id: stack_frame_id,
-                })
-                .await
-        })
+        self.request_dap(client_id, RestartStackFrameCommand { stack_frame_id }, cx)
     }
 
     pub fn scopes(
