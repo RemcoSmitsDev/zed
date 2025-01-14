@@ -1092,7 +1092,7 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
-        let client_id = client_id.clone();
+        let client_id = *client_id;
 
         let task = cx.spawn(|this, mut cx| async move {
             let args = request.to_dap();
@@ -1100,7 +1100,7 @@ impl DapStore {
             request.handle_response(this, &client_id, response, &mut cx)
         });
 
-        cx.background_executor().spawn(async move { task.await })
+        cx.background_executor().spawn(task)
     }
 
     fn send_proto_client_request<R: DapCommand>(

@@ -226,6 +226,36 @@ impl DapCommand for StepOutCommand {
     type DapRequest = dap::requests::StepOut;
     type ProtoRequest = proto::DapStepOutRequest;
 
+    fn handle_response(
+        &self,
+        dap_store: WeakModel<DapStore>,
+        client_id: &DebugAdapterClientId,
+        response: Result<Self::Response>,
+        cx: &mut AsyncAppContext,
+    ) -> Result<Self::Response> {
+        if response.is_ok() {
+            dap_store
+                .update(cx, |this, cx| {
+                    if let Some((client, project_id)) = this.downstream_client() {
+                        let thread_message = proto::UpdateThreadStatus {
+                            project_id: *project_id,
+                            client_id: client_id.to_proto(),
+                            thread_id: self.inner.thread_id,
+                            status: proto::DebuggerThreadStatus::Running.into(),
+                        };
+
+                        cx.emit(crate::dap_store::DapStoreEvent::UpdateThreadStatus(
+                            thread_message.clone(),
+                        ));
+
+                        client.send(thread_message).log_err();
+                    }
+                })
+                .log_err();
+        }
+        response
+    }
+
     fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
         DebugAdapterClientId::from_proto(request.client_id)
     }
