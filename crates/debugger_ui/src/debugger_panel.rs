@@ -995,6 +995,9 @@ impl DebugPanel {
             });
 
         let debug_panel_item = existing_item.get_or_insert_with(|| {
+            self.thread_states
+                .insert((client_id, thread_id), thread_state.clone());
+
             let debug_panel = cx.view().clone();
             let debug_panel_item = self.pane.update(cx, |pane, cx| {
                 let debug_panel_item = cx.new_view(|cx| {
