@@ -102,6 +102,25 @@ async fn test_handle_output_event(executor: BackgroundExecutor, cx: &mut TestApp
         }))
         .await;
 
+    cx.run_until_parked();
+
+    // assert we have output from before the thread stopped
+    workspace
+        .update(cx, |workspace, cx| {
+            let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
+            let active_debug_panel_item = debug_panel
+                .update(cx, |this, cx| this.active_debug_panel_item(cx))
+                .unwrap();
+
+            assert_eq!(1, debug_panel.read(cx).message_queue().len());
+
+            assert_eq!(
+                "First console output line before thread stopped!\nFirst output line before thread stopped!\n",
+                active_debug_panel_item.read(cx).console().read(cx).editor().read(cx).text(cx).as_str()
+            );
+        })
+        .unwrap();
+
     client
         .fake_event(dap::messages::Events::Output(dap::OutputEvent {
             category: Some(dap::OutputEventCategory::Stdout),
@@ -138,15 +157,10 @@ async fn test_handle_output_event(executor: BackgroundExecutor, cx: &mut TestApp
                 .update(cx, |this, cx| this.active_debug_panel_item(cx))
                 .unwrap();
 
-            assert_eq!(1, debug_panel.read(cx).message_queue().len());
+            assert!(debug_panel.read(cx).message_queue().is_empty());
 
             assert_eq!(
-                "First output line before thread stopped!\nSecond output line after thread stopped!\n",
-                active_debug_panel_item.read(cx).console().read(cx).editor().read(cx).text(cx).as_str()
-            );
-
-            assert_eq!(
-                "First console output line before thread stopped!\nSecond console output line after thread stopped!\n",
+                "First console output line before thread stopped!\nFirst output line before thread stopped!\nSecond output line after thread stopped!\nSecond console output line after thread stopped!\n",
                 active_debug_panel_item.read(cx).console().read(cx).editor().read(cx).text(cx).as_str()
             );
         })
@@ -159,15 +173,6 @@ async fn test_handle_output_event(executor: BackgroundExecutor, cx: &mut TestApp
     });
 
     shutdown_session.await.unwrap();
-
-    // assert output queue is empty
-    workspace
-        .update(cx, |workspace, cx| {
-            let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
-
-            assert!(debug_panel.read(cx).message_queue().is_empty());
-        })
-        .unwrap();
 }
 
 #[gpui::test]
@@ -429,8 +434,7 @@ async fn test_grouped_output(executor: BackgroundExecutor, cx: &mut TestAppConte
                                 First item in group 2
                                 Second item in group 2
                             End group 2
-                            Third group⋯
-                            End group 3
+                        ⋯    End group 3
                             Third item in group 1
                         Second item
                     "
