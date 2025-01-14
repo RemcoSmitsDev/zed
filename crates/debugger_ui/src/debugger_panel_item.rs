@@ -622,27 +622,6 @@ impl DebugPanelItem {
                     debug_panel_item.update_thread_state_status(ThreadStatus::Stopped, cx);
                 })
                 .log_err();
-            } else {
-                this.update(&mut cx, |debug_panel_item, cx| {
-                    debug_panel_item.dap_store.update(cx, |dap_store, _| {
-                        if let Some((client, project_id)) = dap_store
-                            .upstream_client()
-                            .as_ref()
-                            .or(dap_store.downstream_client())
-                        {
-                            dbg!("Sending Update Thread Status");
-                            let update_thread_status = proto::UpdateThreadStatus {
-                                project_id: *project_id,
-                                client_id: debug_panel_item.client_id.to_proto(),
-                                thread_id: debug_panel_item.thread_id,
-                                status: proto::DebuggerThreadStatus::Running.into(),
-                            };
-
-                            client.send(update_thread_status).log_err();
-                        }
-                    })
-                })
-                .log_err();
             }
         })
         .detach();

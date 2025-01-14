@@ -20,8 +20,10 @@ pub trait DapCommand: 'static + Sized + Send + std::fmt::Debug {
         &self,
         _dap_store: WeakModel<DapStore>,
         _client_id: &DebugAdapterClientId,
+        response: Result<Self::Response>,
         _cx: &mut AsyncAppContext,
-    ) {
+    ) -> Result<Self::Response> {
+        response
     }
 
     fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId;
@@ -47,7 +49,7 @@ pub trait DapCommand: 'static + Sized + Send + std::fmt::Debug {
     fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments;
 
     fn response_from_dap(
-        self,
+        &self,
         message: <Self::DapRequest as dap::requests::Request>::Response,
     ) -> Result<Self::Response>;
 }
@@ -128,7 +130,7 @@ impl DapCommand for NextCommand {
     }
 
     fn response_from_dap(
-        self,
+        &self,
         _message: <Self::DapRequest as dap::requests::Request>::Response,
     ) -> Result<Self::Response> {
         Ok(())
@@ -200,7 +202,7 @@ impl DapCommand for StepInCommand {
     }
 
     fn response_from_dap(
-        self,
+        &self,
         _message: <Self::DapRequest as dap::requests::Request>::Response,
     ) -> Result<Self::Response> {
         Ok(())
@@ -270,7 +272,7 @@ impl DapCommand for StepOutCommand {
     }
 
     fn response_from_dap(
-        self,
+        &self,
         _message: <Self::DapRequest as dap::requests::Request>::Response,
     ) -> Result<Self::Response> {
         Ok(())
@@ -340,7 +342,7 @@ impl DapCommand for StepBackCommand {
     }
 
     fn response_from_dap(
-        self,
+        &self,
         _message: <Self::DapRequest as dap::requests::Request>::Response,
     ) -> Result<Self::Response> {
         Ok(())
@@ -368,30 +370,30 @@ impl DapCommand for ContinueCommand {
         &self,
         dap_store: WeakModel<DapStore>,
         client_id: &DebugAdapterClientId,
+        response: Result<Self::Response>,
         cx: &mut AsyncAppContext,
-    ) {
-        dbg!("In handle continue command response");
-        dap_store
-            .update(cx, |this, cx| {
-                if let Some((client, project_id)) = this.downstream_client() {
-                    dbg!("Found downstream client");
-                    let thread_message = proto::UpdateThreadStatus {
-                        project_id: *project_id,
-                        client_id: client_id.to_proto(),
-                        thread_id: self.args.thread_id,
-                        status: proto::DebuggerThreadStatus::Running.into(),
-                    };
+    ) -> Result<Self::Response> {
+        if response.is_ok() {
+            dap_store
+                .update(cx, |this, cx| {
+                    if let Some((client, project_id)) = this.downstream_client() {
+                        let thread_message = proto::UpdateThreadStatus {
+                            project_id: *project_id,
+                            client_id: client_id.to_proto(),
+                            thread_id: self.args.thread_id,
+                            status: proto::DebuggerThreadStatus::Running.into(),
+                        };
 
-                    cx.emit(crate::dap_store::DapStoreEvent::UpdateThreadStatus(
-                        thread_message.clone(),
-                    ));
+                        cx.emit(crate::dap_store::DapStoreEvent::UpdateThreadStatus(
+                            thread_message.clone(),
+                        ));
 
-                    client.send(thread_message).log_err();
-                } else {
-                    dbg!("Did not find downstream client");
-                }
-            })
-            .log_err();
+                        client.send(thread_message).log_err();
+                    }
+                })
+                .log_err();
+        }
+        response
     }
 
     fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
@@ -425,7 +427,7 @@ impl DapCommand for ContinueCommand {
     }
 
     fn response_from_dap(
-        self,
+        &self,
         message: <Self::DapRequest as dap::requests::Request>::Response,
     ) -> Result<Self::Response> {
         Ok(message)
@@ -497,7 +499,7 @@ impl DapCommand for PauseCommand {
     }
 
     fn response_from_dap(
-        self,
+        &self,
         _message: <Self::DapRequest as dap::requests::Request>::Response,
     ) -> Result<Self::Response> {
         Ok(())
@@ -565,7 +567,7 @@ impl DapCommand for DisconnectCommand {
     }
 
     fn response_from_dap(
-        self,
+        &self,
         _message: <Self::DapRequest as dap::requests::Request>::Response,
     ) -> Result<Self::Response> {
         Ok(())
@@ -629,7 +631,7 @@ impl DapCommand for TerminateThreadsCommand {
     }
 
     fn response_from_dap(
-        self,
+        &self,
         _message: <Self::DapRequest as dap::requests::Request>::Response,
     ) -> Result<Self::Response> {
         Ok(())
@@ -689,7 +691,7 @@ impl DapCommand for TerminateCommand {
     }
 
     fn response_from_dap(
-        self,
+        &self,
         _message: <Self::DapRequest as dap::requests::Request>::Response,
     ) -> Result<Self::Response> {
         Ok(())
@@ -753,7 +755,7 @@ impl DapCommand for RestartCommand {
     }
 
     fn response_from_dap(
-        self,
+        &self,
         _message: <Self::DapRequest as dap::requests::Request>::Response,
     ) -> Result<Self::Response> {
         Ok(())

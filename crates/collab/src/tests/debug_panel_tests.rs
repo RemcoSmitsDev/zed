@@ -429,13 +429,72 @@ async fn test_debug_panel_remote_button_presses(
     cx_a.run_until_parked();
     cx_b.run_until_parked();
 
+    local_debug_item.update(cx_a, |debug_panel_item, cx| {
+        assert_eq!(
+            debugger_ui::debugger_panel::ThreadStatus::Running,
+            debug_panel_item.thread_state().read(cx).status,
+        );
+    });
+
+    remote_debug_item.update(cx_b, |debug_panel_item, cx| {
+        assert_eq!(
+            debugger_ui::debugger_panel::ThreadStatus::Running,
+            debug_panel_item.thread_state().read(cx).status,
+        );
+    });
+
     client
-        .fake_event(dap::messages::Events::Continued(dap::ContinuedEvent {
-            thread_id: 1,
-            all_threads_continued: None,
+        .fake_event(dap::messages::Events::Stopped(dap::StoppedEvent {
+            reason: dap::StoppedEventReason::Pause,
+            description: None,
+            thread_id: Some(1),
+            preserve_focus_hint: None,
+            text: None,
+            all_threads_stopped: None,
+            hit_breakpoint_ids: None,
         }))
         .await;
+
+    client
+        .on_request::<StackTrace, _>(move |_, _| {
+            Ok(dap::StackTraceResponse {
+                stack_frames: Vec::default(),
+                total_frames: None,
+            })
+        })
+        .await;
+
     cx_a.run_until_parked();
+    cx_b.run_until_parked();
+
+    local_debug_item.update(cx_a, |debug_panel_item, cx| {
+        assert_eq!(
+            debugger_ui::debugger_panel::ThreadStatus::Stopped,
+            debug_panel_item.thread_state().read(cx).status,
+        );
+    });
+
+    remote_debug_item.update(cx_b, |debug_panel_item, cx| {
+        assert_eq!(
+            debugger_ui::debugger_panel::ThreadStatus::Stopped,
+            debug_panel_item.thread_state().read(cx).status,
+        );
+    });
+
+    client
+        .on_request::<dap::requests::Continue, _>(move |_, _| {
+            Ok(dap::ContinueResponse {
+                all_threads_continued: Some(true),
+            })
+        })
+        .await;
+
+    local_debug_item.update(cx_a, |this, cx| {
+        this.continue_thread(cx);
+    });
+
+    cx_a.run_until_parked();
+    cx_b.run_until_parked();
 
     local_debug_item.update(cx_a, |debug_panel_item, cx| {
         assert_eq!(

@@ -902,7 +902,6 @@ impl DebugPanel {
                 self.handle_debug_adapter_update(debug_adapter_update, cx);
             }
             project::dap_store::DapStoreEvent::UpdateThreadStatus(thread_status_update) => {
-                dbg!("In debug panel handle thread status update");
                 self.handle_thread_status_update(thread_status_update, cx);
             }
             _ => {}

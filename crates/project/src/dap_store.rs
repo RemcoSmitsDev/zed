@@ -1092,10 +1092,15 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
         };
 
-        cx.background_executor().spawn(async move {
+        let client_id = client_id.clone();
+
+        let task = cx.spawn(|this, mut cx| async move {
             let args = request.to_dap();
-            request.response_from_dap(client.request::<R::DapRequest>(args).await?)
-        })
+            let response = request.response_from_dap(client.request::<R::DapRequest>(args).await?);
+            request.handle_response(this, &client_id, response, &mut cx)
+        });
+
+        cx.background_executor().spawn(async move { task.await })
     }
 
     fn send_proto_client_request<R: DapCommand>(
@@ -1106,11 +1111,9 @@ impl DapStore {
         request: R,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<R::Response>> {
-        let client_id = client_id.clone();
-        cx.spawn(|this, mut cx| async move {
-            let message = request.to_proto(&client_id, upstream_project_id);
+        let message = request.to_proto(&client_id, upstream_project_id);
+        cx.background_executor().spawn(async move {
             let response = upstream_client.request(message).await?;
-            request.handle_response(this, &client_id, &mut cx);
             request.response_from_proto(response)
         })
     }
@@ -1681,17 +1684,8 @@ impl DapStore {
         envelope: TypedEnvelope<proto::UpdateThreadStatus>,
         mut cx: AsyncAppContext,
     ) -> Result<()> {
-        this.update(&mut cx, |this, cx| {
-            let is_remote = this.as_remote().is_some();
-
+        this.update(&mut cx, |_, cx| {
             cx.emit(DapStoreEvent::UpdateThreadStatus(envelope.payload));
-
-            dbg!("In handle update thread status");
-            if is_remote {
-                dbg!("As remote");
-            } else {
-                dbg!("As local");
-            }
         })
     }
 
