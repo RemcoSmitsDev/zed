@@ -328,7 +328,9 @@ message Envelope {
         DapTerminateRequest dap_terminate_request = 307;
         DapRestartRequest dap_restart_request = 308;
         DapShutdownSession dap_shutdown_session = 309;
-        UpdateThreadStatus update_thread_status = 310; // current max
+        UpdateThreadStatus update_thread_status = 310;
+        VariablesRequest variables_request = 311;
+        DapVariables dap_variables = 312; // current max
     }
 
     reserved 87 to 88;
@@ -2605,6 +2607,25 @@ message DebuggerVariableList {
     repeated VariableListVariables variables = 6;
 }
 
+enum VariablesArgumentsFilter {
+    Indexed = 0;
+    Named = 1;
+}
+
+message ValueFormat {
+    optional bool hex = 1;
+}
+
+message VariablesRequest {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    uint64 variables_reference = 3;
+    optional VariablesArgumentsFilter filter = 4;
+    optional uint64 start = 5;
+    optional uint64 count = 6;
+    optional ValueFormat format = 7;
+}
+
 message DebuggerStackFrameList {
     uint64 thread_id = 1;
     uint64 client_id = 2;
@@ -2756,6 +2777,11 @@ message UpdateDebugAdapter {
         DebuggerVariableList variable_list = 7;
         DebuggerModuleList modules = 8;
     }
+}
+
+message DapVariables {
+    uint64 client_id = 1;
+    repeated DapVariable variables = 2;
 }
 
 // Remote Debugging: Dap Types

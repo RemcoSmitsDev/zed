@@ -4,6 +4,7 @@ use dap::{
     proto_conversions::ProtoConversion,
     requests::{Continue, Next},
     ContinueArguments, NextArguments, StepInArguments, StepOutArguments, SteppingGranularity,
+    ValueFormat, Variable, VariablesArgumentsFilter,
 };
 use gpui::{AsyncAppContext, WeakModel};
 use rpc::proto;
@@ -796,5 +797,84 @@ impl DapCommand for RestartCommand {
         _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
     ) -> Result<Self::Response> {
         Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct VariablesCommand {
+    pub variables_reference: u64,
+    pub filter: Option<VariablesArgumentsFilter>,
+    pub start: Option<u64>,
+    pub count: Option<u64>,
+    pub format: Option<ValueFormat>,
+}
+
+impl DapCommand for VariablesCommand {
+    type Response = Vec<Variable>;
+    type DapRequest = dap::requests::Variables;
+    type ProtoRequest = proto::VariablesRequest;
+
+    fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
+        DebugAdapterClientId::from_proto(request.client_id)
+    }
+
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        dap::VariablesArguments {
+            variables_reference: self.variables_reference,
+            filter: self.filter,
+            start: self.start,
+            count: self.count,
+            format: self.format.clone(),
+        }
+    }
+
+    fn response_from_dap(
+        &self,
+        message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Result<Self::Response> {
+        Ok(message.variables)
+    }
+
+    fn to_proto(
+        &self,
+        debug_client_id: &DebugAdapterClientId,
+        upstream_project_id: u64,
+    ) -> Self::ProtoRequest {
+        proto::VariablesRequest {
+            project_id: upstream_project_id,
+            client_id: debug_client_id.to_proto(),
+            variables_reference: self.variables_reference,
+            filter: None,
+            start: self.start,
+            count: self.count,
+            format: None,
+        }
+    }
+
+    fn from_proto(request: &Self::ProtoRequest) -> Self {
+        Self {
+            variables_reference: request.variables_reference,
+            filter: None,
+            start: request.start,
+            count: request.count,
+            format: None,
+        }
+    }
+
+    fn response_to_proto(
+        debug_client_id: &DebugAdapterClientId,
+        message: Self::Response,
+    ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
+        proto::DapVariables {
+            client_id: debug_client_id.to_proto(),
+            variables: message.to_proto(),
+        }
+    }
+
+    fn response_from_proto(
+        self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
+        Ok(Vec::from_proto(message.variables))
     }
 }

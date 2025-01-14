@@ -2,7 +2,7 @@ use crate::{
     dap_command::{
         ContinueCommand, DapCommand, DisconnectCommand, NextCommand, PauseCommand, RestartCommand,
         StepBackCommand, StepCommand, StepInCommand, StepOutCommand, TerminateCommand,
-        TerminateThreadsCommand,
+        TerminateThreadsCommand, VariablesCommand,
     },
     project_settings::ProjectSettings,
     ProjectEnvironment, ProjectItem as _, ProjectPath,
@@ -17,7 +17,7 @@ use dap::{
     requests::{
         Attach, Completions, ConfigurationDone, Disconnect, Evaluate, Initialize, Launch,
         LoadedSources, Modules, Request as _, RunInTerminal, Scopes, SetBreakpoints, SetExpression,
-        SetVariable, StackTrace, StartDebugging, Terminate, Variables,
+        SetVariable, StackTrace, StartDebugging, Terminate,
     },
     AttachRequestArguments, Capabilities, CompletionItem, CompletionsArguments,
     ConfigurationDoneArguments, ContinueArguments, DisconnectArguments, ErrorResponse,
@@ -26,7 +26,7 @@ use dap::{
     ModulesArguments, Scope, ScopesArguments, SetBreakpointsArguments, SetExpressionArguments,
     SetVariableArguments, Source, SourceBreakpoint, StackFrame, StackTraceArguments,
     StartDebuggingRequestArguments, StartDebuggingRequestArgumentsRequest, SteppingGranularity,
-    TerminateArguments, Variable, VariablesArguments,
+    TerminateArguments, Variable,
 };
 use dap::{
     session::{DebugSession, DebugSessionId},
@@ -155,6 +155,7 @@ impl DapStore {
         client.add_model_request_handler(DapStore::handle_dap_command::<TerminateThreadsCommand>);
         client.add_model_request_handler(DapStore::handle_dap_command::<TerminateCommand>);
         client.add_model_request_handler(DapStore::handle_dap_command::<RestartCommand>);
+        client.add_model_request_handler(DapStore::handle_dap_command::<VariablesCommand>);
         client.add_model_request_handler(DapStore::handle_shutdown_session);
     }
 
@@ -1247,22 +1248,15 @@ impl DapStore {
         variables_reference: u64,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<Vec<Variable>>> {
-        let Some((_, client)) = self.client_by_id(client_id, cx) else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
+        let command = VariablesCommand {
+            variables_reference,
+            filter: None,
+            start: None,
+            count: None,
+            format: None,
         };
 
-        cx.background_executor().spawn(async move {
-            Ok(client
-                .request::<Variables>(VariablesArguments {
-                    variables_reference,
-                    filter: None,
-                    start: None,
-                    count: None,
-                    format: None,
-                })
-                .await?
-                .variables)
-        })
+        self.request_dap(&client_id, command, cx)
     }
 
     pub fn evaluate(
