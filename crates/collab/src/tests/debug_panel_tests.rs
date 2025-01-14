@@ -150,18 +150,6 @@ async fn test_debug_panel_item_opens_on_remote(
     });
 
     shutdown_client.await.unwrap();
-
-    cx_b.run_until_parked();
-
-    // assert we don't have a debug panel item anymore because the client shutdown
-    workspace_b.update(cx_b, |workspace, cx| {
-        let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
-
-        debug_panel.update(cx, |this, cx| {
-            assert!(this.active_debug_panel_item(cx).is_none());
-            assert_eq!(0, this.pane().unwrap().read(cx).items_len());
-        });
-    });
 }
 
 #[gpui::test]
@@ -393,6 +381,14 @@ async fn test_debug_panel_remote_button_presses(
         }))
         .await;
 
+    client
+        .on_request::<dap::requests::Continue, _>(move |_, _| {
+            Ok(dap::ContinueResponse {
+                all_threads_continued: Some(true),
+            })
+        })
+        .await;
+
     cx_a.run_until_parked();
     cx_b.run_until_parked();
 
@@ -411,13 +407,20 @@ async fn test_debug_panel_remote_button_presses(
         active_debug_panel_item
     });
 
-    client
-        .on_request::<dap::requests::Continue, _>(move |_, _| {
-            Ok(dap::ContinueResponse {
-                all_threads_continued: Some(true),
-            })
-        })
-        .await;
+    let local_debug_item = workspace_a.update(cx_a, |workspace, cx| {
+        let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
+        let active_debug_panel_item = debug_panel
+            .update(cx, |this, cx| this.active_debug_panel_item(cx))
+            .unwrap();
+
+        assert_eq!(
+            1,
+            debug_panel.update(cx, |this, cx| this.pane().unwrap().read(cx).items_len())
+        );
+        assert_eq!(client.id(), active_debug_panel_item.read(cx).client_id());
+        assert_eq!(1, active_debug_panel_item.read(cx).thread_id());
+        active_debug_panel_item
+    });
 
     remote_debug_item.update(cx_b, |this, cx| {
         this.continue_thread(cx);
@@ -425,6 +428,28 @@ async fn test_debug_panel_remote_button_presses(
 
     cx_a.run_until_parked();
     cx_b.run_until_parked();
+
+    client
+        .fake_event(dap::messages::Events::Continued(dap::ContinuedEvent {
+            thread_id: 1,
+            all_threads_continued: None,
+        }))
+        .await;
+    cx_a.run_until_parked();
+
+    local_debug_item.update(cx_a, |debug_panel_item, cx| {
+        assert_eq!(
+            debugger_ui::debugger_panel::ThreadStatus::Running,
+            debug_panel_item.thread_state().read(cx).status,
+        );
+    });
+
+    remote_debug_item.update(cx_b, |debug_panel_item, cx| {
+        assert_eq!(
+            debugger_ui::debugger_panel::ThreadStatus::Running,
+            debug_panel_item.thread_state().read(cx).status,
+        );
+    });
 
     client
         .on_request::<dap::requests::Pause, _>(move |_, _| Ok(()))

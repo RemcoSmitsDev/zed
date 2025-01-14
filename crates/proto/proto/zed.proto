@@ -327,7 +327,8 @@ message Envelope {
         DapTerminateThreadsRequest dap_terminate_threads_request = 306;
         DapTerminateRequest dap_terminate_request = 307;
         DapRestartRequest dap_restart_request = 308;
-        DapShutdownSession dap_shutdown_session = 309; // current max
+        DapShutdownSession dap_shutdown_session = 309;
+        UpdateThreadStatus update_thread_status = 310; // current max
     }
 
     reserved 87 to 88;
@@ -2563,6 +2564,13 @@ message DebuggerVariableContainer {
 message DebuggerThreadState {
     DebuggerThreadStatus thread_status = 1;
     bool stopped = 2;
+}
+
+message UpdateThreadStatus {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    uint64 thread_id = 3;
+    DebuggerThreadStatus status = 4;
 }
 
 enum DebuggerThreadStatus {

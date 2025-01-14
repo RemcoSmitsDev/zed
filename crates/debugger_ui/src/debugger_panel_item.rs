@@ -251,7 +251,7 @@ impl DebugPanelItem {
         });
 
         self.active_thread_item = ThreadItem::from_proto(state.active_thread_item());
-        self.update_thread_state_status(ThreadStatus::Stopped, cx);
+        // self.update_thread_state_status(ThreadStatus::Stopped, cx); // This is a band aid fix for thread status not being sent correctly all the time
 
         if let Some(stack_frame_list) = state.stack_frame_list.as_ref() {
             self.stack_frame_list.update(cx, |this, cx| {
@@ -620,6 +620,27 @@ impl DebugPanelItem {
             if task.await.log_err().is_none() {
                 this.update(&mut cx, |debug_panel_item, cx| {
                     debug_panel_item.update_thread_state_status(ThreadStatus::Stopped, cx);
+                })
+                .log_err();
+            } else {
+                this.update(&mut cx, |debug_panel_item, cx| {
+                    debug_panel_item.dap_store.update(cx, |dap_store, _| {
+                        if let Some((client, project_id)) = dap_store
+                            .upstream_client()
+                            .as_ref()
+                            .or(dap_store.downstream_client())
+                        {
+                            dbg!("Sending Update Thread Status");
+                            let update_thread_status = proto::UpdateThreadStatus {
+                                project_id: *project_id,
+                                client_id: debug_panel_item.client_id.to_proto(),
+                                thread_id: debug_panel_item.thread_id,
+                                status: proto::DebuggerThreadStatus::Running.into(),
+                            };
+
+                            client.send(update_thread_status).log_err();
+                        }
+                    })
                 })
                 .log_err();
             }

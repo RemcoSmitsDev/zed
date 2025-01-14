@@ -44,8 +44,10 @@ use language::{
 };
 use lsp::LanguageServerName;
 use node_runtime::NodeRuntime;
-use rpc::proto::{SetDebuggerPanelItem, UpdateDebugAdapter};
-use rpc::{proto, AnyProtoClient, TypedEnvelope};
+use rpc::{
+    proto::{self, SetDebuggerPanelItem, UpdateDebugAdapter, UpdateThreadStatus},
+    AnyProtoClient, TypedEnvelope,
+};
 use serde_json::Value;
 use settings::{Settings as _, WorktreeId};
 use smol::lock::Mutex;
@@ -77,6 +79,7 @@ pub enum DapStoreEvent {
     ActiveDebugLineChanged,
     SetDebugPanelItem(SetDebuggerPanelItem),
     UpdateDebugAdapter(UpdateDebugAdapter),
+    UpdateThreadStatus(UpdateThreadStatus),
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -140,6 +143,7 @@ impl DapStore {
         client.add_model_message_handler(DapStore::handle_set_debug_panel_item);
         client.add_model_message_handler(DapStore::handle_synchronize_breakpoints);
         client.add_model_message_handler(DapStore::handle_update_debug_adapter);
+        client.add_model_message_handler(DapStore::handle_update_thread_status);
 
         client.add_model_request_handler(DapStore::handle_dap_command::<NextCommand>);
         client.add_model_request_handler(DapStore::handle_dap_command::<StepInCommand>);
@@ -1102,9 +1106,11 @@ impl DapStore {
         request: R,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<R::Response>> {
-        let message = request.to_proto(client_id, upstream_project_id);
-        cx.background_executor().spawn(async move {
+        let client_id = client_id.clone();
+        cx.spawn(|this, mut cx| async move {
+            let message = request.to_proto(&client_id, upstream_project_id);
             let response = upstream_client.request(message).await?;
+            request.handle_response(this, &client_id, &mut cx);
             request.response_from_proto(response)
         })
     }
@@ -1195,7 +1201,7 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let capabilities = self.capabilities_by_id(client_id);
-        if capabilities.supports_step_back.unwrap_or_default() {
+        if !capabilities.supports_step_back.unwrap_or_default() {
             return Task::ready(Ok(()));
         }
 
@@ -1395,10 +1401,7 @@ impl DapStore {
                 raw: args.unwrap_or(Value::Null),
             };
 
-            let task = self.request_dap(client_id, command, cx);
-
-            cx.background_executor()
-                .spawn(async move { task.await.map(|_| ()) })
+            self.request_dap(client_id, command, cx)
         } else {
             let command = DisconnectCommand {
                 restart: Some(false),
@@ -1406,10 +1409,7 @@ impl DapStore {
                 suspend_debuggee: Some(false),
             };
 
-            let task = self.request_dap(client_id, command, cx);
-
-            cx.background_executor()
-                .spawn(async move { task.await.map(|_| ()) })
+            self.request_dap(client_id, command, cx)
         }
     }
 
@@ -1673,6 +1673,25 @@ impl DapStore {
     ) -> Result<()> {
         this.update(&mut cx, |_, cx| {
             cx.emit(DapStoreEvent::UpdateDebugAdapter(envelope.payload));
+        })
+    }
+
+    async fn handle_update_thread_status(
+        this: Model<Self>,
+        envelope: TypedEnvelope<proto::UpdateThreadStatus>,
+        mut cx: AsyncAppContext,
+    ) -> Result<()> {
+        this.update(&mut cx, |this, cx| {
+            let is_remote = this.as_remote().is_some();
+
+            cx.emit(DapStoreEvent::UpdateThreadStatus(envelope.payload));
+
+            dbg!("In handle update thread status");
+            if is_remote {
+                dbg!("As remote");
+            } else {
+                dbg!("As local");
+            }
         })
     }
 

@@ -5,13 +5,24 @@ use dap::{
     requests::{Continue, Next},
     ContinueArguments, NextArguments, StepInArguments, StepOutArguments, SteppingGranularity,
 };
+use gpui::{AsyncAppContext, WeakModel};
 use rpc::proto;
 use util::ResultExt;
+
+use crate::dap_store::DapStore;
 
 pub trait DapCommand: 'static + Sized + Send + std::fmt::Debug {
     type Response: 'static + Send + std::fmt::Debug;
     type DapRequest: 'static + Send + dap::requests::Request;
     type ProtoRequest: 'static + Send + proto::RequestMessage;
+
+    fn handle_response(
+        &self,
+        _dap_store: WeakModel<DapStore>,
+        _client_id: &DebugAdapterClientId,
+        _cx: &mut AsyncAppContext,
+    ) {
+    }
 
     fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId;
 
@@ -352,6 +363,36 @@ impl DapCommand for ContinueCommand {
     type Response = <Continue as dap::requests::Request>::Response;
     type DapRequest = Continue;
     type ProtoRequest = proto::DapContinueRequest;
+
+    fn handle_response(
+        &self,
+        dap_store: WeakModel<DapStore>,
+        client_id: &DebugAdapterClientId,
+        cx: &mut AsyncAppContext,
+    ) {
+        dbg!("In handle continue command response");
+        dap_store
+            .update(cx, |this, cx| {
+                if let Some((client, project_id)) = this.downstream_client() {
+                    dbg!("Found downstream client");
+                    let thread_message = proto::UpdateThreadStatus {
+                        project_id: *project_id,
+                        client_id: client_id.to_proto(),
+                        thread_id: self.args.thread_id,
+                        status: proto::DebuggerThreadStatus::Running.into(),
+                    };
+
+                    cx.emit(crate::dap_store::DapStoreEvent::UpdateThreadStatus(
+                        thread_message.clone(),
+                    ));
+
+                    client.send(thread_message).log_err();
+                } else {
+                    dbg!("Did not find downstream client");
+                }
+            })
+            .log_err();
+    }
 
     fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
         DebugAdapterClientId::from_proto(request.client_id)
