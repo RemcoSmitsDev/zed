@@ -239,12 +239,12 @@ impl StackFrameList {
             .ok()?
     }
 
-    fn restart_stack_frame(&mut self, stack_frame_id: u64, cx: &mut ViewContext<Self>) {
-        self.dap_store
-            .update(cx, |store, cx| {
-                store.restart_stack_frame(&self.client_id, stack_frame_id, cx)
-            })
-            .detach_and_log_err(cx);
+    pub fn restart_stack_frame(&mut self, stack_frame_id: u64, cx: &mut ViewContext<Self>) {
+        self.dap_store.update(cx, |store, cx| {
+            store
+                .restart_stack_frame(&self.client_id, stack_frame_id, cx)
+                .detach_and_log_err(cx);
+        });
     }
 
     fn render_entry(&self, ix: usize, cx: &mut ViewContext<Self>) -> AnyElement {

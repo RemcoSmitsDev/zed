@@ -29,9 +29,8 @@ use dap::{
     TerminateArguments, Variable, VariablesArguments,
 };
 use dap::{
-    requests::RestartFrame,
     session::{DebugSession, DebugSessionId},
-    ContinueResponse, RestartFrameArguments,
+    ContinueResponse,
 };
 use dap_adapters::build_adapter;
 use fs::Fs;
