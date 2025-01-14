@@ -112,8 +112,10 @@ impl Console {
         }
     }
 
-    pub fn add_message(&mut self, event: &OutputEvent, cx: &mut ViewContext<Self>) {
+    pub fn add_message(&mut self, event: OutputEvent, cx: &mut ViewContext<Self>) {
         self.console.update(cx, |console, cx| {
+            let output = event.output.trim_end().to_string();
+
             let snapshot = console.buffer().read(cx).snapshot(cx);
 
             let start = snapshot.anchor_before(snapshot.max_point());
@@ -135,42 +137,35 @@ impl Console {
 
             console.set_read_only(false);
             console.move_to_end(&editor::actions::MoveToEnd, cx);
-            console.insert(
-                format!("{}{}\n", indent, event.output.trim_end()).as_str(),
-                cx,
-            );
+            console.insert(format!("{}{}\n", indent, output).as_str(), cx);
             console.set_read_only(true);
 
             let end = snapshot.anchor_before(snapshot.max_point());
 
             match event.group {
                 Some(OutputEventGroup::Start) => {
-                    let placeholder = event.output.trim().to_string();
                     self.groups.push(OutputGroup {
                         start,
                         end: None,
                         collapsed: false,
-                        placeholder: placeholder.clone().into(),
+                        placeholder: output.clone().into(),
                         crease_ids: console.insert_creases(
-                            vec![Self::create_crease(placeholder.into(), start, end)],
+                            vec![Self::create_crease(output.into(), start, end)],
                             cx,
                         ),
                     });
-                    cx.notify();
                 }
                 Some(OutputEventGroup::StartCollapsed) => {
-                    let placeholder = event.output.trim().to_string();
                     self.groups.push(OutputGroup {
                         start,
                         end: None,
                         collapsed: true,
-                        placeholder: placeholder.clone().into(),
+                        placeholder: output.clone().into(),
                         crease_ids: console.insert_creases(
-                            vec![Self::create_crease(placeholder.into(), start, end)],
+                            vec![Self::create_crease(output.into(), start, end)],
                             cx,
                         ),
                     });
-                    cx.notify();
                 }
                 Some(OutputEventGroup::End) => {
                     if let Some(index) = self.groups.iter().rposition(|group| group.end.is_none()) {
@@ -188,12 +183,12 @@ impl Console {
                         if group.collapsed {
                             console.fold_creases(creases, false, cx);
                         }
-
-                        cx.notify();
                     }
                 }
                 None => {}
             }
+
+            cx.notify();
         });
     }
 
@@ -247,7 +242,7 @@ impl Console {
 
             this.update(&mut cx, |console, cx| {
                 console.add_message(
-                    &OutputEvent {
+                    OutputEvent {
                         category: None,
                         output: response.result,
                         group: None,

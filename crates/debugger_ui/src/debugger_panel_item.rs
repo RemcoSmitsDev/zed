@@ -337,7 +337,7 @@ impl DebugPanelItem {
         }
 
         self.console.update(cx, |console, cx| {
-            console.add_message(event, cx);
+            console.add_message(event.clone(), cx);
         });
         self.show_console_indicator = true;
         cx.notify();
