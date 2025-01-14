@@ -173,11 +173,8 @@ impl Console {
 
                         console.remove_creases(group.crease_ids.clone(), cx);
 
-                        let creases = vec![Self::create_crease(
-                            group.placeholder,
-                            group.start.clone(),
-                            end,
-                        )];
+                        let creases =
+                            vec![Self::create_crease(group.placeholder, group.start, end)];
                         console.insert_creases(creases.clone(), cx);
 
                         if group.collapsed {
