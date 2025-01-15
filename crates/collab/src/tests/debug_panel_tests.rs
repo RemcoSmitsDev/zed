@@ -926,6 +926,18 @@ async fn test_variable_list(
         memory_reference: None,
     }];
 
+    let variables_3 = vec![Variable {
+        name: "variable 3".into(),
+        value: "hello world this is the final variable".into(),
+        type_: None,
+        presentation_hint: None,
+        evaluate_name: None,
+        variables_reference: 0,
+        named_variables: None,
+        indexed_variables: None,
+        memory_reference: None,
+    }];
+
     client
         .on_request::<Variables, _>({
             let variables = Arc::new(variables_2.clone());
@@ -971,11 +983,87 @@ async fn test_variable_list(
             );
         });
 
+    client
+        .on_request::<Variables, _>({
+            let variables = Arc::new(variables_3.clone());
+            move |_, args| {
+                assert_eq!(4, args.variables_reference);
+
+                Ok(dap::VariablesResponse {
+                    variables: (*variables).clone(),
+                })
+            }
+        })
+        .await;
+
     local_debug_item
         .update(cx_a, |this, _| this.variable_list().clone())
         .update(cx_a, |variable_list, cx| {
             assert_eq!(1, variable_list.scopes().len());
             assert_eq!(2, variable_list.variables(cx).len());
+            assert_eq!(scopes, variable_list.scopes().get(&1).unwrap().clone());
+            assert_eq!(
+                vec![
+                    VariableContainer {
+                        container_reference: scopes[0].variables_reference,
+                        variable: variables[0].clone(),
+                        depth: 1,
+                    },
+                    VariableContainer {
+                        container_reference: variables[0].variables_reference,
+                        variable: variables_2[0].clone(),
+                        depth: 2,
+                    },
+                ],
+                variable_list.variables(cx)
+            );
+
+            variable_list.assert_visual_entries(first_visual_entries.clone(), cx);
+            variable_list.toggle_variable_in_test(
+                scopes[0].variables_reference,
+                &variables_2[0].clone(),
+                2,
+                cx,
+            );
+        });
+
+    cx_a.run_until_parked();
+    cx_b.run_until_parked();
+    cx_c.run_until_parked();
+
+    remote_debug_item
+        .update(cx_b, |this, _| this.variable_list().clone())
+        .update(cx_b, |variable_list, cx| {
+            assert_eq!(1, variable_list.scopes().len());
+            assert_eq!(4, variable_list.variables(cx).len());
+            assert_eq!(scopes, variable_list.scopes().get(&1).unwrap().clone());
+            assert_eq!(
+                vec![
+                    VariableContainer {
+                        container_reference: scopes[0].variables_reference,
+                        variable: variables[0].clone(),
+                        depth: 1,
+                    },
+                    VariableContainer {
+                        container_reference: variables[0].variables_reference,
+                        variable: variables_2[0].clone(),
+                        depth: 2,
+                    },
+                ],
+                dbg!(variable_list.variables(cx))
+            );
+
+            variable_list.assert_visual_entries(
+                vec!["v Scope 1", "    v variable1", "        > variable 2"],
+                cx,
+            );
+        });
+
+    local_debug_item
+        .update(cx_a, |this, _| this.variable_list().clone())
+        .update(cx_a, |variable_list, cx| {
+            assert_eq!(1, variable_list.scopes().len());
+            assert_eq!(4, variable_list.variables(cx).len());
             assert_eq!(scopes, variable_list.scopes().get(&1).unwrap().clone());
             assert_eq!(
                 vec![
