@@ -1207,6 +1207,17 @@ impl VariableList {
             .into_any_element()
     }
 
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn toggle_variable_in_test(
+        &mut self,
+        scope_id: u64,
+        variable: &Variable,
+        depth: usize,
+        cx: &mut ViewContext<Self>,
+    ) {
+        self.toggle_variable(scope_id, variable, depth, cx);
+    }
+
     #[track_caller]
     #[cfg(any(test, feature = "test-support"))]
     pub fn assert_visual_entries(&self, expected: Vec<&str>, cx: &ViewContext<Self>) {
