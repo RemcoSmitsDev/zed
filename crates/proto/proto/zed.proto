@@ -2531,14 +2531,6 @@ message DebuggerOpenEntryVariable {
     uint64 depth = 3;
 }
 
-message DebuggerVariableListEntry {
-    oneof entry {
-        DapScope scope = 1;
-        VariableListEntrySetState set_variable_editor = 2;
-        VariableListEntryVariable variable = 3;
-    }
-}
-
 message VariableListEntrySetState {
     uint64 depth = 1;
     DebuggerSetVariableState state = 2;
@@ -2587,10 +2579,7 @@ message VariableListScopes {
     repeated DapScope scopes = 2;
 }
 
-message VariableListEntries {
-    uint64 stack_frame_id = 1;
-    repeated DebuggerVariableListEntry entries = 2;
-}
+
 
 message VariableListVariables {
     uint64 stack_frame_id = 1;
@@ -2599,12 +2588,8 @@ message VariableListVariables {
 }
 
 message DebuggerVariableList {
-    repeated VariableListOpenEntry open_entries = 1;
-    repeated VariableListScopes scopes = 2;
-    // Editor set_variable_editor = 3;
-    DebuggerSetVariableState set_variable_state = 4;
-    repeated VariableListEntries entries = 5;
-    repeated VariableListVariables variables = 6;
+    repeated VariableListScopes scopes = 1;
+    repeated VariableListVariables variables = 2;
 }
 
 enum VariablesArgumentsFilter {

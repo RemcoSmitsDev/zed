@@ -12,10 +12,9 @@ use gpui::{
 };
 use menu::{Confirm, SelectFirst, SelectLast, SelectNext, SelectPrev};
 use project::dap_store::DapStore;
-use proto::debugger_variable_list_entry::Entry;
 use rpc::proto::{
     self, DebuggerScopeVariableIndex, DebuggerVariableContainer, UpdateDebugAdapter,
-    VariableListEntries, VariableListScopes, VariableListVariables,
+    VariableListScopes, VariableListVariables,
 };
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -68,7 +67,7 @@ pub struct SetVariableState {
 }
 
 impl SetVariableState {
-    fn from_proto(payload: proto::DebuggerSetVariableState) -> Option<Self> {
+    fn _from_proto(payload: proto::DebuggerSetVariableState) -> Option<Self> {
         let scope = payload.scope.map(|scope| {
             let proto_hint = scope
                 .presentation_hint
@@ -115,7 +114,7 @@ impl SetVariableState {
         })
     }
 
-    fn to_proto(&self) -> proto::DebuggerSetVariableState {
+    fn _to_proto(&self) -> proto::DebuggerSetVariableState {
         proto::DebuggerSetVariableState {
             name: self.name.clone(),
             scope: Some(self.scope.to_proto()),
@@ -140,7 +139,7 @@ pub enum OpenEntry {
 }
 
 impl OpenEntry {
-    pub(crate) fn from_proto(open_entry: &proto::VariableListOpenEntry) -> Option<Self> {
+    pub(crate) fn _from_proto(open_entry: &proto::VariableListOpenEntry) -> Option<Self> {
         match open_entry.entry.as_ref()? {
             proto::variable_list_open_entry::Entry::Scope(state) => Some(Self::Scope {
                 name: state.name.clone(),
@@ -153,7 +152,7 @@ impl OpenEntry {
         }
     }
 
-    pub(crate) fn to_proto(&self) -> proto::VariableListOpenEntry {
+    pub(crate) fn _to_proto(&self) -> proto::VariableListOpenEntry {
         let entry = match self {
             OpenEntry::Scope { name } => {
                 proto::variable_list_open_entry::Entry::Scope(proto::DebuggerOpenEntryScope {
@@ -191,52 +190,6 @@ pub enum VariableListEntry {
         has_children: bool,
         container_reference: u64,
     },
-}
-
-impl VariableListEntry {
-    pub(crate) fn to_proto(&self) -> proto::DebuggerVariableListEntry {
-        let entry = match &self {
-            VariableListEntry::Scope(scope) => Entry::Scope(scope.to_proto()),
-            VariableListEntry::Variable {
-                depth,
-                scope,
-                variable,
-                has_children,
-                container_reference,
-            } => Entry::Variable(proto::VariableListEntryVariable {
-                depth: *depth as u64,
-                scope: Some(scope.to_proto()),
-                variable: Some(variable.to_proto()),
-                has_children: *has_children,
-                container_reference: *container_reference,
-            }),
-            VariableListEntry::SetVariableEditor { depth, state } => {
-                Entry::SetVariableEditor(proto::VariableListEntrySetState {
-                    depth: *depth as u64,
-                    state: Some(state.to_proto()),
-                })
-            }
-        };
-
-        proto::DebuggerVariableListEntry { entry: Some(entry) }
-    }
-
-    pub(crate) fn from_proto(entry: proto::DebuggerVariableListEntry) -> Option<Self> {
-        match entry.entry? {
-            Entry::Scope(scope) => Some(Self::Scope(Scope::from_proto(scope))),
-            Entry::Variable(var) => Some(Self::Variable {
-                depth: var.depth as usize,
-                scope: Arc::new(Scope::from_proto(var.scope?)),
-                variable: Arc::new(Variable::from_proto(var.variable?)),
-                has_children: var.has_children,
-                container_reference: var.container_reference,
-            }),
-            Entry::SetVariableEditor(set_state) => Some(Self::SetVariableEditor {
-                depth: set_state.depth as usize,
-                state: SetVariableState::from_proto(set_state.state?)?,
-            }),
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -445,12 +398,6 @@ impl VariableList {
     }
 
     pub(crate) fn to_proto(&self) -> proto::DebuggerVariableList {
-        let open_entries = self.open_entries.iter().map(OpenEntry::to_proto).collect();
-        let set_variable_state = self
-            .set_variable_state
-            .as_ref()
-            .map(SetVariableState::to_proto);
-
         let variables = self
             .variables
             .iter()
@@ -463,19 +410,6 @@ impl VariableList {
             )
             .collect();
 
-        let entries = self
-            .entries
-            .iter()
-            .map(|(key, entries)| VariableListEntries {
-                stack_frame_id: *key,
-                entries: entries
-                    .clone()
-                    .iter()
-                    .map(|entry| entry.to_proto())
-                    .collect(),
-            })
-            .collect();
-
         let scopes = self
             .scopes
             .iter()
@@ -485,13 +419,7 @@ impl VariableList {
             })
             .collect();
 
-        proto::DebuggerVariableList {
-            open_entries,
-            scopes,
-            set_variable_state,
-            entries,
-            variables,
-        }
+        proto::DebuggerVariableList { scopes, variables }
     }
 
     pub(crate) fn set_from_proto(
@@ -507,33 +435,6 @@ impl VariableList {
                     (variable.stack_frame_id, variable.scope_id),
                     ScopeVariableIndex::from_proto(variable.variables.clone()?),
                 ))
-            })
-            .collect();
-
-        self.open_entries = state
-            .open_entries
-            .iter()
-            .filter_map(OpenEntry::from_proto)
-            .collect();
-
-        self.set_variable_state = state
-            .set_variable_state
-            .clone()
-            .and_then(SetVariableState::from_proto);
-
-        self.entries = state
-            .entries
-            .iter()
-            .map(|entry| {
-                (
-                    entry.stack_frame_id,
-                    entry
-                        .entries
-                        .clone()
-                        .into_iter()
-                        .filter_map(VariableListEntry::from_proto)
-                        .collect(),
-                )
             })
             .collect();
 
