@@ -3,6 +3,7 @@ use dap::{
     client::DebugAdapterClientId,
     proto_conversions::ProtoConversion,
     requests::{Continue, Next},
+    session::DebugSessionId,
     ContinueArguments, NextArguments, StepInArguments, StepOutArguments, SteppingGranularity,
     ValueFormat, Variable, VariablesArgumentsFilter,
 };
@@ -802,7 +803,9 @@ impl DapCommand for RestartCommand {
 
 #[derive(Debug)]
 pub struct VariablesCommand {
+    pub thread_id: u64,
     pub variables_reference: u64,
+    pub session_id: DebugSessionId,
     pub filter: Option<VariablesArgumentsFilter>,
     pub start: Option<u64>,
     pub count: Option<u64>,
@@ -813,6 +816,38 @@ impl DapCommand for VariablesCommand {
     type Response = Vec<Variable>;
     type DapRequest = dap::requests::Variables;
     type ProtoRequest = proto::VariablesRequest;
+
+    fn handle_response(
+        &self,
+        dap_store: WeakModel<DapStore>,
+        client_id: &DebugAdapterClientId,
+        response: Result<Self::Response>,
+        cx: &mut AsyncAppContext,
+    ) -> Result<Self::Response> {
+        let variables = response?;
+
+        dap_store.update(cx, |this, cx| {
+            if let Some((downstream_clients, project_id)) = this.downstream_client() {
+                let update = proto::UpdateDebugAdapter {
+                    project_id: *project_id,
+                    session_id: self.session_id.to_proto(),
+                    client_id: client_id.to_proto(),
+                    thread_id: Some(self.thread_id),
+                    variant: Some(proto::update_debug_adapter::Variant::AddToVariableList(
+                        proto::AddToVariableList {
+                            variable_id: self.variables_reference,
+                            variables: variables.to_proto(),
+                        },
+                    )),
+                };
+
+                downstream_clients.send(update.clone()).log_err();
+                cx.emit(crate::dap_store::DapStoreEvent::UpdateDebugAdapter(update));
+            }
+        })?;
+
+        Ok(variables)
+    }
 
     fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
         DebugAdapterClientId::from_proto(request.client_id)
@@ -843,6 +878,8 @@ impl DapCommand for VariablesCommand {
         proto::VariablesRequest {
             project_id: upstream_project_id,
             client_id: debug_client_id.to_proto(),
+            thread_id: self.thread_id,
+            session_id: self.session_id.to_proto(),
             variables_reference: self.variables_reference,
             filter: None,
             start: self.start,
@@ -853,6 +890,8 @@ impl DapCommand for VariablesCommand {
 
     fn from_proto(request: &Self::ProtoRequest) -> Self {
         Self {
+            thread_id: request.thread_id,
+            session_id: DebugSessionId::from_proto(request.session_id),
             variables_reference: request.variables_reference,
             filter: None,
             start: request.start,

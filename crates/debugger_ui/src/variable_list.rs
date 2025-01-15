@@ -458,6 +458,37 @@ impl VariableList {
         cx.notify();
     }
 
+    pub(crate) fn add_variables(&mut self, variables_to_add: &proto::AddToVariableList) {
+        let variables: Vec<Variable> = Vec::from_proto(variables_to_add.variables.clone());
+        let variable_id = variables_to_add.variable_id;
+
+        if let Some((key, depth)) =
+            self.variables
+                .iter()
+                .find_map(|((stack_frame_id, scope_id), scope_var_ix)| {
+                    scope_var_ix
+                        .variables
+                        .iter()
+                        .find(|container| container.variable.variables_reference == variable_id)
+                        .map(|container| ((*stack_frame_id, *scope_id), container.depth + 1usize))
+                })
+        {
+            if let Some(index) = self.variables.get_mut(&key) {
+                index.add_variables(
+                    variable_id,
+                    variables
+                        .into_iter()
+                        .map(|var| VariableContainer {
+                            container_reference: variable_id,
+                            variable: var,
+                            depth,
+                        })
+                        .collect(),
+                );
+            }
+        }
+    }
+
     fn handle_stack_frame_list_events(
         &mut self,
         _: View<StackFrameList>,
@@ -563,7 +594,14 @@ impl VariableList {
         }
 
         let fetch_variables_task = self.dap_store.update(cx, |store, cx| {
-            store.variables(&self.client_id, variable.variables_reference, cx)
+            let thread_id = self.stack_frame_list.read(cx).thread_id();
+            store.variables(
+                &self.client_id,
+                thread_id,
+                self.session_id,
+                variable.variables_reference,
+                cx,
+            )
         });
 
         let container_reference = variable.variables_reference;
@@ -777,8 +815,16 @@ impl VariableList {
         open_entries: &Vec<OpenEntry>,
         cx: &mut ViewContext<Self>,
     ) -> Task<Result<Vec<VariableContainer>>> {
+        let thread_id = self.stack_frame_list.read(cx).thread_id();
+
         let variables_task = self.dap_store.update(cx, |store, cx| {
-            store.variables(&self.client_id, container_reference, cx)
+            store.variables(
+                &self.client_id,
+                thread_id,
+                self.session_id,
+                container_reference,
+                cx,
+            )
         });
 
         cx.spawn({
