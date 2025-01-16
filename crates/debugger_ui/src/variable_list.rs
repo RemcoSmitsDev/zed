@@ -280,7 +280,10 @@ impl ScopeVariableIndex {
 
     /// All the variables should have the same depth and the same container reference
     pub fn add_variables(&mut self, container_reference: u64, variables: Vec<VariableContainer>) {
-        self.fetched_ids.insert(container_reference);
+        // We want to avoid adding the same variables dued to collab clients sending add variables updates
+        if !self.fetched_ids.insert(container_reference) {
+            return;
+        }
 
         let mut new_variables = SumTree::new(&());
         let mut cursor = self.variables.cursor::<usize>(&());

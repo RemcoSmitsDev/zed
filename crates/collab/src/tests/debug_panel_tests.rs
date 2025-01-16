@@ -800,17 +800,30 @@ async fn test_variable_list(
         })
         .await;
 
-    let variables = vec![Variable {
-        name: "variable1".into(),
-        value: "{nested1: \"Nested 1\", nested2: \"Nested 2\"}".into(),
-        type_: None,
-        presentation_hint: None,
-        evaluate_name: None,
-        variables_reference: 3,
-        named_variables: None,
-        indexed_variables: None,
-        memory_reference: None,
-    }];
+    let variables = vec![
+        Variable {
+            name: "variable1".into(),
+            value: "{nested1: \"Nested 1\", nested2: \"Nested 2\"}".into(),
+            type_: None,
+            presentation_hint: None,
+            evaluate_name: None,
+            variables_reference: 3,
+            named_variables: None,
+            indexed_variables: None,
+            memory_reference: None,
+        },
+        Variable {
+            name: "variable2".into(),
+            value: "2".into(),
+            type_: None,
+            presentation_hint: None,
+            evaluate_name: None,
+            variables_reference: 4,
+            named_variables: None,
+            indexed_variables: None,
+            memory_reference: None,
+        },
+    ];
 
     client
         .on_request::<Variables, _>({
@@ -871,7 +884,7 @@ async fn test_variable_list(
         active_debug_panel_item
     });
 
-    let first_visual_entries = vec!["v Scope 1", "    > variable1"];
+    let first_visual_entries = vec!["v Scope 1", "    > variable1", "    > variable2"];
 
     local_debug_item
         .update(cx_a, |this, _| this.variable_list().clone())
@@ -879,11 +892,18 @@ async fn test_variable_list(
             assert_eq!(1, variable_list.scopes().len());
             assert_eq!(scopes, variable_list.scopes().get(&1).unwrap().clone());
             assert_eq!(
-                vec![VariableContainer {
-                    container_reference: scopes[0].variables_reference,
-                    variable: variables[0].clone(),
-                    depth: 1,
-                },],
+                vec![
+                    VariableContainer {
+                        container_reference: scopes[0].variables_reference,
+                        variable: variables[0].clone(),
+                        depth: 1,
+                    },
+                    VariableContainer {
+                        container_reference: scopes[0].variables_reference,
+                        variable: variables[1].clone(),
+                        depth: 1,
+                    }
+                ],
                 variable_list.variables(cx)
             );
 
@@ -896,11 +916,18 @@ async fn test_variable_list(
             assert_eq!(1, variable_list.scopes().len());
             assert_eq!(scopes, variable_list.scopes().get(&1).unwrap().clone());
             assert_eq!(
-                vec![VariableContainer {
-                    container_reference: scopes[0].variables_reference,
-                    variable: variables[0].clone(),
-                    depth: 1,
-                },],
+                vec![
+                    VariableContainer {
+                        container_reference: scopes[0].variables_reference,
+                        variable: variables[0].clone(),
+                        depth: 1,
+                    },
+                    VariableContainer {
+                        container_reference: scopes[0].variables_reference,
+                        variable: variables[1].clone(),
+                        depth: 1,
+                    }
+                ],
                 variable_list.variables(cx)
             );
 
@@ -915,7 +942,7 @@ async fn test_variable_list(
         });
 
     let variables_2 = vec![Variable {
-        name: "variable 2".into(),
+        name: "variable 3".into(),
         value: "hello world".into(),
         type_: None,
         presentation_hint: None,
@@ -927,7 +954,7 @@ async fn test_variable_list(
     }];
 
     let variables_3 = vec![Variable {
-        name: "variable 3".into(),
+        name: "variable 4".into(),
         value: "hello world this is the final variable".into(),
         type_: None,
         presentation_hint: None,
@@ -959,7 +986,7 @@ async fn test_variable_list(
         .update(cx_b, |this, _| this.variable_list().clone())
         .update(cx_b, |variable_list, cx| {
             assert_eq!(1, variable_list.scopes().len());
-            assert_eq!(2, variable_list.variables(cx).len());
+            assert_eq!(3, variable_list.variables(cx).len());
             assert_eq!(scopes, variable_list.scopes().get(&1).unwrap().clone());
             assert_eq!(
                 vec![
@@ -973,12 +1000,22 @@ async fn test_variable_list(
                         variable: variables_2[0].clone(),
                         depth: 2,
                     },
+                    VariableContainer {
+                        container_reference: scopes[0].variables_reference,
+                        variable: variables[1].clone(),
+                        depth: 1,
+                    },
                 ],
                 variable_list.variables(cx)
             );
 
             variable_list.assert_visual_entries(
-                vec!["v Scope 1", "    v variable1", "        > variable 2"],
+                vec![
+                    "v Scope 1",
+                    "    v variable1",
+                    "        > variable 3",
+                    "    > variable2",
+                ],
                 cx,
             );
         });
@@ -1000,7 +1037,7 @@ async fn test_variable_list(
         .update(cx_a, |this, _| this.variable_list().clone())
         .update(cx_a, |variable_list, cx| {
             assert_eq!(1, variable_list.scopes().len());
-            assert_eq!(2, variable_list.variables(cx).len());
+            assert_eq!(3, variable_list.variables(cx).len());
             assert_eq!(scopes, variable_list.scopes().get(&1).unwrap().clone());
             assert_eq!(
                 vec![
@@ -1013,6 +1050,11 @@ async fn test_variable_list(
                         container_reference: variables[0].variables_reference,
                         variable: variables_2[0].clone(),
                         depth: 2,
+                    },
+                    VariableContainer {
+                        container_reference: scopes[0].variables_reference,
+                        variable: variables[1].clone(),
+                        depth: 1,
                     },
                 ],
                 variable_list.variables(cx)
@@ -1031,6 +1073,29 @@ async fn test_variable_list(
     cx_b.run_until_parked();
     cx_c.run_until_parked();
 
+    let final_variable_containers = vec![
+        VariableContainer {
+            container_reference: scopes[0].variables_reference,
+            variable: variables[0].clone(),
+            depth: 1,
+        },
+        VariableContainer {
+            container_reference: variables[0].variables_reference,
+            variable: variables_2[0].clone(),
+            depth: 2,
+        },
+        VariableContainer {
+            container_reference: scopes[0].variables_reference,
+            variable: variables[1].clone(),
+            depth: 3,
+        },
+        VariableContainer {
+            container_reference: variables[1].variables_reference,
+            variable: variables_3[0].clone(),
+            depth: 1,
+        },
+    ];
+
     remote_debug_item
         .update(cx_b, |this, _| this.variable_list().clone())
         .update(cx_b, |variable_list, cx| {
@@ -1038,19 +1103,8 @@ async fn test_variable_list(
             assert_eq!(4, variable_list.variables(cx).len());
             assert_eq!(scopes, variable_list.scopes().get(&1).unwrap().clone());
             assert_eq!(
-                vec![
-                    VariableContainer {
-                        container_reference: scopes[0].variables_reference,
-                        variable: variables[0].clone(),
-                        depth: 1,
-                    },
-                    VariableContainer {
-                        container_reference: variables[0].variables_reference,
-                        variable: variables_2[0].clone(),
-                        depth: 2,
-                    },
-                ],
-                dbg!(variable_list.variables(cx))
+                &final_variable_containers,
+                &dbg!(variable_list.variables(cx))
             );
 
             variable_list.assert_visual_entries(
@@ -1065,23 +1119,12 @@ async fn test_variable_list(
             assert_eq!(1, variable_list.scopes().len());
             assert_eq!(4, variable_list.variables(cx).len());
             assert_eq!(scopes, variable_list.scopes().get(&1).unwrap().clone());
-            assert_eq!(
-                vec![
-                    VariableContainer {
-                        container_reference: scopes[0].variables_reference,
-                        variable: variables[0].clone(),
-                        depth: 1,
-                    },
-                    VariableContainer {
-                        container_reference: variables[0].variables_reference,
-                        variable: variables_2[0].clone(),
-                        depth: 2,
-                    },
-                ],
-                variable_list.variables(cx)
-            );
+            assert_eq!(&final_variable_containers, &variable_list.variables(cx));
 
-            variable_list.assert_visual_entries(first_visual_entries.clone(), cx);
+            variable_list.assert_visual_entries(
+                vec!["v Scope 1", "    v variable1", "        > variable 2"],
+                cx,
+            );
         });
 
     client.on_request::<Disconnect, _>(move |_, _| Ok(())).await;
