@@ -650,6 +650,15 @@ impl Project {
 
             let environment = ProjectEnvironment::new(&worktree_store, env, cx);
 
+            let toolchain_store = cx.new_model(|cx| {
+                ToolchainStore::local(
+                    languages.clone(),
+                    worktree_store.clone(),
+                    environment.clone(),
+                    cx,
+                )
+            });
+
             let dap_store = cx.new_model(|cx| {
                 DapStore::new_local(
                     client.http_client(),
@@ -657,6 +666,7 @@ impl Project {
                     fs.clone(),
                     languages.clone(),
                     environment.clone(),
+                    toolchain_store.read(cx).as_language_toolchain_store(),
                     cx,
                 )
             });
@@ -677,15 +687,6 @@ impl Project {
                     fs.clone(),
                     languages.clone(),
                     worktree_store.clone(),
-                    cx,
-                )
-            });
-
-            let toolchain_store = cx.new_model(|cx| {
-                ToolchainStore::local(
-                    languages.clone(),
-                    worktree_store.clone(),
-                    environment.clone(),
                     cx,
                 )
             });
@@ -845,7 +846,7 @@ impl Project {
             cx.subscribe(&lsp_store, Self::on_lsp_store_event).detach();
 
             let dap_store =
-                cx.new_model(|cx| DapStore::new_remote(SSH_PROJECT_ID, client.clone().into(), cx));
+                cx.new_model(|_| DapStore::new_remote(SSH_PROJECT_ID, client.clone().into()));
 
             cx.subscribe(&ssh, Self::on_ssh_event).detach();
             cx.observe(&ssh, |_, _, cx| cx.notify()).detach();
@@ -1013,7 +1014,7 @@ impl Project {
         let environment = cx.update(|cx| ProjectEnvironment::new(&worktree_store, None, cx))?;
 
         let dap_store = cx.new_model(|cx| {
-            let mut dap_store = DapStore::new_remote(remote_id, client.clone().into(), cx);
+            let mut dap_store = DapStore::new_remote(remote_id, client.clone().into());
 
             dap_store.set_breakpoints_from_proto(response.payload.breakpoints, cx);
             dap_store.set_debug_sessions_from_proto(response.payload.debug_sessions, cx);

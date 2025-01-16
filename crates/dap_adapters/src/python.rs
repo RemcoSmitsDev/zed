@@ -92,23 +92,10 @@ impl DebugAdapter for PythonDebugAdapter {
             .ok_or_else(|| anyhow!("Debugpy directory not found"))?
         };
 
-        let python_cmds = [
-            OsStr::new("python3"),
-            OsStr::new("python"),
-            OsStr::new("py"),
-        ];
-        let python_path = python_cmds
-            .iter()
-            .filter_map(|cmd| {
-                delegate
-                    .which(cmd)
-                    .and_then(|path| path.to_str().map(|str| str.to_string()))
-            })
-            .find(|_| true);
-
-        let python_path = python_path.ok_or(anyhow!(
-            "Failed to start debugger because python couldn't be found in PATH"
-        ))?;
+        let python_path = delegate
+            .toolchain()
+            .active_toolchain(worktree_id, language_name, cx)
+            .await?;
 
         Ok(DebugAdapterBinary {
             command: python_path,

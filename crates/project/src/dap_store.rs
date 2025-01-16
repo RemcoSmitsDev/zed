@@ -40,7 +40,7 @@ use gpui::{AsyncAppContext, Context, EventEmitter, Model, ModelContext, SharedSt
 use http_client::HttpClient;
 use language::{
     proto::{deserialize_anchor, serialize_anchor as serialize_text_anchor},
-    Buffer, BufferSnapshot, LanguageRegistry, LanguageServerBinaryStatus,
+    Buffer, BufferSnapshot, LanguageRegistry, LanguageServerBinaryStatus, LanguageToolchainStore,
 };
 use lsp::LanguageServerName;
 use node_runtime::NodeRuntime;
@@ -165,6 +165,7 @@ impl DapStore {
         fs: Arc<dyn Fs>,
         languages: Arc<LanguageRegistry>,
         environment: Model<ProjectEnvironment>,
+        toolchain_store: Arc<dyn LanguageToolchainStore>,
         cx: &mut ModelContext<Self>,
     ) -> Self {
         cx.on_app_quit(Self::shutdown_sessions).detach();
@@ -180,6 +181,7 @@ impl DapStore {
                     Some(node_runtime.clone()),
                     fs.clone(),
                     languages.clone(),
+                    toolchain_store,
                     Task::ready(None).shared(),
                 ),
                 client_by_session: Default::default(),
@@ -191,11 +193,7 @@ impl DapStore {
         }
     }
 
-    pub fn new_remote(
-        project_id: u64,
-        upstream_client: AnyProtoClient,
-        _: &mut ModelContext<Self>,
-    ) -> Self {
+    pub fn new_remote(project_id: u64, upstream_client: AnyProtoClient) -> Self {
         Self {
             mode: DapStoreMode::Remote(RemoteDapStore {
                 upstream_client: Some(upstream_client),
@@ -549,7 +547,7 @@ impl DapStore {
         }));
         let adapter_delegate = Arc::new(adapter_delegate);
 
-        let client_id = self.as_local().unwrap().next_client_id();
+        let client_id = local_store.next_client_id();
 
         cx.spawn(|this, mut cx| async move {
             let adapter = build_adapter(&config.kind).await?;
@@ -2181,10 +2179,11 @@ impl SerializedBreakpoint {
 #[derive(Clone)]
 pub struct DapAdapterDelegate {
     fs: Arc<dyn Fs>,
-    http_client: Option<Arc<dyn HttpClient>>,
-    node_runtime: Option<NodeRuntime>,
-    updated_adapters: Arc<Mutex<HashSet<DebugAdapterName>>>,
     languages: Arc<LanguageRegistry>,
+    node_runtime: Option<NodeRuntime>,
+    http_client: Option<Arc<dyn HttpClient>>,
+    toolchain_store: Arc<dyn LanguageToolchainStore>,
+    updated_adapters: Arc<Mutex<HashSet<DebugAdapterName>>>,
     load_shell_env_task: Shared<Task<Option<HashMap<String, String>>>>,
 }
 
@@ -2194,6 +2193,7 @@ impl DapAdapterDelegate {
         node_runtime: Option<NodeRuntime>,
         fs: Arc<dyn Fs>,
         languages: Arc<LanguageRegistry>,
+        toolchain_store: Arc<dyn LanguageToolchainStore>,
         load_shell_env_task: Shared<Task<Option<HashMap<String, String>>>>,
     ) -> Self {
         Self {
@@ -2201,6 +2201,7 @@ impl DapAdapterDelegate {
             languages,
             http_client,
             node_runtime,
+            toolchain_store,
             load_shell_env_task,
             updated_adapters: Default::default(),
         }
@@ -2252,5 +2253,9 @@ impl dap::adapters::DapDelegate for DapAdapterDelegate {
     async fn shell_env(&self) -> HashMap<String, String> {
         let task = self.load_shell_env_task.clone();
         task.await.unwrap_or_default()
+    }
+
+    fn toolchain(&self) -> Arc<dyn LanguageToolchainStore> {
+        self.toolchain_store.clone()
     }
 }
