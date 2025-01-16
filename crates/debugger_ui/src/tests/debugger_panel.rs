@@ -41,6 +41,7 @@ async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut Test
                     cwd: None,
                     initialize_args: None,
                 },
+                None,
                 cx,
             )
         })
@@ -158,6 +159,7 @@ async fn test_we_can_only_have_one_panel_per_debug_thread(
                     cwd: None,
                     initialize_args: None,
                 },
+                None,
                 cx,
             )
         })
@@ -306,6 +308,7 @@ async fn test_client_can_open_multiple_thread_panels(
                     cwd: None,
                     initialize_args: None,
                 },
+                None,
                 cx,
             )
         })
@@ -456,6 +459,7 @@ async fn test_handle_successful_run_in_terminal_reverse_request(
                     cwd: None,
                     initialize_args: None,
                 },
+                None,
                 cx,
             )
         })
@@ -562,6 +566,7 @@ async fn test_handle_error_run_in_terminal_reverse_request(
                     cwd: None,
                     initialize_args: None,
                 },
+                None,
                 cx,
             )
         })
@@ -659,6 +664,7 @@ async fn test_handle_start_debugging_reverse_request(
                     cwd: None,
                     initialize_args: None,
                 },
+                None,
                 cx,
             )
         })
@@ -786,6 +792,7 @@ async fn test_debug_panel_item_thread_status_reset_on_failure(
                     cwd: None,
                     initialize_args: None,
                 },
+                None,
                 cx,
             )
         })

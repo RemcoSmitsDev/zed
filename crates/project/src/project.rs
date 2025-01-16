@@ -1288,8 +1288,19 @@ impl Project {
         cx: &mut ModelContext<Self>,
     ) {
         if let Some(config) = debug_task.debug_adapter_config() {
+            let worktree_id = maybe!({
+                Some(
+                    self.find_worktree(config.cwd.clone()?.as_path(), cx)?
+                        .0
+                        .read(cx)
+                        .id(),
+                )
+            });
+
             self.dap_store.update(cx, |store, cx| {
-                store.start_debug_session(config, cx).detach_and_log_err(cx);
+                store
+                    .start_debug_session(config, worktree_id, cx)
+                    .detach_and_log_err(cx);
             });
         }
     }
@@ -1297,6 +1308,7 @@ impl Project {
     /// Get all serialized breakpoints that belong to a buffer
     ///
     /// # Parameters
+    /// None,
     /// `buffer_id`: The buffer id to get serialized breakpoints of
     /// `cx`: The context of the editor
     ///

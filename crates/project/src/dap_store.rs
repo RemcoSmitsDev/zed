@@ -41,6 +41,7 @@ use http_client::HttpClient;
 use language::{
     proto::{deserialize_anchor, serialize_anchor as serialize_text_anchor},
     Buffer, BufferSnapshot, LanguageRegistry, LanguageServerBinaryStatus, LanguageToolchainStore,
+    Toolchain,
 };
 use lsp::LanguageServerName;
 use node_runtime::NodeRuntime;
@@ -93,6 +94,7 @@ pub struct LocalDapStore {
     next_session_id: AtomicUsize,
     delegate: DapAdapterDelegate,
     environment: Model<ProjectEnvironment>,
+    toolchain_store: Arc<dyn LanguageToolchainStore>,
     sessions: HashMap<DebugSessionId, Model<DebugSession>>,
     client_by_session: HashMap<DebugAdapterClientId, DebugSessionId>,
 }
@@ -181,9 +183,9 @@ impl DapStore {
                     Some(node_runtime.clone()),
                     fs.clone(),
                     languages.clone(),
-                    toolchain_store,
                     Task::ready(None).shared(),
                 ),
+                toolchain_store,
                 client_by_session: Default::default(),
             }),
             downstream_client: None,
@@ -533,6 +535,7 @@ impl DapStore {
     fn start_client_internal(
         &mut self,
         session_id: DebugSessionId,
+        worktree_id: Option<WorktreeId>,
         config: DebugAdapterConfig,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<Arc<DebugAdapterClient>>> {
@@ -545,12 +548,31 @@ impl DapStore {
         adapter_delegate.refresh_shell_env_task(local_store.environment.update(cx, |env, cx| {
             env.get_environment(None, worktree_abs_path, cx)
         }));
-        let adapter_delegate = Arc::new(adapter_delegate);
 
         let client_id = local_store.next_client_id();
+        let toolchains = local_store.toolchain_store.clone();
 
         cx.spawn(|this, mut cx| async move {
             let adapter = build_adapter(&config.kind).await?;
+            let name = adapter.name();
+
+            let toolchain = if let Some(worktree_id) = worktree_id {
+                if let Some(language_name) = adapter.language_name() {
+                    toolchains
+                        .active_toolchain(worktree_id, language_name, &mut cx)
+                        .await
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            if let Some(toolchain) = toolchain {
+                adapter_delegate.toolchains.insert(name, toolchain);
+            }
+
+            let adapter_delegate = Arc::new(adapter_delegate);
 
             if !adapter.supports_attach() && matches!(config.request, DebugRequestType::Attach(_)) {
                 bail!("Debug adapter does not support `attach` request");
@@ -620,6 +642,7 @@ impl DapStore {
     pub fn start_debug_session(
         &mut self,
         config: DebugAdapterConfig,
+        worktree_id: Option<WorktreeId>,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<(Model<DebugSession>, Arc<DebugAdapterClient>)>> {
         let Some(local_store) = self.as_local() else {
@@ -627,7 +650,8 @@ impl DapStore {
         };
 
         let session_id = local_store.next_session_id();
-        let start_client_task = self.start_client_internal(session_id, config.clone(), cx);
+        let start_client_task =
+            self.start_client_internal(session_id, worktree_id, config.clone(), cx);
 
         cx.spawn(|this, mut cx| async move {
             let session = cx.new_model(|_| DebugSession::new(session_id, config))?;
@@ -2182,7 +2206,7 @@ pub struct DapAdapterDelegate {
     languages: Arc<LanguageRegistry>,
     node_runtime: Option<NodeRuntime>,
     http_client: Option<Arc<dyn HttpClient>>,
-    toolchain_store: Arc<dyn LanguageToolchainStore>,
+    toolchains: HashMap<DebugAdapterName, Toolchain>,
     updated_adapters: Arc<Mutex<HashSet<DebugAdapterName>>>,
     load_shell_env_task: Shared<Task<Option<HashMap<String, String>>>>,
 }
@@ -2193,7 +2217,6 @@ impl DapAdapterDelegate {
         node_runtime: Option<NodeRuntime>,
         fs: Arc<dyn Fs>,
         languages: Arc<LanguageRegistry>,
-        toolchain_store: Arc<dyn LanguageToolchainStore>,
         load_shell_env_task: Shared<Task<Option<HashMap<String, String>>>>,
     ) -> Self {
         Self {
@@ -2201,7 +2224,7 @@ impl DapAdapterDelegate {
             languages,
             http_client,
             node_runtime,
-            toolchain_store,
+            toolchains: Default::default(),
             load_shell_env_task,
             updated_adapters: Default::default(),
         }
@@ -2255,7 +2278,7 @@ impl dap::adapters::DapDelegate for DapAdapterDelegate {
         task.await.unwrap_or_default()
     }
 
-    fn toolchain(&self) -> Arc<dyn LanguageToolchainStore> {
-        self.toolchain_store.clone()
+    fn toolchain(&self, adapter_name: &DebugAdapterName) -> Option<&Toolchain> {
+        self.toolchains.get(&adapter_name)
     }
 }

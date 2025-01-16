@@ -23,6 +23,7 @@ doctest = false
 anyhow.workspace = true
 async-trait.workspace = true
 dap.workspace = true
+language.workspace = true
 paths.workspace = true
 regex.workspace = true
 serde.workspace = true

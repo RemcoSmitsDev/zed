@@ -3536,6 +3536,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "dap",
+ "language",
  "paths",
  "regex",
  "serde",

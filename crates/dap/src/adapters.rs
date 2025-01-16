@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use futures::io::BufReader;
 use gpui::SharedString;
 pub use http_client::{github::latest_github_release, HttpClient};
-use language::LanguageToolchainStore;
+use language::{LanguageName, Toolchain};
 use node_runtime::NodeRuntime;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -38,7 +38,7 @@ pub enum DapStatus {
 pub trait DapDelegate {
     fn http_client(&self) -> Option<Arc<dyn HttpClient>>;
     fn node_runtime(&self) -> Option<NodeRuntime>;
-    fn toolchain(&self) -> Arc<dyn LanguageToolchainStore>;
+    fn toolchain(&self, adapter_name: &DebugAdapterName) -> Option<&Toolchain>;
     fn fs(&self) -> Arc<dyn Fs>;
     fn updated_adapters(&self) -> Arc<Mutex<HashSet<DebugAdapterName>>>;
     fn update_status(&self, dap_name: DebugAdapterName, status: DapStatus);
@@ -214,6 +214,10 @@ pub async fn fetch_latest_adapter_version_from_github(
 #[async_trait(?Send)]
 pub trait DebugAdapter: 'static + Send + Sync {
     fn name(&self) -> DebugAdapterName;
+
+    fn language_name(&self) -> Option<LanguageName> {
+        None
+    }
 
     async fn get_binary(
         &self,

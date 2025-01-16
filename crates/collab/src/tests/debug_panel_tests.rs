@@ -98,6 +98,7 @@ async fn test_debug_panel_item_opens_on_remote(
                     cwd: None,
                     initialize_args: None,
                 },
+                None,
                 cx,
             )
         })
@@ -210,6 +211,7 @@ async fn test_active_debug_panel_item_set_on_join_project(
                     cwd: None,
                     initialize_args: None,
                 },
+                None,
                 cx,
             )
         })
@@ -353,6 +355,7 @@ async fn test_debug_panel_remote_button_presses(
                     cwd: None,
                     initialize_args: None,
                 },
+                None,
                 cx,
             )
         })
@@ -716,6 +719,7 @@ async fn test_restart_stack_frame(cx_a: &mut TestAppContext, cx_b: &mut TestAppC
                     cwd: None,
                     initialize_args: None,
                 },
+                None,
                 cx,
             )
         })
@@ -901,6 +905,7 @@ async fn test_updated_breakpoints_send_to_dap(
                     cwd: None,
                     initialize_args: None,
                 },
+                None,
                 cx,
             )
         })

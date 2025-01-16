@@ -1,4 +1,5 @@
 use dap::transport::{TcpTransport, Transport};
+use language::LanguageName;
 use std::{ffi::OsStr, net::Ipv4Addr, path::PathBuf, sync::Arc};
 
 use crate::*;
@@ -12,6 +13,7 @@ pub(crate) struct PythonDebugAdapter {
 impl PythonDebugAdapter {
     const ADAPTER_NAME: &'static str = "debugpy";
     const ADAPTER_PATH: &'static str = "src/debugpy/adapter";
+    const LANGUAGE_NAME: &'static str = "Python";
 
     pub(crate) async fn new(host: &TCPHost) -> Result<Self> {
         Ok(PythonDebugAdapter {
@@ -26,6 +28,10 @@ impl PythonDebugAdapter {
 impl DebugAdapter for PythonDebugAdapter {
     fn name(&self) -> DebugAdapterName {
         DebugAdapterName(Self::ADAPTER_NAME.into())
+    }
+
+    fn language_name(&self) -> Option<LanguageName> {
+        Some(LanguageName::new(Self::LANGUAGE_NAME))
     }
 
     fn transport(&self) -> Arc<dyn Transport> {
@@ -92,10 +98,27 @@ impl DebugAdapter for PythonDebugAdapter {
             .ok_or_else(|| anyhow!("Debugpy directory not found"))?
         };
 
-        let python_path = delegate
-            .toolchain()
-            .active_toolchain(worktree_id, language_name, cx)
-            .await?;
+        let python_path = if let Some(toolchain) = delegate.toolchain(&self.name()) {
+            Some(toolchain.path.to_string())
+        } else {
+            let python_cmds = [
+                OsStr::new("python3"),
+                OsStr::new("python"),
+                OsStr::new("py"),
+            ];
+            python_cmds
+                .iter()
+                .filter_map(|cmd| {
+                    delegate
+                        .which(cmd)
+                        .and_then(|path| path.to_str().map(|str| str.to_string()))
+                })
+                .find(|_| true)
+        };
+
+        let python_path = python_path.ok_or(anyhow!(
+            "Failed to start debugger because python couldn't be found in PATH or toolchain"
+        ))?;
 
         Ok(DebugAdapterBinary {
             command: python_path,

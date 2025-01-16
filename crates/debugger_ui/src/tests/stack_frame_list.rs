@@ -60,6 +60,7 @@ async fn test_fetch_initial_stack_frames_and_go_to_stack_frame(
                     cwd: None,
                     initialize_args: None,
                 },
+                None,
                 cx,
             )
         })
@@ -224,6 +225,7 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
                     cwd: None,
                     initialize_args: None,
                 },
+                None,
                 cx,
             )
         })

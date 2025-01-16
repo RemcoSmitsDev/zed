@@ -81,6 +81,15 @@ impl HeadlessProject {
 
         let environment = project::ProjectEnvironment::new(&worktree_store, None, cx);
 
+        let toolchain_store = cx.new_model(|cx| {
+            ToolchainStore::local(
+                languages.clone(),
+                worktree_store.clone(),
+                environment.clone(),
+                cx,
+            )
+        });
+
         let dap_store = cx.new_model(|cx| {
             DapStore::new_local(
                 http_client.clone(),
@@ -88,6 +97,7 @@ impl HeadlessProject {
                 fs.clone(),
                 languages.clone(),
                 environment.clone(),
+                toolchain_store.read(cx).as_language_toolchain_store(),
                 cx,
             )
         });
@@ -103,15 +113,6 @@ impl HeadlessProject {
                 fs.clone(),
                 languages.clone(),
                 worktree_store.clone(),
-                cx,
-            )
-        });
-
-        let toolchain_store = cx.new_model(|cx| {
-            ToolchainStore::local(
-                languages.clone(),
-                worktree_store.clone(),
-                environment.clone(),
                 cx,
             )
         });
