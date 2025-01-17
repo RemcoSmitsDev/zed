@@ -1094,20 +1094,27 @@ async fn test_updated_breakpoints_send_to_dap(
 }
 
 #[gpui::test]
-async fn test_module_list(cx_a: &mut TestAppContext, cx_b: &mut TestAppContext) {
+async fn test_module_list(
+    cx_a: &mut TestAppContext,
+    cx_b: &mut TestAppContext,
+    cx_c: &mut TestAppContext,
+) {
     let executor = cx_a.executor();
     let mut server = TestServer::start(executor.clone()).await;
     let client_a = server.create_client(cx_a, "user_a").await;
     let client_b = server.create_client(cx_b, "user_b").await;
+    let client_c = server.create_client(cx_c, "user_c").await;
 
     init_test(cx_a);
     init_test(cx_b);
+    init_test(cx_c);
 
     server
-        .create_room(&mut [(&client_a, cx_a), (&client_b, cx_b)])
+        .create_room(&mut [(&client_a, cx_a), (&client_b, cx_b), (&client_c, cx_c)])
         .await;
     let active_call_a = cx_a.read(ActiveCall::global);
     let active_call_b = cx_b.read(ActiveCall::global);
+    let active_call_c = cx_c.read(ActiveCall::global);
 
     let (project_a, _worktree_id) = client_a.build_local_project("/a", cx_a).await;
     active_call_a
@@ -1303,6 +1310,43 @@ async fn test_module_list(cx_a: &mut TestAppContext, cx_b: &mut TestAppContext) 
                 &modules.clone(),
                 remote_module_list,
                 "Remote module list should match module list from response"
+            );
+        })
+    });
+
+    let project_c = client_c.join_remote_project(project_id, cx_c).await;
+    active_call_c
+        .update(cx_c, |call, cx| call.set_location(Some(&project_c), cx))
+        .await
+        .unwrap();
+
+    let (workspace_c, cx_c) = client_c.build_workspace(&project_c, cx_c);
+    add_debugger_panel(&workspace_c, cx_c).await;
+    cx_c.run_until_parked();
+
+    workspace_c.update(cx_c, |workspace, cx| {
+        let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
+        let debug_panel_item = debug_panel
+            .update(cx, |this, cx| this.active_debug_panel_item(cx))
+            .unwrap();
+
+        debug_panel_item.update(cx, |item, cx| {
+            assert_eq!(
+                true,
+                item.capabilities(cx).supports_modules_request.unwrap(),
+                "Remote (mid session join) capabilities supports modules request should be true"
+            );
+            let remote_module_list = item.module_list().read(cx).modules();
+
+            assert_eq!(
+                2usize,
+                remote_module_list.len(),
+                "Remote (mid session join) module list should have two items in it"
+            );
+            assert_eq!(
+                &modules.clone(),
+                remote_module_list,
+                "Remote (mid session join) module list should match module list from response"
             );
         })
     });
