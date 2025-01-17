@@ -200,7 +200,6 @@ impl DebugPanelItem {
 
     pub(crate) fn to_proto(&self, project_id: u64, cx: &AppContext) -> SetDebuggerPanelItem {
         let thread_state = Some(self.thread_state.read(cx).to_proto());
-        let module_list = Some(self.module_list.read(cx).to_proto());
         let variable_list = Some(self.variable_list.read(cx).to_proto());
         let stack_frame_list = Some(self.stack_frame_list.read(cx).to_proto());
 
@@ -210,7 +209,7 @@ impl DebugPanelItem {
             client_id: self.client_id.to_proto(),
             thread_id: self.thread_id,
             console: None,
-            module_list,
+            module_list: None,
             active_thread_item: self.active_thread_item.to_proto().into(),
             thread_state,
             variable_list,
