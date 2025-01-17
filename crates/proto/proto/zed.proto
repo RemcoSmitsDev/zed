@@ -330,7 +330,8 @@ message Envelope {
         DapShutdownSession dap_shutdown_session = 309;
         UpdateThreadStatus update_thread_status = 310;
         VariablesRequest variables_request = 311;
-        DapVariables dap_variables = 312; // current max
+        DapVariables dap_variables = 312;
+        DapRestartStackFrameRequest dap_restart_stack_frame_request = 313; // current max
     }
 
     reserved 87 to 88;
@@ -2471,6 +2472,7 @@ message SetDebugClientCapabilities {
     bool supports_step_back = 9;
     bool supports_stepping_granularity = 10;
     bool supports_terminate_threads_request = 11;
+    bool supports_restart_frame_request = 12;
 }
 
 message Breakpoint {
@@ -2501,8 +2503,7 @@ enum DebuggerThreadItem {
     Console = 0;
     LoadedSource = 1;
     Modules = 2;
-    Output = 3;
-    Variables = 4;
+    Variables = 3;
 }
 
 message DebuggerSetVariableState {
@@ -2661,6 +2662,11 @@ message DapRestartRequest {
     bytes raw_args = 3;
 }
 
+message DapRestartStackFrameRequest {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    uint64 stack_frame_id = 3;
+}
 
 message DapShutdownSession {
     uint64 project_id = 1;
@@ -2748,7 +2754,7 @@ message SetDebuggerPanelItem {
     uint64 thread_id = 4;
     string session_name = 5;
     DebuggerConsole console = 6;
-    DebuggerModuleList module_list = 7;
+    optional DebuggerModuleList module_list = 7; // We only send this when it's supported and once per client
     DebuggerThreadItem active_thread_item = 8;
     DebuggerThreadState thread_state = 9;
     DebuggerVariableList variable_list = 10;

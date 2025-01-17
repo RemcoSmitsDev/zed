@@ -56,7 +56,7 @@ pub trait DapCommand: 'static + Sized + Send + std::fmt::Debug {
     ) -> Result<Self::Response>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StepCommand {
     pub thread_id: u64,
     pub granularity: Option<SteppingGranularity>,
@@ -82,7 +82,7 @@ impl StepCommand {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct NextCommand {
     pub inner: StepCommand,
 }
@@ -146,7 +146,7 @@ impl DapCommand for NextCommand {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct StepInCommand {
     pub inner: StepCommand,
 }
@@ -218,7 +218,7 @@ impl DapCommand for StepInCommand {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct StepOutCommand {
     pub inner: StepCommand,
 }
@@ -318,7 +318,7 @@ impl DapCommand for StepOutCommand {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct StepBackCommand {
     pub inner: StepCommand,
 }
@@ -388,7 +388,7 @@ impl DapCommand for StepBackCommand {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct ContinueCommand {
     pub args: ContinueArguments,
 }
@@ -485,7 +485,7 @@ impl DapCommand for ContinueCommand {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct PauseCommand {
     pub thread_id: u64,
 }
@@ -545,7 +545,7 @@ impl DapCommand for PauseCommand {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct DisconnectCommand {
     pub restart: Option<bool>,
     pub terminate_debuggee: Option<bool>,
@@ -613,7 +613,7 @@ impl DapCommand for DisconnectCommand {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct TerminateThreadsCommand {
     pub thread_ids: Option<Vec<u64>>,
 }
@@ -677,7 +677,7 @@ impl DapCommand for TerminateThreadsCommand {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct TerminateCommand {
     pub restart: Option<bool>,
 }
@@ -737,7 +737,7 @@ impl DapCommand for TerminateCommand {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct RestartCommand {
     pub raw: serde_json::Value,
 }
@@ -915,5 +915,65 @@ impl DapCommand for VariablesCommand {
         message: <Self::ProtoRequest as proto::RequestMessage>::Response,
     ) -> Result<Self::Response> {
         Ok(Vec::from_proto(message.variables))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct RestartStackFrameCommand {
+    pub stack_frame_id: u64,
+}
+
+impl DapCommand for RestartStackFrameCommand {
+    type Response = <dap::requests::RestartFrame as dap::requests::Request>::Response;
+    type DapRequest = dap::requests::RestartFrame;
+    type ProtoRequest = proto::DapRestartStackFrameRequest;
+
+    fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
+        DebugAdapterClientId::from_proto(request.client_id)
+    }
+
+    fn from_proto(request: &Self::ProtoRequest) -> Self {
+        Self {
+            stack_frame_id: request.stack_frame_id,
+        }
+    }
+
+    fn to_proto(
+        &self,
+        debug_client_id: &DebugAdapterClientId,
+        upstream_project_id: u64,
+    ) -> proto::DapRestartStackFrameRequest {
+        proto::DapRestartStackFrameRequest {
+            project_id: upstream_project_id,
+            client_id: debug_client_id.to_proto(),
+            stack_frame_id: self.stack_frame_id,
+        }
+    }
+
+    fn response_to_proto(
+        _debug_client_id: &DebugAdapterClientId,
+        _message: Self::Response,
+    ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
+        proto::Ack {}
+    }
+
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        dap::RestartFrameArguments {
+            frame_id: self.stack_frame_id,
+        }
+    }
+
+    fn response_from_dap(
+        &self,
+        _message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Result<Self::Response> {
+        Ok(())
+    }
+
+    fn response_from_proto(
+        self,
+        _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
+        Ok(())
     }
 }

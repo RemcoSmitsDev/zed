@@ -38,7 +38,6 @@ enum ThreadItem {
     Console,
     LoadedSource,
     Modules,
-    Output,
     Variables,
 }
 
@@ -48,7 +47,6 @@ impl ThreadItem {
             ThreadItem::Console => proto::DebuggerThreadItem::Console,
             ThreadItem::LoadedSource => proto::DebuggerThreadItem::LoadedSource,
             ThreadItem::Modules => proto::DebuggerThreadItem::Modules,
-            ThreadItem::Output => proto::DebuggerThreadItem::Output,
             ThreadItem::Variables => proto::DebuggerThreadItem::Variables,
         }
     }
@@ -58,7 +56,6 @@ impl ThreadItem {
             proto::DebuggerThreadItem::Console => ThreadItem::Console,
             proto::DebuggerThreadItem::LoadedSource => ThreadItem::LoadedSource,
             proto::DebuggerThreadItem::Modules => ThreadItem::Modules,
-            proto::DebuggerThreadItem::Output => ThreadItem::Output,
             proto::DebuggerThreadItem::Variables => ThreadItem::Variables,
         }
     }
@@ -72,7 +69,6 @@ pub struct DebugPanelItem {
     session_name: SharedString,
     dap_store: Model<DapStore>,
     session_id: DebugSessionId,
-    output_editor: View<Editor>,
     show_console_indicator: bool,
     module_list: View<ModuleList>,
     active_thread_item: ThreadItem,
@@ -133,6 +129,8 @@ impl DebugPanelItem {
             )
         });
 
+        cx.observe(&module_list, |_, _, cx| cx.notify()).detach();
+
         let _subscriptions = vec![
             cx.subscribe(&debug_panel, {
                 move |this: &mut Self, _, event: &DebugPanelEvent, cx| {
@@ -179,20 +177,6 @@ impl DebugPanelItem {
             ),
         ];
 
-        let output_editor = cx.new_view(|cx| {
-            let mut editor = Editor::multi_line(cx);
-            editor.set_placeholder_text("Debug adapter and script output", cx);
-            editor.set_read_only(true);
-            editor.set_show_inline_completions(Some(false), cx);
-            editor.set_searchable(false);
-            editor.set_auto_replace_emoji_shortcode(false);
-            editor.set_show_indent_guides(false, cx);
-            editor.set_autoindent(false);
-            editor.set_show_gutter(false, cx);
-            editor.set_show_line_numbers(false, cx);
-            editor
-        });
-
         Self {
             console,
             thread_id,
@@ -202,7 +186,6 @@ impl DebugPanelItem {
             module_list,
             thread_state,
             focus_handle,
-            output_editor,
             variable_list,
             _subscriptions,
             remote_id: None,
@@ -217,7 +200,6 @@ impl DebugPanelItem {
 
     pub(crate) fn to_proto(&self, project_id: u64, cx: &AppContext) -> SetDebuggerPanelItem {
         let thread_state = Some(self.thread_state.read(cx).to_proto());
-        let module_list = Some(self.module_list.read(cx).to_proto());
         let variable_list = Some(self.variable_list.read(cx).to_proto());
         let stack_frame_list = Some(self.stack_frame_list.read(cx).to_proto());
 
@@ -227,7 +209,7 @@ impl DebugPanelItem {
             client_id: self.client_id.to_proto(),
             thread_id: self.thread_id,
             console: None,
-            module_list,
+            module_list: None,
             active_thread_item: self.active_thread_item.to_proto().into(),
             thread_state,
             variable_list,
@@ -251,7 +233,6 @@ impl DebugPanelItem {
         });
 
         self.active_thread_item = ThreadItem::from_proto(state.active_thread_item());
-        // self.update_thread_state_status(ThreadStatus::Stopped, cx); // This is a band aid fix for thread status not being sent correctly all the time
 
         if let Some(stack_frame_list) = state.stack_frame_list.as_ref() {
             self.stack_frame_list.update(cx, |this, cx| {
@@ -347,6 +328,7 @@ impl DebugPanelItem {
             return;
         }
 
+        // skip telemetry output as it pollutes the users output view
         let output_category = event
             .category
             .as_ref()
@@ -357,25 +339,11 @@ impl DebugPanelItem {
             return;
         }
 
-        match output_category {
-            OutputEventCategory::Console => {
-                self.console.update(cx, |console, cx| {
-                    console.add_message(&event.output, cx);
-                });
-
-                if !matches!(self.active_thread_item, ThreadItem::Console) {
-                    self.show_console_indicator = true;
-                }
-            }
-            _ => {
-                self.output_editor.update(cx, |editor, cx| {
-                    editor.set_read_only(false);
-                    editor.move_to_end(&editor::actions::MoveToEnd, cx);
-                    editor.insert(format!("{}\n", &event.output.trim_end()).as_str(), cx);
-                    editor.set_read_only(true);
-                });
-            }
-        }
+        self.console.update(cx, |console, cx| {
+            console.add_message(event.clone(), cx);
+        });
+        self.show_console_indicator = true;
+        cx.notify();
     }
 
     fn handle_module_event(
@@ -388,8 +356,8 @@ impl DebugPanelItem {
             return;
         }
 
-        self.module_list.update(cx, |variable_list, cx| {
-            variable_list.on_module_event(event, cx);
+        self.module_list.update(cx, |module_list, cx| {
+            module_list.on_module_event(event, cx);
         });
     }
 
@@ -519,13 +487,13 @@ impl DebugPanelItem {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub fn output_editor(&self) -> &View<Editor> {
-        &self.output_editor
+    pub fn console(&self) -> &View<Console> {
+        &self.console
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub fn console(&self) -> &View<Console> {
-        &self.console
+    pub fn module_list(&self) -> &View<ModuleList> {
+        &self.module_list
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -1049,11 +1017,6 @@ impl Render for DebugPanelItem {
                                 &SharedString::from("Console"),
                                 ThreadItem::Console,
                                 cx,
-                            ))
-                            .child(self.render_entry_button(
-                                &SharedString::from("Output"),
-                                ThreadItem::Output,
-                                cx,
                             )),
                     )
                     .when(*active_thread_item == ThreadItem::Variables, |this| {
@@ -1064,9 +1027,6 @@ impl Render for DebugPanelItem {
                     })
                     .when(*active_thread_item == ThreadItem::LoadedSource, |this| {
                         this.size_full().child(self.loaded_source_list.clone())
-                    })
-                    .when(*active_thread_item == ThreadItem::Output, |this| {
-                        this.child(self.output_editor.clone())
                     })
                     .when(*active_thread_item == ThreadItem::Console, |this| {
                         this.child(self.console.clone())

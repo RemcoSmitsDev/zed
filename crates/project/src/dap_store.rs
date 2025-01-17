@@ -1,8 +1,8 @@
 use crate::{
     dap_command::{
         ContinueCommand, DapCommand, DisconnectCommand, NextCommand, PauseCommand, RestartCommand,
-        StepBackCommand, StepCommand, StepInCommand, StepOutCommand, TerminateCommand,
-        TerminateThreadsCommand, VariablesCommand,
+        RestartStackFrameCommand, StepBackCommand, StepCommand, StepInCommand, StepOutCommand,
+        TerminateCommand, TerminateThreadsCommand, VariablesCommand,
     },
     project_settings::ProjectSettings,
     ProjectEnvironment, ProjectItem as _, ProjectPath,
@@ -75,7 +75,7 @@ pub enum DapStoreEvent {
         message: Message,
     },
     Notification(String),
-    BreakpointsChanged,
+    BreakpointsChanged(ProjectPath),
     ActiveDebugLineChanged,
     SetDebugPanelItem(SetDebuggerPanelItem),
     UpdateDebugAdapter(UpdateDebugAdapter),
@@ -156,6 +156,7 @@ impl DapStore {
         client.add_model_request_handler(DapStore::handle_dap_command::<TerminateCommand>);
         client.add_model_request_handler(DapStore::handle_dap_command::<RestartCommand>);
         client.add_model_request_handler(DapStore::handle_dap_command::<VariablesCommand>);
+        client.add_model_request_handler(DapStore::handle_dap_command::<RestartStackFrameCommand>);
         client.add_model_request_handler(DapStore::handle_shutdown_session);
     }
 
@@ -278,7 +279,7 @@ impl DapStore {
     pub fn client_by_id(
         &self,
         client_id: &DebugAdapterClientId,
-        cx: &mut ModelContext<Self>,
+        cx: &ModelContext<Self>,
     ) -> Option<(Model<DebugSession>, Arc<DebugAdapterClient>)> {
         let session = self.session_by_client_id(client_id)?;
         let client = session.read(cx).client_by_id(client_id)?;
@@ -871,6 +872,23 @@ impl DapStore {
         })
     }
 
+    pub fn restart_stack_frame(
+        &mut self,
+        client_id: &DebugAdapterClientId,
+        stack_frame_id: u64,
+        cx: &mut ModelContext<Self>,
+    ) -> Task<Result<()>> {
+        if !self
+            .capabilities_by_id(client_id)
+            .supports_restart_frame
+            .unwrap_or_default()
+        {
+            return Task::ready(Ok(()));
+        }
+
+        self.request_dap(client_id, RestartStackFrameCommand { stack_frame_id }, cx)
+    }
+
     pub fn scopes(
         &mut self,
         client_id: &DebugAdapterClientId,
@@ -1112,7 +1130,9 @@ impl DapStore {
 
         let task = cx.spawn(|this, mut cx| async move {
             let args = request.to_dap();
-            let response = request.response_from_dap(client.request::<R::DapRequest>(args).await?);
+            let response = client.request::<R::DapRequest>(args).await;
+            let response = request.response_from_dap(response?);
+
             request.handle_response(this, &client_id, response, &mut cx)
         });
 
@@ -1663,10 +1683,10 @@ impl DapStore {
             if breakpoints.is_empty() {
                 store.breakpoints.remove(&project_path);
             } else {
-                store.breakpoints.insert(project_path, breakpoints);
+                store.breakpoints.insert(project_path.clone(), breakpoints);
             }
 
-            cx.emit(DapStoreEvent::BreakpointsChanged);
+            cx.emit(DapStoreEvent::BreakpointsChanged(project_path));
 
             cx.notify();
         })
@@ -1773,11 +1793,9 @@ impl DapStore {
         &mut self,
         project_path: &ProjectPath,
         mut breakpoint: Breakpoint,
-        buffer_path: PathBuf,
-        buffer_snapshot: BufferSnapshot,
         edit_action: BreakpointEditAction,
         cx: &mut ModelContext<Self>,
-    ) -> Task<Result<()>> {
+    ) {
         let upstream_client = self.upstream_client();
 
         let breakpoint_set = self.breakpoints.entry(project_path.clone()).or_default();
@@ -1816,9 +1834,8 @@ impl DapStore {
             self.breakpoints.remove(project_path);
         }
 
+        cx.emit(DapStoreEvent::BreakpointsChanged(project_path.clone()));
         cx.notify();
-
-        self.send_changed_breakpoints(project_path, buffer_path, buffer_snapshot, cx)
     }
 
     pub fn send_breakpoints(
@@ -1827,7 +1844,7 @@ impl DapStore {
         absolute_file_path: Arc<Path>,
         mut breakpoints: Vec<SourceBreakpoint>,
         ignore: bool,
-        cx: &mut ModelContext<Self>,
+        cx: &ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some((_, client)) = self.client_by_id(client_id, cx) else {
             return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
@@ -1865,9 +1882,9 @@ impl DapStore {
     pub fn send_changed_breakpoints(
         &self,
         project_path: &ProjectPath,
-        buffer_path: PathBuf,
+        absolute_path: PathBuf,
         buffer_snapshot: BufferSnapshot,
-        cx: &mut ModelContext<Self>,
+        cx: &ModelContext<Self>,
     ) -> Task<Result<()>> {
         let Some(local_store) = self.as_local() else {
             return Task::ready(Err(anyhow!("cannot start session on remote side")));
@@ -1889,7 +1906,7 @@ impl DapStore {
             for client in session.clients().collect::<Vec<_>>() {
                 tasks.push(self.send_breakpoints(
                     &client.id(),
-                    Arc::from(buffer_path.clone()),
+                    Arc::from(absolute_path.clone()),
                     source_breakpoints.clone(),
                     ignore_breakpoints,
                     cx,
