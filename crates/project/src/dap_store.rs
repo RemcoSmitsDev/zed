@@ -1266,11 +1266,15 @@ impl DapStore {
         &self,
         client_id: &DebugAdapterClientId,
         thread_id: u64,
+        stack_frame_id: u64,
+        scope_id: u64,
         session_id: DebugSessionId,
         variables_reference: u64,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<Vec<Variable>>> {
         let command = VariablesCommand {
+            stack_frame_id,
+            scope_id,
             session_id,
             thread_id,
             variables_reference,

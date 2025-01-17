@@ -114,8 +114,14 @@ impl Model {
                 let encoded = variable_list.encode_to_vec();
                 self.variable_list = encoded;
             }
-            proto::update_debug_adapter::Variant::AddToVariableList(_added_variables) => {
-                // TODO Debugger
+            proto::update_debug_adapter::Variant::AddToVariableList(added_variables) => {
+                let variable_list =
+                    proto::DebuggerVariableList::decode(&self.variable_list[..]).log_err();
+
+                // if let Some(variable_list) = variable_list {
+                //     let updated_variable_list = variable_list;
+                //     self.variable_list = updated_variable_list.encode_to_vec();
+                // }
             }
             proto::update_debug_adapter::Variant::Modules(module_list) => {
                 let encoded = module_list.encode_to_vec();

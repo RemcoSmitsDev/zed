@@ -2605,16 +2605,20 @@ message VariablesRequest {
     uint64 client_id = 2;
     uint64 thread_id = 3;
     uint64 session_id = 4;
-    uint64 variables_reference = 5;
-    optional VariablesArgumentsFilter filter = 6;
-    optional uint64 start = 7;
-    optional uint64 count = 8;
-    optional ValueFormat format = 9;
+    uint64 stack_frame_id = 5;
+    uint64 scope_id = 6;
+    uint64 variables_reference = 7;
+    optional VariablesArgumentsFilter filter = 8;
+    optional uint64 start = 9;
+    optional uint64 count = 10;
+    optional ValueFormat format = 11;
 }
 
 message AddToVariableList {
     uint64 variable_id = 1;
-    repeated DapVariable variables = 2;
+    uint64 stack_frame_id = 2;
+    uint64 scope_id = 3;
+    repeated DapVariable variables = 4;
 }
 
 message DebuggerStackFrameList {

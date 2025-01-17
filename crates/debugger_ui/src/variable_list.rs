@@ -464,18 +464,17 @@ impl VariableList {
     pub(crate) fn add_variables(&mut self, variables_to_add: &proto::AddToVariableList) {
         let variables: Vec<Variable> = Vec::from_proto(variables_to_add.variables.clone());
         let variable_id = variables_to_add.variable_id;
+        let stack_frame_id = variables_to_add.stack_frame_id;
+        let scope_id = variables_to_add.scope_id;
+        let key = (stack_frame_id, scope_id);
 
-        if let Some((key, depth)) =
-            self.variables
+        if let Some(depth) = self.variables.get(&key).and_then(|containers| {
+            containers
+                .variables
                 .iter()
-                .find_map(|((stack_frame_id, scope_id), scope_var_ix)| {
-                    scope_var_ix
-                        .variables
-                        .iter()
-                        .find(|container| container.variable.variables_reference == variable_id)
-                        .map(|container| ((*stack_frame_id, *scope_id), container.depth + 1usize))
-                })
-        {
+                .find(|container| container.variable.variables_reference == variable_id)
+                .map(|container| container.depth + 1usize)
+        }) {
             if let Some(index) = self.variables.get_mut(&key) {
                 index.add_variables(
                     variable_id,
@@ -620,6 +619,8 @@ impl VariableList {
             store.variables(
                 &self.client_id,
                 thread_id,
+                stack_frame_id,
+                scope_id,
                 self.session_id,
                 variable.variables_reference,
                 cx,
@@ -814,20 +815,6 @@ impl VariableList {
         }
 
         cx.notify();
-
-        if let Some((client, project_id)) = self.dap_store.read(cx).downstream_client() {
-            let request = UpdateDebugAdapter {
-                client_id: self.client_id.to_proto(),
-                session_id: self.session_id.to_proto(),
-                thread_id: Some(self.stack_frame_list.read(cx).thread_id()),
-                project_id: *project_id,
-                variant: Some(rpc::proto::update_debug_adapter::Variant::VariableList(
-                    self.to_proto(),
-                )),
-            };
-
-            client.send(request).log_err();
-        }
     }
 
     fn fetch_nested_variables(
@@ -837,12 +824,17 @@ impl VariableList {
         open_entries: &Vec<OpenEntry>,
         cx: &mut ViewContext<Self>,
     ) -> Task<Result<Vec<VariableContainer>>> {
-        let thread_id = self.stack_frame_list.read(cx).thread_id();
+        let stack_frame_list = self.stack_frame_list.read(cx);
+        let thread_id = stack_frame_list.thread_id();
+        let stack_frame_id = stack_frame_list.current_stack_frame_id();
+        let scope_id = container_reference;
 
         let variables_task = self.dap_store.update(cx, |store, cx| {
             store.variables(
                 &self.client_id,
                 thread_id,
+                stack_frame_id,
+                scope_id,
                 self.session_id,
                 container_reference,
                 cx,
@@ -970,6 +962,20 @@ impl VariableList {
 
                 this.entries.clear();
                 this.build_entries(true, true, cx);
+
+                if let Some((client, project_id)) = this.dap_store.read(cx).downstream_client() {
+                    let request = UpdateDebugAdapter {
+                        client_id: this.client_id.to_proto(),
+                        session_id: this.session_id.to_proto(),
+                        thread_id: Some(this.stack_frame_list.read(cx).thread_id()),
+                        project_id: *project_id,
+                        variant: Some(rpc::proto::update_debug_adapter::Variant::VariableList(
+                            this.to_proto(),
+                        )),
+                    };
+
+                    client.send(request).log_err();
+                };
 
                 this.fetch_variables_task.take();
             })

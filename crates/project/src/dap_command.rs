@@ -803,6 +803,8 @@ impl DapCommand for RestartCommand {
 
 #[derive(Debug)]
 pub struct VariablesCommand {
+    pub stack_frame_id: u64,
+    pub scope_id: u64,
     pub thread_id: u64,
     pub variables_reference: u64,
     pub session_id: DebugSessionId,
@@ -835,6 +837,8 @@ impl DapCommand for VariablesCommand {
                     thread_id: Some(self.thread_id),
                     variant: Some(proto::update_debug_adapter::Variant::AddToVariableList(
                         proto::AddToVariableList {
+                            scope_id: self.scope_id,
+                            stack_frame_id: self.stack_frame_id,
                             variable_id: self.variables_reference,
                             variables: variables.to_proto(),
                         },
@@ -880,6 +884,8 @@ impl DapCommand for VariablesCommand {
             client_id: debug_client_id.to_proto(),
             thread_id: self.thread_id,
             session_id: self.session_id.to_proto(),
+            stack_frame_id: self.stack_frame_id,
+            scope_id: self.scope_id,
             variables_reference: self.variables_reference,
             filter: None,
             start: self.start,
@@ -892,6 +898,8 @@ impl DapCommand for VariablesCommand {
         Self {
             thread_id: request.thread_id,
             session_id: DebugSessionId::from_proto(request.session_id),
+            stack_frame_id: request.stack_frame_id,
+            scope_id: request.scope_id,
             variables_reference: request.variables_reference,
             filter: None,
             start: request.start,
