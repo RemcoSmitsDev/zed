@@ -44,8 +44,9 @@ impl ModuleList {
             modules: Vec::default(),
         };
 
-        this.fetch_modules(cx).detach_and_log_err(cx);
-
+        if this.dap_store.read(cx).as_local().is_some() {
+            this.fetch_modules(cx).detach_and_log_err(cx);
+        }
         this
     }
 
@@ -154,5 +155,12 @@ impl Render for ModuleList {
             .size_full()
             .p_1()
             .child(list(self.list.clone()).size_full())
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl ModuleList {
+    pub fn modules(&self) -> &Vec<Module> {
+        &self.modules
     }
 }

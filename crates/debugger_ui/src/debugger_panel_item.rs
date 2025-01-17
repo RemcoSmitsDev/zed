@@ -129,6 +129,8 @@ impl DebugPanelItem {
             )
         });
 
+        cx.observe(&module_list, |_, _, cx| cx.notify()).detach();
+
         let _subscriptions = vec![
             cx.subscribe(&debug_panel, {
                 move |this: &mut Self, _, event: &DebugPanelEvent, cx| {
@@ -485,6 +487,11 @@ impl DebugPanelItem {
     #[cfg(any(test, feature = "test-support"))]
     pub fn console(&self) -> &View<Console> {
         &self.console
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn module_list(&self) -> &View<ModuleList> {
+        &self.module_list
     }
 
     #[cfg(any(test, feature = "test-support"))]
