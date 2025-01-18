@@ -12921,8 +12921,8 @@ impl Editor {
             }
             multi_buffer::Event::DirtyChanged => cx.emit(EditorEvent::DirtyChanged),
             multi_buffer::Event::Saved => {
-                if let Some(project_path) = self.project_path(cx) {
-                    if let Some(dap_store) = &self.dap_store {
+                if let Some(dap_store) = &self.dap_store {
+                    if let Some(project_path) = self.project_path(cx) {
                         dap_store.update(cx, |_, cx| {
                             cx.emit(DapStoreEvent::BreakpointsChanged {
                                 project_path,
