@@ -1133,7 +1133,7 @@ async fn test_send_breakpoints_when_editor_has_been_saved(
     window
         .update(cx, |editor, cx| {
             editor.move_up(&actions::MoveUp, cx);
-            editor.insert("new text", cx);
+            editor.insert("new text\n", cx);
 
             cx.dispatch_action(Box::new(Save {
                 save_intent: Some(workspace::SaveIntent::Save),
