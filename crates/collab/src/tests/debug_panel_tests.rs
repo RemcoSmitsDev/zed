@@ -944,6 +944,7 @@ async fn test_updated_breakpoints_send_to_dap(
                     }],
                     args.breakpoints.unwrap()
                 );
+                assert!(!args.source_modified.unwrap());
 
                 called_set_breakpoints.store(true, Ordering::SeqCst);
 
@@ -1007,6 +1008,7 @@ async fn test_updated_breakpoints_send_to_dap(
             move |_, args| {
                 assert_eq!("/a/test.txt", args.source.path.unwrap());
                 assert!(args.breakpoints.unwrap().is_empty());
+                assert!(!args.source_modified.unwrap());
 
                 called_set_breakpoints.store(true, Ordering::SeqCst);
 
@@ -1038,16 +1040,10 @@ async fn test_updated_breakpoints_send_to_dap(
             let called_set_breakpoints = called_set_breakpoints.clone();
             move |_, args| {
                 assert_eq!("/a/test.txt", args.source.path.unwrap());
+                let mut breakpoints = args.breakpoints.unwrap();
+                breakpoints.sort_by_key(|b| b.line);
                 assert_eq!(
                     vec![
-                        SourceBreakpoint {
-                            line: 3,
-                            column: None,
-                            condition: None,
-                            hit_condition: None,
-                            log_message: None,
-                            mode: None
-                        },
                         SourceBreakpoint {
                             line: 2,
                             column: None,
@@ -1055,10 +1051,19 @@ async fn test_updated_breakpoints_send_to_dap(
                             hit_condition: None,
                             log_message: None,
                             mode: None
+                        },
+                        SourceBreakpoint {
+                            line: 3,
+                            column: None,
+                            condition: None,
+                            hit_condition: None,
+                            log_message: None,
+                            mode: None
                         }
                     ],
-                    args.breakpoints.unwrap()
+                    breakpoints
                 );
+                assert!(!args.source_modified.unwrap());
 
                 called_set_breakpoints.store(true, Ordering::SeqCst);
 

@@ -13,7 +13,7 @@ use util::ResultExt;
 
 use crate::dap_store::DapStore;
 
-pub trait DapCommand: 'static + Sized + Send + std::fmt::Debug {
+pub trait DapCommand: 'static + Sized + Send + Sync + std::fmt::Debug {
     type Response: 'static + Send + std::fmt::Debug;
     type DapRequest: 'static + Send + dap::requests::Request;
     type ProtoRequest: 'static + Send + proto::RequestMessage;
@@ -56,7 +56,7 @@ pub trait DapCommand: 'static + Sized + Send + std::fmt::Debug {
     ) -> Result<Self::Response>;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct StepCommand {
     pub thread_id: u64,
     pub granularity: Option<SteppingGranularity>,
@@ -82,7 +82,7 @@ impl StepCommand {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct NextCommand {
     pub inner: StepCommand,
 }
@@ -146,7 +146,7 @@ impl DapCommand for NextCommand {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct StepInCommand {
     pub inner: StepCommand,
 }
@@ -218,7 +218,7 @@ impl DapCommand for StepInCommand {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct StepOutCommand {
     pub inner: StepCommand,
 }
@@ -318,7 +318,7 @@ impl DapCommand for StepOutCommand {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct StepBackCommand {
     pub inner: StepCommand,
 }
@@ -388,7 +388,7 @@ impl DapCommand for StepBackCommand {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct ContinueCommand {
     pub args: ContinueArguments,
 }
@@ -485,7 +485,7 @@ impl DapCommand for ContinueCommand {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct PauseCommand {
     pub thread_id: u64,
 }
@@ -545,7 +545,7 @@ impl DapCommand for PauseCommand {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct DisconnectCommand {
     pub restart: Option<bool>,
     pub terminate_debuggee: Option<bool>,
@@ -613,7 +613,7 @@ impl DapCommand for DisconnectCommand {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct TerminateThreadsCommand {
     pub thread_ids: Option<Vec<u64>>,
 }
@@ -677,7 +677,7 @@ impl DapCommand for TerminateThreadsCommand {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct TerminateCommand {
     pub restart: Option<bool>,
 }
@@ -737,7 +737,7 @@ impl DapCommand for TerminateCommand {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct RestartCommand {
     pub raw: serde_json::Value,
 }
