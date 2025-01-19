@@ -12920,20 +12920,7 @@ impl Editor {
                 cx.notify();
             }
             multi_buffer::Event::DirtyChanged => cx.emit(EditorEvent::DirtyChanged),
-            multi_buffer::Event::Saved => {
-                cx.emit(EditorEvent::Saved);
-
-                if let Some(dap_store) = &self.dap_store {
-                    if let Some(project_path) = self.project_path(cx) {
-                        dap_store.update(cx, |_, cx| {
-                            cx.emit(DapStoreEvent::BreakpointsChanged {
-                                project_path,
-                                source_changed: true,
-                            });
-                        });
-                    }
-                }
-            }
+            multi_buffer::Event::Saved => cx.emit(EditorEvent::Saved),
             multi_buffer::Event::FileHandleChanged => {
                 cx.emit(EditorEvent::TitleChanged);
 
