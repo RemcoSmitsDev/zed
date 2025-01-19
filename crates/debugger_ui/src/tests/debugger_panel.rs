@@ -22,7 +22,7 @@ use std::sync::{
 };
 use terminal_view::{terminal_panel::TerminalPanel, TerminalView};
 use tests::{active_debug_panel_item, init_test, init_test_workspace};
-use workspace::{dock::Panel, Save};
+use workspace::{dock::Panel, Item};
 
 #[gpui::test]
 async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppContext) {
@@ -1014,7 +1014,7 @@ async fn test_send_breakpoints_when_editor_has_been_saved(
         .await
         .unwrap();
 
-    let window = cx.add_window(|cx| {
+    let (editor, cx) = cx.add_window_view(|cx| {
         Editor::new(
             EditorMode::Full,
             MultiBuffer::build_from_buffer(buffer, cx),
@@ -1023,8 +1023,6 @@ async fn test_send_breakpoints_when_editor_has_been_saved(
             cx,
         )
     });
-
-    let cx = &mut VisualTestContext::from_window(*window, cx);
 
     client
         .on_request::<Initialize, _>(move |_, _| {
@@ -1088,12 +1086,10 @@ async fn test_send_breakpoints_when_editor_has_been_saved(
         })
         .await;
 
-    window
-        .update(cx, |editor, cx| {
-            editor.move_down(&actions::MoveDown, cx);
-            editor.toggle_breakpoint(&actions::ToggleBreakpoint, cx);
-        })
-        .unwrap();
+    editor.update(cx, |editor, cx| {
+        editor.move_down(&actions::MoveDown, cx);
+        editor.toggle_breakpoint(&actions::ToggleBreakpoint, cx);
+    });
 
     cx.run_until_parked();
 
@@ -1130,15 +1126,14 @@ async fn test_send_breakpoints_when_editor_has_been_saved(
         })
         .await;
 
-    window
-        .update(cx, |editor, cx| {
-            editor.move_up(&actions::MoveUp, cx);
-            editor.insert("new text\n", cx);
+    editor.update(cx, |editor, cx| {
+        editor.move_up(&actions::MoveUp, cx);
+        editor.insert("new text\n", cx);
+    });
 
-            cx.dispatch_action(Box::new(Save {
-                save_intent: Some(workspace::SaveIntent::Save),
-            }));
-        })
+    editor
+        .update(cx, |editor, cx| editor.save(true, project.clone(), cx))
+        .await
         .unwrap();
 
     cx.run_until_parked();
