@@ -1830,7 +1830,7 @@ async fn test_variable_list(
             assert_eq!(1, variable_list.scopes().len());
             assert_eq!(4, variable_list.variables().len());
             assert_eq!(scopes, variable_list.scopes().get(&1).unwrap().clone());
-            assert_eq!(&final_variable_containers, &variable_list.variables());
+            assert_eq!(final_variable_containers, variable_list.variables());
 
             variable_list.assert_visual_entries(first_visual_entries, cx);
         });

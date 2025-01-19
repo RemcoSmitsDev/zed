@@ -1261,7 +1261,7 @@ impl DapStore {
 
         self.request_dap(client_id, command, cx)
     }
-
+    #[allow(clippy::too_many_arguments)]
     pub fn variables(
         &self,
         client_id: &DebugAdapterClientId,

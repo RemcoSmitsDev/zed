@@ -422,7 +422,11 @@ impl VariableList {
             })
             .collect();
 
-        proto::DebuggerVariableList { scopes, variables }
+        proto::DebuggerVariableList {
+            scopes,
+            variables,
+            added_variables: vec![],
+        }
     }
 
     pub(crate) fn set_from_proto(
@@ -457,12 +461,16 @@ impl VariableList {
             })
             .collect();
 
+        for variables in state.added_variables.iter() {
+            self.add_variables(variables.clone());
+        }
+
         self.build_entries(true, true, cx);
         cx.notify();
     }
 
-    pub(crate) fn add_variables(&mut self, variables_to_add: &proto::AddToVariableList) {
-        let variables: Vec<Variable> = Vec::from_proto(variables_to_add.variables.clone());
+    pub(crate) fn add_variables(&mut self, variables_to_add: proto::AddToVariableList) {
+        let variables: Vec<Variable> = Vec::from_proto(variables_to_add.variables);
         let variable_id = variables_to_add.variable_id;
         let stack_frame_id = variables_to_add.stack_frame_id;
         let scope_id = variables_to_add.scope_id;

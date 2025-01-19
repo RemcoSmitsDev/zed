@@ -2589,6 +2589,7 @@ message VariableListVariables {
 message DebuggerVariableList {
     repeated VariableListScopes scopes = 1;
     repeated VariableListVariables variables = 2;
+    repeated AddToVariableList added_variables = 3;
 }
 
 enum VariablesArgumentsFilter {
