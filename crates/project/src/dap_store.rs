@@ -149,6 +149,7 @@ impl DapStore {
         client.add_model_message_handler(DapStore::handle_synchronize_breakpoints);
         client.add_model_message_handler(DapStore::handle_update_debug_adapter);
         client.add_model_message_handler(DapStore::handle_update_thread_status);
+        client.add_model_message_handler(DapStore::handle_ignore_breakpoint_state);
 
         client.add_model_request_handler(DapStore::handle_dap_command::<NextCommand>);
         client.add_model_request_handler(DapStore::handle_dap_command::<StepInCommand>);
@@ -372,10 +373,29 @@ impl DapStore {
         &self.breakpoints
     }
 
+    async fn handle_ignore_breakpoint_state(
+        this: Model<Self>,
+        envelope: TypedEnvelope<proto::IgnoreBreakpointState>,
+        mut cx: AsyncAppContext,
+    ) -> Result<()> {
+        let client_id = DebugAdapterClientId::from_proto(envelope.payload.client_id);
+
+        this.update(&mut cx, |this, cx| {
+            if let Some(session) = this.session_by_client_id(&client_id) {
+                session.update(cx, |session, cx| {
+                    session.set_ignore_breakpoints(envelope.payload.ignore, cx)
+                });
+            }
+        })?;
+
+        Ok(())
+    }
+
     pub fn ignore_breakpoints(&self, session_id: &DebugSessionId, cx: &AppContext) -> bool {
-        self.session_by_id(session_id)
-            .map(|session| session.read(cx).ignore_breakpoints())
-            .unwrap_or_default()
+        dbg!(self
+            .session_by_id(session_id)
+            .map(|session| session.read(cx).ignore_breakpoints()))
+        .unwrap_or_default()
     }
 
     pub fn toggle_ignore_breakpoints(

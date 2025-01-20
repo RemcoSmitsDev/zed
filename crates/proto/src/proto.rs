@@ -397,6 +397,8 @@ messages!(
     (UsersResponse, Foreground),
     (VariablesRequest, Background),
     (DapVariables, Background),
+    (IgnoreBreakpointState, Background),
+    (ToggleIgnoreBreakpoints, Background),
 );
 
 request_messages!(
@@ -644,6 +646,8 @@ entity_messages!(
     DapShutdownSession,
     UpdateThreadStatus,
     VariablesRequest,
+    IgnoreBreakpointState,
+    ToggleIgnoreBreakpoints,
 );
 
 entity_messages!(

@@ -2062,13 +2062,21 @@ async fn test_ignore_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppCo
             1,
             debug_panel.update(cx, |this, cx| this.pane().unwrap().read(cx).items_len())
         );
+
+        assert_eq!(
+            false,
+            active_debug_panel_item.read(cx).are_breakpoints_ignored(cx)
+        );
         assert_eq!(client.id(), active_debug_panel_item.read(cx).client_id());
         assert_eq!(1, active_debug_panel_item.read(cx).thread_id());
 
         active_debug_panel_item
     });
 
-    local_debug_item.update(cx_a, |item, cx| item.toggle_ignore_breakpoints(cx));
+    local_debug_item.update(cx_a, |item, cx| {
+        item.toggle_ignore_breakpoints(cx); // Set to true
+        assert_eq!(true, item.are_breakpoints_ignored(cx));
+    });
 
     cx_a.run_until_parked();
     cx_b.run_until_parked();
@@ -2077,8 +2085,6 @@ async fn test_ignore_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppCo
         called_set_breakpoints.load(std::sync::atomic::Ordering::SeqCst),
         "SetBreakpoint request must be called to ignore breakpoints"
     );
-
-    called_set_breakpoints.store(false, std::sync::atomic::Ordering::SeqCst);
 
     client
         .on_request::<SetBreakpoints, _>({
@@ -2102,6 +2108,8 @@ async fn test_ignore_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppCo
         .downcast::<Editor>()
         .unwrap();
 
+    called_set_breakpoints.store(false, std::sync::atomic::Ordering::SeqCst);
+
     remote_editor.update(cx_b, |editor, cx| {
         editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, cx); // Line 1
     });
@@ -2110,8 +2118,8 @@ async fn test_ignore_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppCo
     cx_b.run_until_parked();
 
     assert!(
-        !called_set_breakpoints.load(std::sync::atomic::Ordering::SeqCst),
-        "SetBreakpoint request shouldn't be called when breakpoints are ignored"
+        called_set_breakpoints.load(std::sync::atomic::Ordering::SeqCst),
+        "SetBreakpoint request be called whenever breakpoints are toggled but with not breakpoints"
     );
 
     let remote_debug_item = workspace_b.update(cx_b, |workspace, cx| {
