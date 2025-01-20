@@ -565,14 +565,19 @@ impl DebugPanel {
         client_id: &DebugAdapterClientId,
         cx: &mut ViewContext<Self>,
     ) {
-        let Some(session) = self.dap_store.read(cx).session_by_id(session_id) else {
+        let Some(session) = self
+            .dap_store
+            .read(cx)
+            .session_by_id(session_id)
+            .and_then(|session| session.read(cx).as_local())
+        else {
             return;
         };
 
         let session_id = *session_id;
         let client_id = *client_id;
         let workspace = self.workspace.clone();
-        let request_type = session.read(cx).configuration().request.clone();
+        let request_type = session.configuration().request.clone();
         cx.spawn(|this, mut cx| async move {
             let task = this.update(&mut cx, |this, cx| {
                 this.dap_store.update(cx, |store, cx| {

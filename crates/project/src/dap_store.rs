@@ -287,10 +287,10 @@ impl DapStore {
         client_id: &DebugAdapterClientId,
         cx: &ModelContext<Self>,
     ) -> Option<(Model<DebugSession>, Arc<DebugAdapterClient>)> {
-        let session = self.session_by_client_id(client_id)?;
-        let client = session.read(cx).client_by_id(client_id)?;
+        let local_session = self.session_by_client_id(client_id)?;
+        let client = local_session.read(cx).as_local()?.client_by_id(client_id)?;
 
-        Some((session, client))
+        Some((local_session, client))
     }
 
     pub fn capabilities_by_id(&self, client_id: &DebugAdapterClientId) -> Capabilities {
@@ -538,13 +538,15 @@ impl DapStore {
                 let session = store.session_by_id(&session_id).unwrap();
 
                 session.update(cx, |session, cx| {
-                    session.update_configuration(
+                    let local_session = session.as_local_mut().unwrap();
+
+                    local_session.update_configuration(
                         |old_config| {
                             *old_config = config.clone();
                         },
                         cx,
                     );
-                    session.add_client(Arc::new(client), cx);
+                    local_session.add_client(Arc::new(client), cx);
                 });
 
                 // don't emit this event ourself in tests, so we can add request,
@@ -658,7 +660,7 @@ impl DapStore {
         let start_client_task = self.start_client_internal(session_id, config.clone(), cx);
 
         cx.spawn(|this, mut cx| async move {
-            let session = cx.new_model(|_| DebugSession::new(session_id, config))?;
+            let session = cx.new_model(|_| DebugSession::new_local(session_id, config))?;
 
             let client = match start_client_task.await {
                 Ok(client) => client,
@@ -674,7 +676,10 @@ impl DapStore {
 
             this.update(&mut cx, |store, cx| {
                 session.update(cx, |session, cx| {
-                    session.add_client(client.clone(), cx);
+                    session
+                        .as_local_mut()
+                        .unwrap()
+                        .add_client(client.clone(), cx);
                 });
 
                 let client_id = client.id();
@@ -750,7 +755,7 @@ impl DapStore {
             )));
         };
 
-        let config = session.read(cx).configuration();
+        let config = session.read(cx).as_local().unwrap().configuration();
         let mut adapter_args = client.adapter().request_args(&config);
         if let Some(args) = config.initialize_args.clone() {
             merge_json_value_into(args, &mut adapter_args);
@@ -797,7 +802,7 @@ impl DapStore {
         // comes in we send another `attach` request with the already selected PID
         // If we don't do this the user has to select the process twice if the adapter sends a `startDebugging` request
         session.update(cx, |session, cx| {
-            session.update_configuration(
+            session.as_local_mut().unwrap().update_configuration(
                 |config| {
                     config.request = DebugRequestType::Attach(task::AttachConfig {
                         process_id: Some(process_id),
@@ -807,7 +812,7 @@ impl DapStore {
             );
         });
 
-        let config = session.read(cx).configuration();
+        let config = session.read(cx).as_local().unwrap().configuration();
         let mut adapter_args = client.adapter().request_args(&config);
 
         if let Some(args) = config.initialize_args.clone() {
@@ -974,8 +979,15 @@ impl DapStore {
             )));
         };
 
+        let Some(config) = session
+            .read(cx)
+            .as_local()
+            .map(|session| session.configuration())
+        else {
+            return Task::ready(Err(anyhow!("Cannot find debug session: {:?}", session_id)));
+        };
+
         let session_id = *session_id;
-        let config = session.read(cx).configuration().clone();
 
         let request_args = args.unwrap_or_else(|| StartDebuggingRequestArguments {
             configuration: config.initialize_args.clone().unwrap_or_default(),
@@ -986,17 +998,17 @@ impl DapStore {
         });
 
         // Merge the new configuration over the existing configuration
-        let mut initialize_args = config.initialize_args.unwrap_or_default();
+        let mut initialize_args = config.initialize_args.clone().unwrap_or_default();
         merge_json_value_into(request_args.configuration, &mut initialize_args);
 
         let new_config = DebugAdapterConfig {
             label: config.label.clone(),
             kind: config.kind.clone(),
-            request: match request_args.request {
+            request: match &request_args.request {
                 StartDebuggingRequestArgumentsRequest::Launch => DebugRequestType::Launch,
                 StartDebuggingRequestArgumentsRequest::Attach => DebugRequestType::Attach(
-                    if let DebugRequestType::Attach(attach_config) = config.request {
-                        attach_config
+                    if let DebugRequestType::Attach(attach_config) = &config.request {
+                        attach_config.clone()
                     } else {
                         AttachConfig::default()
                     },
@@ -1534,8 +1546,15 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Could not find session: {:?}", session_id)));
         };
 
+        let Some(local_session) = session.read(cx).as_local() else {
+            return Task::ready(Err(anyhow!(
+                "Cannot shutdown session on remote side: {:?}",
+                session_id
+            )));
+        };
+
         let mut tasks = Vec::new();
-        for client in session.read(cx).clients().collect::<Vec<_>>() {
+        for client in local_session.clients().collect::<Vec<_>>() {
             tasks.push(self.shutdown_client(&session, client, cx));
         }
 
@@ -1940,8 +1959,11 @@ impl DapStore {
             .collect::<Vec<_>>();
 
         let mut tasks = Vec::new();
-        for session in local_store.sessions.values() {
-            let session = session.read(cx);
+        for session in local_store
+            .sessions
+            .values()
+            .filter_map(|session| session.read(cx).as_local())
+        {
             let ignore_breakpoints = self.ignore_breakpoints(&session.id(), cx);
             for client in session.clients().collect::<Vec<_>>() {
                 tasks.push(self.send_breakpoints(
