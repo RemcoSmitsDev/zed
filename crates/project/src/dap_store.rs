@@ -36,7 +36,9 @@ use dap_adapters::build_adapter;
 use fs::Fs;
 use futures::future::Shared;
 use futures::FutureExt;
-use gpui::{AsyncAppContext, Context, EventEmitter, Model, ModelContext, SharedString, Task};
+use gpui::{
+    AppContext, AsyncAppContext, Context, EventEmitter, Model, ModelContext, SharedString, Task,
+};
 use http_client::HttpClient;
 use language::{
     proto::{deserialize_anchor, serialize_anchor as serialize_text_anchor},
@@ -370,7 +372,7 @@ impl DapStore {
         &self.breakpoints
     }
 
-    pub fn ignore_breakpoints(&self, session_id: &DebugSessionId, cx: &ModelContext<Self>) -> bool {
+    pub fn ignore_breakpoints(&self, session_id: &DebugSessionId, cx: &AppContext) -> bool {
         self.session_by_id(session_id)
             .map(|session| session.read(cx).ignore_breakpoints())
             .unwrap_or_default()

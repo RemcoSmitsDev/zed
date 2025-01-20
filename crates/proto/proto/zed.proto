@@ -2709,6 +2709,12 @@ message DapShutdownSession {
     optional uint64 session_id = 2; // Shutdown all sessions if this is None
 }
 
+message ToggleIgnoreBreakpoints {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    uint64 session_id = 3;
+}
+
 message DapNextRequest {
     uint64 project_id = 1;
     uint64 client_id = 2;
