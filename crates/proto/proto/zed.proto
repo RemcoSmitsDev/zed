@@ -333,7 +333,8 @@ message Envelope {
         DapVariables dap_variables = 312;
         DapRestartStackFrameRequest dap_restart_stack_frame_request = 313;
         IgnoreBreakpointState ignore_breakpoint_state = 314;
-        ToggleIgnoreBreakpoints toggle_ignore_breakpoints = 315; // current max
+        ToggleIgnoreBreakpoints toggle_ignore_breakpoints = 315;
+        DebuggerSessionHasShutdown debugger_session_has_shutdown = 316; // current max
     }
 
     reserved 87 to 88;
@@ -2471,6 +2472,11 @@ message RefreshLlmToken {}
 enum BreakpointKind {
     Standard = 0;
     Log = 1;
+}
+
+message DebuggerSessionHasShutdown {
+    uint64 project_id = 1;
+    uint64 session_id = 2;
 }
 
 message DebuggerSession {

@@ -163,6 +163,7 @@ impl DapStore {
         client.add_model_message_handler(DapStore::handle_update_debug_adapter);
         client.add_model_message_handler(DapStore::handle_update_thread_status);
         client.add_model_message_handler(DapStore::handle_ignore_breakpoint_state);
+        client.add_model_message_handler(DapStore::handle_session_has_shutdown);
 
         client.add_model_request_handler(DapStore::handle_dap_command::<NextCommand>);
         client.add_model_request_handler(DapStore::handle_dap_command::<StepInCommand>);
@@ -176,7 +177,7 @@ impl DapStore {
         client.add_model_request_handler(DapStore::handle_dap_command::<RestartCommand>);
         client.add_model_request_handler(DapStore::handle_dap_command::<VariablesCommand>);
         client.add_model_request_handler(DapStore::handle_dap_command::<RestartStackFrameCommand>);
-        client.add_model_request_handler(DapStore::handle_shutdown_session);
+        client.add_model_request_handler(DapStore::handle_shutdown_session_request);
     }
 
     pub fn new_local(
@@ -321,6 +322,27 @@ impl DapStore {
         }
     }
 
+    pub fn remove_session(&mut self, session_id: DebugSessionId, cx: &mut ModelContext<Self>) {
+        match &mut self.mode {
+            DapStoreMode::Local(local) => {
+                if let Some(session) = local.sessions.remove(&session_id) {
+                    for client_id in session
+                        .read(cx)
+                        .as_local()
+                        .map(|local| local.client_ids())
+                        .expect("Local Dap can only have local sessions")
+                    {
+                        local.client_by_session.remove(&client_id);
+                    }
+                }
+            }
+            DapStoreMode::Remote(remote) => {
+                remote.sessions.remove(&session_id);
+                remote.client_by_session.retain(|_, val| val != &session_id)
+            }
+        }
+    }
+
     pub fn sessions(&self) -> impl Iterator<Item = Model<DebugSession>> + '_ {
         match &self.mode {
             DapStoreMode::Local(local) => local.sessions.values().cloned(),
@@ -434,6 +456,18 @@ impl DapStore {
 
     pub fn breakpoints(&self) -> &BTreeMap<ProjectPath, HashSet<Breakpoint>> {
         &self.breakpoints
+    }
+
+    async fn handle_session_has_shutdown(
+        this: Model<Self>,
+        envelope: TypedEnvelope<proto::DebuggerSessionHasShutdown>,
+        mut cx: AsyncAppContext,
+    ) -> Result<()> {
+        this.update(&mut cx, |this, cx| {
+            this.remove_session(DebugSessionId::from_proto(envelope.payload.session_id), cx);
+        })?;
+
+        Ok(())
     }
 
     async fn handle_ignore_breakpoint_state(
@@ -1633,6 +1667,15 @@ impl DapStore {
             tasks.push(self.shutdown_client(&session, client, cx));
         }
 
+        if let Some((downstream_client, project_id)) = self.downstream_client.as_ref() {
+            downstream_client
+                .send(proto::DebuggerSessionHasShutdown {
+                    project_id: *project_id,
+                    session_id: session_id.to_proto(),
+                })
+                .log_err();
+        }
+
         cx.background_executor().spawn(async move {
             futures::future::join_all(tasks).await;
             Ok(())
@@ -1752,7 +1795,7 @@ impl DapStore {
         cx.notify();
     }
 
-    async fn handle_shutdown_session(
+    async fn handle_shutdown_session_request(
         this: Model<Self>,
         envelope: TypedEnvelope<proto::DapShutdownSession>,
         mut cx: AsyncAppContext,

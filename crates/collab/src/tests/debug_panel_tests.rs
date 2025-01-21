@@ -1940,6 +1940,7 @@ async fn test_ignore_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppCo
     });
 
     let (session, client) = task.await.unwrap();
+    let client_id = client.id();
 
     client
         .on_request::<Initialize, _>(move |_, _| {
@@ -2255,4 +2256,24 @@ async fn test_ignore_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppCo
     });
 
     shutdown_client.await.unwrap();
+
+    cx_a.run_until_parked();
+    cx_b.run_until_parked();
+
+    project_b.update(cx_b, |project, cx| {
+        project.dap_store().update(cx, |dap_store, _cx| {
+            let sessions = dap_store.sessions().collect::<Vec<_>>();
+
+            assert_eq!(
+                None,
+                dap_store.session_by_client_id(&client_id),
+                "No client_id to session mapping should exist after shutdown"
+            );
+            assert_eq!(
+                0,
+                sessions.len(),
+                "No sessions should be left after shutdown"
+            );
+        })
+    });
 }

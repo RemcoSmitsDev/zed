@@ -444,6 +444,9 @@ impl Server {
             )
             .add_message_handler(
                 broadcast_project_message_from_host::<proto::IgnoreBreakpointState>,
+            )
+            .add_message_handler(
+                broadcast_project_message_from_host::<proto::DebuggerSessionHasShutdown>,
             );
 
         Arc::new(server)
