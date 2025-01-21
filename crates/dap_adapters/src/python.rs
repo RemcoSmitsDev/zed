@@ -1,6 +1,11 @@
-use dap::transport::{TcpTransport, Transport};
+use dap::{
+    transport::{TcpTransport, Transport},
+    DebugRequestType,
+};
 use language::LanguageName;
-use std::{ffi::OsStr, net::Ipv4Addr, path::PathBuf, sync::Arc};
+use regex::Regex;
+use std::{collections::HashMap, ffi::OsStr, net::Ipv4Addr, path::PathBuf, sync::Arc};
+use sysinfo::{Pid, Process};
 
 use crate::*;
 
@@ -133,10 +138,39 @@ impl DebugAdapter for PythonDebugAdapter {
     }
 
     fn request_args(&self, config: &DebugAdapterConfig) -> Value {
+        let pid = if let DebugRequestType::Attach(attach_config) = &config.request {
+            attach_config.process_id
+        } else {
+            None
+        };
+
         json!({
+            "request": match config.request {
+                DebugRequestType::Launch => "launch",
+                DebugRequestType::Attach(_) => "attach",
+            },
+            "processId": pid,
             "program": config.program,
             "subProcess": true,
             "cwd": config.cwd,
         })
+    }
+
+    fn supports_attach(&self) -> bool {
+        true
+    }
+
+    fn attach_processes<'a>(
+        &self,
+        processes: &'a HashMap<Pid, Process>,
+    ) -> Option<Vec<(&'a Pid, &'a Process)>> {
+        let regex = Regex::new(r"(?i)^(?:python3|python|py)(?:$|\b)").unwrap();
+
+        Some(
+            processes
+                .iter()
+                .filter(|(_, process)| regex.is_match(&process.name().to_string_lossy()))
+                .collect::<Vec<_>>(),
+        )
     }
 }
