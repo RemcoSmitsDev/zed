@@ -399,7 +399,7 @@ messages!(
     (DapVariables, Background),
     (IgnoreBreakpointState, Background),
     (ToggleIgnoreBreakpoints, Background),
-    (DebuggerSessionHasShutdown, Background),
+    (DebuggerSessionEnded, Background),
 );
 
 request_messages!(
@@ -649,7 +649,7 @@ entity_messages!(
     VariablesRequest,
     IgnoreBreakpointState,
     ToggleIgnoreBreakpoints,
-    DebuggerSessionHasShutdown,
+    DebuggerSessionEnded,
 );
 
 entity_messages!(

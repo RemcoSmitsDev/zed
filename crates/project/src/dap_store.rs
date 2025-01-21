@@ -460,7 +460,7 @@ impl DapStore {
 
     async fn handle_session_has_shutdown(
         this: Model<Self>,
-        envelope: TypedEnvelope<proto::DebuggerSessionHasShutdown>,
+        envelope: TypedEnvelope<proto::DebuggerSessionEnded>,
         mut cx: AsyncAppContext,
     ) -> Result<()> {
         this.update(&mut cx, |this, cx| {
@@ -1669,7 +1669,7 @@ impl DapStore {
 
         if let Some((downstream_client, project_id)) = self.downstream_client.as_ref() {
             downstream_client
-                .send(proto::DebuggerSessionHasShutdown {
+                .send(proto::DebuggerSessionEnded {
                     project_id: *project_id,
                     session_id: session_id.to_proto(),
                 })
