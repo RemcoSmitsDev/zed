@@ -341,7 +341,7 @@ impl DapStore {
     ) -> Option<Model<DebugSession>> {
         match &self.mode {
             DapStoreMode::Local(local) => local.session_by_client_id(client_id),
-            DapStoreMode::Remote(remote) => dbg!(remote.session_by_client_id(client_id)),
+            DapStoreMode::Remote(remote) => remote.session_by_client_id(client_id),
         }
     }
 
@@ -444,13 +444,10 @@ impl DapStore {
         let client_id = DebugAdapterClientId::from_proto(envelope.payload.client_id);
 
         this.update(&mut cx, |this, cx| {
-            dbg!("In handle ignore breakpoint state");
             if let Some(session) = this.session_by_client_id(&client_id) {
                 session.update(cx, |session, cx| {
                     session.set_ignore_breakpoints(envelope.payload.ignore, cx)
                 });
-            } else {
-                dbg!("No session found for client ID: {}", client_id);
             }
         })?;
 
@@ -471,10 +468,9 @@ impl DapStore {
     }
 
     pub fn ignore_breakpoints(&self, session_id: &DebugSessionId, cx: &AppContext) -> bool {
-        dbg!(self
-            .session_by_id(session_id)
-            .map(|session| session.read(cx).ignore_breakpoints()))
-        .unwrap_or_default()
+        self.session_by_id(session_id)
+            .map(|session| session.read(cx).ignore_breakpoints())
+            .unwrap_or_default()
     }
 
     pub fn toggle_ignore_breakpoints(
@@ -838,7 +834,6 @@ impl DapStore {
         let mut adapter_args = client.adapter().request_args(&config);
         if let Some(args) = config.initialize_args.clone() {
             merge_json_value_into(args, &mut adapter_args);
-            dbg!(&adapter_args);
         }
 
         // TODO(debugger): GDB starts the debuggee program on launch instead of configurationDone
