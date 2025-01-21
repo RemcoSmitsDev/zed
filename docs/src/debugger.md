@@ -54,16 +54,48 @@ To create a custom debug configuration you have to create a `.zed/debug.json` fi
     "program": "path_to_program",
     // initialize_args: This field should contain all the adapter specific initialization arguments that are directly send to the debug adapter
     "initialize_args": {
-      // "stopOnEntry": true // e.g. to stop on the first line of the program
+      // "stopOnEntry": true // e.g. to stop on the first line of the program (These args are DAP specific)
     }
   }
 ]
 ```
 
+### Using Attach [WIP]
+
+Only javascript supports starting a debug session using attach.
+
+When using the attach request with a process ID the syntax is as follows:
+
+```json
+{
+  "label": "Attach to Process",
+  "adapter": "javascript",
+  "request": {
+    "attach": {
+      "process_id": "12345"
+    }
+  }
+}
+```
+
+Without process ID the syntax is as follows:
+
+```json
+{
+  "label": "Attach to Process",
+  "adapter": "javascript",
+  "request": {
+    "attach": {}
+  }
+}
+```
+
 #### JavaScript Configuration
 
 ##### Debug Active File
+
 This configuration allows you to debug a JavaScript file in your project.
+
 ```json
 {
   "label": "JavaScript: Debug Active File",
@@ -75,45 +107,51 @@ This configuration allows you to debug a JavaScript file in your project.
 ```
 
 ##### Debug Terminal
+
 This configuration will spawn a debug terminal where you could start you program by typing `node test.js`, and the debug adapter will automatically attach to the process.
+
 ```json
 {
-	"label": "JavaScript: Debug Terminal",
-	"adapter": "javascript",
-	"request": "launch",
-	"cwd": "$ZED_WORKTREE_ROOT",
-	// "program": "$ZED_FILE", // optional if you pass this in, you will see the output inside the terminal itself
-	"initialize_args": {
-		"console": "integratedTerminal"
-	}
+  "label": "JavaScript: Debug Terminal",
+  "adapter": "javascript",
+  "request": "launch",
+  "cwd": "$ZED_WORKTREE_ROOT",
+  // "program": "$ZED_FILE", // optional if you pass this in, you will see the output inside the terminal itself
+  "initialize_args": {
+    "console": "integratedTerminal"
+  }
 }
 ```
 
 #### PHP Configuration
 
 ##### Debug Active File
+
 This configuration allows you to debug a PHP file in your project.
+
 ```json
 {
- 	"label": "PHP: Debug Active File",
- 	"adapter": "php",
- 	"program": "$ZED_FILE",
- 	"request": "launch",
- 	"cwd": "$ZED_WORKTREE_ROOT"
+  "label": "PHP: Debug Active File",
+  "adapter": "php",
+  "program": "$ZED_FILE",
+  "request": "launch",
+  "cwd": "$ZED_WORKTREE_ROOT"
 }
 ```
 
 #### Python Configuration
 
 ##### Debug Active File
+
 This configuration allows you to debug a Python file in your project.
+
 ```json
 {
- 	"label": "Python: Debug Active File",
- 	"adapter": "python",
- 	"program": "$ZED_FILE",
- 	"request": "launch",
- 	"cwd": "$ZED_WORKTREE_ROOT"
+  "label": "Python: Debug Active File",
+  "adapter": "python",
+  "program": "$ZED_FILE",
+  "request": "launch",
+  "cwd": "$ZED_WORKTREE_ROOT"
 }
 ```
 
@@ -122,24 +160,25 @@ This configuration allows you to debug a Python file in your project.
 **NOTE:** This configuration is for Linux systems only & intel macbooks.
 
 ##### Debug Program
+
 This configuration allows you to debug a program using GDB e.g. Zed itself.
+
 ```json
 {
   "label": "GDB: Debug program",
   "adapter": "gdb",
   "program": "$ZED_WORKTREE_ROOT/target/debug/zed",
   "request": "launch",
-  "cwd": "$ZED_WORKTREE_ROOT",
-  "initialize_args": {
-    "stopAtBeginningOfMainSubprogram": true // this is needed, untill we fixed an issue with the GDB debugger
-  }
+  "cwd": "$ZED_WORKTREE_ROOT"
 }
 ```
 
 #### LLDB Configuration
 
 ##### Debug Program
+
 This configuration allows you to debug a program using LLDB e.g. Zed itself.
+
 ```json
 {
   "label": "LLDB: Debug program",
@@ -161,8 +200,151 @@ Standard breakpoints can be toggled by left clicking on the editor gutter or usi
 
 Log breakpoints can also be edited/added through the edit log breakpoint action
 
-## Starting a Debugger Session
+## Settings
 
-A debugger session can be started by the Start Debugging action or clicking the "Choose Debugger" button in the debugger panel when there are no active sessions.
+- `stepping_granularity`: Determines the stepping granularity.
+- `save_breakpoints`: Whether the breakpoints should be reused across Zed sessions.
+- `button`: Whether to show the debug button in the status bar.
+- `timeout`: Time in milliseconds until timeout error when connecting to a TCP debug adapter.
+- `log_dap_communications`: Whether to log messages between active debug adapters and Zed
+- `format_dap_log_messages`: Whether to format dap messages in when adding them to debug adapter logger
 
-Zed supports having multiple sessions
+### Stepping granularity
+
+- Description: The Step granularity that the debugger will use
+- Default: line
+- Setting: debugger.stepping_granularity
+
+**Options**
+
+1. Statement - The step should allow the program to run until the current statement has finished executing.
+   The meaning of a statement is determined by the adapter and it may be considered equivalent to a line.
+   For example 'for(int i = 0; i < 10; i++)' could be considered to have 3 statements 'int i = 0', 'i < 10', and 'i++'.
+
+```json
+{
+  "debugger": {
+    "stepping_granularity": "statement"
+  }
+}
+```
+
+2. Line - The step should allow the program to run until the current source line has executed.
+
+```json
+{
+  "debugger": {
+    "stepping_granularity": "line"
+  }
+}
+```
+
+3. Instruction - The step should allow one instruction to execute (e.g. one x86 instruction).
+
+```json
+{
+  "debugger": {
+    "stepping_granularity": "instruction"
+  }
+}
+```
+
+### Save Breakpoints
+
+- Description: Whether the breakpoints should be saved across Zed sessions.
+- Default: true
+- Setting: debugger.save_breakpoints
+
+**Options**
+
+`boolean` values
+
+```json
+{
+  "debugger": {
+    "save_breakpoints": true
+  }
+}
+```
+
+### Button
+
+- Description: Whether the button should be displayed in the debugger toolbar.
+- Default: true
+- Setting: debugger.show_button
+
+**Options**
+
+`boolean` values
+
+```json
+{
+  "debugger": {
+    "show_button": true
+  }
+}
+```
+
+### Timeout
+
+- Description: Time in milliseconds until timeout error when connecting to a TCP debug adapter.
+- Default: 2000ms
+- Setting: debugger.timeout
+
+**Options**
+
+`integer` values
+
+```json
+{
+  "debugger": {
+    "timeout": 3000
+  }
+}
+```
+
+### Log Dap Communications
+
+- Description: Whether to log messages between active debug adapters and Zed. (Used for DAP development)
+- Default: false
+- Setting: debugger.log_dap_communications
+
+**Options**
+
+`boolean` values
+
+```json
+{
+  "debugger": {
+    "log_dap_communications": true
+  }
+}
+```
+
+### Format Dap Log Messages
+
+- Description: Whether to format dap messages in when adding them to debug adapter logger. (Used for DAP development)
+- Default: false
+- Setting: debugger.format_dap_log_messages
+
+**Options**
+
+`boolean` values
+
+```json
+{
+  "debugger": {
+    "format_dap_log_messages": true
+  }
+}
+```
+
+## Theme
+
+The Debugger supports the following theme options
+
+    /// Color used to accent some of the debuggers elements
+    /// Only accent breakpoint & breakpoint related symbols right now
+
+**debugger.accent**: Color used to accent breakpoint & breakpoint related symbols
+**editor.debugger_active_line.background**: Background color of active debug line
