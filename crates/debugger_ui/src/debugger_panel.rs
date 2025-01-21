@@ -292,6 +292,11 @@ impl DebugPanel {
         &self.message_queue
     }
 
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn dap_store(&self) -> Model<DapStore> {
+        self.dap_store.clone()
+    }
+
     pub fn active_debug_panel_item(
         &self,
         cx: &mut ViewContext<Self>,
@@ -1021,6 +1026,7 @@ impl DebugPanel {
 
                 self.dap_store.update(cx, |dap_store, cx| {
                     dap_store.add_remote_session(session_id, None, cx);
+                    dap_store.add_client_to_session(session_id, client_id);
                 });
 
                 pane.add_item(Box::new(debug_panel_item.clone()), true, true, None, cx);

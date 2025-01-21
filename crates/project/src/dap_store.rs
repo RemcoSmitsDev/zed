@@ -302,6 +302,25 @@ impl DapStore {
         }
     }
 
+    pub fn add_client_to_session(
+        &mut self,
+        session_id: DebugSessionId,
+        client_id: DebugAdapterClientId,
+    ) {
+        match &mut self.mode {
+            DapStoreMode::Local(local) => {
+                if local.sessions.contains_key(&session_id) {
+                    local.client_by_session.insert(client_id, session_id);
+                }
+            }
+            DapStoreMode::Remote(remote) => {
+                if remote.sessions.contains_key(&session_id) {
+                    remote.client_by_session.insert(client_id, session_id);
+                }
+            }
+        }
+    }
+
     pub fn sessions(&self) -> impl Iterator<Item = Model<DebugSession>> + '_ {
         match &self.mode {
             DapStoreMode::Local(local) => local.sessions.values().cloned(),
@@ -322,7 +341,7 @@ impl DapStore {
     ) -> Option<Model<DebugSession>> {
         match &self.mode {
             DapStoreMode::Local(local) => local.session_by_client_id(client_id),
-            DapStoreMode::Remote(remote) => remote.session_by_client_id(client_id),
+            DapStoreMode::Remote(remote) => dbg!(remote.session_by_client_id(client_id)),
         }
     }
 
@@ -425,10 +444,13 @@ impl DapStore {
         let client_id = DebugAdapterClientId::from_proto(envelope.payload.client_id);
 
         this.update(&mut cx, |this, cx| {
+            dbg!("In handle ignore breakpoint state");
             if let Some(session) = this.session_by_client_id(&client_id) {
                 session.update(cx, |session, cx| {
                     session.set_ignore_breakpoints(envelope.payload.ignore, cx)
                 });
+            } else {
+                dbg!("No session found for client ID: {}", client_id);
             }
         })?;
 
@@ -1678,14 +1700,10 @@ impl DapStore {
         cx: &mut ModelContext<Self>,
     ) {
         for session in debug_sessions.into_iter() {
-            let session_id = session.session_id;
+            let session_id = DebugSessionId::from_proto(session.session_id);
             let ignore_breakpoints = Some(session.ignore_breakpoints);
 
-            self.add_remote_session(
-                DebugSessionId::from_proto(session_id),
-                ignore_breakpoints,
-                cx,
-            );
+            self.add_remote_session(session_id, ignore_breakpoints, cx);
 
             for debug_client in session.clients {
                 if let DapStoreMode::Remote(remote) = &mut self.mode {
@@ -1696,9 +1714,13 @@ impl DapStore {
                     }
                 }
 
+                let client = DebugAdapterClientId::from_proto(debug_client.client_id);
+
+                self.add_client_to_session(session_id, client);
+
                 self.update_capabilities_for_client(
-                    &DebugSessionId::from_proto(session_id),
-                    &DebugAdapterClientId::from_proto(debug_client.client_id),
+                    &session_id,
+                    &client,
                     &dap::proto_conversions::capabilities_from_proto(
                         &debug_client.capabilities.unwrap_or_default(),
                     ),

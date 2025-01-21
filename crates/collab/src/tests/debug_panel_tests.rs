@@ -2034,6 +2034,37 @@ async fn test_ignore_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppCo
     cx_a.run_until_parked();
     cx_b.run_until_parked();
 
+    let remote_debug_item = workspace_b.update(cx_b, |workspace, cx| {
+        let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
+        let active_debug_panel_item = debug_panel
+            .update(cx, |this, cx| this.active_debug_panel_item(cx))
+            .unwrap();
+
+        assert_eq!(
+            1,
+            debug_panel.update(cx, |this, cx| this.pane().unwrap().read(cx).items_len())
+        );
+
+        let session_id = debug_panel.update(cx, |this, cx| {
+            this.dap_store()
+                .read(cx)
+                .as_remote()
+                .unwrap()
+                .session_by_client_id(&client.id())
+                .unwrap()
+                .read(cx)
+                .id()
+        });
+
+        let breakpoints_ignored = active_debug_panel_item.read(cx).are_breakpoints_ignored(cx);
+
+        assert_eq!(session_id, active_debug_panel_item.read(cx).session_id());
+        assert_eq!(false, breakpoints_ignored);
+        assert_eq!(client.id(), active_debug_panel_item.read(cx).client_id());
+        assert_eq!(1, active_debug_panel_item.read(cx).thread_id());
+        active_debug_panel_item
+    });
+
     called_set_breakpoints.store(false, Ordering::SeqCst);
 
     client
@@ -2122,23 +2153,12 @@ async fn test_ignore_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppCo
         "SetBreakpoint request be called whenever breakpoints are toggled but with not breakpoints"
     );
 
-    let remote_debug_item = workspace_b.update(cx_b, |workspace, cx| {
-        let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
-        let active_debug_panel_item = debug_panel
-            .update(cx, |this, cx| this.active_debug_panel_item(cx))
-            .unwrap();
-
-        assert_eq!(
-            1,
-            debug_panel.update(cx, |this, cx| this.pane().unwrap().read(cx).items_len())
-        );
-
-        let breakpoints_ignored = active_debug_panel_item.read(cx).are_breakpoints_ignored(cx);
+    remote_debug_item.update(cx_b, |debug_panel, cx| {
+        let breakpoints_ignored = debug_panel.are_breakpoints_ignored(cx);
 
         assert_eq!(true, breakpoints_ignored);
-        assert_eq!(client.id(), active_debug_panel_item.read(cx).client_id());
-        assert_eq!(1, active_debug_panel_item.read(cx).thread_id());
-        active_debug_panel_item
+        assert_eq!(client.id(), debug_panel.client_id());
+        assert_eq!(1, debug_panel.thread_id());
     });
 
     client
@@ -2218,9 +2238,9 @@ async fn test_ignore_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppCo
 
     local_debug_item.update(cx_a, |debug_panel_item, cx| {
         assert_eq!(
-            true,
+            false,
             debug_panel_item.are_breakpoints_ignored(cx),
-            "Remote client set this to true"
+            "Remote client set this to false"
         );
         debug_panel_item.toggle_ignore_breakpoints(cx);
     });
