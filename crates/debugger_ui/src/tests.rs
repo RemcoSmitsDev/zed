@@ -1,5 +1,5 @@
 use gpui::{Model, TestAppContext, View, WindowHandle};
-use project::Project;
+use project::{Project, Worktree};
 use settings::SettingsStore;
 use terminal_view::terminal_panel::TerminalPanel;
 use workspace::Workspace;
@@ -70,4 +70,8 @@ pub fn active_debug_panel_item(
                 .unwrap()
         })
         .unwrap()
+}
+
+pub fn worktree_from_project(project: &Model<Project>, cx: &mut TestAppContext) -> Model<Worktree> {
+    project.read_with(cx, |project, cx| project.worktrees(cx).next().unwrap())
 }

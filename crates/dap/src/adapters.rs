@@ -7,12 +7,13 @@ use async_compression::futures::bufread::GzipDecoder;
 use async_tar::Archive;
 use async_trait::async_trait;
 use futures::io::BufReader;
-use gpui::SharedString;
+use gpui::{AsyncAppContext, SharedString};
 pub use http_client::{github::latest_github_release, HttpClient};
-use language::{LanguageName, Toolchain};
+use language::LanguageToolchainStore;
 use node_runtime::NodeRuntime;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use settings::WorktreeId;
 use smol::{self, fs::File, lock::Mutex};
 use std::{
     collections::{HashMap, HashSet},
@@ -36,9 +37,10 @@ pub enum DapStatus {
 
 #[async_trait(?Send)]
 pub trait DapDelegate {
-    fn http_client(&self) -> Option<Arc<dyn HttpClient>>;
+    fn worktree_id(&self) -> WorktreeId;
+    fn http_client(&self) -> Arc<dyn HttpClient>;
     fn node_runtime(&self) -> Option<NodeRuntime>;
-    fn toolchain(&self, adapter_name: &DebugAdapterName) -> Option<&Toolchain>;
+    fn toolchain_store(&self) -> Arc<dyn LanguageToolchainStore>;
     fn fs(&self) -> Arc<dyn Fs>;
     fn updated_adapters(&self) -> Arc<Mutex<HashSet<DebugAdapterName>>>;
     fn update_status(&self, dap_name: DebugAdapterName, status: DapStatus);
@@ -137,10 +139,8 @@ pub async fn download_adapter_from_github(
         &github_version.url,
     );
 
-    let http_client = delegate
+    let mut response = delegate
         .http_client()
-        .ok_or_else(|| anyhow!("Failed to download adapter: couldn't connect to GitHub"))?;
-    let mut response = http_client
         .get(&github_version.url, Default::default(), true)
         .await
         .context("Error downloading release")?;
@@ -193,15 +193,11 @@ pub async fn fetch_latest_adapter_version_from_github(
     github_repo: GithubRepo,
     delegate: &dyn DapDelegate,
 ) -> Result<AdapterVersion> {
-    let http_client = delegate
-        .http_client()
-        .ok_or_else(|| anyhow!("Failed to download adapter: couldn't connect to GitHub"))?;
-
     let release = latest_github_release(
         &format!("{}/{}", github_repo.repo_owner, github_repo.repo_name),
         false,
         false,
-        http_client,
+        delegate.http_client(),
     )
     .await?;
 
@@ -215,15 +211,12 @@ pub async fn fetch_latest_adapter_version_from_github(
 pub trait DebugAdapter: 'static + Send + Sync {
     fn name(&self) -> DebugAdapterName;
 
-    fn language_name(&self) -> Option<LanguageName> {
-        None
-    }
-
     async fn get_binary(
         &self,
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
         user_installed_path: Option<PathBuf>,
+        cx: &mut AsyncAppContext,
     ) -> Result<DebugAdapterBinary> {
         if delegate
             .updated_adapters()
@@ -234,7 +227,7 @@ pub trait DebugAdapter: 'static + Send + Sync {
             log::info!("Using cached debug adapter binary {}", self.name());
 
             if let Some(binary) = self
-                .get_installed_binary(delegate, &config, user_installed_path.clone())
+                .get_installed_binary(delegate, &config, user_installed_path.clone(), cx)
                 .await
                 .log_err()
             {
@@ -264,7 +257,7 @@ pub trait DebugAdapter: 'static + Send + Sync {
                 .insert(self.name());
         }
 
-        self.get_installed_binary(delegate, &config, user_installed_path)
+        self.get_installed_binary(delegate, &config, user_installed_path, cx)
             .await
     }
 
@@ -289,6 +282,7 @@ pub trait DebugAdapter: 'static + Send + Sync {
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
         user_installed_path: Option<PathBuf>,
+        cx: &mut AsyncAppContext,
     ) -> Result<DebugAdapterBinary>;
 
     /// Should return base configuration to make the debug adapter work
@@ -337,6 +331,7 @@ impl DebugAdapter for FakeAdapter {
         _delegate: &dyn DapDelegate,
         _config: &DebugAdapterConfig,
         _user_installed_path: Option<PathBuf>,
+        _cx: &mut AsyncAppContext,
     ) -> Result<DebugAdapterBinary> {
         Ok(DebugAdapterBinary {
             command: "command".into(),
@@ -366,6 +361,7 @@ impl DebugAdapter for FakeAdapter {
         _delegate: &dyn DapDelegate,
         _config: &DebugAdapterConfig,
         _user_installed_path: Option<PathBuf>,
+        _cx: &mut AsyncAppContext,
     ) -> Result<DebugAdapterBinary> {
         unimplemented!("get installed binary");
     }

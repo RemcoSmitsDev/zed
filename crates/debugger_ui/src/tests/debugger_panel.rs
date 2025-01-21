@@ -27,7 +27,7 @@ use std::{
     },
 };
 use terminal_view::{terminal_panel::TerminalPanel, TerminalView};
-use tests::{active_debug_panel_item, init_test, init_test_workspace};
+use tests::{active_debug_panel_item, init_test, init_test_workspace, worktree_from_project};
 use workspace::{dock::Panel, Item};
 
 #[gpui::test]
@@ -39,6 +39,7 @@ async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut Test
     let project = Project::test(fs, [], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
@@ -51,7 +52,7 @@ async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut Test
                     cwd: None,
                     initialize_args: None,
                 },
-                None,
+                &worktree,
                 cx,
             )
         })
@@ -157,6 +158,7 @@ async fn test_we_can_only_have_one_panel_per_debug_thread(
     let project = Project::test(fs, [], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
@@ -169,7 +171,7 @@ async fn test_we_can_only_have_one_panel_per_debug_thread(
                     cwd: None,
                     initialize_args: None,
                 },
-                None,
+                &worktree,
                 cx,
             )
         })
@@ -306,6 +308,7 @@ async fn test_client_can_open_multiple_thread_panels(
     let project = Project::test(fs, [], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
@@ -318,7 +321,7 @@ async fn test_client_can_open_multiple_thread_panels(
                     cwd: None,
                     initialize_args: None,
                 },
-                None,
+                &worktree,
                 cx,
             )
         })
@@ -457,6 +460,7 @@ async fn test_handle_successful_run_in_terminal_reverse_request(
     let project = Project::test(fs, [], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
@@ -469,7 +473,7 @@ async fn test_handle_successful_run_in_terminal_reverse_request(
                     cwd: None,
                     initialize_args: None,
                 },
-                None,
+                &worktree,
                 cx,
             )
         })
@@ -564,6 +568,7 @@ async fn test_handle_error_run_in_terminal_reverse_request(
     let project = Project::test(fs, [], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
@@ -576,7 +581,7 @@ async fn test_handle_error_run_in_terminal_reverse_request(
                     cwd: None,
                     initialize_args: None,
                 },
-                None,
+                &worktree,
                 cx,
             )
         })
@@ -662,6 +667,7 @@ async fn test_handle_start_debugging_reverse_request(
     let project = Project::test(fs, [], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
@@ -674,7 +680,7 @@ async fn test_handle_start_debugging_reverse_request(
                     cwd: None,
                     initialize_args: None,
                 },
-                None,
+                &worktree,
                 cx,
             )
         })
@@ -792,6 +798,7 @@ async fn test_debug_panel_item_thread_status_reset_on_failure(
     let project = Project::test(fs, [], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
@@ -804,7 +811,7 @@ async fn test_debug_panel_item_thread_status_reset_on_failure(
                     cwd: None,
                     initialize_args: None,
                 },
-                None,
+                &worktree,
                 cx,
             )
         })
@@ -996,12 +1003,9 @@ async fn test_send_breakpoints_when_editor_has_been_saved(
     let project = Project::test(fs, ["/a".as_ref()], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let worktree = worktree_from_project(&project, cx);
     let worktree_id = workspace
-        .update(cx, |workspace, cx| {
-            workspace.project().update(cx, |project, cx| {
-                project.worktrees(cx).next().unwrap().read(cx).id()
-            })
-        })
+        .update(cx, |_, cx| worktree.read(cx).id())
         .unwrap();
 
     let task = project.update(cx, |project, cx| {
@@ -1015,6 +1019,7 @@ async fn test_send_breakpoints_when_editor_has_been_saved(
                     cwd: None,
                     initialize_args: None,
                 },
+                &worktree,
                 cx,
             )
         })
@@ -1187,12 +1192,9 @@ async fn test_it_send_breakpoint_request_if_breakpoint_buffer_is_unopened(
     let project = Project::test(fs, ["/a".as_ref()], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let worktree = worktree_from_project(&project, cx);
     let worktree_id = workspace
-        .update(cx, |workspace, cx| {
-            workspace.project().update(cx, |project, cx| {
-                project.worktrees(cx).next().unwrap().read(cx).id()
-            })
-        })
+        .update(cx, |_, cx| worktree.read(cx).id())
         .unwrap();
 
     let task = project.update(cx, |project, cx| {
@@ -1206,6 +1208,7 @@ async fn test_it_send_breakpoint_request_if_breakpoint_buffer_is_unopened(
                     cwd: None,
                     initialize_args: None,
                 },
+                &worktree,
                 cx,
             )
         })
@@ -1322,6 +1325,7 @@ async fn test_debug_session_is_shutdown_when_attach_and_launch_request_fails(
     let project = Project::test(fs, [], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
@@ -1334,6 +1338,7 @@ async fn test_debug_session_is_shutdown_when_attach_and_launch_request_fails(
                     cwd: None,
                     initialize_args: None,
                 },
+                &worktree,
                 cx,
             )
         })

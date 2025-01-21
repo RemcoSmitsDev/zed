@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    tests::{active_debug_panel_item, init_test, init_test_workspace},
+    tests::{active_debug_panel_item, init_test, init_test_workspace, worktree_from_project},
     variable_list::{CollapseSelectedEntry, ExpandSelectedEntry, VariableContainer},
 };
 use collections::HashMap;
@@ -44,6 +44,7 @@ async fn test_basic_fetch_initial_scope_and_variables(
     let project = Project::test(fs, ["/project".as_ref()], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
@@ -56,7 +57,7 @@ async fn test_basic_fetch_initial_scope_and_variables(
                     cwd: None,
                     initialize_args: None,
                 },
-                None,
+                &worktree,
                 cx,
             )
         })
@@ -269,6 +270,7 @@ async fn test_fetch_variables_for_multiple_scopes(
     let project = Project::test(fs, ["/project".as_ref()], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
@@ -281,7 +283,7 @@ async fn test_fetch_variables_for_multiple_scopes(
                     cwd: None,
                     initialize_args: None,
                 },
-                None,
+                &worktree,
                 cx,
             )
         })
@@ -539,6 +541,7 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
     let project = Project::test(fs, ["/project".as_ref()], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
@@ -551,7 +554,7 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
                     cwd: None,
                     initialize_args: None,
                 },
-                None,
+                &worktree,
                 cx,
             )
         })

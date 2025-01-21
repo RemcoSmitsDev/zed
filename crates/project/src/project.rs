@@ -1309,20 +1309,26 @@ impl Project {
         cx: &mut ModelContext<Self>,
     ) {
         if let Some(config) = debug_task.debug_adapter_config() {
-            let worktree_id = maybe!({
-                Some(
-                    self.find_worktree(config.cwd.clone()?.as_path(), cx)?
-                        .0
-                        .read(cx)
-                        .id(),
-                )
+            let worktree = maybe!({
+                if let Some(cwd) = &config.cwd {
+                    Some(self.find_worktree(cwd.as_path(), cx)?.0)
+                } else {
+                    self.worktrees(cx).next()
+                }
             });
 
-            self.dap_store.update(cx, |store, cx| {
-                store
-                    .start_debug_session(config, worktree_id, cx)
-                    .detach_and_log_err(cx);
-            });
+            if let Some(worktree) = &worktree {
+                self.dap_store.update(cx, |store, cx| {
+                    store
+                        .start_debug_session(config, worktree, cx)
+                        .detach_and_log_err(cx);
+                });
+            } else {
+                cx.emit(Event::Toast {
+                    notification_id: "dap".into(),
+                    message: "Failed to find a worktree".into(),
+                });
+            }
         }
     }
 

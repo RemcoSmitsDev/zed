@@ -10,7 +10,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
-use tests::{active_debug_panel_item, init_test, init_test_workspace};
+use tests::{active_debug_panel_item, init_test, init_test_workspace, worktree_from_project};
 use unindent::Unindent as _;
 use variable_list::{VariableContainer, VariableListEntry};
 
@@ -23,6 +23,7 @@ async fn test_handle_output_event(executor: BackgroundExecutor, cx: &mut TestApp
     let project = Project::test(fs, [], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
@@ -35,7 +36,7 @@ async fn test_handle_output_event(executor: BackgroundExecutor, cx: &mut TestApp
                     cwd: None,
                     initialize_args: None,
                 },
-                None,
+                &worktree,
                 cx,
             )
         })
@@ -185,6 +186,7 @@ async fn test_grouped_output(executor: BackgroundExecutor, cx: &mut TestAppConte
     let project = Project::test(fs, [], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
@@ -197,7 +199,7 @@ async fn test_grouped_output(executor: BackgroundExecutor, cx: &mut TestAppConte
                     cwd: None,
                     initialize_args: None,
                 },
-                None,
+                &worktree,
                 cx,
             )
         })
@@ -489,6 +491,7 @@ async fn test_evaluate_expression(executor: BackgroundExecutor, cx: &mut TestApp
     let project = Project::test(fs, ["/project".as_ref()], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
@@ -501,7 +504,7 @@ async fn test_evaluate_expression(executor: BackgroundExecutor, cx: &mut TestApp
                     cwd: None,
                     initialize_args: None,
                 },
-                None,
+                &worktree,
                 cx,
             )
         })

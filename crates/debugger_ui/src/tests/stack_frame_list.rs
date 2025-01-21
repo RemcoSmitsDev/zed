@@ -1,7 +1,7 @@
 use crate::{
     debugger_panel::DebugPanel,
     stack_frame_list::StackFrameEntry,
-    tests::{active_debug_panel_item, init_test, init_test_workspace},
+    tests::{active_debug_panel_item, init_test, init_test_workspace, worktree_from_project},
 };
 use dap::{
     requests::{Disconnect, Initialize, Launch, StackTrace},
@@ -49,6 +49,7 @@ async fn test_fetch_initial_stack_frames_and_go_to_stack_frame(
     let project = Project::test(fs, ["/project".as_ref()], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
@@ -61,7 +62,7 @@ async fn test_fetch_initial_stack_frames_and_go_to_stack_frame(
                     cwd: None,
                     initialize_args: None,
                 },
-                None,
+                &worktree,
                 cx,
             )
         })
@@ -214,6 +215,7 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
     let project = Project::test(fs, ["/project".as_ref()], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
@@ -226,7 +228,7 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
                     cwd: None,
                     initialize_args: None,
                 },
-                None,
+                &worktree,
                 cx,
             )
         })
@@ -462,6 +464,7 @@ async fn test_collapsed_entries(executor: BackgroundExecutor, cx: &mut TestAppCo
     let project = Project::test(fs, ["/project".as_ref()], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |store, cx| {
@@ -474,6 +477,7 @@ async fn test_collapsed_entries(executor: BackgroundExecutor, cx: &mut TestAppCo
                     cwd: None,
                     initialize_args: None,
                 },
+                &worktree,
                 cx,
             )
         })

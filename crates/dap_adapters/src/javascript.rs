@@ -1,5 +1,6 @@
 use adapters::latest_github_release;
 use dap::transport::{TcpTransport, Transport};
+use gpui::AsyncAppContext;
 use regex::Regex;
 use std::{collections::HashMap, net::Ipv4Addr, path::PathBuf, sync::Arc};
 use sysinfo::{Pid, Process};
@@ -40,14 +41,11 @@ impl DebugAdapter for JsDebugAdapter {
         &self,
         delegate: &dyn DapDelegate,
     ) -> Result<AdapterVersion> {
-        let http_client = delegate
-            .http_client()
-            .ok_or_else(|| anyhow!("Failed to download adapter: couldn't connect to GitHub"))?;
         let release = latest_github_release(
             &format!("{}/{}", "microsoft", Self::ADAPTER_NAME),
             true,
             false,
-            http_client,
+            delegate.http_client(),
         )
         .await?;
 
@@ -70,6 +68,7 @@ impl DebugAdapter for JsDebugAdapter {
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
         user_installed_path: Option<PathBuf>,
+        _: &mut AsyncAppContext,
     ) -> Result<DebugAdapterBinary> {
         let adapter_path = if let Some(user_installed_path) = user_installed_path {
             user_installed_path

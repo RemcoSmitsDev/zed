@@ -3615,6 +3615,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "dap",
+ "gpui",
  "language",
  "paths",
  "regex",
