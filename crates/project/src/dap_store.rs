@@ -289,15 +289,16 @@ impl DapStore {
     ) {
         match &mut self.mode {
             DapStoreMode::Remote(remote) => {
-                let session = cx.new_model(|_| {
-                    DebugSession::new_remote(
-                        session_id,
-                        "Remote-Debug".to_owned(),
-                        ignore.unwrap_or(false),
-                    )
-                });
-
-                remote.sessions.insert(session_id, session);
+                remote
+                    .sessions
+                    .entry(session_id)
+                    .or_insert(cx.new_model(|_| {
+                        DebugSession::new_remote(
+                            session_id,
+                            "Remote-Debug".to_owned(),
+                            ignore.unwrap_or(false),
+                        )
+                    }));
             }
             _ => {}
         }
@@ -475,10 +476,10 @@ impl DapStore {
         envelope: TypedEnvelope<proto::IgnoreBreakpointState>,
         mut cx: AsyncAppContext,
     ) -> Result<()> {
-        let client_id = DebugAdapterClientId::from_proto(envelope.payload.client_id);
+        let session_id = DebugSessionId::from_proto(envelope.payload.session_id);
 
         this.update(&mut cx, |this, cx| {
-            if let Some(session) = this.session_by_client_id(&client_id) {
+            if let Some(session) = this.session_by_id(&session_id) {
                 session.update(cx, |session, cx| {
                     session.set_ignore_breakpoints(envelope.payload.ignore, cx)
                 });

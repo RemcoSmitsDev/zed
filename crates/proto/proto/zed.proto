@@ -2726,7 +2726,7 @@ message ToggleIgnoreBreakpoints {
 
 message IgnoreBreakpointState {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
     bool ignore = 3;
 }
 

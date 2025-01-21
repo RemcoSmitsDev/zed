@@ -1852,11 +1852,16 @@ async fn test_variable_list(
 }
 
 #[gpui::test]
-async fn test_ignore_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppContext) {
+async fn test_ignore_breakpoints(
+    cx_a: &mut TestAppContext,
+    cx_b: &mut TestAppContext,
+    cx_c: &mut TestAppContext,
+) {
     let executor = cx_a.executor();
     let mut server = TestServer::start(executor.clone()).await;
     let client_a = server.create_client(cx_a, "user_a").await;
     let client_b = server.create_client(cx_b, "user_b").await;
+    let client_c = server.create_client(cx_c, "user_c").await;
 
     client_a
         .fs()
@@ -1870,12 +1875,14 @@ async fn test_ignore_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppCo
 
     init_test(cx_a);
     init_test(cx_b);
+    init_test(cx_c);
 
     server
-        .create_room(&mut [(&client_a, cx_a), (&client_b, cx_b)])
+        .create_room(&mut [(&client_a, cx_a), (&client_b, cx_b), (&client_c, cx_c)])
         .await;
     let active_call_a = cx_a.read(ActiveCall::global);
     let active_call_b = cx_b.read(ActiveCall::global);
+    let active_call_c = cx_c.read(ActiveCall::global);
 
     let (project_a, worktree_id) = client_a.build_local_project("/a", cx_a).await;
     active_call_a
@@ -2209,12 +2216,41 @@ async fn test_ignore_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppCo
         })
         .await;
 
+    let project_c = client_c.join_remote_project(project_id, cx_c).await;
+    active_call_c
+        .update(cx_c, |call, cx| call.set_location(Some(&project_c), cx))
+        .await
+        .unwrap();
+
+    let (workspace_c, cx_c) = client_c.build_workspace(&project_c, cx_c);
+    add_debugger_panel(&workspace_c, cx_c).await;
+
+    let last_join_remote_item = workspace_c.update(cx_c, |workspace, cx| {
+        let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
+        let active_debug_panel_item = debug_panel
+            .update(cx, |this, cx| this.active_debug_panel_item(cx))
+            .unwrap();
+
+        let breakpoints_ignored = active_debug_panel_item.read(cx).are_breakpoints_ignored(cx);
+
+        assert_eq!(true, breakpoints_ignored);
+
+        assert_eq!(
+            1,
+            debug_panel.update(cx, |this, cx| this.pane().unwrap().read(cx).items_len())
+        );
+        assert_eq!(client.id(), active_debug_panel_item.read(cx).client_id());
+        assert_eq!(1, active_debug_panel_item.read(cx).thread_id());
+        active_debug_panel_item
+    });
+
     remote_debug_item.update(cx_b, |item, cx| {
         item.toggle_ignore_breakpoints(cx);
     });
 
     cx_a.run_until_parked();
     cx_b.run_until_parked();
+    cx_c.run_until_parked();
 
     assert!(
         called_set_breakpoints.load(std::sync::atomic::Ordering::SeqCst),
@@ -2243,11 +2279,23 @@ async fn test_ignore_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppCo
             debug_panel_item.are_breakpoints_ignored(cx),
             "Remote client set this to false"
         );
-        debug_panel_item.toggle_ignore_breakpoints(cx);
     });
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    remote_debug_item.update(cx_b, |debug_panel_item, cx| {
+        assert_eq!(
+            false,
+            debug_panel_item.are_breakpoints_ignored(cx),
+            "Remote client set this to false"
+        );
+    });
+
+    last_join_remote_item.update(cx_c, |debug_panel_item, cx| {
+        assert_eq!(
+            false,
+            debug_panel_item.are_breakpoints_ignored(cx),
+            "Remote client set this to false"
+        );
+    });
 
     let shutdown_client = project_a.update(cx_a, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
@@ -2261,6 +2309,23 @@ async fn test_ignore_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppCo
     cx_b.run_until_parked();
 
     project_b.update(cx_b, |project, cx| {
+        project.dap_store().update(cx, |dap_store, _cx| {
+            let sessions = dap_store.sessions().collect::<Vec<_>>();
+
+            assert_eq!(
+                None,
+                dap_store.session_by_client_id(&client_id),
+                "No client_id to session mapping should exist after shutdown"
+            );
+            assert_eq!(
+                0,
+                sessions.len(),
+                "No sessions should be left after shutdown"
+            );
+        })
+    });
+
+    project_c.update(cx_c, |project, cx| {
         project.dap_store().update(cx, |dap_store, _cx| {
             let sessions = dap_store.sessions().collect::<Vec<_>>();
 

@@ -442,9 +442,7 @@ impl Server {
             .add_message_handler(
                 broadcast_project_message_from_host::<proto::ToggleIgnoreBreakpoints>,
             )
-            .add_message_handler(
-                broadcast_project_message_from_host::<proto::IgnoreBreakpointState>,
-            )
+            .add_message_handler(ignore_breakpoint_state)
             .add_message_handler(
                 broadcast_project_message_from_host::<proto::DebuggerSessionEnded>,
             );
@@ -2150,6 +2148,28 @@ async fn shutdown_debug_client(
         .db()
         .await
         .shutdown_debug_client(session.connection_id, &request)
+        .await?;
+
+    broadcast(
+        Some(session.connection_id),
+        guest_connection_ids.iter().copied(),
+        |connection_id| {
+            session
+                .peer
+                .forward_send(session.connection_id, connection_id, request.clone())
+        },
+    );
+    Ok(())
+}
+
+async fn ignore_breakpoint_state(
+    request: proto::IgnoreBreakpointState,
+    session: Session,
+) -> Result<()> {
+    let guest_connection_ids = session
+        .db()
+        .await
+        .ignore_breakpoint_state(session.connection_id, &request)
         .await?;
 
     broadcast(

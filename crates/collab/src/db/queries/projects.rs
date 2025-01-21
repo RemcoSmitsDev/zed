@@ -556,6 +556,40 @@ impl Database {
         .await
     }
 
+    pub async fn ignore_breakpoint_state(
+        &self,
+        connection_id: ConnectionId,
+        update: &proto::IgnoreBreakpointState,
+    ) -> Result<TransactionGuard<HashSet<ConnectionId>>> {
+        let project_id = ProjectId::from_proto(update.project_id);
+        self.project_transaction(project_id, |tx| async move {
+            let debug_clients = debug_clients::Entity::find()
+                .filter(
+                    Condition::all()
+                        .add(debug_clients::Column::ProjectId.eq(project_id))
+                        .add(debug_clients::Column::SessionId.eq(update.session_id)),
+                )
+                .all(&*tx)
+                .await?;
+
+            for debug_client in debug_clients {
+                debug_clients::Entity::update(debug_clients::ActiveModel {
+                    id: ActiveValue::Unchanged(debug_client.id),
+                    project_id: ActiveValue::Unchanged(debug_client.project_id),
+                    session_id: ActiveValue::Unchanged(debug_client.session_id),
+                    capabilities: ActiveValue::Unchanged(debug_client.capabilities),
+                    ignore_breakpoints: ActiveValue::Set(update.ignore),
+                })
+                .exec(&*tx)
+                .await?;
+            }
+
+            self.internal_project_connection_ids(project_id, connection_id, true, &tx)
+                .await
+        })
+        .await
+    }
+
     pub async fn update_debug_adapter(
         &self,
         connection_id: ConnectionId,

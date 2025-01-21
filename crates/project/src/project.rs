@@ -1431,7 +1431,7 @@ impl Project {
             if let Some((downstream_client, project_id)) = store.downstream_client() {
                 downstream_client
                     .send(proto::IgnoreBreakpointState {
-                        client_id: client_id.to_proto(),
+                        session_id: session_id.to_proto(),
                         project_id: *project_id,
                         ignore: store.ignore_breakpoints(session_id, cx),
                     })
