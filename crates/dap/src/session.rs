@@ -120,11 +120,11 @@ impl DebugSession {
         }
     }
 
-    pub fn new_remote(id: DebugSessionId, label: String) -> Self {
+    pub fn new_remote(id: DebugSessionId, label: String, ignore_breakpoints: bool) -> Self {
         Self::Remote(RemoteDebugSession {
             id,
             label: label.clone(),
-            ignore_breakpoints: false,
+            ignore_breakpoints,
         })
     }
 

@@ -1019,6 +1019,10 @@ impl DebugPanel {
                     )
                 });
 
+                self.dap_store.update(cx, |dap_store, cx| {
+                    dap_store.add_remote_session(session_id, None, cx);
+                });
+
                 pane.add_item(Box::new(debug_panel_item.clone()), true, true, None, cx);
                 debug_panel_item
             });

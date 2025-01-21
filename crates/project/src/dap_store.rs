@@ -280,6 +280,28 @@ impl DapStore {
         self.downstream_client.as_ref()
     }
 
+    pub fn add_remote_session(
+        &mut self,
+        session_id: DebugSessionId,
+        ignore: Option<bool>,
+        cx: &mut ModelContext<Self>,
+    ) {
+        match &mut self.mode {
+            DapStoreMode::Remote(remote) => {
+                let session = cx.new_model(|_| {
+                    DebugSession::new_remote(
+                        session_id,
+                        "Remote-Debug".to_owned(),
+                        ignore.unwrap_or(false),
+                    )
+                });
+
+                remote.sessions.insert(session_id, session);
+            }
+            _ => {}
+        }
+    }
+
     pub fn sessions(&self) -> impl Iterator<Item = Model<DebugSession>> + '_ {
         match &self.mode {
             DapStoreMode::Local(local) => local.sessions.values().cloned(),
@@ -1655,11 +1677,17 @@ impl DapStore {
         debug_sessions: Vec<proto::DebuggerSession>,
         cx: &mut ModelContext<Self>,
     ) {
-        for (session_id, debug_clients) in debug_sessions
-            .into_iter()
-            .map(|session| (session.session_id, session.clients))
-        {
-            for debug_client in debug_clients {
+        for session in debug_sessions.into_iter() {
+            let session_id = session.session_id;
+            let ignore_breakpoints = Some(session.ignore_breakpoints);
+
+            self.add_remote_session(
+                DebugSessionId::from_proto(session_id),
+                ignore_breakpoints,
+                cx,
+            );
+
+            for debug_client in session.clients {
                 if let DapStoreMode::Remote(remote) = &mut self.mode {
                     if let Some(queue) = &mut remote.event_queue {
                         debug_client.debug_panel_items.into_iter().for_each(|item| {
