@@ -2476,7 +2476,8 @@ enum BreakpointKind {
 message DebuggerSession {
     uint64 session_id = 1;
     uint64 project_id = 2;
-    repeated DebugClient clients = 3;
+    bool ignore_breakpoints = 3;
+    repeated DebugClient clients = 4;
 }
 
 message DebugClient {

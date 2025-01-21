@@ -124,7 +124,20 @@ impl LocalDapStore {
 pub struct RemoteDapStore {
     upstream_client: Option<AnyProtoClient>,
     upstream_project_id: u64,
+    sessions: HashMap<DebugSessionId, Model<DebugSession>>,
+    client_by_session: HashMap<DebugAdapterClientId, DebugSessionId>,
     event_queue: Option<VecDeque<DapStoreEvent>>,
+}
+
+impl RemoteDapStore {
+    pub fn session_by_client_id(
+        &self,
+        client_id: &DebugAdapterClientId,
+    ) -> Option<Model<DebugSession>> {
+        self.client_by_session
+            .get(client_id)
+            .and_then(|session_id| self.sessions.get(session_id).cloned())
+    }
 }
 
 pub struct DapStore {
@@ -207,6 +220,8 @@ impl DapStore {
             mode: DapStoreMode::Remote(RemoteDapStore {
                 upstream_client: Some(upstream_client),
                 upstream_project_id: project_id,
+                sessions: Default::default(),
+                client_by_session: Default::default(),
                 event_queue: Some(VecDeque::default()),
             }),
             downstream_client: None,
@@ -266,20 +281,27 @@ impl DapStore {
     }
 
     pub fn sessions(&self) -> impl Iterator<Item = Model<DebugSession>> + '_ {
-        self.as_local().unwrap().sessions.values().cloned()
+        match &self.mode {
+            DapStoreMode::Local(local) => local.sessions.values().cloned(),
+            DapStoreMode::Remote(remote) => remote.sessions.values().cloned(),
+        }
     }
 
     pub fn session_by_id(&self, session_id: &DebugSessionId) -> Option<Model<DebugSession>> {
-        self.as_local()
-            .and_then(|store| store.sessions.get(session_id).cloned())
+        match &self.mode {
+            DapStoreMode::Local(local) => local.sessions.get(session_id).cloned(),
+            DapStoreMode::Remote(remote) => remote.sessions.get(session_id).cloned(),
+        }
     }
 
     pub fn session_by_client_id(
         &self,
         client_id: &DebugAdapterClientId,
     ) -> Option<Model<DebugSession>> {
-        self.as_local()
-            .and_then(|store| store.session_by_client_id(client_id))
+        match &self.mode {
+            DapStoreMode::Local(local) => local.session_by_client_id(client_id),
+            DapStoreMode::Remote(remote) => remote.session_by_client_id(client_id),
+        }
     }
 
     pub fn client_by_id(
@@ -389,6 +411,19 @@ impl DapStore {
         })?;
 
         Ok(())
+    }
+
+    pub fn set_ignore_breakpoints(
+        &mut self,
+        session_id: &DebugSessionId,
+        ignore: bool,
+        cx: &mut ModelContext<Self>,
+    ) {
+        if let Some(session) = self.session_by_id(session_id) {
+            session.update(cx, |session, cx| {
+                session.set_ignore_breakpoints(ignore, cx);
+            });
+        }
     }
 
     pub fn ignore_breakpoints(&self, session_id: &DebugSessionId, cx: &AppContext) -> bool {
@@ -759,6 +794,7 @@ impl DapStore {
         let mut adapter_args = client.adapter().request_args(&config);
         if let Some(args) = config.initialize_args.clone() {
             merge_json_value_into(args, &mut adapter_args);
+            dbg!(&adapter_args);
         }
 
         // TODO(debugger): GDB starts the debuggee program on launch instead of configurationDone

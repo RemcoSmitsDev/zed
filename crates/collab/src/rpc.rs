@@ -438,6 +438,12 @@ impl Server {
             .add_request_handler(forward_mutating_project_request::<proto::VariablesRequest>)
             .add_message_handler(
                 broadcast_project_message_from_host::<proto::DapRestartStackFrameRequest>,
+            )
+            .add_message_handler(
+                broadcast_project_message_from_host::<proto::ToggleIgnoreBreakpoints>,
+            )
+            .add_message_handler(
+                broadcast_project_message_from_host::<proto::IgnoreBreakpointState>,
             );
 
         Arc::new(server)

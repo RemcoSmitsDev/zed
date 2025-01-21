@@ -647,6 +647,7 @@ impl Database {
                     project_id: ActiveValue::Set(project_id),
                     session_id: ActiveValue::Set(update.session_id as i64),
                     capabilities: ActiveValue::Set(0),
+                    ignore_breakpoints: ActiveValue::Set(false),
                 };
                 new_debug_client.insert(&*tx).await?;
             }
@@ -729,6 +730,7 @@ impl Database {
                     project_id: ActiveValue::Set(project_id),
                     session_id: ActiveValue::Set(update.session_id as i64),
                     capabilities: ActiveValue::Set(0),
+                    ignore_breakpoints: ActiveValue::Set(false),
                 };
                 debug_client = Some(new_debug_client.insert(&*tx).await?);
             }
@@ -742,6 +744,7 @@ impl Database {
                 project_id: ActiveValue::Unchanged(debug_client.project_id),
                 session_id: ActiveValue::Unchanged(debug_client.session_id),
                 capabilities: ActiveValue::Set(debug_client.capabilities),
+                ignore_breakpoints: ActiveValue::Set(debug_client.ignore_breakpoints),
             })
             .exec(&*tx)
             .await?;
@@ -1086,6 +1089,7 @@ impl Database {
 
         for (session_id, clients) in debug_sessions.into_iter() {
             let mut debug_clients = Vec::default();
+            let ignore_breakpoints = clients.iter().any(|debug| debug.ignore_breakpoints); // Temp solution until client -> session change
 
             for debug_client in clients.into_iter() {
                 let debug_panel_items = debug_client
@@ -1108,6 +1112,7 @@ impl Database {
                 project_id,
                 session_id: session_id as u64,
                 clients: debug_clients,
+                ignore_breakpoints,
             });
         }
 
