@@ -329,7 +329,9 @@ message Envelope {
         DapRestartRequest dap_restart_request = 308;
         DapShutdownSession dap_shutdown_session = 309;
         UpdateThreadStatus update_thread_status = 310;
-        DapRestartStackFrameRequest dap_restart_stack_frame_request = 311; // current max
+        VariablesRequest variables_request = 311;
+        DapVariables dap_variables = 312;
+        DapRestartStackFrameRequest dap_restart_stack_frame_request = 313; // current max
     }
 
     reserved 87 to 88;
@@ -1059,6 +1061,7 @@ message PrepareRenameResponse {
     Anchor start = 2;
     Anchor end = 3;
     repeated VectorClockEntry version = 4;
+    bool only_unprepared_rename_supported = 5;
 }
 
 message PerformRename {
@@ -1777,6 +1780,8 @@ message User {
     uint64 id = 1;
     string github_login = 2;
     string avatar_url = 3;
+    optional string email = 4;
+    optional string name = 5;
 }
 
 message File {
@@ -1811,7 +1816,9 @@ message RepositoryEntry {
 
 message StatusEntry {
     string repo_path = 1;
-    GitStatus status = 2;
+    // Can be removed once collab's min version is >=0.171.0.
+    GitStatus simple_status = 2;
+    GitFileStatus status = 3;
 }
 
 enum GitStatus {
@@ -1819,6 +1826,31 @@ enum GitStatus {
     Modified = 1;
     Conflict = 2;
     Deleted = 3;
+    Updated = 4;
+    TypeChanged = 5;
+    Renamed = 6;
+    Copied = 7;
+    Unmodified = 8;
+}
+
+message GitFileStatus {
+    oneof variant {
+        Untracked untracked = 1;
+        Ignored ignored = 2;
+        Unmerged unmerged = 3;
+        Tracked tracked = 4;
+    }
+
+    message Untracked {}
+    message Ignored {}
+    message Unmerged {
+        GitStatus first_head = 1;
+        GitStatus second_head = 2;
+    }
+    message Tracked {
+        GitStatus index_status = 1;
+        GitStatus worktree_status = 2;
+    }
 }
 
 message BufferState {
@@ -2471,6 +2503,7 @@ message SetDebugClientCapabilities {
     bool supports_stepping_granularity = 10;
     bool supports_terminate_threads_request = 11;
     bool supports_restart_frame_request = 12;
+    bool supports_clipboard_context = 13;
 }
 
 message Breakpoint {
@@ -2530,14 +2563,6 @@ message DebuggerOpenEntryVariable {
     uint64 depth = 3;
 }
 
-message DebuggerVariableListEntry {
-    oneof entry {
-        DapScope scope = 1;
-        VariableListEntrySetState set_variable_editor = 2;
-        VariableListEntryVariable variable = 3;
-    }
-}
-
 message VariableListEntrySetState {
     uint64 depth = 1;
     DebuggerSetVariableState state = 2;
@@ -2586,11 +2611,6 @@ message VariableListScopes {
     repeated DapScope scopes = 2;
 }
 
-message VariableListEntries {
-    uint64 stack_frame_id = 1;
-    repeated DebuggerVariableListEntry entries = 2;
-}
-
 message VariableListVariables {
     uint64 stack_frame_id = 1;
     uint64 scope_id = 2;
@@ -2598,12 +2618,39 @@ message VariableListVariables {
 }
 
 message DebuggerVariableList {
-    repeated VariableListOpenEntry open_entries = 1;
-    repeated VariableListScopes scopes = 2;
-    // Editor set_variable_editor = 3;
-    DebuggerSetVariableState set_variable_state = 4;
-    repeated VariableListEntries entries = 5;
-    repeated VariableListVariables variables = 6;
+    repeated VariableListScopes scopes = 1;
+    repeated VariableListVariables variables = 2;
+    repeated AddToVariableList added_variables = 3;
+}
+
+enum VariablesArgumentsFilter {
+    Indexed = 0;
+    Named = 1;
+}
+
+message ValueFormat {
+    optional bool hex = 1;
+}
+
+message VariablesRequest {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    uint64 thread_id = 3;
+    uint64 session_id = 4;
+    uint64 stack_frame_id = 5;
+    uint64 scope_id = 6;
+    uint64 variables_reference = 7;
+    optional VariablesArgumentsFilter filter = 8;
+    optional uint64 start = 9;
+    optional uint64 count = 10;
+    optional ValueFormat format = 11;
+}
+
+message AddToVariableList {
+    uint64 variable_id = 1;
+    uint64 stack_frame_id = 2;
+    uint64 scope_id = 3;
+    repeated DapVariable variables = 4;
 }
 
 message DebuggerStackFrameList {
@@ -2743,7 +2790,7 @@ message SetDebuggerPanelItem {
     uint64 thread_id = 4;
     string session_name = 5;
     DebuggerConsole console = 6;
-    DebuggerModuleList module_list = 7;
+    optional DebuggerModuleList module_list = 7; // We only send this when it's supported and once per client
     DebuggerThreadItem active_thread_item = 8;
     DebuggerThreadState thread_state = 9;
     DebuggerVariableList variable_list = 10;
@@ -2760,8 +2807,16 @@ message UpdateDebugAdapter {
         DebuggerThreadState thread_state = 5;
         DebuggerStackFrameList stack_frame_list = 6;
         DebuggerVariableList variable_list = 7;
-        DebuggerModuleList modules = 8;
+        AddToVariableList add_to_variable_list = 8;
+        DebuggerModuleList modules = 9;
     }
+}
+
+
+
+message DapVariables {
+    uint64 client_id = 1;
+    repeated DapVariable variables = 2;
 }
 
 // Remote Debugging: Dap Types

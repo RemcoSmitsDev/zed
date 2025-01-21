@@ -4,6 +4,7 @@ pub mod connection_manager;
 pub mod dap_command;
 pub mod dap_store;
 pub mod debounced_delay;
+pub mod git;
 pub mod image_store;
 pub mod lsp_command;
 pub mod lsp_ext_command;
@@ -26,6 +27,7 @@ pub use environment::EnvironmentErrorMessage;
 pub mod search_history;
 mod yarn;
 
+use crate::git::GitState;
 use anyhow::{anyhow, Context as _, Result};
 use buffer_store::{BufferChangeSet, BufferStore, BufferStoreEvent};
 use client::{proto, Client, Collaborator, PendingEntitySubscription, TypedEnvelope, UserStore};
@@ -50,9 +52,10 @@ use futures::{
 pub use image_store::{ImageItem, ImageStore};
 use image_store::{ImageItemEvent, ImageStoreEvent};
 
-use git::{
+use ::git::{
     blame::Blame,
-    repository::{GitFileStatus, GitRepository},
+    repository::{Branch, GitRepository},
+    status::FileStatus,
 };
 use gpui::{
     AnyModel, AppContext, AsyncAppContext, BorrowAppContext, Context as _, EventEmitter, Hsla,
@@ -164,6 +167,7 @@ pub struct Project {
     fs: Arc<dyn Fs>,
     ssh_client: Option<Model<SshRemoteClient>>,
     client_state: ProjectClientState,
+    git_state: Option<Model<GitState>>,
     collaborators: HashMap<proto::PeerId, Collaborator>,
     client_subscriptions: Vec<client::Subscription>,
     worktree_store: Model<WorktreeStore>,
@@ -333,6 +337,14 @@ impl ProjectPath {
             path: Path::new("").into(),
         }
     }
+}
+
+#[derive(Debug, Default)]
+pub enum PrepareRenameResponse {
+    Success(Range<Anchor>),
+    OnlyUnpreparedRenameSupported,
+    #[default]
+    InvalidPosition,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -727,6 +739,9 @@ impl Project {
                     cx,
                 )
             });
+
+            let git_state = Some(cx.new_model(|cx| GitState::new(cx)));
+
             cx.subscribe(&lsp_store, Self::on_lsp_store_event).detach();
 
             Self {
@@ -738,6 +753,7 @@ impl Project {
                 lsp_store,
                 join_project_response_message_id: 0,
                 client_state: ProjectClientState::Local,
+                git_state,
                 client_subscriptions: Vec::new(),
                 _subscriptions: vec![cx.on_release(Self::release)],
                 active_entry: None,
@@ -861,6 +877,7 @@ impl Project {
                 dap_store,
                 join_project_response_message_id: 0,
                 client_state: ProjectClientState::Local,
+                git_state: None,
                 client_subscriptions: Vec::new(),
                 _subscriptions: vec![
                     cx.on_release(Self::release),
@@ -1108,6 +1125,7 @@ impl Project {
                     replica_id,
                 },
                 dap_store: dap_store.clone(),
+                git_state: None,
                 buffers_needing_diff: Default::default(),
                 git_diff_debouncer: DebouncedDelay::new(),
                 terminals: Terminals {
@@ -1272,6 +1290,7 @@ impl Project {
                     abs_path,
                     source_breakpoints,
                     store.ignore_breakpoints(session_id, cx),
+                    false,
                     cx,
                 )
             }));
@@ -1416,6 +1435,7 @@ impl Project {
                             .map(|breakpoint| breakpoint.to_source_breakpoint(buffer))
                             .collect::<Vec<_>>(),
                         store.ignore_breakpoints(session_id, cx),
+                        false,
                         cx,
                     ),
                 );
@@ -1765,7 +1785,7 @@ impl Project {
         &self,
         project_path: &ProjectPath,
         cx: &AppContext,
-    ) -> Option<GitFileStatus> {
+    ) -> Option<FileStatus> {
         self.worktree_for_id(project_path.worktree_id, cx)
             .and_then(|worktree| worktree.read(cx).status_for_file(&project_path.path))
     }
@@ -2531,21 +2551,17 @@ impl Project {
                     message: message.clone(),
                 });
             }
-            DapStoreEvent::BreakpointsChanged(project_path) => {
+            DapStoreEvent::BreakpointsChanged {
+                project_path,
+                source_changed,
+            } => {
                 cx.notify(); // so the UI updates
 
-                let buffer_id = self
+                let buffer_snapshot = self
                     .buffer_store
                     .read(cx)
-                    .buffer_id_for_project_path(&project_path);
-
-                let Some(buffer_id) = buffer_id else {
-                    return;
-                };
-
-                let Some(buffer) = self.buffer_for_id(*buffer_id, cx) else {
-                    return;
-                };
+                    .get_by_path(&project_path, cx)
+                    .map(|buffer| buffer.read(cx).snapshot());
 
                 let Some(absolute_path) = self.absolute_path(project_path, cx) else {
                     return;
@@ -2556,7 +2572,8 @@ impl Project {
                         .send_changed_breakpoints(
                             project_path,
                             absolute_path,
-                            buffer.read(cx).snapshot(),
+                            buffer_snapshot,
+                            *source_changed,
                             cx,
                         )
                         .detach_and_log_err(cx);
@@ -3312,7 +3329,7 @@ impl Project {
         buffer: Model<Buffer>,
         position: PointUtf16,
         cx: &mut ModelContext<Self>,
-    ) -> Task<Result<Option<Range<Anchor>>>> {
+    ) -> Task<Result<PrepareRenameResponse>> {
         self.request_lsp(
             buffer,
             LanguageServerToQuery::Primary,
@@ -3325,19 +3342,19 @@ impl Project {
         buffer: Model<Buffer>,
         position: T,
         cx: &mut ModelContext<Self>,
-    ) -> Task<Result<Option<Range<Anchor>>>> {
+    ) -> Task<Result<PrepareRenameResponse>> {
         let position = position.to_point_utf16(buffer.read(cx));
         self.prepare_rename_impl(buffer, position, cx)
     }
 
-    fn perform_rename_impl(
+    pub fn perform_rename<T: ToPointUtf16>(
         &mut self,
         buffer: Model<Buffer>,
-        position: PointUtf16,
+        position: T,
         new_name: String,
-        push_to_history: bool,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<ProjectTransaction>> {
+        let push_to_history = true;
         let position = position.to_point_utf16(buffer.read(cx));
         self.request_lsp(
             buffer,
@@ -3349,17 +3366,6 @@ impl Project {
             },
             cx,
         )
-    }
-
-    pub fn perform_rename<T: ToPointUtf16>(
-        &mut self,
-        buffer: Model<Buffer>,
-        position: T,
-        new_name: String,
-        cx: &mut ModelContext<Self>,
-    ) -> Task<Result<ProjectTransaction>> {
-        let position = position.to_point_utf16(buffer.read(cx));
-        self.perform_rename_impl(buffer, position, new_name, true, cx)
     }
 
     pub fn on_type_format<T: ToPointUtf16>(
@@ -3971,7 +3977,7 @@ impl Project {
         &self,
         project_path: ProjectPath,
         cx: &AppContext,
-    ) -> Task<Result<Vec<git::repository::Branch>>> {
+    ) -> Task<Result<Vec<Branch>>> {
         self.worktree_store().read(cx).branches(project_path, cx)
     }
 
@@ -4590,6 +4596,10 @@ impl Project {
 
     pub fn buffer_store(&self) -> &Model<BufferStore> {
         &self.buffer_store
+    }
+
+    pub fn git_state(&self) -> Option<&Model<GitState>> {
+        self.git_state.as_ref()
     }
 }
 
