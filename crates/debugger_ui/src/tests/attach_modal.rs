@@ -10,7 +10,7 @@ use std::sync::{
     Arc,
 };
 use task::AttachConfig;
-use tests::{init_test, init_test_workspace, worktree_from_project};
+use tests::{init_test, init_test_workspace};
 
 #[gpui::test]
 async fn test_direct_attach_to_process(executor: BackgroundExecutor, cx: &mut TestAppContext) {
@@ -23,25 +23,21 @@ async fn test_direct_attach_to_process(executor: BackgroundExecutor, cx: &mut Te
     let project = Project::test(fs, [], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
-    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                task::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: task::DebugAdapterKind::Fake,
-                    request: task::DebugRequestType::Attach(AttachConfig {
-                        process_id: Some(10),
-                    }),
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                &worktree,
-                cx,
-            )
-        })
+        project.start_debug_session(
+            task::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: task::DebugAdapterKind::Fake,
+                request: task::DebugRequestType::Attach(AttachConfig {
+                    process_id: Some(10),
+                }),
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -107,23 +103,19 @@ async fn test_show_attach_modal_and_select_process(
     let project = Project::test(fs, [], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
-    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                task::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: task::DebugAdapterKind::Fake,
-                    request: task::DebugRequestType::Attach(AttachConfig { process_id: None }),
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                &worktree,
-                cx,
-            )
-        })
+        project.start_debug_session(
+            task::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: task::DebugAdapterKind::Fake,
+                request: task::DebugRequestType::Attach(AttachConfig { process_id: None }),
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -214,23 +206,19 @@ async fn test_shutdown_session_when_modal_is_dismissed(
     let project = Project::test(fs, [], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
-    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                task::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: task::DebugAdapterKind::Fake,
-                    request: task::DebugRequestType::Attach(AttachConfig { process_id: None }),
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                &worktree,
-                cx,
-            )
-        })
+        project.start_debug_session(
+            task::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: task::DebugAdapterKind::Fake,
+                request: task::DebugRequestType::Attach(AttachConfig { process_id: None }),
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();

@@ -10,7 +10,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
-use tests::{active_debug_panel_item, init_test, init_test_workspace, worktree_from_project};
+use tests::{active_debug_panel_item, init_test, init_test_workspace};
 use unindent::Unindent as _;
 use variable_list::{VariableContainer, VariableListEntry};
 
@@ -23,23 +23,19 @@ async fn test_handle_output_event(executor: BackgroundExecutor, cx: &mut TestApp
     let project = Project::test(fs, [], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
-    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                task::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: task::DebugAdapterKind::Fake,
-                    request: task::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                &worktree,
-                cx,
-            )
-        })
+        project.start_debug_session(
+            task::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: task::DebugAdapterKind::Fake,
+                request: task::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -186,23 +182,19 @@ async fn test_grouped_output(executor: BackgroundExecutor, cx: &mut TestAppConte
     let project = Project::test(fs, [], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
-    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                task::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: task::DebugAdapterKind::Fake,
-                    request: task::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                &worktree,
-                cx,
-            )
-        })
+        project.start_debug_session(
+            task::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: task::DebugAdapterKind::Fake,
+                request: task::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -491,23 +483,19 @@ async fn test_evaluate_expression(executor: BackgroundExecutor, cx: &mut TestApp
     let project = Project::test(fs, ["/project".as_ref()], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
-    let worktree = worktree_from_project(&project, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                task::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: task::DebugAdapterKind::Fake,
-                    request: task::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                &worktree,
-                cx,
-            )
-        })
+        project.start_debug_session(
+            task::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: task::DebugAdapterKind::Fake,
+                request: task::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();

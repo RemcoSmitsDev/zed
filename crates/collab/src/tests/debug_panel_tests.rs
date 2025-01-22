@@ -88,20 +88,17 @@ async fn test_debug_panel_item_opens_on_remote(
     add_debugger_panel(&workspace_b, cx_b).await;
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                None,
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -201,20 +198,17 @@ async fn test_active_debug_panel_item_set_on_join_project(
     add_debugger_panel(&workspace_a, cx_a).await;
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                None,
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -345,20 +339,17 @@ async fn test_debug_panel_remote_button_presses(
     add_debugger_panel(&workspace_b, cx_b).await;
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                None,
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (_, client) = task.await.unwrap();
@@ -709,20 +700,17 @@ async fn test_restart_stack_frame(cx_a: &mut TestAppContext, cx_b: &mut TestAppC
     add_debugger_panel(&workspace_b, cx_b).await;
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                None,
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -895,20 +883,17 @@ async fn test_updated_breakpoints_send_to_dap(
     add_debugger_panel(&workspace_b, cx_b).await;
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                None,
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -1149,19 +1134,17 @@ async fn test_module_list(
     add_debugger_panel(&workspace_b, cx_b).await;
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -1418,19 +1401,17 @@ async fn test_variable_list(
     add_debugger_panel(&workspace_b, cx_b).await;
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -1936,19 +1917,17 @@ async fn test_ignore_breakpoints(
     cx_b.run_until_parked();
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
