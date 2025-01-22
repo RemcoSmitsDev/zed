@@ -60,8 +60,8 @@ async fn test_fetch_initial_stack_frames_and_go_to_stack_frame(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
-                None,
                 cx,
             )
         })
@@ -225,8 +225,8 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
-                None,
                 cx,
             )
         })
@@ -473,6 +473,7 @@ async fn test_collapsed_entries(executor: BackgroundExecutor, cx: &mut TestAppCo
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )

@@ -98,7 +98,10 @@ impl DebugAdapter for PythonDebugAdapter {
             .ok_or_else(|| anyhow!("Debugpy directory not found"))?
         };
 
-        let python_path = if let Some(toolchain) = delegate.toolchain(&self.name()) {
+        let python_path = if let Some(toolchain) = delegate
+            .toolchain(config.worktree_id, LanguageName::new(Self::LANGUAGE_NAME))
+            .await
+        {
             Some(toolchain.path.to_string())
         } else {
             let python_cmds = [

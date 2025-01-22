@@ -12975,6 +12975,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_json_lenient",
+ "settings",
  "sha2",
  "shellexpand 2.1.2",
  "util",

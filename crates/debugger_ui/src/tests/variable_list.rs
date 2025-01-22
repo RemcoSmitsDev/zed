@@ -55,8 +55,8 @@ async fn test_basic_fetch_initial_scope_and_variables(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
-                None,
                 cx,
             )
         })
@@ -280,8 +280,8 @@ async fn test_fetch_variables_for_multiple_scopes(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
-                None,
                 cx,
             )
         })
@@ -550,8 +550,8 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
-                None,
                 cx,
             )
         })

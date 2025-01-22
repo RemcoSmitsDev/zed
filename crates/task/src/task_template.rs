@@ -110,6 +110,7 @@ mod deserialization_tests {
             request: crate::DebugRequestType::Launch,
             program: Some("main".to_string()),
             cwd: None,
+            worktree_id: None,
             initialize_args: None,
         };
         let json = json!({

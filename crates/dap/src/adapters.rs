@@ -38,12 +38,16 @@ pub enum DapStatus {
 pub trait DapDelegate {
     fn http_client(&self) -> Option<Arc<dyn HttpClient>>;
     fn node_runtime(&self) -> Option<NodeRuntime>;
-    fn toolchain(&self, adapter_name: &DebugAdapterName) -> Option<&Toolchain>;
     fn fs(&self) -> Arc<dyn Fs>;
     fn updated_adapters(&self) -> Arc<Mutex<HashSet<DebugAdapterName>>>;
     fn update_status(&self, dap_name: DebugAdapterName, status: DapStatus);
     fn which(&self, command: &OsStr) -> Option<PathBuf>;
     async fn shell_env(&self) -> collections::HashMap<String, String>;
+    async fn toolchain(
+        &self,
+        worktree_id: Option<settings::WorktreeId>,
+        language_name: LanguageName,
+    ) -> Option<Toolchain>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]

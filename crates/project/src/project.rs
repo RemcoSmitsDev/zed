@@ -1308,8 +1308,8 @@ impl Project {
         debug_task: task::ResolvedTask,
         cx: &mut ModelContext<Self>,
     ) {
-        if let Some(config) = debug_task.debug_adapter_config() {
-            let worktree_id = maybe!({
+        if let Some(mut config) = debug_task.debug_adapter_config() {
+            config.worktree_id = maybe!({
                 Some(
                     self.find_worktree(config.cwd.clone()?.as_path(), cx)?
                         .0
@@ -1319,9 +1319,7 @@ impl Project {
             });
 
             self.dap_store.update(cx, |store, cx| {
-                store
-                    .start_debug_session(config, worktree_id, cx)
-                    .detach_and_log_err(cx);
+                store.start_debug_session(config, cx).detach_and_log_err(cx);
             });
         }
     }
