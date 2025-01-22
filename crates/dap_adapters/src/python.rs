@@ -3,9 +3,8 @@ use dap::{
     DebugRequestType,
 };
 use gpui::AsyncAppContext;
-use language::LanguageName;
 use regex::Regex;
-use std::{collections::HashMap, ffi::OsStr, net::Ipv4Addr, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, net::Ipv4Addr, path::PathBuf, sync::Arc};
 use sysinfo::{Pid, Process};
 
 use crate::*;
