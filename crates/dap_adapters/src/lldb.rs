@@ -3,6 +3,7 @@ use std::{ffi::OsStr, path::PathBuf, sync::Arc};
 use anyhow::Result;
 use async_trait::async_trait;
 use dap::transport::{StdioTransport, Transport};
+use gpui::AsyncAppContext;
 use task::DebugAdapterConfig;
 
 use crate::*;
@@ -32,6 +33,7 @@ impl DebugAdapter for LldbDebugAdapter {
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
         user_installed_path: Option<PathBuf>,
+        _: &mut AsyncAppContext,
     ) -> Result<DebugAdapterBinary> {
         let lldb_dap_path = if cfg!(target_os = "macos") {
             util::command::new_smol_command("xcrun")
@@ -76,6 +78,7 @@ impl DebugAdapter for LldbDebugAdapter {
         _: &dyn DapDelegate,
         _: &DebugAdapterConfig,
         _: Option<PathBuf>,
+        _: &mut AsyncAppContext,
     ) -> Result<DebugAdapterBinary> {
         unimplemented!("LLDB debug adapter cannot be installed by Zed (yet)")
     }

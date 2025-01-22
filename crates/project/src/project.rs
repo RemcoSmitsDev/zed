@@ -37,7 +37,8 @@ use dap::{
     client::{DebugAdapterClient, DebugAdapterClientId},
     debugger_settings::DebuggerSettings,
     messages::Message,
-    session::DebugSessionId,
+    session::{DebugSession, DebugSessionId},
+    DebugAdapterConfig,
 };
 
 use collections::{BTreeSet, HashMap, HashSet};
@@ -632,6 +633,8 @@ impl Project {
         client.add_model_message_handler(Self::handle_create_buffer_for_peer);
 
         client.add_model_request_handler(WorktreeStore::handle_rename_project_entry);
+
+        client.add_model_message_handler(Self::handle_toggle_ignore_breakpoints);
 
         WorktreeStore::init(&client);
         BufferStore::init(&client);
@@ -1301,42 +1304,29 @@ impl Project {
         })
     }
 
-    pub fn start_debug_adapter_client_from_task(
+    pub fn start_debug_session(
         &mut self,
-        debug_task: task::ResolvedTask,
+        config: DebugAdapterConfig,
         cx: &mut ModelContext<Self>,
-    ) {
-        if let Some(config) = debug_task.debug_adapter_config() {
-            let worktree_id = maybe!({
-                Some(
-                    self.find_worktree(config.cwd.clone()?.as_path(), cx)?
-                        .0
-                        .read(cx)
-                        .id(),
-                )
-            });
+    ) -> Task<Result<(Model<DebugSession>, Arc<DebugAdapterClient>)>> {
+        let worktree = maybe!({
+            if let Some(cwd) = &config.cwd {
+                Some(self.find_worktree(cwd.as_path(), cx)?.0)
+            } else {
+                self.worktrees(cx).next()
+            }
+        });
 
-            self.dap_store.update(cx, |store, cx| {
-                store
-                    .start_debug_session(config, worktree_id, cx)
-                    .detach_and_log_err(cx);
-            });
-        }
+        let Some(worktree) = &worktree else {
+            return Task::ready(Err(anyhow!("Failed to find a worktree")));
+        };
+
+        self.dap_store.update(cx, |dap_store, cx| {
+            dap_store.start_debug_session(config, worktree, cx)
+        })
     }
 
     /// Get all serialized breakpoints that belong to a buffer
-    ///
-    /// # Parameters
-    /// None,
-    /// `buffer_id`: The buffer id to get serialized breakpoints of
-    /// `cx`: The context of the editor
-    ///
-    /// # Return
-    /// `None`: If the buffer associated with buffer id doesn't exist or this editor
-    ///     doesn't belong to a project
-    ///
-    /// `(Path, Vec<SerializedBreakpoint)`: Returns worktree path (used when saving workspace)
-    ///     and a vector of the serialized breakpoints
     pub fn serialize_breakpoints_for_project_path(
         &self,
         project_path: &ProjectPath,
@@ -1398,6 +1388,26 @@ impl Project {
         result
     }
 
+    async fn handle_toggle_ignore_breakpoints(
+        this: Model<Self>,
+        envelope: TypedEnvelope<proto::ToggleIgnoreBreakpoints>,
+        mut cx: AsyncAppContext,
+    ) -> Result<()> {
+        this.update(&mut cx, |project, cx| {
+            // Only the host should handle this message because the host
+            // handles direct communication with the debugger servers.
+            if let Some((_, _)) = project.dap_store.read(cx).downstream_client() {
+                project
+                    .toggle_ignore_breakpoints(
+                        &DebugSessionId::from_proto(envelope.payload.session_id),
+                        &DebugAdapterClientId::from_proto(envelope.payload.client_id),
+                        cx,
+                    )
+                    .detach_and_log_err(cx);
+            }
+        })
+    }
+
     pub fn toggle_ignore_breakpoints(
         &self,
         session_id: &DebugSessionId,
@@ -1405,7 +1415,29 @@ impl Project {
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let tasks = self.dap_store.update(cx, |store, cx| {
+            if let Some((upstream_client, project_id)) = store.upstream_client() {
+                upstream_client
+                    .send(proto::ToggleIgnoreBreakpoints {
+                        session_id: session_id.to_proto(),
+                        client_id: client_id.to_proto(),
+                        project_id,
+                    })
+                    .log_err();
+
+                return Vec::new();
+            }
+
             store.toggle_ignore_breakpoints(session_id, cx);
+
+            if let Some((downstream_client, project_id)) = store.downstream_client() {
+                downstream_client
+                    .send(proto::IgnoreBreakpointState {
+                        session_id: session_id.to_proto(),
+                        project_id: *project_id,
+                        ignore: store.ignore_breakpoints(session_id, cx),
+                    })
+                    .log_err();
+            }
 
             let mut tasks = Vec::new();
 
