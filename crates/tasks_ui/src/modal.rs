@@ -317,13 +317,11 @@ impl PickerDelegate for TasksModalDelegate {
                         omit_history_entry,
                         cx,
                     ),
-                    TaskType::Debug(debug_config) => {
-                        workspace.project().update(cx, |project, cx| {
-                            project
-                                .start_debug_session(debug_config, cx)
-                                .detach_and_log_err(cx);
-                        })
-                    }
+                    TaskType::Debug(_) => workspace.project().update(cx, |project, cx| {
+                        project
+                            .start_debug_session(task.resolved_debug_adapter_config().unwrap(), cx)
+                            .detach_and_log_err(cx);
+                    }),
                 };
             })
             .ok();
@@ -481,13 +479,11 @@ impl PickerDelegate for TasksModalDelegate {
                     ),
                     // TODO: Should create a schedule_resolved_debug_task function
                     // This would allow users to access to debug history and other issues
-                    TaskType::Debug(debug_config) => {
-                        workspace.project().update(cx, |project, cx| {
-                            project
-                                .start_debug_session(debug_config, cx)
-                                .detach_and_log_err(cx);
-                        })
-                    }
+                    TaskType::Debug(_) => workspace.project().update(cx, |project, cx| {
+                        project
+                            .start_debug_session(task.resolved_debug_adapter_config().unwrap(), cx)
+                            .detach_and_log_err(cx);
+                    }),
                 };
             })
             .ok();

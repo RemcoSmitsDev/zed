@@ -672,26 +672,13 @@ impl DapStore {
     fn start_client_internal(
         &mut self,
         session_id: DebugSessionId,
-        worktree: &Model<Worktree>,
+        delegate: Arc<dyn DapDelegate>,
         config: DebugAdapterConfig,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<Arc<DebugAdapterClient>>> {
         let Some(local_store) = self.as_local_mut() else {
             return Task::ready(Err(anyhow!("cannot start client on remote side")));
         };
-
-        let worktree_abs_path = config.cwd.as_ref().map(|p| Arc::from(p.as_path()));
-        let delegate = Arc::new(DapAdapterDelegate::new(
-            local_store.fs.clone(),
-            worktree.read(cx).id(),
-            local_store.node_runtime.clone(),
-            local_store.http_client.clone(),
-            local_store.language_registry.clone(),
-            local_store.toolchain_store.clone(),
-            local_store.environment.update(cx, |env, cx| {
-                env.get_environment(Some(worktree.read(cx).id()), worktree_abs_path, cx)
-            }),
-        ));
 
         let client_id = local_store.next_client_id();
 
@@ -773,9 +760,22 @@ impl DapStore {
             return Task::ready(Err(anyhow!("cannot start session on remote side")));
         };
 
+        let delegate = Arc::new(DapAdapterDelegate::new(
+            local_store.fs.clone(),
+            worktree.read(cx).id(),
+            local_store.node_runtime.clone(),
+            local_store.http_client.clone(),
+            local_store.language_registry.clone(),
+            local_store.toolchain_store.clone(),
+            local_store.environment.update(cx, |env, cx| {
+                let worktree = worktree.read(cx);
+                env.get_environment(Some(worktree.id()), Some(worktree.abs_path()), cx)
+            }),
+        ));
+
         let session_id = local_store.next_session_id();
         let start_client_task =
-            self.start_client_internal(session_id, worktree, config.clone(), cx);
+            self.start_client_internal(session_id, delegate, config.clone(), cx);
 
         cx.spawn(|this, mut cx| async move {
             let session = cx.new_model(|_| DebugSession::new_local(session_id, config))?;
