@@ -684,8 +684,8 @@ impl DapStore {
         let delegate = Arc::new(DapAdapterDelegate::new(
             local_store.fs.clone(),
             worktree.read(cx).id(),
+            local_store.node_runtime.clone(),
             local_store.http_client.clone(),
-            Some(local_store.node_runtime.clone()),
             local_store.language_registry.clone(),
             local_store.toolchain_store.clone(),
             local_store.environment.update(cx, |env, cx| {
@@ -2377,8 +2377,8 @@ impl SerializedBreakpoint {
 pub struct DapAdapterDelegate {
     fs: Arc<dyn Fs>,
     worktree_id: WorktreeId,
+    node_runtime: NodeRuntime,
     http_client: Arc<dyn HttpClient>,
-    node_runtime: Option<NodeRuntime>,
     language_registry: Arc<LanguageRegistry>,
     toolchain_store: Arc<dyn LanguageToolchainStore>,
     updated_adapters: Arc<Mutex<HashSet<DebugAdapterName>>>,
@@ -2389,8 +2389,8 @@ impl DapAdapterDelegate {
     pub fn new(
         fs: Arc<dyn Fs>,
         worktree_id: WorktreeId,
+        node_runtime: NodeRuntime,
         http_client: Arc<dyn HttpClient>,
-        node_runtime: Option<NodeRuntime>,
         language_registry: Arc<LanguageRegistry>,
         toolchain_store: Arc<dyn LanguageToolchainStore>,
         load_shell_env_task: Shared<Task<Option<HashMap<String, String>>>>,
@@ -2418,7 +2418,7 @@ impl dap::adapters::DapDelegate for DapAdapterDelegate {
         self.http_client.clone()
     }
 
-    fn node_runtime(&self) -> Option<NodeRuntime> {
+    fn node_runtime(&self) -> NodeRuntime {
         self.node_runtime.clone()
     }
 

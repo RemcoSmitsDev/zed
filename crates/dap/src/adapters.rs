@@ -39,7 +39,7 @@ pub enum DapStatus {
 pub trait DapDelegate {
     fn worktree_id(&self) -> WorktreeId;
     fn http_client(&self) -> Arc<dyn HttpClient>;
-    fn node_runtime(&self) -> Option<NodeRuntime>;
+    fn node_runtime(&self) -> NodeRuntime;
     fn toolchain_store(&self) -> Arc<dyn LanguageToolchainStore>;
     fn fs(&self) -> Arc<dyn Fs>;
     fn updated_adapters(&self) -> Arc<Mutex<HashSet<DebugAdapterName>>>;

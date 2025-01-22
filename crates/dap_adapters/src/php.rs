@@ -81,12 +81,9 @@ impl DebugAdapter for PhpDebugAdapter {
             .ok_or_else(|| anyhow!("Couldn't find PHP dap directory"))?
         };
 
-        let node_runtime = delegate
-            .node_runtime()
-            .ok_or(anyhow!("Couldn't get npm runtime"))?;
-
         Ok(DebugAdapterBinary {
-            command: node_runtime
+            command: delegate
+                .node_runtime()
                 .binary_path()
                 .await?
                 .to_string_lossy()

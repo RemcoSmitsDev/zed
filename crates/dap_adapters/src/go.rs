@@ -11,8 +11,7 @@ pub(crate) struct GoDebugAdapter {
 }
 
 impl GoDebugAdapter {
-    const _ADAPTER_NAME: &'static str = "delve";
-    // const ADAPTER_PATH: &'static str = "src/debugpy/adapter";
+    const ADAPTER_NAME: &'static str = "delve";
 
     pub(crate) async fn new(host: &TCPHost) -> Result<Self> {
         Ok(GoDebugAdapter {
@@ -26,7 +25,7 @@ impl GoDebugAdapter {
 #[async_trait(?Send)]
 impl DebugAdapter for GoDebugAdapter {
     fn name(&self) -> DebugAdapterName {
-        DebugAdapterName(Self::_ADAPTER_NAME.into())
+        DebugAdapterName(Self::ADAPTER_NAME.into())
     }
 
     fn transport(&self) -> Arc<dyn Transport> {
