@@ -17,7 +17,9 @@ use ui::{
     WindowContext,
 };
 use util::ResultExt;
-use workspace::{tasks::schedule_resolved_task, ModalView, Workspace};
+use workspace::{
+    notifications::NotifyTaskExt, tasks::schedule_resolved_task, ModalView, Workspace,
+};
 pub use zed_actions::{Rerun, Spawn};
 
 /// A modal used to spawn new tasks.
@@ -321,7 +323,7 @@ impl PickerDelegate for TasksModalDelegate {
                         workspace.project().update(cx, |project, cx| {
                             project
                                 .start_debug_session(debug_config, cx)
-                                .detach_and_log_err(cx);
+                                .detach_and_notify_err(cx);
                         })
                     }
                 };
@@ -485,7 +487,7 @@ impl PickerDelegate for TasksModalDelegate {
                         workspace.project().update(cx, |project, cx| {
                             project
                                 .start_debug_session(debug_config, cx)
-                                .detach_and_log_err(cx);
+                                .detach_and_notify_err(cx);
                         })
                     }
                 };
