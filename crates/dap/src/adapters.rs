@@ -328,10 +328,10 @@ impl DebugAdapter for FakeAdapter {
 
     async fn get_binary(
         &self,
-        _delegate: &dyn DapDelegate,
-        _config: &DebugAdapterConfig,
-        _user_installed_path: Option<PathBuf>,
-        _cx: &mut AsyncAppContext,
+        _: &dyn DapDelegate,
+        _: &DebugAdapterConfig,
+        _: Option<PathBuf>,
+        _: &mut AsyncAppContext,
     ) -> Result<DebugAdapterBinary> {
         Ok(DebugAdapterBinary {
             command: "command".into(),
@@ -358,10 +358,10 @@ impl DebugAdapter for FakeAdapter {
 
     async fn get_installed_binary(
         &self,
-        _delegate: &dyn DapDelegate,
-        _config: &DebugAdapterConfig,
-        _user_installed_path: Option<PathBuf>,
-        _cx: &mut AsyncAppContext,
+        _: &dyn DapDelegate,
+        _: &DebugAdapterConfig,
+        _: Option<PathBuf>,
+        _: &mut AsyncAppContext,
     ) -> Result<DebugAdapterBinary> {
         unimplemented!("get installed binary");
     }
