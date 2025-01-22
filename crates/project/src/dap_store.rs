@@ -673,7 +673,7 @@ impl DapStore {
         &mut self,
         session_id: DebugSessionId,
         worktree: &Model<Worktree>,
-        config: &DebugAdapterConfig,
+        config: DebugAdapterConfig,
         cx: &mut ModelContext<Self>,
     ) -> Task<Result<Arc<DebugAdapterClient>>> {
         let Some(local_store) = self.as_local_mut() else {
@@ -774,7 +774,8 @@ impl DapStore {
         };
 
         let session_id = local_store.next_session_id();
-        let start_client_task = self.start_client_internal(session_id, worktree, &config, cx);
+        let start_client_task =
+            self.start_client_internal(session_id, worktree, config.clone(), cx);
 
         cx.spawn(|this, mut cx| async move {
             let session = cx.new_model(|_| DebugSession::new_local(session_id, config))?;
