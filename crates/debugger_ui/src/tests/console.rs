@@ -20,7 +20,15 @@ async fn test_handle_output_event(executor: BackgroundExecutor, cx: &mut TestApp
 
     let fs = FakeFs::new(executor.clone());
 
-    let project = Project::test(fs, [], cx).await;
+    fs.insert_tree(
+        "/project",
+        json!({
+            "main.rs": "First line\nSecond line\nThird line\nFourth line",
+        }),
+    )
+    .await;
+
+    let project = Project::test(fs, ["/project".as_ref()], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
@@ -179,7 +187,15 @@ async fn test_grouped_output(executor: BackgroundExecutor, cx: &mut TestAppConte
 
     let fs = FakeFs::new(executor.clone());
 
-    let project = Project::test(fs, [], cx).await;
+    fs.insert_tree(
+        "/project",
+        json!({
+            "main.rs": "First line\nSecond line\nThird line\nFourth line",
+        }),
+    )
+    .await;
+
+    let project = Project::test(fs, ["/project".as_ref()], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
