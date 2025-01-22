@@ -689,7 +689,7 @@ impl DapStore {
             local_store.language_registry.clone(),
             local_store.toolchain_store.clone(),
             local_store.environment.update(cx, |env, cx| {
-                env.get_environment(None, worktree_abs_path, cx)
+                env.get_environment(Some(worktree.read(cx).id()), worktree_abs_path, cx)
             }),
         ));
 

@@ -1327,16 +1327,6 @@ impl Project {
     }
 
     /// Get all serialized breakpoints that belong to a buffer
-    ///
-    /// # Parameters
-    /// None,
-    /// `buffer_id`: The buffer id to get serialized breakpoints of
-    ///
-    /// `None`: If the buffer associated with buffer id doesn't exist or this editor
-    ///     doesn't belong to a project
-    ///
-    /// `(Path, Vec<SerializedBreakpoint)`: Returns worktree path (used when saving workspace)
-    ///     and a vector of the serialized breakpoints
     pub fn serialize_breakpoints_for_project_path(
         &self,
         project_path: &ProjectPath,
