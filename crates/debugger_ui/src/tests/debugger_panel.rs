@@ -50,6 +50,7 @@ async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut Test
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -167,6 +168,7 @@ async fn test_we_can_only_have_one_panel_per_debug_thread(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -315,6 +317,7 @@ async fn test_client_can_open_multiple_thread_panels(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -465,6 +468,7 @@ async fn test_handle_successful_run_in_terminal_reverse_request(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -571,6 +575,7 @@ async fn test_handle_error_run_in_terminal_reverse_request(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -668,6 +673,7 @@ async fn test_handle_start_debugging_reverse_request(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -797,6 +803,7 @@ async fn test_debug_panel_item_thread_status_reset_on_failure(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -1007,6 +1014,7 @@ async fn test_send_breakpoints_when_editor_has_been_saved(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -1198,6 +1206,7 @@ async fn test_it_send_breakpoint_request_if_breakpoint_buffer_is_unopened(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -1326,6 +1335,7 @@ async fn test_debug_session_is_shutdown_when_attach_and_launch_request_fails(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )

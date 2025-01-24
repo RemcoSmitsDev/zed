@@ -42,7 +42,8 @@ use gpui::{
 use http_client::HttpClient;
 use language::{
     proto::{deserialize_anchor, serialize_anchor as serialize_text_anchor},
-    Buffer, BufferSnapshot, LanguageRegistry, LanguageServerBinaryStatus,
+    Buffer, BufferSnapshot, LanguageName, LanguageRegistry, LanguageServerBinaryStatus,
+    LanguageToolchainStore, Toolchain,
 };
 use lsp::LanguageServerName;
 use node_runtime::NodeRuntime;
@@ -186,6 +187,7 @@ impl DapStore {
         fs: Arc<dyn Fs>,
         languages: Arc<LanguageRegistry>,
         environment: Model<ProjectEnvironment>,
+        toolchain_store: Arc<dyn LanguageToolchainStore>,
         cx: &mut ModelContext<Self>,
     ) -> Self {
         cx.on_app_quit(Self::shutdown_sessions).detach();
@@ -202,6 +204,8 @@ impl DapStore {
                     fs.clone(),
                     languages.clone(),
                     Task::ready(None).shared(),
+                    toolchain_store.clone(),
+                    cx.to_async(),
                 ),
                 client_by_session: Default::default(),
             }),
@@ -212,11 +216,7 @@ impl DapStore {
         }
     }
 
-    pub fn new_remote(
-        project_id: u64,
-        upstream_client: AnyProtoClient,
-        _: &mut ModelContext<Self>,
-    ) -> Self {
+    pub fn new_remote(project_id: u64, upstream_client: AnyProtoClient) -> Self {
         Self {
             mode: DapStoreMode::Remote(RemoteDapStore {
                 upstream_client: Some(upstream_client),
@@ -683,11 +683,10 @@ impl DapStore {
         let mut adapter_delegate = local_store.delegate.clone();
         let worktree_abs_path = config.cwd.as_ref().map(|p| Arc::from(p.as_path()));
         adapter_delegate.refresh_shell_env_task(local_store.environment.update(cx, |env, cx| {
-            env.get_environment(None, worktree_abs_path, cx)
+            env.get_environment(config.worktree_id, worktree_abs_path, cx)
         }));
-        let adapter_delegate = Arc::new(adapter_delegate);
 
-        let client_id = self.as_local().unwrap().next_client_id();
+        let client_id = local_store.next_client_id();
 
         cx.spawn(|this, mut cx| async move {
             let adapter = build_adapter(&config.kind).await?;
@@ -705,31 +704,29 @@ impl DapStore {
                     .and_then(|s| s.binary.as_ref().map(PathBuf::from))
             })?;
 
-            let (adapter, binary) = match adapter
-                .get_binary(adapter_delegate.as_ref(), &config, binary)
-                .await
-            {
-                Err(error) => {
-                    adapter_delegate.update_status(
-                        adapter.name(),
-                        DapStatus::Failed {
-                            error: error.to_string(),
-                        },
-                    );
+            let (adapter, binary) =
+                match adapter.get_binary(&adapter_delegate, &config, binary).await {
+                    Err(error) => {
+                        adapter_delegate.update_status(
+                            adapter.name(),
+                            DapStatus::Failed {
+                                error: error.to_string(),
+                            },
+                        );
 
-                    return Err(error);
-                }
-                Ok(mut binary) => {
-                    adapter_delegate.update_status(adapter.name(), DapStatus::None);
+                        return Err(error);
+                    }
+                    Ok(mut binary) => {
+                        adapter_delegate.update_status(adapter.name(), DapStatus::None);
 
-                    let shell_env = adapter_delegate.shell_env().await;
-                    let mut envs = binary.envs.unwrap_or_default();
-                    envs.extend(shell_env);
-                    binary.envs = Some(envs);
+                        let shell_env = adapter_delegate.shell_env().await;
+                        let mut envs = binary.envs.unwrap_or_default();
+                        envs.extend(shell_env);
+                        binary.envs = Some(envs);
 
-                    (adapter, binary)
-                }
-            };
+                        (adapter, binary)
+                    }
+                };
 
             let mut client = DebugAdapterClient::new(client_id, adapter, binary, &cx);
 
@@ -1127,6 +1124,7 @@ impl DapStore {
             program: config.program.clone(),
             cwd: config.cwd.clone(),
             initialize_args: Some(initialize_args),
+            worktree_id: config.worktree_id,
         };
 
         cx.spawn(|this, mut cx| async move {
@@ -2368,11 +2366,13 @@ impl SerializedBreakpoint {
 #[derive(Clone)]
 pub struct DapAdapterDelegate {
     fs: Arc<dyn Fs>,
-    http_client: Option<Arc<dyn HttpClient>>,
-    node_runtime: Option<NodeRuntime>,
-    updated_adapters: Arc<Mutex<HashSet<DebugAdapterName>>>,
     languages: Arc<LanguageRegistry>,
+    node_runtime: Option<NodeRuntime>,
+    http_client: Option<Arc<dyn HttpClient>>,
+    toolchain_store: Arc<dyn LanguageToolchainStore>,
+    updated_adapters: Arc<Mutex<HashSet<DebugAdapterName>>>,
     load_shell_env_task: Shared<Task<Option<HashMap<String, String>>>>,
+    cx: AsyncAppContext,
 }
 
 impl DapAdapterDelegate {
@@ -2382,14 +2382,18 @@ impl DapAdapterDelegate {
         fs: Arc<dyn Fs>,
         languages: Arc<LanguageRegistry>,
         load_shell_env_task: Shared<Task<Option<HashMap<String, String>>>>,
+        toolchain_store: Arc<dyn LanguageToolchainStore>,
+        cx: AsyncAppContext,
     ) -> Self {
         Self {
             fs,
             languages,
             http_client,
             node_runtime,
-            load_shell_env_task,
+            toolchain_store,
             updated_adapters: Default::default(),
+            load_shell_env_task,
+            cx,
         }
     }
 
@@ -2439,5 +2443,16 @@ impl dap::adapters::DapDelegate for DapAdapterDelegate {
     async fn shell_env(&self) -> HashMap<String, String> {
         let task = self.load_shell_env_task.clone();
         task.await.unwrap_or_default()
+    }
+
+    async fn toolchain(
+        &self,
+        worktree_id: Option<WorktreeId>,
+        language_name: LanguageName,
+    ) -> Option<Toolchain> {
+        self.toolchain_store
+            .clone()
+            .active_toolchain(worktree_id?, language_name, &mut self.cx.clone())
+            .await
     }
 }

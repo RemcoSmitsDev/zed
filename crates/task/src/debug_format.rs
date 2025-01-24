@@ -1,6 +1,8 @@
 use schemars::{gen::SchemaSettings, JsonSchema};
 use serde::{Deserialize, Serialize};
+use settings::WorktreeId;
 use std::collections::HashMap;
+
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use util::ResultExt;
@@ -131,6 +133,9 @@ pub struct DebugAdapterConfig {
     pub cwd: Option<PathBuf>,
     /// Additional initialization arguments to be sent on DAP initialization
     pub initialize_args: Option<serde_json::Value>,
+    /// Worktree ID used for toolchain store
+    #[serde(skip)]
+    pub worktree_id: Option<WorktreeId>,
 }
 
 /// Represents the type of the debugger adapter connection
@@ -176,6 +181,7 @@ impl DebugTaskDefinition {
             program: self.program,
             cwd: cwd.clone(),
             initialize_args: self.initialize_args,
+            worktree_id: None,
         });
 
         let args: Vec<String> = Vec::new();

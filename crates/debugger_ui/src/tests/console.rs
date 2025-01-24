@@ -34,6 +34,7 @@ async fn test_handle_output_event(executor: BackgroundExecutor, cx: &mut TestApp
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -195,6 +196,7 @@ async fn test_grouped_output(executor: BackgroundExecutor, cx: &mut TestAppConte
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -498,6 +500,7 @@ async fn test_evaluate_expression(executor: BackgroundExecutor, cx: &mut TestApp
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )

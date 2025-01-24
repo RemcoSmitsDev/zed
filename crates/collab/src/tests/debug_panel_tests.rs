@@ -97,6 +97,7 @@ async fn test_debug_panel_item_opens_on_remote(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -209,6 +210,7 @@ async fn test_active_debug_panel_item_set_on_join_project(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -352,6 +354,7 @@ async fn test_debug_panel_remote_button_presses(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -715,6 +718,7 @@ async fn test_restart_stack_frame(cx_a: &mut TestAppContext, cx_b: &mut TestAppC
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -900,6 +904,7 @@ async fn test_updated_breakpoints_send_to_dap(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -1153,6 +1158,7 @@ async fn test_module_list(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -1422,6 +1428,7 @@ async fn test_variable_list(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -1940,6 +1947,7 @@ async fn test_ignore_breakpoints(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )

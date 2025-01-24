@@ -36,6 +36,7 @@ async fn test_direct_attach_to_process(executor: BackgroundExecutor, cx: &mut Te
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -116,6 +117,7 @@ async fn test_show_attach_modal_and_select_process(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )
@@ -221,6 +223,7 @@ async fn test_shutdown_session_when_modal_is_dismissed(
                     program: None,
                     cwd: None,
                     initialize_args: None,
+                    worktree_id: None,
                 },
                 cx,
             )

@@ -664,6 +664,15 @@ impl Project {
 
             let environment = ProjectEnvironment::new(&worktree_store, env, cx);
 
+            let toolchain_store = cx.new_model(|cx| {
+                ToolchainStore::local(
+                    languages.clone(),
+                    worktree_store.clone(),
+                    environment.clone(),
+                    cx,
+                )
+            });
+
             let dap_store = cx.new_model(|cx| {
                 DapStore::new_local(
                     client.http_client(),
@@ -671,6 +680,7 @@ impl Project {
                     fs.clone(),
                     languages.clone(),
                     environment.clone(),
+                    toolchain_store.read(cx).as_language_toolchain_store(),
                     cx,
                 )
             });
@@ -691,15 +701,6 @@ impl Project {
                     fs.clone(),
                     languages.clone(),
                     worktree_store.clone(),
-                    cx,
-                )
-            });
-
-            let toolchain_store = cx.new_model(|cx| {
-                ToolchainStore::local(
-                    languages.clone(),
-                    worktree_store.clone(),
-                    environment.clone(),
                     cx,
                 )
             });
@@ -863,7 +864,7 @@ impl Project {
             cx.subscribe(&lsp_store, Self::on_lsp_store_event).detach();
 
             let dap_store =
-                cx.new_model(|cx| DapStore::new_remote(SSH_PROJECT_ID, client.clone().into(), cx));
+                cx.new_model(|_| DapStore::new_remote(SSH_PROJECT_ID, client.clone().into()));
 
             cx.subscribe(&ssh, Self::on_ssh_event).detach();
             cx.observe(&ssh, |_, _, cx| cx.notify()).detach();
@@ -1032,7 +1033,7 @@ impl Project {
         let environment = cx.update(|cx| ProjectEnvironment::new(&worktree_store, None, cx))?;
 
         let dap_store = cx.new_model(|cx| {
-            let mut dap_store = DapStore::new_remote(remote_id, client.clone().into(), cx);
+            let mut dap_store = DapStore::new_remote(remote_id, client.clone().into());
 
             dap_store.set_breakpoints_from_proto(response.payload.breakpoints, cx);
             dap_store.set_debug_sessions_from_proto(response.payload.debug_sessions, cx);
@@ -1307,7 +1308,16 @@ impl Project {
         debug_task: task::ResolvedTask,
         cx: &mut ModelContext<Self>,
     ) {
-        if let Some(config) = debug_task.debug_adapter_config() {
+        if let Some(mut config) = debug_task.debug_adapter_config() {
+            config.worktree_id = maybe!({
+                Some(
+                    self.find_worktree(config.cwd.clone()?.as_path(), cx)?
+                        .0
+                        .read(cx)
+                        .id(),
+                )
+            });
+
             self.dap_store.update(cx, |store, cx| {
                 store.start_debug_session(config, cx).detach_and_log_err(cx);
             });
@@ -1317,6 +1327,7 @@ impl Project {
     /// Get all serialized breakpoints that belong to a buffer
     ///
     /// # Parameters
+    /// None,
     /// `buffer_id`: The buffer id to get serialized breakpoints of
     /// `cx`: The context of the editor
     ///
