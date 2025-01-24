@@ -4,7 +4,7 @@ use crate::{
 };
 use dap::{client::DebugAdapterClientId, OutputEvent, OutputEventGroup};
 use editor::{
-    display_map::{Crease, CreaseId},
+    display_map::{BlockContext, BlockPlacement, BlockProperties, BlockStyle, Crease, CreaseId},
     Anchor, CompletionProvider, Editor, EditorElement, EditorStyle, FoldPlaceholder,
 };
 use fuzzy::StringMatchCandidate;
@@ -15,7 +15,8 @@ use project::{dap_store::DapStore, Completion};
 use settings::Settings;
 use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 use theme::ThemeSettings;
-use ui::{prelude::*, ButtonLike, Disclosure, ElevationIndex};
+use ui::{prelude::*, ButtonLike, Disclosure, ElevationIndex, Tooltip};
+use util::paths::SanitizedPath;
 
 pub struct OutputGroup {
     pub start: Anchor,
@@ -34,6 +35,7 @@ pub struct Console {
     _subscriptions: Vec<Subscription>,
     variable_list: View<VariableList>,
     stack_frame_list: View<StackFrameList>,
+    indent_size: usize,
 }
 
 impl Console {
@@ -87,6 +89,7 @@ impl Console {
             client_id: *client_id,
             groups: Vec::default(),
             stack_frame_list: stack_frame_list.clone(),
+            indent_size: 0,
         }
     }
 
@@ -119,77 +122,208 @@ impl Console {
             let snapshot = console.buffer().read(cx).snapshot(cx);
 
             let start = snapshot.anchor_before(snapshot.max_point());
+            let buffer_row = snapshot.max_row();
 
-            let mut indent_size = self
-                .groups
-                .iter()
-                .filter(|group| group.end.is_none())
-                .count();
-            if Some(OutputEventGroup::End) == event.group {
-                indent_size = indent_size.saturating_sub(1);
-            }
+            // let mut indent_size = self
+            //     .groups
+            //     .iter()
+            //     .filter(|group| group.end.is_none())
+            //     .count();
+            // if Some(OutputEventGroup::End) == event.group {
+            //     indent_size = indent_size.saturating_sub(1);
+            // }
 
-            let indent = if indent_size > 0 {
-                "    ".repeat(indent_size)
-            } else {
-                "".to_string()
-            };
+            let indent_size = match event.group {
+                Some(OutputEventGroup::Start) | Some(OutputEventGroup::StartCollapsed) => {
+                    let indent_size = self.indent_size.clone();
 
-            console.set_read_only(false);
-            console.move_to_end(&editor::actions::MoveToEnd, cx);
-            console.insert(format!("{}{}\n", indent, output).as_str(), cx);
-            console.set_read_only(true);
+                    self.indent_size += 1;
 
-            let end = snapshot.anchor_before(snapshot.max_point());
-
-            match event.group {
-                Some(OutputEventGroup::Start) => {
-                    self.groups.push(OutputGroup {
-                        start,
-                        end: None,
-                        collapsed: false,
-                        placeholder: output.clone().into(),
-                        crease_ids: console.insert_creases(
-                            vec![Self::create_crease(output.into(), start, end)],
-                            cx,
-                        ),
-                    });
-                }
-                Some(OutputEventGroup::StartCollapsed) => {
-                    self.groups.push(OutputGroup {
-                        start,
-                        end: None,
-                        collapsed: true,
-                        placeholder: output.clone().into(),
-                        crease_ids: console.insert_creases(
-                            vec![Self::create_crease(output.into(), start, end)],
-                            cx,
-                        ),
-                    });
+                    indent_size
                 }
                 Some(OutputEventGroup::End) => {
-                    if let Some(index) = self.groups.iter().rposition(|group| group.end.is_none()) {
-                        let group = self.groups.remove(index);
+                    self.indent_size = self.indent_size.saturating_sub(1);
 
-                        console.remove_creases(group.crease_ids.clone(), cx);
-
-                        let creases =
-                            vec![Self::create_crease(group.placeholder, group.start, end)];
-                        console.insert_creases(creases.clone(), cx);
-
-                        if group.collapsed {
-                            console.fold_creases(creases, false, cx);
-                        }
-                    }
+                    self.indent_size
                 }
-                None => {}
+                _ => self.indent_size,
+            };
+
+            if Some(OutputEventGroup::End) == event.group {
+                return cx.notify();
             }
+
+            let is_group = matches!(
+                event.group,
+                Some(OutputEventGroup::Start) | Some(OutputEventGroup::StartCollapsed)
+            );
+            let source_display = event.source.and_then(|source| {
+                Some(format!(
+                    "{} {}:{}",
+                    SanitizedPath::from(source.path?)
+                        .as_path()
+                        .file_name()?
+                        .to_string_lossy(),
+                    event.line.unwrap_or(1),
+                    event.column.unwrap_or(1),
+                ))
+            });
+
+            let weak_console = self.console.downgrade();
+
+            let blocks = vec![BlockProperties {
+                style: BlockStyle::Sticky,
+                placement: BlockPlacement::Above(start),
+                height: 1,
+                render: Arc::new({
+                    let weak_console = weak_console.clone();
+                    move |cx| {
+                        h_flex()
+                            .w_full()
+                            .gap_1()
+                            .px_1()
+                            .map(|this| {
+                                if is_group {
+                                    this.child(
+                                        Disclosure::new(("output-block", buffer_row.0), true)
+                                            .toggle_state(false)
+                                            .on_click({
+                                                let weak_console = weak_console.clone();
+                                                move |_event, cx| {
+                                                    weak_console.update(cx, |editor, cx| {
+                                                        // if true {
+                                                        //     editor.fold_ranges(ranges, None, cx);
+                                                        // } else {
+                                                        //     editor.unfold_at(
+                                                        //         &editor::actions::UnfoldAt {
+                                                        //             buffer_row,
+                                                        //         },
+                                                        //         cx,
+                                                        //     );
+                                                        // }
+                                                    });
+                                                }
+                                            })
+                                            .into_any_element(),
+                                    )
+                                } else {
+                                    this.pl(cx.gutter_dimensions.full_width())
+                                }
+                            })
+                            .child(
+                                h_flex()
+                                    .flex_1()
+                                    .justify_between()
+                                    .items_center()
+                                    .font_buffer(cx)
+                                    .text_buffer(cx)
+                                    .text_color(cx.theme().colors().text)
+                                    .ml(px((20 * indent_size) as f32))
+                                    .child(output.clone())
+                                    .when_some(source_display.clone(), |this, source_display| {
+                                        this.child(
+                                            div()
+                                                .id(("output-block", buffer_row.0))
+                                                .text_ui_sm(cx)
+                                                .text_color(cx.theme().colors().text_muted)
+                                                .hover(|style| {
+                                                    style
+                                                        .text_color(cx.theme().colors().text)
+                                                        .cursor_pointer()
+                                                })
+                                                .tooltip({
+                                                    let source_display = source_display.clone();
+                                                    move |cx| {
+                                                        Tooltip::text(source_display.clone(), cx)
+                                                    }
+                                                })
+                                                .child(source_display),
+                                        )
+                                    }),
+                            )
+                            .into_any_element()
+                    }
+                }),
+                priority: 0,
+            }];
+
+            console.insert_blocks(blocks, None, cx);
+
+            // console.set_read_only(false);
+            // console.move_to_end(&editor::actions::MoveToEnd, cx);
+            // console.insert(format!("{}{}\n", indent, output).as_str(), cx);
+            // console.set_read_only(true);
+
+            // let end = snapshot.anchor_before(snapshot.max_point());
+
+            // match event.group {
+            //     Some(OutputEventGroup::Start) => {
+            //         self.groups.push(OutputGroup {
+            //             start,
+            //             end: None,
+            //             collapsed: false,
+            //             placeholder: output.clone().into(),
+            //             crease_ids: console.insert_creases(
+            //                 vec![Self::create_crease(output.into(), start, end)],
+            //                 cx,
+            //             ),
+            //         });
+            //     }
+            //     Some(OutputEventGroup::StartCollapsed) => {
+            //         self.groups.push(OutputGroup {
+            //             start,
+            //             end: None,
+            //             collapsed: true,
+            //             placeholder: output.clone().into(),
+            //             crease_ids: console.insert_creases(
+            //                 vec![Self::create_crease(output.into(), start, end)],
+            //                 cx,
+            //             ),
+            //         });
+            //     }
+            //     Some(OutputEventGroup::End) => {
+            //         if let Some(index) = self.groups.iter().rposition(|group| group.end.is_none()) {
+            //             let group = self.groups.remove(index);
+
+            //             console.remove_creases(group.crease_ids.clone(), cx);
+
+            //             let creases =
+            //                 vec![Self::create_crease(group.placeholder, group.start, end)];
+            //             console.insert_creases(creases.clone(), cx);
+
+            //             if group.collapsed {
+            //                 console.fold_creases(creases, false, cx);
+            //             }
+            //         }
+            //     }
+            //     None => {}
+            // }
 
             cx.notify();
         });
     }
 
     fn create_crease(placeholder: SharedString, start: Anchor, end: Anchor) -> Crease<Anchor> {
+        // Crease::block(
+        //     start..end,
+        //     10,
+        //     editor::display_map::BlockStyle::Flex,
+        //     Arc::new({
+        //         move |cx| {
+        //             h_flex()
+        //                 .justify_between()
+        //                 .items_center()
+        //                 .font_buffer(cx)
+        //                 .text_buffer(cx)
+        //                 .ml(cx.gutter_dimensions.full_width())
+        //                 .mr_1()
+        //                 .child(placeholder.clone())
+        //                 .child(div().text_ui_xs(cx).child("test.js 10:1"))
+        //                 .into_any_element()
+        //         }
+        //     }),
+        // )
+
         Crease::inline(
             start..end,
             FoldPlaceholder {
