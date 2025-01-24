@@ -65,7 +65,7 @@ async fn test_debug_panel_item_opens_on_remote(
     let active_call_a = cx_a.read(ActiveCall::global);
     let active_call_b = cx_b.read(ActiveCall::global);
 
-    let (project_a, _worktree_id) = client_a.build_local_project("/a", cx_a).await;
+    let (project_a, _worktree_id) = client_a.build_local_project("/project", cx_a).await;
     active_call_a
         .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
         .await
@@ -88,19 +88,17 @@ async fn test_debug_panel_item_opens_on_remote(
     add_debugger_panel(&workspace_b, cx_b).await;
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -184,7 +182,7 @@ async fn test_active_debug_panel_item_set_on_join_project(
     let active_call_a = cx_a.read(ActiveCall::global);
     let active_call_b = cx_b.read(ActiveCall::global);
 
-    let (project_a, _worktree_id) = client_a.build_local_project("/a", cx_a).await;
+    let (project_a, _worktree_id) = client_a.build_local_project("/project", cx_a).await;
     active_call_a
         .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
         .await
@@ -200,19 +198,17 @@ async fn test_active_debug_panel_item_set_on_join_project(
     add_debugger_panel(&workspace_a, cx_a).await;
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -320,7 +316,7 @@ async fn test_debug_panel_remote_button_presses(
     let active_call_a = cx_a.read(ActiveCall::global);
     let active_call_b = cx_b.read(ActiveCall::global);
 
-    let (project_a, _worktree_id) = client_a.build_local_project("/a", cx_a).await;
+    let (project_a, _worktree_id) = client_a.build_local_project("/project", cx_a).await;
     active_call_a
         .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
         .await
@@ -343,19 +339,17 @@ async fn test_debug_panel_remote_button_presses(
     add_debugger_panel(&workspace_b, cx_b).await;
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (_, client) = task.await.unwrap();
@@ -683,7 +677,7 @@ async fn test_restart_stack_frame(cx_a: &mut TestAppContext, cx_b: &mut TestAppC
     let active_call_a = cx_a.read(ActiveCall::global);
     let active_call_b = cx_b.read(ActiveCall::global);
 
-    let (project_a, _worktree_id) = client_a.build_local_project("/a", cx_a).await;
+    let (project_a, _worktree_id) = client_a.build_local_project("/project", cx_a).await;
     active_call_a
         .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
         .await
@@ -706,19 +700,17 @@ async fn test_restart_stack_frame(cx_a: &mut TestAppContext, cx_b: &mut TestAppC
     add_debugger_panel(&workspace_b, cx_b).await;
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -847,7 +839,7 @@ async fn test_updated_breakpoints_send_to_dap(
     client_a
         .fs()
         .insert_tree(
-            "/a",
+            "/project",
             json!({
                 "test.txt": "one\ntwo\nthree\nfour\nfive",
             }),
@@ -863,7 +855,7 @@ async fn test_updated_breakpoints_send_to_dap(
     let active_call_a = cx_a.read(ActiveCall::global);
     let active_call_b = cx_b.read(ActiveCall::global);
 
-    let (project_a, worktree_id) = client_a.build_local_project("/a", cx_a).await;
+    let (project_a, worktree_id) = client_a.build_local_project("/project", cx_a).await;
     active_call_a
         .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
         .await
@@ -891,19 +883,17 @@ async fn test_updated_breakpoints_send_to_dap(
     add_debugger_panel(&workspace_b, cx_b).await;
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -932,7 +922,7 @@ async fn test_updated_breakpoints_send_to_dap(
         .on_request::<SetBreakpoints, _>({
             let called_set_breakpoints = called_set_breakpoints.clone();
             move |_, args| {
-                assert_eq!("/a/test.txt", args.source.path.unwrap());
+                assert_eq!("/project/test.txt", args.source.path.unwrap());
                 assert_eq!(
                     vec![SourceBreakpoint {
                         line: 3,
@@ -1006,7 +996,7 @@ async fn test_updated_breakpoints_send_to_dap(
         .on_request::<SetBreakpoints, _>({
             let called_set_breakpoints = called_set_breakpoints.clone();
             move |_, args| {
-                assert_eq!("/a/test.txt", args.source.path.unwrap());
+                assert_eq!("/project/test.txt", args.source.path.unwrap());
                 assert!(args.breakpoints.unwrap().is_empty());
                 assert!(!args.source_modified.unwrap());
 
@@ -1039,7 +1029,7 @@ async fn test_updated_breakpoints_send_to_dap(
         .on_request::<SetBreakpoints, _>({
             let called_set_breakpoints = called_set_breakpoints.clone();
             move |_, args| {
-                assert_eq!("/a/test.txt", args.source.path.unwrap());
+                assert_eq!("/project/test.txt", args.source.path.unwrap());
                 let mut breakpoints = args.breakpoints.unwrap();
                 breakpoints.sort_by_key(|b| b.line);
                 assert_eq!(
@@ -1121,7 +1111,7 @@ async fn test_module_list(
     let active_call_b = cx_b.read(ActiveCall::global);
     let active_call_c = cx_c.read(ActiveCall::global);
 
-    let (project_a, _worktree_id) = client_a.build_local_project("/a", cx_a).await;
+    let (project_a, _worktree_id) = client_a.build_local_project("/project", cx_a).await;
     active_call_a
         .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
         .await
@@ -1144,19 +1134,17 @@ async fn test_module_list(
     add_debugger_panel(&workspace_b, cx_b).await;
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -1390,7 +1378,7 @@ async fn test_variable_list(
     let active_call_b = cx_b.read(ActiveCall::global);
     let active_call_c = cx_c.read(ActiveCall::global);
 
-    let (project_a, _worktree_id) = client_a.build_local_project("/a", cx_a).await;
+    let (project_a, _worktree_id) = client_a.build_local_project("/project", cx_a).await;
     active_call_a
         .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
         .await
@@ -1413,19 +1401,17 @@ async fn test_variable_list(
     add_debugger_panel(&workspace_b, cx_b).await;
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -1866,7 +1852,7 @@ async fn test_ignore_breakpoints(
     client_a
         .fs()
         .insert_tree(
-            "/a",
+            "/project",
             json!({
                 "test.txt": "one\ntwo\nthree\nfour\nfive",
             }),
@@ -1884,7 +1870,7 @@ async fn test_ignore_breakpoints(
     let active_call_b = cx_b.read(ActiveCall::global);
     let active_call_c = cx_c.read(ActiveCall::global);
 
-    let (project_a, worktree_id) = client_a.build_local_project("/a", cx_a).await;
+    let (project_a, worktree_id) = client_a.build_local_project("/project", cx_a).await;
     active_call_a
         .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
         .await
@@ -1931,19 +1917,17 @@ async fn test_ignore_breakpoints(
     cx_b.run_until_parked();
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -1963,7 +1947,7 @@ async fn test_ignore_breakpoints(
         .on_request::<SetBreakpoints, _>({
             let called_set_breakpoints = called_set_breakpoints.clone();
             move |_, args| {
-                assert_eq!("/a/test.txt", args.source.path.unwrap());
+                assert_eq!("/project/test.txt", args.source.path.unwrap());
 
                 let mut actual_breakpoints = args.breakpoints.unwrap();
                 actual_breakpoints.sort_by_key(|b| b.line);
@@ -2079,7 +2063,7 @@ async fn test_ignore_breakpoints(
         .on_request::<SetBreakpoints, _>({
             let called_set_breakpoints = called_set_breakpoints.clone();
             move |_, args| {
-                assert_eq!("/a/test.txt", args.source.path.unwrap());
+                assert_eq!("/project/test.txt", args.source.path.unwrap());
                 assert_eq!(args.breakpoints, Some(vec![]));
 
                 called_set_breakpoints.store(true, Ordering::SeqCst);
@@ -2173,7 +2157,7 @@ async fn test_ignore_breakpoints(
         .on_request::<SetBreakpoints, _>({
             let called_set_breakpoints = called_set_breakpoints.clone();
             move |_, args| {
-                assert_eq!("/a/test.txt", args.source.path.unwrap());
+                assert_eq!("/project/test.txt", args.source.path.unwrap());
 
                 let mut actual_breakpoints = args.breakpoints.unwrap();
                 actual_breakpoints.sort_by_key(|b| b.line);
@@ -2261,7 +2245,7 @@ async fn test_ignore_breakpoints(
         .on_request::<SetBreakpoints, _>({
             let called_set_breakpoints = called_set_breakpoints.clone();
             move |_, args| {
-                assert_eq!("/a/test.txt", args.source.path.unwrap());
+                assert_eq!("/project/test.txt", args.source.path.unwrap());
                 assert_eq!(args.breakpoints, Some(vec![]));
 
                 called_set_breakpoints.store(true, Ordering::SeqCst);
