@@ -660,6 +660,7 @@ impl EditorElement {
         position_map: &PositionMap,
         text_hitbox: &Hitbox,
         window: &mut Window,
+        cx: &mut Context<Editor>,
     ) {
         if !text_hitbox.is_hovered(window) {
             return;
@@ -1927,6 +1928,7 @@ impl EditorElement {
                         scroll_pixel_position,
                         gutter_hitbox,
                         rows_with_hunk_bounds,
+                        window,
                         cx,
                     );
                     Some(button)
@@ -2144,7 +2146,8 @@ impl EditorElement {
         line_height: Pixels,
         scroll_position: gpui::Point<f32>,
         rows: Range<DisplayRow>,
-        buffer_rows: impl Iterator<Item = Option<MultiBufferRow>>,
+        buffer_rows: &[RowInfo],
+        active_rows: &BTreeMap<DisplayRow, bool>,
         newest_selection_head: Option<DisplayPoint>,
         snapshot: &EditorSnapshot,
         breakpoint_rows: &HashMap<DisplayRow, Breakpoint>,
@@ -4399,7 +4402,7 @@ impl EditorElement {
             });
 
             for breakpoint in layout.breakpoints.iter_mut() {
-                breakpoint.paint(cx);
+                breakpoint.paint(window, cx);
             }
             for test_indicator in layout.test_indicators.iter_mut() {
                 test_indicator.paint(window, cx);
@@ -6432,9 +6435,9 @@ impl Element for EditorElement {
         window.set_view_id(self.editor.entity_id());
         window.set_focus_handle(&focus_handle, cx);
 
-        let mut breakpoint_rows = self.editor.update_in(cx, |editor, window, cx| {
-            editor.active_breakpoint_points(window, cx)
-        });
+        let mut breakpoint_rows = self
+            .editor
+            .update(cx, |editor, cx| editor.active_breakpoint_points(window, cx));
 
         let rem_size = self.rem_size(cx);
         window.with_rem_size(rem_size, |window| {
@@ -6684,6 +6687,7 @@ impl Element for EditorElement {
                         scroll_position,
                         start_row..end_row,
                         &row_infos,
+                        &active_rows,
                         newest_selection_head,
                         &snapshot,
                         &breakpoint_rows,
@@ -6980,7 +6984,7 @@ impl Element for EditorElement {
                         );
                     });
 
-                    let cursors = self.collect_cursors(&snapshot, cx);
+                    let cursors = self.collect_cursors(&snapshot, window, cx);
                     let visible_row_range = start_row..end_row;
                     let non_visible_cursors = cursors
                         .iter()
@@ -7119,6 +7123,7 @@ impl Element for EditorElement {
                         &rows_with_hunk_bounds,
                         &snapshot,
                         breakpoint_rows,
+                        window,
                         cx,
                     );
 
@@ -8106,7 +8111,6 @@ mod tests {
         let snapshot = window
             .update(cx, |editor, window, cx| editor.snapshot(window, cx))
             .unwrap();
-        let breakpoint_rows = HashMap::default();
 
         let layouts = cx
             .update_window(*window, |_, window, cx| {
@@ -8128,8 +8132,10 @@ mod tests {
                             ..Default::default()
                         })
                         .collect::<Vec<_>>(),
+                    &BTreeMap::default(),
                     Some(DisplayPoint::new(DisplayRow(0), 0)),
                     &snapshot,
+                    &HashMap::default(),
                     window,
                     cx,
                 )

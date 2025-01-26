@@ -5411,8 +5411,8 @@ impl Editor {
         row: DisplayRow,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> View<ui::ContextMenu> {
-        let weak_editor = cx.view().downgrade();
+    ) -> Entity<ui::ContextMenu> {
+        let weak_editor = cx.weak_model();
         let weak_editor2 = weak_editor.clone();
         let focus_handle = self.focus_handle(cx);
 
@@ -5422,10 +5422,10 @@ impl Editor {
             "Add Log Breakpoint"
         };
 
-        ui::ContextMenu::build(window, cx, |menu, _cx| {
+        ui::ContextMenu::build(window, cx, |menu, _, _cx| {
             menu.on_blur_subscription(Subscription::new(|| {}))
                 .context(focus_handle)
-                .entry("Toggle Breakpoint", None, move |cx| {
+                .entry("Toggle Breakpoint", None, move |_window, cx| {
                     weak_editor
                         .update(cx, |this, cx| {
                             this.edit_breakpoint_at_anchor(
@@ -5437,9 +5437,9 @@ impl Editor {
                         })
                         .log_err();
                 })
-                .entry(second_entry_msg, None, move |cx| {
+                .entry(second_entry_msg, None, move |window, cx| {
                     weak_editor2.update(cx, |this, cx| {
-                        this.add_edit_breakpoint_block(row, anchor, kind.as_ref(), cx);
+                        this.add_edit_breakpoint_block(row, anchor, kind.as_ref(), window, cx);
                     });
                 })
         })
@@ -5473,8 +5473,8 @@ impl Editor {
             .size(ui::ButtonSize::None)
             .icon_color(color)
             .style(ButtonStyle::Transparent)
-            .on_click(cx.listener(move |editor, _e, cx| {
-                editor.focus(cx);
+            .on_click(cx.listener(move |editor, _e, window, cx| {
+                window.focus(&editor.focus_handle(cx));
                 editor.edit_breakpoint_at_anchor(
                     position,
                     arc_kind.as_ref().clone(),
@@ -5482,12 +5482,13 @@ impl Editor {
                     cx,
                 );
             }))
-            .on_right_click(cx.listener(move |editor, event: &ClickEvent, cx| {
+            .on_right_click(cx.listener(move |editor, event: &ClickEvent, window, cx| {
                 editor.set_breakpoint_context_menu(
                     row,
                     Some(position),
                     arc_kind2.clone(),
                     event.down.position,
+                    window,
                     cx,
                 );
             }))
@@ -5660,12 +5661,13 @@ impl Editor {
                     cx,
                 );
             }))
-            .on_right_click(cx.listener(move |editor, event: &ClickEvent, cx| {
+            .on_right_click(cx.listener(move |editor, event: &ClickEvent, window, cx| {
                 editor.set_breakpoint_context_menu(
                     row,
                     position,
                     bp_kind.clone(),
                     event.down.position,
+                    window,
                     cx,
                 );
             }))
@@ -6690,7 +6692,7 @@ impl Editor {
             .snapshot(window, cx)
             .display_point_to_anchor(DisplayPoint::new(row, 0), Bias::Right);
 
-        let weak_editor = cx.view().downgrade();
+        let weak_editor = cx.weak_model();
         let bp_prompt =
             cx.new(|cx| BreakpointPromptEditor::new(weak_editor, anchor, kind.clone(), window, cx));
 
@@ -6711,7 +6713,7 @@ impl Editor {
         }];
 
         let focus_handle = bp_prompt.focus_handle(cx);
-        cx.focus(&focus_handle);
+        window.focus(&focus_handle);
 
         let block_ids = self.insert_blocks(blocks, None, cx);
         bp_prompt.update(cx, |prompt, _| {
@@ -6722,7 +6724,7 @@ impl Editor {
     pub(crate) fn breakpoint_at_cursor_head(
         &mut self,
         window: &mut Window,
-        cx: &mut App,
+        cx: &mut Context<Self>,
     ) -> Option<(text::Anchor, BreakpointKind)> {
         let cursor_position: Point = self.selections.newest(cx).head();
 
@@ -6761,7 +6763,7 @@ impl Editor {
         &mut self,
         _: &EditLogBreakpoint,
         window: &mut Window,
-        cx: &mut App,
+        cx: &mut Context<Self>,
     ) {
         let (anchor, kind) = self
             .breakpoint_at_cursor_head(window, cx)
@@ -6795,7 +6797,12 @@ impl Editor {
         }
     }
 
-    pub fn toggle_breakpoint(&mut self, _: &ToggleBreakpoint, window: &mut Window, cx: &mut App) {
+    pub fn toggle_breakpoint(
+        &mut self,
+        _: &ToggleBreakpoint,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let edit_action = BreakpointEditAction::Toggle;
 
         if let Some((anchor, kind)) = self.breakpoint_at_cursor_head(window, cx) {
@@ -16756,16 +16763,18 @@ impl BreakpointPromptEditor {
                 );
 
                 editor.remove_blocks(self.block_ids.clone(), None, cx);
-                editor.focus(cx);
+                cx.focus_self(window);
             });
         }
     }
 
     fn cancel(&mut self, _: &menu::Cancel, window: &mut Window, cx: &mut Context<Self>) {
-        let _ = self.editor.update(cx, |editor, cx| {
-            editor.remove_blocks(self.block_ids.clone(), None, cx);
-            editor.focus(cx);
-        });
+        self.editor
+            .update(cx, |editor, cx| {
+                editor.remove_blocks(self.block_ids.clone(), None, cx);
+                window.focus(&editor.focus_handle);
+            })
+            .log_err();
     }
 
     fn render_prompt_editor(&self, cx: &mut Context<Self>) -> impl IntoElement {
