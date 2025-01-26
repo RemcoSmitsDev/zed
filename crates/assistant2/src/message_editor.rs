@@ -13,7 +13,9 @@ use rope::Point;
 use settings::Settings;
 use std::time::Duration;
 use theme::ThemeSettings;
-use ui::{prelude::*, ButtonLike, KeyBinding, PopoverMenu, PopoverMenuHandle, Switch, TintColor};
+use ui::{
+    prelude::*, ButtonLike, KeyBinding, PopoverMenu, PopoverMenuHandle, Switch, TintColor, Tooltip,
+};
 use workspace::Workspace;
 
 use crate::assistant_model_selector::AssistantModelSelector;
@@ -53,7 +55,7 @@ impl MessageEditor {
 
         let editor = cx.new_view(|cx| {
             let mut editor = Editor::auto_height(10, cx);
-            editor.set_placeholder_text("Ask anything…", cx);
+            editor.set_placeholder_text("Ask anything, @ to mention, ↑ to select", cx);
             editor.set_show_indent_guides(false, cx);
 
             editor
@@ -64,6 +66,7 @@ impl MessageEditor {
                 workspace.clone(),
                 Some(thread_store.clone()),
                 context_store.downgrade(),
+                editor.downgrade(),
                 ConfirmBehavior::Close,
                 cx,
             )
@@ -73,6 +76,7 @@ impl MessageEditor {
             ContextStrip::new(
                 context_store.clone(),
                 workspace.clone(),
+                editor.downgrade(),
                 Some(thread_store.clone()),
                 context_picker_menu_handle.clone(),
                 SuggestContextKind::File,
@@ -131,6 +135,16 @@ impl MessageEditor {
 
     fn chat(&mut self, _: &Chat, cx: &mut ViewContext<Self>) {
         self.send_to_model(RequestKind::Chat, cx);
+    }
+
+    fn is_editor_empty(&self, cx: &AppContext) -> bool {
+        self.editor.read(cx).text(cx).is_empty()
+    }
+
+    fn is_model_selected(&self, cx: &AppContext) -> bool {
+        LanguageModelRegistry::read_global(cx)
+            .active_model()
+            .is_some()
     }
 
     fn send_to_model(&mut self, request_kind: RequestKind, cx: &mut ViewContext<Self>) {
@@ -239,7 +253,9 @@ impl MessageEditor {
     }
 
     fn move_up(&mut self, _: &MoveUp, cx: &mut ViewContext<Self>) {
-        if self.context_picker_menu_handle.is_deployed() {
+        if self.context_picker_menu_handle.is_deployed()
+            || self.inline_context_picker_menu_handle.is_deployed()
+        {
             cx.propagate();
         } else {
             cx.focus_view(&self.context_strip);
@@ -262,6 +278,13 @@ impl Render for MessageEditor {
         let bg_color = cx.theme().colors().editor_background;
         let is_streaming_completion = self.thread.read(cx).is_streaming();
         let button_width = px(64.);
+        let is_model_selected = self.is_model_selected(cx);
+        let is_editor_empty = self.is_editor_empty(cx);
+        let submit_label_color = if is_editor_empty {
+            Color::Muted
+        } else {
+            Color::Default
+        };
 
         v_flex()
             .key_context("MessageEditor")
@@ -380,11 +403,16 @@ impl Render for MessageEditor {
                                     ButtonLike::new("submit-message")
                                         .width(button_width.into())
                                         .style(ButtonStyle::Filled)
+                                        .disabled(is_editor_empty || !is_model_selected)
                                         .child(
                                             h_flex()
                                                 .w_full()
                                                 .justify_between()
-                                                .child(Label::new("Submit").size(LabelSize::Small))
+                                                .child(
+                                                    Label::new("Submit")
+                                                        .size(LabelSize::Small)
+                                                        .color(submit_label_color),
+                                                )
                                                 .children(
                                                     KeyBinding::for_action_in(
                                                         &Chat,
@@ -396,6 +424,16 @@ impl Render for MessageEditor {
                                         )
                                         .on_click(move |_event, cx| {
                                             focus_handle.dispatch_action(&Chat, cx);
+                                        })
+                                        .when(is_editor_empty, |button| {
+                                            button.tooltip(|cx| {
+                                                Tooltip::text("Type a message to submit", cx)
+                                            })
+                                        })
+                                        .when(!is_model_selected, |button| {
+                                            button.tooltip(|cx| {
+                                                Tooltip::text("Select a model to continue", cx)
+                                            })
                                         })
                                 },
                             )),
