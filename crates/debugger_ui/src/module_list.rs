@@ -3,7 +3,7 @@ use dap::{
     client::DebugAdapterClientId, proto_conversions::ProtoConversion, session::DebugSessionId,
     Module, ModuleEvent,
 };
-use gpui::{list, AnyElement, FocusHandle, FocusableView, ListState, Model, Task};
+use gpui::{list, AnyElement, Entity, FocusHandle, Focusable, ListState, Task};
 use project::dap_store::DapStore;
 use rpc::proto::{DebuggerModuleList, UpdateDebugAdapter};
 use ui::prelude::*;
@@ -13,14 +13,14 @@ pub struct ModuleList {
     list: ListState,
     modules: Vec<Module>,
     focus_handle: FocusHandle,
-    dap_store: Model<DapStore>,
+    dap_store: Entity<DapStore>,
     client_id: DebugAdapterClientId,
     session_id: DebugSessionId,
 }
 
 impl ModuleList {
     pub fn new(
-        dap_store: Model<DapStore>,
+        dap_store: Entity<DapStore>,
         client_id: &DebugAdapterClientId,
         session_id: &DebugSessionId,
         cx: &mut Context<Self>,
@@ -156,7 +156,7 @@ impl ModuleList {
     }
 }
 
-impl FocusableView for ModuleList {
+impl Focusable for ModuleList {
     fn focus_handle(&self, _: &gpui::AppContext) -> gpui::FocusHandle {
         self.focus_handle.clone()
     }

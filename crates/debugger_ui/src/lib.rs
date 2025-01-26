@@ -3,7 +3,6 @@ use debugger_panel::{DebugPanel, ToggleFocus};
 use debugger_panel_item::DebugPanelItem;
 use gpui::AppContext;
 use settings::Settings;
-use ui::ViewContext;
 use workspace::{
     Continue, Pause, Restart, ShutdownDebugAdapters, Start, StepBack, StepInto, StepOut, StepOver,
     Stop, ToggleIgnoreBreakpoints, Workspace,

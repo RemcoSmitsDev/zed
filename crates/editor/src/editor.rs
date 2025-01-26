@@ -5441,9 +5441,11 @@ impl Editor {
                         .log_err();
                 })
                 .entry(second_entry_msg, None, move |window, cx| {
-                    weak_editor2.update(cx, |this, cx| {
-                        this.add_edit_breakpoint_block(row, anchor, kind.as_ref(), window, cx);
-                    });
+                    weak_editor2
+                        .update(cx, |this, cx| {
+                            this.add_edit_breakpoint_block(row, anchor, kind.as_ref(), window, cx);
+                        })
+                        .log_err();
                 })
         })
     }

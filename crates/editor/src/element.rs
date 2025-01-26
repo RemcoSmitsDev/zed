@@ -7014,7 +7014,7 @@ impl Element for EditorElement {
                         );
                     });
 
-                    let cursors = self.collect_cursors(&snapshot, window, cx);
+                    let cursors = self.collect_cursors(&snapshot, cx);
                     let visible_row_range = start_row..end_row;
                     let non_visible_cursors = cursors
                         .iter()

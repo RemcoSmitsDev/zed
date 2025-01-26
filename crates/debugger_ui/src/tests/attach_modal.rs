@@ -255,7 +255,7 @@ async fn test_shutdown_session_when_modal_is_dismissed(
 
     // assert we show the attach modal
     workspace
-        .update(cx, |workspace, cx| {
+        .update(cx, |workspace, _window, cx| {
             let attach_modal = workspace.active_modal::<AttachModal>(cx).unwrap();
 
             let names = attach_modal.update(cx, |modal, cx| attach_modal::procss_names(&modal, cx));
@@ -272,7 +272,7 @@ async fn test_shutdown_session_when_modal_is_dismissed(
 
     // assert attach modal was dismissed
     workspace
-        .update(cx, |workspace, cx| {
+        .update(cx, |workspace, _window, cx| {
             assert!(workspace.active_modal::<AttachModal>(cx).is_none());
         })
         .unwrap();

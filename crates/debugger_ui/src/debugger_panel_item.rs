@@ -14,8 +14,8 @@ use dap::{
 };
 use editor::Editor;
 use gpui::{
-    AnyElement, AppContext, EventEmitter, FocusHandle, FocusableView, Model, Subscription, Task,
-    View, WeakView,
+    AnyElement, AppContext, Entity, EventEmitter, FocusHandle, Focusable, Subscription, Task, View,
+    WeakView,
 };
 use project::dap_store::DapStore;
 use rpc::proto::{self, DebuggerThreadStatus, PeerId, SetDebuggerPanelItem, UpdateDebugAdapter};
@@ -67,27 +67,27 @@ pub struct DebugPanelItem {
     focus_handle: FocusHandle,
     remote_id: Option<ViewId>,
     session_name: SharedString,
-    dap_store: Model<DapStore>,
+    dap_store: Entity<DapStore>,
     session_id: DebugSessionId,
     show_console_indicator: bool,
-    module_list: View<ModuleList>,
+    module_list: Entity<ModuleList>,
     active_thread_item: ThreadItem,
-    workspace: WeakView<Workspace>,
+    workspace: WeakEntity<Workspace>,
     client_id: DebugAdapterClientId,
-    thread_state: Model<ThreadState>,
-    variable_list: View<VariableList>,
+    thread_state: Entity<ThreadState>,
+    variable_list: Entity<VariableList>,
     _subscriptions: Vec<Subscription>,
-    stack_frame_list: View<StackFrameList>,
-    loaded_source_list: View<LoadedSourceList>,
+    stack_frame_list: Entity<StackFrameList>,
+    loaded_source_list: Entity<LoadedSourceList>,
 }
 
 impl DebugPanelItem {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        debug_panel: View<DebugPanel>,
-        workspace: WeakView<Workspace>,
-        dap_store: Model<DapStore>,
-        thread_state: Model<ThreadState>,
+        debug_panel: Entity<DebugPanel>,
+        workspace: WeakEntity<Workspace>,
+        dap_store: Entity<DapStore>,
+        thread_state: Entity<ThreadState>,
         session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         session_name: SharedString,
@@ -480,27 +480,27 @@ impl DebugPanelItem {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub fn stack_frame_list(&self) -> &View<StackFrameList> {
+    pub fn stack_frame_list(&self) -> &Entity<StackFrameList> {
         &self.stack_frame_list
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub fn console(&self) -> &View<Console> {
+    pub fn console(&self) -> &Entity<Console> {
         &self.console
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub fn module_list(&self) -> &View<ModuleList> {
+    pub fn module_list(&self) -> &Entity<ModuleList> {
         &self.module_list
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub fn variable_list(&self) -> &View<VariableList> {
+    pub fn variable_list(&self) -> &Entity<VariableList> {
         &self.variable_list
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub fn thread_state(&self) -> &Model<ThreadState> {
+    pub fn thread_state(&self) -> &Entity<ThreadState> {
         &self.thread_state
     }
 
@@ -730,8 +730,8 @@ impl DebugPanelItem {
 
 impl EventEmitter<DebugPanelItemEvent> for DebugPanelItem {}
 
-impl FocusableView for DebugPanelItem {
-    fn focus_handle(&self, _: &AppContext) -> FocusHandle {
+impl Focusable for DebugPanelItem {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
@@ -742,7 +742,8 @@ impl Item for DebugPanelItem {
     fn tab_content(
         &self,
         params: workspace::item::TabContentParams,
-        _: &WindowContext,
+        _window: &Window,
+        _: &App,
     ) -> AnyElement {
         Label::new(format!("{} - Thread {}", self.session_name, self.thread_id))
             .color(if params.selected {
@@ -753,7 +754,7 @@ impl Item for DebugPanelItem {
             .into_any_element()
     }
 
-    fn tab_tooltip_text(&self, cx: &AppContext) -> Option<SharedString> {
+    fn tab_tooltip_text(&self, cx: &App) -> Option<SharedString> {
         Some(SharedString::from(format!(
             "{} Thread {} - {:?}",
             self.session_name,
@@ -775,16 +776,17 @@ impl FollowableItem for DebugPanelItem {
         self.remote_id
     }
 
-    fn to_state_proto(&self, _cx: &WindowContext) -> Option<proto::view::Variant> {
+    fn to_state_proto(&self, _window: &Window, _cx: &App) -> Option<proto::view::Variant> {
         None
     }
 
     fn from_state_proto(
-        _workspace: View<Workspace>,
+        _workspace: Entity<Workspace>,
         _remote_id: ViewId,
         _state: &mut Option<proto::view::Variant>,
+        _window: &mut Window,
         _cx: &mut WindowContext,
-    ) -> Option<gpui::Task<gpui::Result<View<Self>>>> {
+    ) -> Option<gpui::Task<gpui::Result<Entity<Self>>>> {
         None
     }
 
@@ -792,6 +794,7 @@ impl FollowableItem for DebugPanelItem {
         &self,
         _event: &Self::Event,
         _update: &mut Option<proto::update_view::Variant>,
+        _window: &mut Window,
         _cx: &WindowContext,
     ) -> bool {
         // update.get_or_insert_with(|| proto::update_view::Variant::DebugPanel(Default::default()));
@@ -801,20 +804,32 @@ impl FollowableItem for DebugPanelItem {
 
     fn apply_update_proto(
         &mut self,
-        _project: &Model<project::Project>,
+        _project: &Entity<project::Project>,
         _message: proto::update_view::Variant,
+        _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> gpui::Task<gpui::Result<()>> {
         Task::ready(Ok(()))
     }
 
-    fn set_leader_peer_id(&mut self, _leader_peer_id: Option<PeerId>, _cx: &mut Context<Self>) {}
+    fn set_leader_peer_id(
+        &mut self,
+        _leader_peer_id: Option<PeerId>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
+    }
 
     fn to_follow_event(_event: &Self::Event) -> Option<workspace::item::FollowEvent> {
         None
     }
 
-    fn dedup(&self, existing: &Self, _cx: &WindowContext) -> Option<workspace::item::Dedup> {
+    fn dedup(
+        &self,
+        existing: &Self,
+        _window: &Window,
+        _cx: &App,
+    ) -> Option<workspace::item::Dedup> {
         if existing.client_id == self.client_id && existing.thread_id == self.thread_id {
             Some(item::Dedup::KeepExisting)
         } else {
@@ -822,13 +837,13 @@ impl FollowableItem for DebugPanelItem {
         }
     }
 
-    fn is_project_item(&self, _cx: &WindowContext) -> bool {
+    fn is_project_item(&self, _window: &Window, _cx: &App) -> bool {
         true
     }
 }
 
 impl Render for DebugPanelItem {
-    fn render(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let thread_status = self.thread_state.read(cx).status;
         let active_thread_item = &self.active_thread_item;
 
@@ -855,7 +870,7 @@ impl Render for DebugPanelItem {
                                     this.child(
                                         IconButton::new("debug-pause", IconName::DebugPause)
                                             .icon_size(IconSize::Small)
-                                            .on_click(cx.listener(|this, _, cx| {
+                                            .on_click(cx.listener(|this, _, _window, cx| {
                                                 this.pause_thread(cx);
                                             }))
                                             .tooltip(move |window, cx| {
@@ -866,9 +881,9 @@ impl Render for DebugPanelItem {
                                     this.child(
                                         IconButton::new("debug-continue", IconName::DebugContinue)
                                             .icon_size(IconSize::Small)
-                                            .on_click(
-                                                cx.listener(|this, _, cx| this.continue_thread(cx)),
-                                            )
+                                            .on_click(cx.listener(|this, _, _window, cx| {
+                                                this.continue_thread(cx)
+                                            }))
                                             .disabled(thread_status != ThreadStatus::Stopped)
                                             .tooltip(move |window, cx| {
                                                 Tooltip::text("Continue program")
@@ -880,7 +895,7 @@ impl Render for DebugPanelItem {
                                 this.child(
                                     IconButton::new("debug-step-back", IconName::DebugStepBack)
                                         .icon_size(IconSize::Small)
-                                        .on_click(cx.listener(|this, _, cx| {
+                                        .on_click(cx.listener(|this, _, _window, cx| {
                                             this.step_back(cx);
                                         }))
                                         .disabled(thread_status != ThreadStatus::Stopped)
@@ -890,7 +905,7 @@ impl Render for DebugPanelItem {
                             .child(
                                 IconButton::new("debug-step-over", IconName::DebugStepOver)
                                     .icon_size(IconSize::Small)
-                                    .on_click(cx.listener(|this, _, cx| {
+                                    .on_click(cx.listener(|this, _, _window, cx| {
                                         this.step_over(cx);
                                     }))
                                     .disabled(thread_status != ThreadStatus::Stopped)
@@ -899,7 +914,7 @@ impl Render for DebugPanelItem {
                             .child(
                                 IconButton::new("debug-step-in", IconName::DebugStepInto)
                                     .icon_size(IconSize::Small)
-                                    .on_click(cx.listener(|this, _, cx| {
+                                    .on_click(cx.listener(|this, _, _window, cx| {
                                         this.step_in(cx);
                                     }))
                                     .disabled(thread_status != ThreadStatus::Stopped)
@@ -908,7 +923,7 @@ impl Render for DebugPanelItem {
                             .child(
                                 IconButton::new("debug-step-out", IconName::DebugStepOut)
                                     .icon_size(IconSize::Small)
-                                    .on_click(cx.listener(|this, _, cx| {
+                                    .on_click(cx.listener(|this, _, _window, cx| {
                                         this.step_out(cx);
                                     }))
                                     .disabled(thread_status != ThreadStatus::Stopped)
@@ -917,7 +932,7 @@ impl Render for DebugPanelItem {
                             .child(
                                 IconButton::new("debug-restart", IconName::DebugRestart)
                                     .icon_size(IconSize::Small)
-                                    .on_click(cx.listener(|this, _, cx| {
+                                    .on_click(cx.listener(|this, _, _window, cx| {
                                         this.restart_client(cx);
                                     }))
                                     .disabled(
@@ -928,7 +943,7 @@ impl Render for DebugPanelItem {
                             .child(
                                 IconButton::new("debug-stop", IconName::DebugStop)
                                     .icon_size(IconSize::Small)
-                                    .on_click(cx.listener(|this, _, cx| {
+                                    .on_click(cx.listener(|this, _, _window, cx| {
                                         this.stop_thread(cx);
                                     }))
                                     .disabled(
@@ -940,7 +955,7 @@ impl Render for DebugPanelItem {
                             .child(
                                 IconButton::new("debug-disconnect", IconName::DebugDisconnect)
                                     .icon_size(IconSize::Small)
-                                    .on_click(cx.listener(|this, _, cx| {
+                                    .on_click(cx.listener(|this, _, _window, cx| {
                                         this.disconnect_client(cx);
                                     }))
                                     .disabled(
@@ -961,7 +976,7 @@ impl Render for DebugPanelItem {
                                     },
                                 )
                                 .icon_size(IconSize::Small)
-                                .on_click(cx.listener(|this, _, cx| {
+                                .on_click(cx.listener(|this, _, _window, cx| {
                                     this.toggle_ignore_breakpoints(cx);
                                 }))
                                 .disabled(

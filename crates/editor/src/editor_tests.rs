@@ -15487,7 +15487,7 @@ fn add_log_breakpoint_at_cursor(
     editor: &mut Editor,
     log_message: &str,
     window: &mut Window,
-    cx: &mut App,
+    cx: &mut Context<Editor>,
 ) {
     let (anchor, kind) = editor.breakpoint_at_cursor_head(cx).unwrap_or_else(|| {
         let cursor_position: Point = editor.selections.newest(cx).head();
@@ -15553,11 +15553,6 @@ async fn test_breakpoint_toggling(cx: &mut TestAppContext) {
             cx,
         )
     });
-
-    let cx = &mut VisualTestContext::from_window(*window, cx);
-    let project_path = window
-        .update(cx, |editor, cx| editor.project_path(cx).unwrap())
-        .unwrap();
 
     // assert we can add breakpoint on the first line
     window

@@ -1,4 +1,4 @@
-use gpui::{Model, TestAppContext, View, WindowHandle};
+use gpui::{Entity, TestAppContext, WindowHandle};
 use project::Project;
 use settings::SettingsStore;
 use terminal_view::terminal_panel::TerminalPanel;
@@ -32,27 +32,27 @@ pub fn init_test(cx: &mut gpui::TestAppContext) {
 }
 
 pub async fn init_test_workspace(
-    project: &Model<Project>,
+    project: &Entity<Project>,
     cx: &mut TestAppContext,
 ) -> WindowHandle<Workspace> {
-    let window = cx.add_window(|cx| Workspace::test_new(project.clone(), cx));
+    let window = cx.add_window(|window, cx| Workspace::test_new(project.clone(), window, cx));
 
     let debugger_panel = window
-        .update(cx, |_, cx| cx.spawn(DebugPanel::load))
+        .update(cx, |_, _window, cx| cx.spawn(DebugPanel::load))
         .unwrap()
         .await
         .expect("Failed to load debug panel");
 
     let terminal_panel = window
-        .update(cx, |_, cx| cx.spawn(TerminalPanel::load))
+        .update(cx, |_, _window, cx| cx.spawn(TerminalPanel::load))
         .unwrap()
         .await
         .expect("Failed to load terminal panel");
 
     window
-        .update(cx, |workspace, cx| {
-            workspace.add_panel(debugger_panel, cx);
-            workspace.add_panel(terminal_panel, cx);
+        .update(cx, |workspace, window, cx| {
+            workspace.add_panel(debugger_panel, window, cx);
+            workspace.add_panel(terminal_panel, window, cx);
         })
         .unwrap();
     window
@@ -61,7 +61,7 @@ pub async fn init_test_workspace(
 pub fn active_debug_panel_item(
     workspace: WindowHandle<Workspace>,
     cx: &mut TestAppContext,
-) -> View<DebugPanelItem> {
+) -> Entity<DebugPanelItem> {
     workspace
         .update(cx, |workspace, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
