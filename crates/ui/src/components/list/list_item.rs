@@ -82,19 +82,15 @@ impl ListItem {
         self
     }
 
-<<<<<<< HEAD
     pub fn always_show_disclosure_icon(mut self, show: bool) -> Self {
         self.always_show_disclosure_icon = show;
         self
     }
 
-    pub fn on_click(mut self, handler: impl Fn(&ClickEvent, &mut WindowContext) + 'static) -> Self {
-=======
     pub fn on_click(
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
->>>>>>> main
         self.on_click = Some(Box::new(handler));
         self
     }

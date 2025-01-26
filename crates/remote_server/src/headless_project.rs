@@ -78,15 +78,9 @@ impl HeadlessProject {
             store.shared(SSH_PROJECT_ID, session.clone().into(), cx);
             store
         });
-<<<<<<< HEAD
 
         let environment = project::ProjectEnvironment::new(&worktree_store, None, cx);
-<<<<<<< HEAD
-
-        let dap_store = cx.new_model(|cx| {
-=======
         let dap_store = cx.new(|cx| {
->>>>>>> 587b0671a1 (Wip more)
             DapStore::new_local(
                 http_client.clone(),
                 node_runtime.clone(),
@@ -96,13 +90,9 @@ impl HeadlessProject {
                 cx,
             )
         });
-        let buffer_store = cx.new_model(|cx| {
-            let mut buffer_store =
-                BufferStore::local(worktree_store.clone(), dap_store.clone(), cx);
-=======
         let buffer_store = cx.new(|cx| {
-            let mut buffer_store = BufferStore::local(worktree_store.clone(), cx);
->>>>>>> main
+            let mut buffer_store =
+            BufferStore::local(worktree_store.clone(), dap_store.clone(), cx);
             buffer_store.shared(SSH_PROJECT_ID, session.clone().into(), cx);
             buffer_store
         });

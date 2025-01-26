@@ -10,9 +10,9 @@ use futures::{
     StreamExt,
 };
 use gpui::{
-    actions, div, App, AppContext, Context, Empty, Entity, EventEmitter, FocusHandle,
-    FocusableView, IntoElement, ModelContext, ParentElement, Render, SharedString, Styled,
-    Subscription, ViewContext, VisualContext, WeakModel, WindowContext,
+    actions, div, App, AppContext, Context, Empty, Entity, EventEmitter, FocusHandle, Focusable,
+    IntoElement, ParentElement, Render, SharedString, Styled, Subscription, VisualContext,
+    WeakEntity, Window,
 };
 use project::{search::SearchQuery, Project};
 use settings::Settings as _;
@@ -360,7 +360,7 @@ impl DapLogToolbarItemView {
 }
 
 impl Render for DapLogToolbarItemView {
-    fn render(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(log_view) = self.log_view.clone() else {
             return Empty.into_any_element();
         };
@@ -398,10 +398,10 @@ impl Render for DapLogToolbarItemView {
                     })
                     .unwrap_or_else(|| "No adapter selected".into()),
             ))
-            .menu(move |window, cx| {
+            .menu(move |mut window, cx| {
                 let log_view = log_view.clone();
                 let menu_rows = menu_rows.clone();
-                ContextMenu::build(window, cx, move |mut menu, _window, cx| {
+                ContextMenu::build(&mut window, cx, move |mut menu, window, _cx| {
                     for row in menu_rows.into_iter() {
                         menu = menu.header(format!("{}. {}", row.session_id.0, row.session_name));
 
@@ -767,6 +767,12 @@ impl Item for DapLogView {
 
     fn as_searchable(&self, handle: &Entity<Self>) -> Option<Box<dyn SearchableItemHandle>> {
         Some(Box::new(handle.clone()))
+    }
+}
+
+impl Focusable for DapLogView {
+    fn focus_handle(&self) -> FocusHandle {
+        self.focus_handle
     }
 }
 

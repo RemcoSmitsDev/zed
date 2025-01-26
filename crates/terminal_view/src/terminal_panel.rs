@@ -910,15 +910,8 @@ pub fn new_terminal_pane(
             project.clone(),
             Default::default(),
             None,
-<<<<<<< HEAD
-<<<<<<< HEAD
             Some(NewTerminal.boxed_clone()),
-=======
-=======
->>>>>>> 2897b8d8a2 (Wip)
-            NewTerminal.boxed_clone(),
             window,
->>>>>>> main
             cx,
         );
         pane.set_zoomed(zoomed, cx);
