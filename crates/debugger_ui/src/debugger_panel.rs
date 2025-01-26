@@ -14,8 +14,8 @@ use dap::{
     TerminatedEvent, ThreadEvent, ThreadEventReason,
 };
 use gpui::{
-    actions, Action, AppContext, AsyncWindowContext, EventEmitter, FocusHandle, FocusableView,
-    Model, Subscription, Task, View, ViewContext, WeakView,
+    actions, Action, AppContext, AsyncWindowContext, Entity, EventEmitter, FocusHandle,
+    FocusableView, Subscription, Task, View, ViewContext, WeakView,
 };
 use project::{
     dap_store::{DapStore, DapStoreEvent},
@@ -115,15 +115,19 @@ pub struct DebugPanel {
     size: Pixels,
     pane: View<Pane>,
     focus_handle: FocusHandle,
-    dap_store: Model<DapStore>,
+    dap_store: Entity<DapStore>,
     workspace: WeakView<Workspace>,
     _subscriptions: Vec<Subscription>,
     message_queue: HashMap<DebugAdapterClientId, VecDeque<OutputEvent>>,
-    thread_states: BTreeMap<(DebugAdapterClientId, u64), Model<ThreadState>>,
+    thread_states: BTreeMap<(DebugAdapterClientId, u64), Entity<ThreadState>>,
 }
 
 impl DebugPanel {
-    pub fn new(workspace: &Workspace, cx: &mut ViewContext<Workspace>) -> View<Self> {
+    pub fn new(
+        workspace: &Workspace,
+        window: &mut Window,
+        cx: &mut Context<Workspace>,
+    ) -> View<Self> {
         cx.new(|cx| {
             let pane = cx.new(|cx| {
                 let mut pane = Pane::new(
@@ -132,6 +136,7 @@ impl DebugPanel {
                     Default::default(),
                     None,
                     None,
+                    window,
                     cx,
                 );
                 pane.set_can_split(None);
@@ -233,8 +238,8 @@ impl DebugPanel {
         cx: AsyncWindowContext,
     ) -> Task<Result<View<Self>>> {
         cx.spawn(|mut cx| async move {
-            workspace.update(&mut cx, |workspace, cx| {
-                let debug_panel = DebugPanel::new(workspace, cx);
+            workspace.update_in(&mut cx, |workspace, window, cx| {
+                let debug_panel = DebugPanel::new(workspace, window, cx);
 
                 cx.observe(&debug_panel, |_, debug_panel, cx| {
                     let (has_active_session, support_step_back) =
@@ -293,7 +298,7 @@ impl DebugPanel {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub fn dap_store(&self) -> Model<DapStore> {
+    pub fn dap_store(&self) -> Entity<DapStore> {
         self.dap_store.clone()
     }
 
@@ -345,8 +350,8 @@ impl DebugPanel {
             pane::Event::ZoomOut => cx.emit(PanelEvent::ZoomOut),
             pane::Event::AddItem { item } => {
                 self.workspace
-                    .update(cx, |workspace, cx| {
-                        item.added_to_pane(workspace, self.pane.clone(), cx)
+                    .update_in(cx, |workspace, window, cx| {
+                        item.added_to_pane(workspace, self.pane.clone(), window, cx)
                     })
                     .ok();
             }
@@ -604,12 +609,13 @@ impl DebugPanel {
                         task.await
                     } else {
                         this.update(&mut cx, |this, cx| {
-                            workspace.update(cx, |workspace, cx| {
+                            workspace.update_in(cx, |workspace, window, cx| {
                                 workspace.toggle_modal(cx, |cx| {
                                     AttachModal::new(
                                         &session_id,
                                         &client_id,
                                         this.dap_store.clone(),
+                                        window,
                                         cx,
                                     )
                                 })
@@ -774,6 +780,7 @@ impl DebugPanel {
                                     &client_id,
                                     session_name,
                                     thread_id,
+                                    window,
                                     cx,
                                 )
                             });
@@ -906,7 +913,7 @@ impl DebugPanel {
 
     fn on_dap_store_event(
         &mut self,
-        _: Model<DapStore>,
+        _: Entity<DapStore>,
         event: &project::dap_store::DapStoreEvent,
         cx: &mut Context<Self>,
     ) {
@@ -1026,6 +1033,7 @@ impl DebugPanel {
                         &client_id,
                         payload.session_name.clone().into(),
                         thread_id,
+                        window,
                         cx,
                     )
                 });

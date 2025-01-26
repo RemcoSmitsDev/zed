@@ -400,7 +400,7 @@ impl StackFrameList {
                                         this.restart_stack_frame(stack_frame_id, cx);
                                     }
                                 }))
-                                .tooltip(move |cx| Tooltip::text("Restart Stack Frame", cx)),
+                                .tooltip(move |window, cx| Tooltip::text("Restart Stack Frame")),
                             ),
                     )
                 },

@@ -56,11 +56,13 @@ impl AttachModal {
         session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         dap_store: Model<DapStore>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let picker = cx.new(|cx| {
             Picker::uniform_list(
                 AttachModalDelegate::new(*session_id, *client_id, dap_store),
+                window,
                 cx,
             )
         });

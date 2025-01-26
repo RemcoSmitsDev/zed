@@ -6249,7 +6249,8 @@ impl Element for EditorElement {
         _: Option<&GlobalElementId>,
         bounds: Bounds<Pixels>,
         _: &mut Self::RequestLayoutState,
-        cx: &mut WindowContext,
+        window: &mut Window,
+        cx: &mut App,
     ) -> Self::PrepaintState {
         let text_style = TextStyleRefinement {
             font_size: Some(self.style.text.font_size),
@@ -6260,9 +6261,9 @@ impl Element for EditorElement {
         cx.set_view_id(self.editor.entity_id());
         cx.set_focus_handle(&focus_handle);
 
-        let mut breakpoint_rows = self
-            .editor
-            .update(cx, |editor, cx| editor.active_breakpoint_points(cx));
+        let mut breakpoint_rows = self.editor.update_in(cx, |editor, window, cx| {
+            editor.active_breakpoint_points(window, cx)
+        });
 
         let rem_size = self.rem_size(cx);
         cx.with_rem_size(rem_size, |cx| {

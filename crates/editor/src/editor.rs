@@ -1262,7 +1262,7 @@ impl Editor {
                                 }
                             }
                         } else if let project::Event::ActiveDebugLineChanged = event {
-                            editor.go_to_active_debug_line(cx);
+                            editor.go_to_active_debug_line(window, cx);
                         }
                     },
                 ));
@@ -1472,7 +1472,7 @@ impl Editor {
                 this.start_git_blame_inline(false, window, cx);
             }
 
-            this.go_to_active_debug_line(cx);
+            this.go_to_active_debug_line(window, cx);
 
             if let Some(buffer) = buffer.read(cx).as_singleton() {
                 if let Some(project) = this.project.as_ref() {
@@ -5317,6 +5317,7 @@ impl Editor {
     /// TODO debugger: Use this function to color toggle symbols that house nested breakpoints
     fn active_breakpoint_points(
         &mut self,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> HashMap<DisplayRow, Breakpoint> {
         let mut breakpoint_display_points = HashMap::default();
@@ -5325,7 +5326,7 @@ impl Editor {
             return breakpoint_display_points;
         };
 
-        let snapshot = self.snapshot(cx);
+        let snapshot = self.snapshot(window, cx);
 
         let breakpoints = dap_store.read(cx).breakpoints();
 
@@ -5410,8 +5411,8 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> View<ui::ContextMenu> {
-        let editor_weak = cx.view().downgrade();
-        let editor_weak2 = editor_weak.clone();
+        let weak_editor = cx.view().downgrade();
+        let weak_editor2 = weak_editor.clone();
         let focus_handle = self.focus_handle(cx);
 
         let second_entry_msg = if kind.log_message().is_some() {
@@ -5424,8 +5425,8 @@ impl Editor {
             menu.on_blur_subscription(Subscription::new(|| {}))
                 .context(focus_handle)
                 .entry("Toggle Breakpoint", None, move |cx| {
-                    if let Some(editor) = editor_weak.upgrade() {
-                        editor.update(cx, |this, cx| {
+                    weak_editor
+                        .update(cx, |this, cx| {
                             this.edit_breakpoint_at_anchor(
                                 anchor,
                                 BreakpointKind::Standard,
@@ -5433,14 +5434,12 @@ impl Editor {
                                 cx,
                             );
                         })
-                    }
+                        .log_err();
                 })
                 .entry(second_entry_msg, None, move |cx| {
-                    if let Some(editor) = editor_weak2.clone().upgrade() {
-                        editor.update(cx, |this, cx| {
-                            this.add_edit_breakpoint_block(row, anchor, kind.as_ref(), cx);
-                        });
-                    }
+                    weak_editor2.update(cx, |this, cx| {
+                        this.add_edit_breakpoint_block(row, anchor, kind.as_ref(), cx);
+                    });
                 })
         })
     }
@@ -6659,11 +6658,22 @@ impl Editor {
             .snapshot(cx)
             .breakpoint_anchor(Point::new(row.0, 0u32));
 
-        let context_menu =
-            self.breakpoint_context_menu(position.unwrap_or(source.text_anchor), kind, row, cx);
+        let context_menu = self.breakpoint_context_menu(
+            position.unwrap_or(source.text_anchor),
+            kind,
+            row,
+            window,
+            cx,
+        );
 
-        self.mouse_context_menu =
-            MouseContextMenu::pinned_to_editor(self, source, clicked_point, context_menu, cx);
+        self.mouse_context_menu = MouseContextMenu::pinned_to_editor(
+            self,
+            source,
+            clicked_point,
+            context_menu,
+            window,
+            cx,
+        );
     }
 
     fn add_edit_breakpoint_block(
@@ -6674,7 +6684,7 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         let position = self
-            .snapshot(cx)
+            .snapshot(window, cx)
             .display_point_to_anchor(DisplayPoint::new(row, 0), Bias::Right);
 
         let weak_editor = cx.view().downgrade();
@@ -6744,21 +6754,28 @@ impl Editor {
         Some((bp.active_position?, bp.kind))
     }
 
-    pub fn edit_log_breakpoint(&mut self, _: &EditLogBreakpoint, window, &mut Window, cx: &mut App) {
-        let (anchor, kind) = self.breakpoint_at_cursor_head(cx).unwrap_or_else(|| {
-            let cursor_position: Point = self.selections.newest(cx).head();
+    pub fn edit_log_breakpoint(
+        &mut self,
+        _: &EditLogBreakpoint,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let (anchor, kind) = self
+            .breakpoint_at_cursor_head(window, cx)
+            .unwrap_or_else(|| {
+                let cursor_position: Point = self.selections.newest(cx).head();
 
-            let breakpoint_position = self
-                .snapshot(window, cx)
-                .display_snapshot
-                .buffer_snapshot
-                .breakpoint_anchor(Point::new(cursor_position.row, 0))
-                .text_anchor;
+                let breakpoint_position = self
+                    .snapshot(window, cx)
+                    .display_snapshot
+                    .buffer_snapshot
+                    .breakpoint_anchor(Point::new(cursor_position.row, 0))
+                    .text_anchor;
 
-            let kind = BreakpointKind::Standard;
+                let kind = BreakpointKind::Standard;
 
-            (breakpoint_position, kind)
-        });
+                (breakpoint_position, kind)
+            });
 
         if let Some(buffer) = self
             .buffer()
@@ -6768,7 +6785,7 @@ impl Editor {
         {
             let row = buffer
                 .summary_for_anchor::<Point>(&anchor)
-                .to_display_point(&self.snapshot(cx))
+                .to_display_point(&self.snapshot(window, cx))
                 .row();
 
             self.add_edit_breakpoint_block(row, anchor, &kind, cx);
@@ -6778,7 +6795,7 @@ impl Editor {
     pub fn toggle_breakpoint(&mut self, _: &ToggleBreakpoint, window: &mut Window, cx: &mut App) {
         let edit_action = BreakpointEditAction::Toggle;
 
-        if let Some((anchor, kind)) = self.breakpoint_at_cursor_head(cx) {
+        if let Some((anchor, kind)) = self.breakpoint_at_cursor_head(window, cx) {
             self.edit_breakpoint_at_anchor(anchor, kind, edit_action, cx);
         } else {
             let cursor_position: Point = self.selections.newest(cx).head();
@@ -10437,9 +10454,10 @@ impl Editor {
         &mut self,
         row: u32,
         highlight_color: Option<Hsla>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let snapshot = self.snapshot(cx).display_snapshot;
+        let snapshot = self.snapshot(window, cx).display_snapshot;
         let start = snapshot
             .buffer_snapshot
             .clip_point(Point::new(row, 0), Bias::Left);
@@ -12830,7 +12848,7 @@ impl Editor {
         }
     }
 
-    pub fn go_to_active_debug_line(&mut self, cx: &mut Context<Self>) {
+    pub fn go_to_active_debug_line(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(dap_store) = self.dap_store.as_ref() else {
             return;
         };
@@ -12844,6 +12862,7 @@ impl Editor {
                 self.go_to_line::<DebugCurrentRowHighlight>(
                     position,
                     Some(cx.theme().colors().editor_debugger_active_line_background),
+                    window,
                     cx,
                 );
 
@@ -16683,6 +16702,7 @@ impl BreakpointPromptEditor {
                 buffer,
                 None,
                 false,
+                window,
                 cx,
             );
             prompt.set_soft_wrap_mode(language::language_settings::SoftWrap::EditorWidth, cx);
