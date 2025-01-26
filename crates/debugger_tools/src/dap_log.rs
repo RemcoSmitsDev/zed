@@ -402,15 +402,15 @@ impl Render for DapLogToolbarItemView {
                     })
                     .unwrap_or_else(|| "No adapter selected".into()),
             ))
-            .menu(move |cx| {
+            .menu(move |window, cx| {
                 let log_view = log_view.clone();
                 let menu_rows = menu_rows.clone();
-                ContextMenu::build(cx, move |mut menu, cx| {
+                ContextMenu::build(window, cx, move |mut menu, _window, cx| {
                     for row in menu_rows.into_iter() {
                         menu = menu.header(format!("{}. {}", row.session_id.0, row.session_name));
 
                         for sub_item in row.clients.into_iter() {
-                            menu = menu.custom_row(move |_| {
+                            menu = menu.custom_row(move |_window, _cx| {
                                 div()
                                     .w_full()
                                     .pl_2()
@@ -426,28 +426,28 @@ impl Render for DapLogToolbarItemView {
 
                             if sub_item.has_adapter_logs {
                                 menu = menu.custom_entry(
-                                    move |_| {
+                                    move |_window, _cx| {
                                         div()
                                             .w_full()
                                             .pl_4()
                                             .child(Label::new(ADAPTER_LOGS))
                                             .into_any_element()
                                     },
-                                    cx.handler_for(&log_view, move |view, cx| {
+                                    window.handler_for(&log_view, move |view, _window, cx| {
                                         view.show_log_messages_for_adapter(sub_item.client_id, cx);
                                     }),
                                 );
                             }
 
                             menu = menu.custom_entry(
-                                move |_| {
+                                move |_window, _cx| {
                                     div()
                                         .w_full()
                                         .pl_4()
                                         .child(Label::new(RPC_MESSAGES))
                                         .into_any_element()
                                 },
-                                cx.handler_for(&log_view, move |view, cx| {
+                                window.handler_for(&log_view, move |view, _window, cx| {
                                     view.show_rpc_trace_for_server(sub_item.client_id, cx);
                                 }),
                             );
@@ -465,12 +465,12 @@ impl Render for DapLogToolbarItemView {
                 div()
                     .child(
                         Button::new("clear_log_button", "Clear").on_click(cx.listener(
-                            |this, _, cx| {
+                            |this, _, window, cx| {
                                 if let Some(log_view) = this.log_view.as_ref() {
                                     log_view.update(cx, |log_view, cx| {
                                         log_view.editor.update(cx, |editor, cx| {
                                             editor.set_read_only(false);
-                                            editor.clear(cx);
+                                            editor.clear(window, cx);
                                             editor.set_read_only(true);
                                         });
                                     })
