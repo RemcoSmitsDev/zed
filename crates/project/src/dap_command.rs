@@ -230,7 +230,7 @@ impl DapCommand for StepOutCommand {
 
     fn handle_response(
         &self,
-        dap_store: WeakModel<DapStore>,
+        dap_store: WeakEntity<DapStore>,
         client_id: &DebugAdapterClientId,
         response: Result<Self::Response>,
         cx: &mut AsyncAppContext,
@@ -400,7 +400,7 @@ impl DapCommand for ContinueCommand {
 
     fn handle_response(
         &self,
-        dap_store: WeakModel<DapStore>,
+        dap_store: WeakEntity<DapStore>,
         client_id: &DebugAdapterClientId,
         response: Result<Self::Response>,
         cx: &mut AsyncAppContext,
@@ -821,7 +821,7 @@ impl DapCommand for VariablesCommand {
 
     fn handle_response(
         &self,
-        dap_store: WeakModel<DapStore>,
+        dap_store: WeakEntity<DapStore>,
         client_id: &DebugAdapterClientId,
         response: Result<Self::Response>,
         cx: &mut AsyncAppContext,
