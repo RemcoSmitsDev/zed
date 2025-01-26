@@ -3749,7 +3749,6 @@ dependencies = [
 ]
 
 [[package]]
-<<<<<<< HEAD
 name = "debugger_tools"
 version = "0.1.0"
 dependencies = [
@@ -3799,7 +3798,9 @@ dependencies = [
  "unindent",
  "util",
  "workspace",
-=======
+]
+
+[[package]]
 name = "deepseek"
 version = "0.1.0"
 dependencies = [
@@ -3809,7 +3810,6 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
->>>>>>> main
 ]
 
 [[package]]

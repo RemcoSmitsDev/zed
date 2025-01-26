@@ -911,8 +911,11 @@ pub fn new_terminal_pane(
             Default::default(),
             None,
 <<<<<<< HEAD
+<<<<<<< HEAD
             Some(NewTerminal.boxed_clone()),
 =======
+=======
+>>>>>>> 2897b8d8a2 (Wip)
             NewTerminal.boxed_clone(),
             window,
 >>>>>>> main

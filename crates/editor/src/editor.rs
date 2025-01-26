@@ -5319,7 +5319,7 @@ impl Editor {
     /// TODO debugger: Use this function to color toggle symbols that house nested breakpoints
     fn active_breakpoint_points(
         &mut self,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> HashMap<DisplayRow, Breakpoint> {
         let mut breakpoint_display_points = HashMap::default();
 
@@ -5411,6 +5411,7 @@ impl Editor {
         anchor: text::Anchor,
         kind: Arc<BreakpointKind>,
         row: DisplayRow,
+        window: &mut Window,
         cx: &mut ViewContext<Self>,
     ) -> View<ui::ContextMenu> {
         let editor_weak = cx.view().downgrade();
@@ -5423,7 +5424,7 @@ impl Editor {
             "Add Log Breakpoint"
         };
 
-        ui::ContextMenu::build(cx, |menu, _cx| {
+        ui::ContextMenu::build(window, cx, |menu, _cx| {
             menu.on_blur_subscription(Subscription::new(|| {}))
                 .context(focus_handle)
                 .entry("Toggle Breakpoint", None, move |cx| {
@@ -6711,7 +6712,8 @@ impl Editor {
 
     pub(crate) fn breakpoint_at_cursor_head(
         &mut self,
-        cx: &mut ViewContext<Self>,
+        window: &mut Window,
+        cx: &mut App,
     ) -> Option<(text::Anchor, BreakpointKind)> {
         let cursor_position: Point = self.selections.newest(cx).head();
 
@@ -6720,7 +6722,7 @@ impl Editor {
         // breakpoint. Otherwise, toggling a breakpoint through an action wouldn't
         // untoggle a breakpoint that was added through clicking on the gutter
         let breakpoint_position = self
-            .snapshot(cx)
+            .snapshot(window, cx)
             .display_snapshot
             .buffer_snapshot
             .breakpoint_anchor(Point::new(cursor_position.row, 0))
@@ -6746,12 +6748,12 @@ impl Editor {
         Some((bp.active_position?, bp.kind))
     }
 
-    pub fn edit_log_breakpoint(&mut self, _: &EditLogBreakpoint, cx: &mut ViewContext<Self>) {
+    pub fn edit_log_breakpoint(&mut self, _: &EditLogBreakpoint, window, &mut Window, cx: &mut App) {
         let (anchor, kind) = self.breakpoint_at_cursor_head(cx).unwrap_or_else(|| {
             let cursor_position: Point = self.selections.newest(cx).head();
 
             let breakpoint_position = self
-                .snapshot(cx)
+                .snapshot(window, cx)
                 .display_snapshot
                 .buffer_snapshot
                 .breakpoint_anchor(Point::new(cursor_position.row, 0))
@@ -6777,7 +6779,7 @@ impl Editor {
         }
     }
 
-    pub fn toggle_breakpoint(&mut self, _: &ToggleBreakpoint, cx: &mut ViewContext<Self>) {
+    pub fn toggle_breakpoint(&mut self, _: &ToggleBreakpoint, window: &mut Window, cx: &mut App) {
         let edit_action = BreakpointEditAction::Toggle;
 
         if let Some((anchor, kind)) = self.breakpoint_at_cursor_head(cx) {
@@ -6786,7 +6788,7 @@ impl Editor {
             let cursor_position: Point = self.selections.newest(cx).head();
 
             let breakpoint_position = self
-                .snapshot(cx)
+                .snapshot(window, cx)
                 .display_snapshot
                 .buffer_snapshot
                 .breakpoint_anchor(Point::new(cursor_position.row, 0))

@@ -36,9 +36,7 @@ use dap_adapters::build_adapter;
 use fs::Fs;
 use futures::future::Shared;
 use futures::FutureExt;
-use gpui::{
-    AppContext, AsyncAppContext, Context, EventEmitter, Model, ModelContext, SharedString, Task,
-};
+use gpui::{AppContext, AsyncAppContext, Context, EventEmitter, SharedString, Task};
 use http_client::HttpClient;
 use language::{
     proto::{deserialize_anchor, serialize_anchor as serialize_text_anchor},

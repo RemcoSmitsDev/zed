@@ -1358,12 +1358,14 @@ fn open_project_tasks_file(
 fn open_project_debug_tasks_file(
     workspace: &mut Workspace,
     _: &OpenProjectDebugTasks,
+    window: &mut Window,
     cx: &mut ViewContext<Workspace>,
 ) {
     open_local_file(
         workspace,
         local_debug_file_relative_path(),
         initial_debug_tasks_content(),
+        window,
         cx,
     )
 }

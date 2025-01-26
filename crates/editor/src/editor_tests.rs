@@ -15486,13 +15486,14 @@ fn assert_breakpoint(
 fn add_log_breakpoint_at_cursor(
     editor: &mut Editor,
     log_message: &str,
-    cx: &mut ViewContext<Editor>,
+    window: &mut Window,
+    cx: &mut App,
 ) {
     let (anchor, kind) = editor.breakpoint_at_cursor_head(cx).unwrap_or_else(|| {
         let cursor_position: Point = editor.selections.newest(cx).head();
 
         let breakpoint_position = editor
-            .snapshot(cx)
+            .snapshot(window, cx)
             .display_snapshot
             .buffer_snapshot
             .breakpoint_anchor(Point::new(cursor_position.row, 0))

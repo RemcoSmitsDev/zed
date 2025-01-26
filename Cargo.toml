@@ -236,12 +236,9 @@ copilot = { path = "crates/copilot" }
 dap = { path = "crates/dap" }
 dap_adapters = { path = "crates/dap_adapters" }
 db = { path = "crates/db" }
-<<<<<<< HEAD
 debugger_ui = { path = "crates/debugger_ui" }
 debugger_tools = { path = "crates/debugger_tools" }
-=======
 deepseek = { path = "crates/deepseek" }
->>>>>>> main
 diagnostics = { path = "crates/diagnostics" }
 editor = { path = "crates/editor" }
 extension = { path = "crates/extension" }

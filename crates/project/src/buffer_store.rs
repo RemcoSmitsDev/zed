@@ -959,8 +959,8 @@ impl BufferStore {
     pub fn dap_on_buffer_open(
         &mut self,
         project_path: &ProjectPath,
-        buffer: &Model<Buffer>,
-        cx: &mut ModelContext<Self>,
+        buffer: &Entity<Buffer>,
+        cx: &mut Context<Self>,
     ) {
         if let Some(local_store) = self.as_local_mut() {
             local_store.dap_store.update(cx, |store, cx| {
