@@ -10,9 +10,9 @@ use futures::{
     StreamExt,
 };
 use gpui::{
-    actions, div, AppContext, Context, Empty, EventEmitter, FocusHandle, FocusableView,
-    IntoElement, Model, ModelContext, ParentElement, Render, SharedString, Styled, Subscription,
-    View, ViewContext, VisualContext, WeakModel, WindowContext,
+    actions, div, App, AppContext, Context, Empty, Entity, EventEmitter, FocusHandle,
+    FocusableView, IntoElement, ModelContext, ParentElement, Render, SharedString, Styled,
+    Subscription, ViewContext, VisualContext, WeakModel, WindowContext,
 };
 use project::{search::SearchQuery, Project};
 use settings::Settings as _;
@@ -30,17 +30,17 @@ use workspace::{
 };
 
 struct DapLogView {
-    editor: View<Editor>,
+    editor: Entity<Editor>,
     focus_handle: FocusHandle,
-    log_store: Model<LogStore>,
+    log_store: Entity<LogStore>,
     editor_subscriptions: Vec<Subscription>,
     current_view: Option<(DebugAdapterClientId, LogKind)>,
-    project: Model<Project>,
+    project: Entity<Project>,
     _subscriptions: Vec<Subscription>,
 }
 
 struct LogStore {
-    projects: HashMap<WeakModel<Project>, ProjectState>,
+    projects: HashMap<WeakEntity<Project>, ProjectState>,
     debug_clients: HashMap<DebugAdapterClientId, DebugAdapterState>,
     rpc_tx: UnboundedSender<(DebugAdapterClientId, IoKind, String)>,
     adapter_log_tx: UnboundedSender<(DebugAdapterClientId, IoKind, String)>,
@@ -158,7 +158,7 @@ impl LogStore {
         self.add_debug_client_log(client_id, io_kind, message.to_string(), cx);
     }
 
-    pub fn add_project(&mut self, project: &Model<Project>, cx: &mut ModelContext<Self>) {
+    pub fn add_project(&mut self, project: &Entity<Project>, cx: &mut ModelContext<Self>) {
         let weak_project = project.downgrade();
         self.projects.insert(
             project.downgrade(),
@@ -290,7 +290,7 @@ impl LogStore {
     fn add_debug_client(
         &mut self,
         client_id: DebugAdapterClientId,
-        session_and_client: Option<(Model<DebugSession>, Arc<DebugAdapterClient>)>,
+        session_and_client: Option<(Entity<DebugSession>, Arc<DebugAdapterClient>)>,
     ) -> Option<&mut DebugAdapterState> {
         let client_state = self
             .debug_clients
@@ -354,7 +354,7 @@ impl LogStore {
 }
 
 pub struct DapLogToolbarItemView {
-    log_view: Option<View<DapLogView>>,
+    log_view: Option<Entity<DapLogView>>,
 }
 
 impl DapLogToolbarItemView {
@@ -364,7 +364,7 @@ impl DapLogToolbarItemView {
 }
 
 impl Render for DapLogToolbarItemView {
-    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(log_view) = self.log_view.clone() else {
             return Empty.into_any_element();
         };
@@ -490,7 +490,7 @@ impl ToolbarItemView for DapLogToolbarItemView {
     fn set_active_pane_item(
         &mut self,
         active_pane_item: Option<&dyn workspace::item::ItemHandle>,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> workspace::ToolbarItemLocation {
         if let Some(item) = active_pane_item {
             if let Some(log_view) = item.downcast::<DapLogView>() {
@@ -508,9 +508,9 @@ impl ToolbarItemView for DapLogToolbarItemView {
 
 impl DapLogView {
     pub fn new(
-        project: Model<Project>,
-        log_store: Model<LogStore>,
-        cx: &mut ViewContext<Self>,
+        project: Entity<Project>,
+        log_store: Entity<LogStore>,
+        cx: &mut Context<Self>,
     ) -> Self {
         let (editor, editor_subscriptions) = Self::editor_for_logs(String::new(), cx);
 
@@ -548,8 +548,8 @@ impl DapLogView {
 
     fn editor_for_logs(
         log_contents: String,
-        cx: &mut ViewContext<Self>,
-    ) -> (View<Editor>, Vec<Subscription>) {
+        cx: &mut Context<Self>,
+    ) -> (Entity<Editor>, Vec<Subscription>) {
         let editor = cx.new_view(|cx| {
             let mut editor = Editor::multi_line(cx);
             editor.set_text(log_contents, cx);
@@ -560,15 +560,11 @@ impl DapLogView {
         });
         let editor_subscription = cx.subscribe(
             &editor,
-            |_, _, event: &EditorEvent, cx: &mut ViewContext<'_, DapLogView>| {
-                cx.emit(event.clone())
-            },
+            |_, _, event: &EditorEvent, cx: &mut Context<'_, DapLogView>| cx.emit(event.clone()),
         );
         let search_subscription = cx.subscribe(
             &editor,
-            |_, _, event: &SearchEvent, cx: &mut ViewContext<'_, DapLogView>| {
-                cx.emit(event.clone())
-            },
+            |_, _, event: &SearchEvent, cx: &mut Context<'_, DapLogView>| cx.emit(event.clone()),
         );
         (editor, vec![editor_subscription, search_subscription])
     }
@@ -611,7 +607,7 @@ impl DapLogView {
     fn show_rpc_trace_for_server(
         &mut self,
         client_id: DebugAdapterClientId,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let rpc_log = self.log_store.update(cx, |log_store, _| {
             log_store
@@ -652,7 +648,7 @@ impl DapLogView {
     fn show_log_messages_for_adapter(
         &mut self,
         client_id: DebugAdapterClientId,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let message_log = self.log_store.update(cx, |log_store, _| {
             log_store
@@ -708,15 +704,16 @@ const ADAPTER_LOGS: &str = "Adapter Logs";
 const RPC_MESSAGES: &str = "RPC Messages";
 
 impl Render for DapLogView {
-    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
-        self.editor
-            .update(cx, |editor, cx| editor.render(cx).into_any_element())
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.editor.update(cx, |editor, cx| {
+            editor.render(window, cx).into_any_element()
+        })
     }
 }
 
 actions!(debug, [OpenDebuggerAdapterLogs]);
 
-pub fn init(cx: &mut AppContext) {
+pub fn init(cx: &mut App) {
     let log_store = cx.new_model(|cx| LogStore::new(cx));
 
     cx.observe_new_views(move |workspace: &mut Workspace, cx| {
@@ -760,7 +757,7 @@ impl Item for DapLogView {
         None
     }
 
-    fn as_searchable(&self, handle: &View<Self>) -> Option<Box<dyn SearchableItemHandle>> {
+    fn as_searchable(&self, handle: &Entity<Self>) -> Option<Box<dyn SearchableItemHandle>> {
         Some(Box::new(handle.clone()))
     }
 }
@@ -768,43 +765,57 @@ impl Item for DapLogView {
 impl SearchableItem for DapLogView {
     type Match = <Editor as SearchableItem>::Match;
 
-    fn clear_matches(&mut self, cx: &mut ViewContext<Self>) {
-        self.editor.update(cx, |e, cx| e.clear_matches(cx))
+    fn clear_matches(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.editor.update(cx, |e, cx| e.clear_matches(window, cx))
     }
 
-    fn update_matches(&mut self, matches: &[Self::Match], cx: &mut ViewContext<Self>) {
+    fn update_matches(
+        &mut self,
+        matches: &[Self::Match],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.editor
-            .update(cx, |e, cx| e.update_matches(matches, cx))
+            .update(cx, |e, cx| e.update_matches(matches, window, cx))
     }
 
-    fn query_suggestion(&mut self, cx: &mut ViewContext<Self>) -> String {
-        self.editor.update(cx, |e, cx| e.query_suggestion(cx))
+    fn query_suggestion(&mut self, window: &mut Window, cx: &mut Context<Self>) -> String {
+        self.editor
+            .update(cx, |e, cx| e.query_suggestion(window, cx))
     }
 
     fn activate_match(
         &mut self,
         index: usize,
         matches: &[Self::Match],
-        cx: &mut ViewContext<Self>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
     ) {
         self.editor
-            .update(cx, |e, cx| e.activate_match(index, matches, cx))
+            .update(cx, |e, cx| e.activate_match(index, matches, window, cx))
     }
 
-    fn select_matches(&mut self, matches: &[Self::Match], cx: &mut ViewContext<Self>) {
+    fn select_matches(
+        &mut self,
+        matches: &[Self::Match],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.editor
-            .update(cx, |e, cx| e.select_matches(matches, cx))
+            .update(cx, |e, cx| e.select_matches(matches, window, cx))
     }
 
     fn find_matches(
         &mut self,
         query: Arc<project::search::SearchQuery>,
-        cx: &mut ViewContext<Self>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
     ) -> gpui::Task<Vec<Self::Match>> {
-        self.editor.update(cx, |e, cx| e.find_matches(query, cx))
+        self.editor
+            .update(cx, |e, cx| e.find_matches(query, window, cx))
     }
 
-    fn replace(&mut self, _: &Self::Match, _: &SearchQuery, _: &mut ViewContext<Self>) {
+    fn replace(&mut self, _: &Self::Match, _: &SearchQuery, _: &mut Context<Self>) {
         // Since DAP Log is read-only, it doesn't make sense to support replace operation.
     }
 
@@ -821,10 +832,11 @@ impl SearchableItem for DapLogView {
     fn active_match_index(
         &mut self,
         matches: &[Self::Match],
-        cx: &mut ViewContext<Self>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
     ) -> Option<usize> {
         self.editor
-            .update(cx, |e, cx| e.active_match_index(matches, cx))
+            .update(cx, |e, cx| e.active_match_index(matches, window, cx))
     }
 }
 

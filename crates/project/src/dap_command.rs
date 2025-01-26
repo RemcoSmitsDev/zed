@@ -7,7 +7,7 @@ use dap::{
     ContinueArguments, NextArguments, StepInArguments, StepOutArguments, SteppingGranularity,
     ValueFormat, Variable, VariablesArgumentsFilter,
 };
-use gpui::{AsyncAppContext, WeakModel};
+use gpui::{AsyncAppContext, WeakEntity};
 use rpc::proto;
 use util::ResultExt;
 
@@ -20,7 +20,7 @@ pub trait DapCommand: 'static + Sized + Send + Sync + std::fmt::Debug {
 
     fn handle_response(
         &self,
-        _dap_store: WeakModel<DapStore>,
+        _dap_store: WeakEntity<DapStore>,
         _client_id: &DebugAdapterClientId,
         response: Result<Self::Response>,
         _cx: &mut AsyncAppContext,

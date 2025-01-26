@@ -467,12 +467,12 @@ impl Render for MessageEditor {
                                         })
                                         .when(is_editor_empty, |button| {
                                             button.tooltip(|cx| {
-                                                Tooltip::text("Type a message to submit", cx)
+                                                Tooltip::text("Type a message to submit")
                                             })
                                         })
                                         .when(!is_model_selected, |button| {
                                             button.tooltip(|cx| {
-                                                Tooltip::text("Select a model to continue", cx)
+                                                Tooltip::text("Select a model to continue")
                                             })
                                         })
                                 },

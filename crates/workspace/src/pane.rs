@@ -383,7 +383,7 @@ impl Pane {
         project: Entity<Project>,
         next_timestamp: Arc<AtomicUsize>,
         can_drop_predicate: Option<Arc<dyn Fn(&dyn Any, &mut Window, &mut App) -> bool + 'static>>,
-        double_click_dispatch_action: Box<dyn Action>,
+        double_click_dispatch_action: Option<Box<dyn Action>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {

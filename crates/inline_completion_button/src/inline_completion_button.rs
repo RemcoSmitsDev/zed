@@ -510,10 +510,6 @@ impl InlineCompletionButton {
     pub fn toggle_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.popover_menu_handle.toggle(window, cx);
     }
-
-    pub fn toggle_menu(&mut self, cx: &mut ViewContext<Self>) {
-        self.popover_menu_handle.toggle(cx);
-    }
 }
 
 impl StatusItemView for InlineCompletionButton {

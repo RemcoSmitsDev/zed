@@ -103,9 +103,14 @@ fn spawn_task_or_modal(
             });
             spawn_task_with_name(task_name.clone(), overrides, window, cx).detach_and_log_err(cx)
         }
-        Spawn::ViaModal { reveal_target } => {
-            toggle_modal(workspace, *reveal_target, window, cx).detach()
-        }
+        Spawn::ViaModal { reveal_target } => toggle_modal(
+            workspace,
+            *reveal_target,
+            TaskModal::ScriptModal,
+            window,
+            cx,
+        )
+        .detach(),
     }
 }
 

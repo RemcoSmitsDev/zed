@@ -160,7 +160,7 @@ pub struct Project {
     active_entry: Option<ProjectEntryId>,
     buffer_ordered_messages_tx: mpsc::UnboundedSender<BufferOrderedMessage>,
     languages: Arc<LanguageRegistry>,
-    dap_store: Model<DapStore>,
+    dap_store: Entity<DapStore>,
     client: Arc<client::Client>,
     join_project_response_message_id: u32,
     task_store: Entity<TaskStore>,
@@ -1225,7 +1225,7 @@ impl Project {
     pub fn all_breakpoints(
         &self,
         as_abs_path: bool,
-        cx: &mut ModelContext<Self>,
+        cx: &mut Context<Self>,
     ) -> HashMap<Arc<Path>, Vec<SerializedBreakpoint>> {
         let mut all_breakpoints: HashMap<Arc<Path>, Vec<SerializedBreakpoint>> = Default::default();
 
@@ -1269,7 +1269,7 @@ impl Project {
         &self,
         session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
-        cx: &mut ModelContext<Self>,
+        cx: &mut Context<Self>,
     ) -> Task<()> {
         let mut tasks = Vec::new();
 
@@ -1303,7 +1303,7 @@ impl Project {
     pub fn start_debug_adapter_client_from_task(
         &mut self,
         debug_task: task::ResolvedTask,
-        cx: &mut ModelContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         if let Some(config) = debug_task.debug_adapter_config() {
             self.dap_store.update(cx, |store, cx| {
@@ -1327,7 +1327,7 @@ impl Project {
     pub fn serialize_breakpoints_for_project_path(
         &self,
         project_path: &ProjectPath,
-        cx: &ModelContext<Self>,
+        cx: &Context<Self>,
     ) -> Option<(Arc<Path>, Vec<SerializedBreakpoint>)> {
         let buffer = maybe!({
             let buffer_id = self
@@ -1362,7 +1362,7 @@ impl Project {
     ///     Value: All serialized breakpoints that belong to a worktree
     pub fn serialize_breakpoints(
         &self,
-        cx: &ModelContext<Self>,
+        cx: &Context<Self>,
     ) -> HashMap<Arc<Path>, Vec<SerializedBreakpoint>> {
         let mut result: HashMap<Arc<Path>, Vec<SerializedBreakpoint>> = Default::default();
 
@@ -1386,7 +1386,7 @@ impl Project {
     }
 
     async fn handle_toggle_ignore_breakpoints(
-        this: Model<Self>,
+        this: Entity<Self>,
         envelope: TypedEnvelope<proto::ToggleIgnoreBreakpoints>,
         mut cx: AsyncAppContext,
     ) -> Result<()> {
@@ -1409,7 +1409,7 @@ impl Project {
         &self,
         session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
-        cx: &mut ModelContext<Self>,
+        cx: &mut Context<Self>,
     ) -> Task<Result<()>> {
         let tasks = self.dap_store.update(cx, |store, cx| {
             if let Some((upstream_client, project_id)) = store.upstream_client() {
@@ -1490,7 +1490,7 @@ impl Project {
         buffer_id: BufferId,
         breakpoint: Breakpoint,
         edit_action: BreakpointEditAction,
-        cx: &mut ModelContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let Some(buffer) = self.buffer_for_id(buffer_id, cx) else {
             return;
