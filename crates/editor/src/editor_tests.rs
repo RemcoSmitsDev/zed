@@ -15490,7 +15490,7 @@ fn add_log_breakpoint_at_cursor(
     editor: &mut Editor,
     log_message: &str,
     window: &mut Window,
-    cx: &mut App,
+    cx: &mut Context<Editor>,
 ) {
     let (anchor, kind) = editor
         .breakpoint_at_cursor_head(window, cx)
@@ -15523,26 +15523,6 @@ async fn test_breakpoint_toggling(cx: &mut TestAppContext) {
 
     let sample_text = "First line\nSecond line\nThird line\nFourth line".to_string();
 
-    let fs = FakeFs::new(cx.executor());
-    fs.insert_tree(
-        "/a",
-        json!({
-            "main.rs": sample_text,
-        }),
-    )
-    .await;
-    let project = Project::test(fs, ["/a".as_ref()], cx).await;
-    let (workspace, cx) =
-        cx.add_window_view(|window, cx| Workspace::test_new(project.clone(), window, cx));
-    let cx = &mut VisualTestContext::from_window(workspace, cx);
-    let worktree_id = workspace
-        .update(cx, |workspace, cx| {
-            workspace.project().update(cx, |project, cx| {
-                project.worktrees(cx).next().unwrap().read(cx).id()
-            })
-        })
-        .unwrap();
-
     let buffer = project
         .update(cx, |project, cx| {
             project.open_buffer((worktree_id, "main.rs"), cx)
@@ -15560,11 +15540,6 @@ async fn test_breakpoint_toggling(cx: &mut TestAppContext) {
             cx,
         )
     });
-
-    let cx = &mut VisualTestContext::from_window(*window, cx);
-    let project_path = window
-        .update(cx, |editor, cx| editor.project_path(cx).unwrap())
-        .unwrap();
 
     // assert we can add breakpoint on the first line
     window

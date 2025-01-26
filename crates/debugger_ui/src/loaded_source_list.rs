@@ -1,8 +1,6 @@
 use anyhow::Result;
 use dap::{client::DebugAdapterClientId, LoadedSourceEvent, Source};
-use gpui::{
-    list, AnyElement, FocusHandle, FocusableView, ListState, Model, Subscription, Task, View,
-};
+use gpui::{list, AnyElement, Entity, FocusHandle, Focusable, ListState, Subscription, Task};
 use project::dap_store::DapStore;
 use ui::prelude::*;
 
@@ -12,15 +10,15 @@ pub struct LoadedSourceList {
     list: ListState,
     sources: Vec<Source>,
     focus_handle: FocusHandle,
-    dap_store: Model<DapStore>,
+    dap_store: Entity<DapStore>,
     client_id: DebugAdapterClientId,
     _subscriptions: Vec<Subscription>,
 }
 
 impl LoadedSourceList {
     pub fn new(
-        debug_panel_item: &View<DebugPanelItem>,
-        dap_store: Model<DapStore>,
+        debug_panel_item: &Entity<DebugPanelItem>,
+        dap_store: Entity<DapStore>,
         client_id: &DebugAdapterClientId,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -49,7 +47,7 @@ impl LoadedSourceList {
 
     fn handle_debug_panel_item_event(
         &mut self,
-        _: View<DebugPanelItem>,
+        _: Entity<DebugPanelItem>,
         event: &debugger_panel_item::DebugPanelItemEvent,
         cx: &mut Context<Self>,
     ) {
@@ -135,8 +133,8 @@ impl LoadedSourceList {
     }
 }
 
-impl FocusableView for LoadedSourceList {
-    fn focus_handle(&self, _: &gpui::AppContext) -> gpui::FocusHandle {
+impl Focusable for LoadedSourceList {
+    fn focus_handle(&self, _: &gpui::App) -> gpui::FocusHandle {
         self.focus_handle.clone()
     }
 }

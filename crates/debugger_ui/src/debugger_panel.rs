@@ -14,8 +14,8 @@ use dap::{
     TerminatedEvent, ThreadEvent, ThreadEventReason,
 };
 use gpui::{
-    actions, Action, AppContext, AsyncWindowContext, Entity, EventEmitter, FocusHandle,
-    FocusableView, Subscription, Task, View, ViewContext, WeakView,
+    actions, Action, AppContext, AsyncWindowContext, Context, Entity, EventEmitter, FocusHandle,
+    Focusable, Subscription, Task, WeakEntity,
 };
 use project::{
     dap_store::{DapStore, DapStoreEvent},
@@ -113,10 +113,10 @@ impl ThreadStatus {
 
 pub struct DebugPanel {
     size: Pixels,
-    pane: View<Pane>,
+    pane: Entity<Pane>,
     focus_handle: FocusHandle,
     dap_store: Entity<DapStore>,
-    workspace: WeakView<Workspace>,
+    workspace: WeakEntity<Workspace>,
     _subscriptions: Vec<Subscription>,
     message_queue: HashMap<DebugAdapterClientId, VecDeque<OutputEvent>>,
     thread_states: BTreeMap<(DebugAdapterClientId, u64), Entity<ThreadState>>,
@@ -127,7 +127,7 @@ impl DebugPanel {
         workspace: &Workspace,
         window: &mut Window,
         cx: &mut Context<Workspace>,
-    ) -> View<Self> {
+    ) -> Entity<Self> {
         cx.new(|cx| {
             let pane = cx.new(|cx| {
                 let mut pane = Pane::new(
@@ -234,9 +234,9 @@ impl DebugPanel {
     }
 
     pub fn load(
-        workspace: WeakView<Workspace>,
-        cx: AsyncWindowContext,
-    ) -> Task<Result<View<Self>>> {
+        workspace: WeakEntity<Workspace>,
+        cx: AsyncAppContext,
+    ) -> Task<Result<Entity<Self>>> {
         cx.spawn(|mut cx| async move {
             workspace.update_in(&mut cx, |workspace, window, cx| {
                 let debug_panel = DebugPanel::new(workspace, window, cx);
@@ -314,7 +314,7 @@ impl DebugPanel {
         client_id: &DebugAdapterClientId,
         thread_id: u64,
         cx: &mut Context<Self>,
-    ) -> Option<View<DebugPanelItem>> {
+    ) -> Option<Entity<DebugPanelItem>> {
         self.pane
             .read(cx)
             .items()
@@ -326,7 +326,7 @@ impl DebugPanel {
             })
     }
 
-    fn handle_pane_event(&mut self, _: View<Pane>, event: &pane::Event, cx: &mut Context<Self>) {
+    fn handle_pane_event(&mut self, _: Entity<Pane>, event: &pane::Event, cx: &mut Context<Self>) {
         match event {
             pane::Event::RemovedItem { item } => {
                 let thread_panel = item.downcast::<DebugPanelItem>().unwrap();
@@ -1094,14 +1094,14 @@ impl EventEmitter<PanelEvent> for DebugPanel {}
 impl EventEmitter<DebugPanelEvent> for DebugPanel {}
 impl EventEmitter<project::Event> for DebugPanel {}
 
-impl FocusableView for DebugPanel {
+impl Focusable for DebugPanel {
     fn focus_handle(&self, _cx: &AppContext) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
 
 impl Panel for DebugPanel {
-    fn pane(&self) -> Option<View<Pane>> {
+    fn pane(&self) -> Option<Entity<Pane>> {
         Some(self.pane.clone())
     }
 

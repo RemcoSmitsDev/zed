@@ -8,11 +8,10 @@ use dap::StackFrame;
 use gpui::{
     list, AnyElement, EventEmitter, FocusHandle, ListState, Subscription, Task, View, WeakView,
 };
-use gpui::{FocusableView, Model};
+use gpui::{Entity, Focusable};
 use project::dap_store::DapStore;
 use project::ProjectPath;
 use rpc::proto::{DebuggerStackFrameList, UpdateDebugAdapter};
-use ui::ViewContext;
 use ui::{prelude::*, Tooltip};
 use util::ResultExt;
 use workspace::Workspace;
@@ -31,11 +30,11 @@ pub struct StackFrameList {
     list: ListState,
     focus_handle: FocusHandle,
     session_id: DebugSessionId,
-    dap_store: Model<DapStore>,
+    dap_store: Entity<DapStore>,
     current_stack_frame_id: u64,
     stack_frames: Vec<StackFrame>,
     entries: Vec<StackFrameEntry>,
-    workspace: WeakView<Workspace>,
+    workspace: WeakEntity<Workspace>,
     client_id: DebugAdapterClientId,
     _subscriptions: Vec<Subscription>,
     fetch_stack_frames_task: Option<Task<Result<()>>>,
@@ -49,9 +48,9 @@ pub enum StackFrameEntry {
 
 impl StackFrameList {
     pub fn new(
-        workspace: &WeakView<Workspace>,
-        debug_panel_item: &View<DebugPanelItem>,
-        dap_store: &Model<DapStore>,
+        workspace: &WeakEntity<Workspace>,
+        debug_panel_item: &Entity<DebugPanelItem>,
+        dap_store: &Entity<DapStore>,
         client_id: &DebugAdapterClientId,
         session_id: &DebugSessionId,
         thread_id: u64,
@@ -135,7 +134,7 @@ impl StackFrameList {
 
     fn handle_debug_panel_item_event(
         &mut self,
-        _: View<DebugPanelItem>,
+        _: Entity<DebugPanelItem>,
         event: &debugger_panel_item::DebugPanelItemEvent,
         cx: &mut Context<Self>,
     ) {
@@ -483,7 +482,7 @@ impl Render for StackFrameList {
     }
 }
 
-impl FocusableView for StackFrameList {
+impl Focusable for StackFrameList {
     fn focus_handle(&self, _: &gpui::AppContext) -> gpui::FocusHandle {
         self.focus_handle.clone()
     }

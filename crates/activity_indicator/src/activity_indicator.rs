@@ -26,7 +26,7 @@ pub enum Event {
 }
 
 pub struct ActivityIndicator {
-    statuses: Vec<LspStatus>,
+    statuses: Vec<ServerStatus>,
     project: Entity<Project>,
     auto_updater: Option<Entity<AutoUpdater>>,
     context_menu_handle: PopoverMenuHandle<ContextMenu>,
