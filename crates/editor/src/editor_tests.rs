@@ -15492,20 +15492,22 @@ fn add_log_breakpoint_at_cursor(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let (anchor, kind) = editor.breakpoint_at_cursor_head(cx).unwrap_or_else(|| {
-        let cursor_position: Point = editor.selections.newest(cx).head();
+    let (anchor, kind) = editor
+        .breakpoint_at_cursor_head(window, cx)
+        .unwrap_or_else(|| {
+            let cursor_position: Point = editor.selections.newest(cx).head();
 
-        let breakpoint_position = editor
-            .snapshot(window, cx)
-            .display_snapshot
-            .buffer_snapshot
-            .breakpoint_anchor(Point::new(cursor_position.row, 0))
-            .text_anchor;
+            let breakpoint_position = editor
+                .snapshot(window, cx)
+                .display_snapshot
+                .buffer_snapshot
+                .breakpoint_anchor(Point::new(cursor_position.row, 0))
+                .text_anchor;
 
-        let kind = BreakpointKind::Standard;
+            let kind = BreakpointKind::Standard;
 
-        (breakpoint_position, kind)
-    });
+            (breakpoint_position, kind)
+        });
 
     editor.edit_breakpoint_at_anchor(
         anchor,
@@ -15530,8 +15532,9 @@ async fn test_breakpoint_toggling(cx: &mut TestAppContext) {
     )
     .await;
     let project = Project::test(fs, ["/a".as_ref()], cx).await;
-    let workspace = cx.add_window(|cx| Workspace::test_new(project.clone(), cx));
-    let cx = &mut VisualTestContext::from_window(*workspace.deref(), cx);
+    let (workspace, cx) =
+        cx.add_window_view(|window, cx| Workspace::test_new(project.clone(), window, cx));
+    let cx = &mut VisualTestContext::from_window(workspace, cx);
     let worktree_id = workspace
         .update(cx, |workspace, cx| {
             workspace.project().update(cx, |project, cx| {
@@ -15547,12 +15550,13 @@ async fn test_breakpoint_toggling(cx: &mut TestAppContext) {
         .await
         .unwrap();
 
-    let window = cx.add_window(|cx| {
+    let window = cx.add_window_view(|window, cx| {
         Editor::new(
             EditorMode::Full,
             MultiBuffer::build_from_buffer(buffer, cx),
             Some(project),
             true,
+            window,
             cx,
         )
     });
@@ -15660,7 +15664,8 @@ async fn test_log_breakpoint_editing(cx: &mut TestAppContext) {
     )
     .await;
     let project = Project::test(fs, ["/a".as_ref()], cx).await;
-    let workspace = cx.add_window(|cx| Workspace::test_new(project.clone(), cx));
+    let workspace =
+        cx.add_window_view(|window, cx| Workspace::test_new(project.clone(), window, cx));
     let cx = &mut VisualTestContext::from_window(*workspace.deref(), cx);
     let worktree_id = workspace
         .update(cx, |workspace, cx| {
@@ -15677,12 +15682,13 @@ async fn test_log_breakpoint_editing(cx: &mut TestAppContext) {
         .await
         .unwrap();
 
-    let window = cx.add_window(|cx| {
+    let window = cx.add_window_view(|window, cx| {
         Editor::new(
             EditorMode::Full,
             MultiBuffer::build_from_buffer(buffer, cx),
             Some(project),
             true,
+            window,
             cx,
         )
     });
@@ -15693,8 +15699,8 @@ async fn test_log_breakpoint_editing(cx: &mut TestAppContext) {
         .unwrap();
 
     window
-        .update(cx, |editor, cx| {
-            add_log_breakpoint_at_cursor(editor, "hello world", cx);
+        .update(cx, |editor, window, cx| {
+            add_log_breakpoint_at_cursor(editor, "hello world", window, cx);
         })
         .unwrap();
 
@@ -15720,8 +15726,8 @@ async fn test_log_breakpoint_editing(cx: &mut TestAppContext) {
 
     // Removing a log message from a log breakpoint should remove it
     window
-        .update(cx, |editor, cx| {
-            add_log_breakpoint_at_cursor(editor, "", cx);
+        .update(cx, |editor, window, cx| {
+            add_log_breakpoint_at_cursor(editor, "", window, cx);
         })
         .unwrap();
 
@@ -15742,12 +15748,12 @@ async fn test_log_breakpoint_editing(cx: &mut TestAppContext) {
     assert_breakpoint(&breakpoints, &project_path, vec![]);
 
     window
-        .update(cx, |editor, cx| {
+        .update(cx, |editor, window, cx| {
             editor.toggle_breakpoint(&actions::ToggleBreakpoint, cx);
             editor.move_to_end(&MoveToEnd, cx);
             editor.toggle_breakpoint(&actions::ToggleBreakpoint, cx);
             // Not adding a log message to a standard breakpoint shouldn't remove it
-            add_log_breakpoint_at_cursor(editor, "", cx);
+            add_log_breakpoint_at_cursor(editor, "", window, cx);
         })
         .unwrap();
 
@@ -15772,8 +15778,8 @@ async fn test_log_breakpoint_editing(cx: &mut TestAppContext) {
     );
 
     window
-        .update(cx, |editor, cx| {
-            add_log_breakpoint_at_cursor(editor, "hello world", cx);
+        .update(cx, |editor, window, cx| {
+            add_log_breakpoint_at_cursor(editor, "hello world", window, cx);
         })
         .unwrap();
 
@@ -15801,8 +15807,8 @@ async fn test_log_breakpoint_editing(cx: &mut TestAppContext) {
     );
 
     window
-        .update(cx, |editor, cx| {
-            add_log_breakpoint_at_cursor(editor, "hello Earth!!", cx);
+        .update(cx, |editor, window, cx| {
+            add_log_breakpoint_at_cursor(editor, "hello Earth!!", window, cx);
         })
         .unwrap();
 

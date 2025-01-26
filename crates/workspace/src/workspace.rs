@@ -3371,7 +3371,7 @@ impl Workspace {
                 cx.emit(Event::ActiveItemChanged);
 
                 self.update_window_edited(window, cx);
-                if let hash_map::Entry::Occupied(entry) = self.panes_by_item.entry(*item_id) {
+                if let hash_map::Entry::Occupied(entry) = self.panes_by_item.entry(item.item_id()) {
                     if entry.get().entity_id() == pane.entity_id() {
                         entry.remove();
                     }

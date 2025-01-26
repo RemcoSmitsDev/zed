@@ -262,13 +262,6 @@ pub enum LanguageModelProviderTosView {
     Configuration,
 }
 
-#[derive(PartialEq, Eq)]
-pub enum LanguageModelProviderTosView {
-    ThreadEmptyState,
-    PromptEditorPopup,
-    Configuration,
-}
-
 pub trait LanguageModelProviderState: 'static {
     type ObservableEntity;
 

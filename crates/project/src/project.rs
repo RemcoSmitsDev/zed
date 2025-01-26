@@ -674,8 +674,8 @@ impl Project {
             });
             cx.subscribe(&dap_store, Self::on_dap_store_event).detach();
 
-            let buffer_store = cx
-                .new_model(|cx| BufferStore::local(worktree_store.clone(), dap_store.clone(), cx));
+            let buffer_store =
+                cx.new(|cx| BufferStore::local(worktree_store.clone(), dap_store.clone(), cx));
             cx.subscribe(&buffer_store, Self::on_buffer_store_event)
                 .detach();
 
@@ -2533,9 +2533,9 @@ impl Project {
 
     fn on_dap_store_event(
         &mut self,
-        _: Model<DapStore>,
+        _: Entity<DapStore>,
         event: &DapStoreEvent,
-        cx: &mut ModelContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         match event {
             DapStoreEvent::DebugClientStarted(client_id) => {

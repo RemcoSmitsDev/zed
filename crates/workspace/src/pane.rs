@@ -2649,7 +2649,7 @@ impl Pane {
                             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                                 if event.up.click_count == 2 {
                                     if let Some(action) = &this.double_click_dispatch_action {
-                                        window.dispatch_action(action.boxed_clone());
+                                        window.dispatch_action(action.boxed_clone(), cx);
                                     }
                                 }
                             })),

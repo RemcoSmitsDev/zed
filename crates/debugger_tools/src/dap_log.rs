@@ -571,7 +571,7 @@ impl DapLogView {
         (editor, vec![editor_subscription, search_subscription])
     }
 
-    fn menu_items(&self, cx: &AppContext) -> Option<Vec<DapMenuItem>> {
+    fn menu_items(&self, cx: &App) -> Option<Vec<DapMenuItem>> {
         let mut menu_items = self
             .project
             .read(cx)
@@ -849,7 +849,7 @@ impl SearchableItem for DapLogView {
 }
 
 impl FocusableView for DapLogView {
-    fn focus_handle(&self, _: &AppContext) -> gpui::FocusHandle {
+    fn focus_handle(&self, _: &App) -> gpui::FocusHandle {
         self.focus_handle.clone()
     }
 }
