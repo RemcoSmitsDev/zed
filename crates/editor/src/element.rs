@@ -446,8 +446,6 @@ impl EditorElement {
                 cx.propagate();
             }
         });
-        register_action(editor, window, Editor::toggle_breakpoint);
-        register_action(editor, window, Editor::edit_log_breakpoint);
         register_action(editor, window, Editor::show_signature_help);
         register_action(editor, window, Editor::next_inline_completion);
         register_action(editor, window, Editor::previous_inline_completion);
@@ -471,6 +469,8 @@ impl EditorElement {
         register_action(editor, window, Editor::insert_uuid_v4);
         register_action(editor, window, Editor::insert_uuid_v7);
         register_action(editor, window, Editor::open_selections_in_multibuffer);
+        register_action(editor, window, Editor::toggle_breakpoint);
+        register_action(editor, window, Editor::edit_log_breakpoint);
     }
 
     fn register_key_listeners(&self, window: &mut Window, _: &mut App, layout: &EditorLayout) {
@@ -2150,8 +2150,7 @@ impl EditorElement {
         line_height: Pixels,
         scroll_position: gpui::Point<f32>,
         rows: Range<DisplayRow>,
-        buffer_rows: &[RowInfo],
-        active_rows: &BTreeMap<DisplayRow, bool>,
+        buffer_rows: impl Iterator<Item = Option<MultiBufferRow>>,
         newest_selection_head: Option<DisplayPoint>,
         snapshot: &EditorSnapshot,
         breakpoint_rows: &HashMap<DisplayRow, Breakpoint>,
@@ -4382,6 +4381,12 @@ impl EditorElement {
                 }
             }
         }
+    }
+
+    /// Returns the width of the diff strip that will be displayed in the gutter.
+    pub(super) fn diff_hunk_strip_width(line_height: Pixels) -> Pixels {
+        // We floor the value to prevent pixel rounding.
+        (0.275 * line_height).floor()
     }
 
     fn paint_gutter_indicators(
@@ -6683,7 +6688,6 @@ impl Element for EditorElement {
                         scroll_position,
                         start_row..end_row,
                         &row_infos,
-                        &active_rows,
                         newest_selection_head,
                         &snapshot,
                         &breakpoint_rows,
@@ -8156,7 +8160,6 @@ mod tests {
                             ..Default::default()
                         })
                         .collect::<Vec<_>>(),
-                    &Default::default(),
                     Some(DisplayPoint::new(DisplayRow(0), 0)),
                     &snapshot,
                     &breakpoint_rows,
