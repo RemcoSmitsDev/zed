@@ -99,7 +99,7 @@ impl DebugAdapterState {
 }
 
 impl LogStore {
-    fn new(cx: &ModelContext<Self>) -> Self {
+    fn new(cx: &Context<Self>) -> Self {
         let (rpc_tx, mut rpc_rx) = unbounded::<(DebugAdapterClientId, IoKind, String)>();
         cx.spawn(|this, mut cx| async move {
             while let Some((client_id, io_kind, message)) = rpc_rx.next().await {
@@ -143,7 +143,7 @@ impl LogStore {
         client_id: DebugAdapterClientId,
         io_kind: IoKind,
         message: &str,
-        cx: &mut ModelContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         self.add_debug_client_message(client_id, io_kind, message.to_string(), cx);
     }
@@ -153,12 +153,12 @@ impl LogStore {
         client_id: DebugAdapterClientId,
         io_kind: IoKind,
         message: &str,
-        cx: &mut ModelContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         self.add_debug_client_log(client_id, io_kind, message.to_string(), cx);
     }
 
-    pub fn add_project(&mut self, project: &Entity<Project>, cx: &mut ModelContext<Self>) {
+    pub fn add_project(&mut self, project: &Entity<Project>, cx: &mut Context<Self>) {
         let weak_project = project.downgrade();
         self.projects.insert(
             project.downgrade(),
@@ -201,7 +201,7 @@ impl LogStore {
         id: DebugAdapterClientId,
         io_kind: IoKind,
         message: String,
-        cx: &mut ModelContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let Some(debug_client_state) = self.get_debug_adapter_state(id) else {
             return;
@@ -233,7 +233,7 @@ impl LogStore {
         id: DebugAdapterClientId,
         io_kind: IoKind,
         message: String,
-        cx: &mut ModelContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let Some(debug_client_state) = self.get_debug_adapter_state(id) else {
             return;
@@ -263,7 +263,7 @@ impl LogStore {
         id: DebugAdapterClientId,
         message: String,
         kind: LogKind,
-        cx: &mut ModelContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         while log_lines.len() >= RpcMessages::MESSAGE_QUEUE_LIMIT {
             log_lines.pop_front();
@@ -323,11 +323,7 @@ impl LogStore {
         Some(client_state)
     }
 
-    fn remove_debug_client(
-        &mut self,
-        client_id: DebugAdapterClientId,
-        cx: &mut ModelContext<Self>,
-    ) {
+    fn remove_debug_client(&mut self, client_id: DebugAdapterClientId, cx: &mut Context<Self>) {
         self.debug_clients.remove(&client_id);
         cx.notify();
     }
@@ -433,8 +429,12 @@ impl Render for DapLogToolbarItemView {
                                             .child(Label::new(ADAPTER_LOGS))
                                             .into_any_element()
                                     },
-                                    window.handler_for(&log_view, move |view, _window, cx| {
-                                        view.show_log_messages_for_adapter(sub_item.client_id, cx);
+                                    window.handler_for(&log_view, move |view, window, cx| {
+                                        view.show_log_messages_for_adapter(
+                                            sub_item.client_id,
+                                            window,
+                                            cx,
+                                        );
                                     }),
                                 );
                             }
@@ -447,8 +447,8 @@ impl Render for DapLogToolbarItemView {
                                         .child(Label::new(RPC_MESSAGES))
                                         .into_any_element()
                                 },
-                                window.handler_for(&log_view, move |view, _window, cx| {
-                                    view.show_rpc_trace_for_server(sub_item.client_id, cx);
+                                window.handler_for(&log_view, move |view, window, cx| {
+                                    view.show_rpc_trace_for_server(sub_item.client_id, window, cx);
                                 }),
                             );
                         }
@@ -609,6 +609,7 @@ impl DapLogView {
     fn show_rpc_trace_for_server(
         &mut self,
         client_id: DebugAdapterClientId,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let rpc_log = self.log_store.update(cx, |log_store, _| {
@@ -618,7 +619,7 @@ impl DapLogView {
         });
         if let Some(rpc_log) = rpc_log {
             self.current_view = Some((client_id, LogKind::Rpc));
-            let (editor, editor_subscriptions) = Self::editor_for_logs(rpc_log, cx);
+            let (editor, editor_subscriptions) = Self::editor_for_logs(rpc_log, window, cx);
             let language = self.project.read(cx).languages().language_for_name("JSON");
             editor
                 .read(cx)
@@ -650,6 +651,7 @@ impl DapLogView {
     fn show_log_messages_for_adapter(
         &mut self,
         client_id: DebugAdapterClientId,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let message_log = self.log_store.update(cx, |log_store, _| {
@@ -659,7 +661,7 @@ impl DapLogView {
         });
         if let Some(message_log) = message_log {
             self.current_view = Some((client_id, LogKind::Adapter));
-            let (editor, editor_subscriptions) = Self::editor_for_logs(message_log, cx);
+            let (editor, editor_subscriptions) = Self::editor_for_logs(message_log, window, cx);
             editor
                 .read(cx)
                 .buffer()

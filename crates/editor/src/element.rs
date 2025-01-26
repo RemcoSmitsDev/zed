@@ -6431,9 +6431,9 @@ impl Element for EditorElement {
         window.set_view_id(self.editor.entity_id());
         window.set_focus_handle(&focus_handle, cx);
 
-        let mut breakpoint_rows = self
-            .editor
-            .update(cx, |editor, cx| editor.active_breakpoint_points(cx));
+        let mut breakpoint_rows = self.editor.update_in(cx, |editor, window, cx| {
+            editor.active_breakpoint_points(window, cx)
+        });
 
         let rem_size = self.rem_size(cx);
         window.with_rem_size(rem_size, |window| {

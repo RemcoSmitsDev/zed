@@ -8,7 +8,7 @@ use editor::{
     Anchor, CompletionProvider, Editor, EditorElement, EditorStyle, FoldPlaceholder,
 };
 use fuzzy::StringMatchCandidate;
-use gpui::{Model, Render, Subscription, Task, TextStyle, View, ViewContext, WeakView};
+use gpui::{Entity, Model, Render, Subscription, Task, TextStyle, View, ViewContext, WeakView};
 use language::{Buffer, CodeLabel, LanguageServerId, ToOffsetUtf16};
 use menu::Confirm;
 use project::{dap_store::DapStore, Completion};
@@ -29,7 +29,7 @@ pub struct Console {
     groups: Vec<OutputGroup>,
     console: View<Editor>,
     query_bar: View<Editor>,
-    dap_store: Model<DapStore>,
+    dap_store: Entity<DapStore>,
     client_id: DebugAdapterClientId,
     _subscriptions: Vec<Subscription>,
     variable_list: View<VariableList>,
@@ -41,12 +41,13 @@ impl Console {
         stack_frame_list: &View<StackFrameList>,
         client_id: &DebugAdapterClientId,
         variable_list: View<VariableList>,
-        dap_store: Model<DapStore>,
+        dap_store: Entity<DapStore>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let console = cx.new(|cx| {
-            let mut editor = Editor::multi_line(cx);
-            editor.move_to_end(&editor::actions::MoveToEnd, cx);
+            let mut editor = Editor::multi_line(window, cx);
+            editor.move_to_end(&editor::actions::MoveToEnd, window, cx);
             editor.set_read_only(true);
             editor.set_show_gutter(true, cx);
             editor.set_show_runnables(false, cx);
@@ -58,13 +59,13 @@ impl Console {
             editor.set_use_autoclose(false);
             editor.set_show_wrap_guides(false, cx);
             editor.set_show_indent_guides(false, cx);
-            editor.set_show_inline_completions(Some(false), cx);
+            editor.set_show_inline_completions(Some(false), window, cx);
             editor
         });
 
         let this = cx.view().downgrade();
         let query_bar = cx.new(|cx| {
-            let mut editor = Editor::single_line(cx);
+            let mut editor = Editor::single_line(window, cx);
             editor.set_placeholder_text("Evaluate an expression", cx);
             editor.set_use_autoclose(false);
             editor.set_show_gutter(false, cx);
@@ -338,7 +339,7 @@ struct ConsoleQueryBarCompletionProvider(WeakView<Console>);
 impl CompletionProvider for ConsoleQueryBarCompletionProvider {
     fn completions(
         &self,
-        buffer: &Model<Buffer>,
+        buffer: &Entity<Buffer>,
         buffer_position: language::Anchor,
         _trigger: editor::CompletionContext,
         cx: &mut ViewContext<Editor>,
@@ -364,7 +365,7 @@ impl CompletionProvider for ConsoleQueryBarCompletionProvider {
 
     fn resolve_completions(
         &self,
-        _buffer: Model<Buffer>,
+        _buffer: Entity<Buffer>,
         _completion_indices: Vec<usize>,
         _completions: Rc<RefCell<Box<[Completion]>>>,
         _cx: &mut ViewContext<Editor>,
@@ -374,7 +375,7 @@ impl CompletionProvider for ConsoleQueryBarCompletionProvider {
 
     fn apply_additional_edits_for_completion(
         &self,
-        _buffer: Model<Buffer>,
+        _buffer: Entity<Buffer>,
         _completions: Rc<RefCell<Box<[Completion]>>>,
         _completion_index: usize,
         _push_to_history: bool,
@@ -385,7 +386,7 @@ impl CompletionProvider for ConsoleQueryBarCompletionProvider {
 
     fn is_completion_trigger(
         &self,
-        _buffer: &Model<Buffer>,
+        _buffer: &Entity<Buffer>,
         _position: language::Anchor,
         _text: &str,
         _trigger_in_words: bool,
@@ -399,7 +400,7 @@ impl ConsoleQueryBarCompletionProvider {
     fn variable_list_completions(
         &self,
         console: &View<Console>,
-        buffer: &Model<Buffer>,
+        buffer: &Entity<Buffer>,
         buffer_position: language::Anchor,
         cx: &mut ViewContext<Editor>,
     ) -> gpui::Task<gpui::Result<Vec<project::Completion>>> {
@@ -475,7 +476,7 @@ impl ConsoleQueryBarCompletionProvider {
     fn client_completions(
         &self,
         console: &View<Console>,
-        buffer: &Model<Buffer>,
+        buffer: &Entity<Buffer>,
         buffer_position: language::Anchor,
         cx: &mut ViewContext<Editor>,
     ) -> gpui::Task<gpui::Result<Vec<project::Completion>>> {

@@ -92,6 +92,7 @@ impl DebugPanelItem {
         client_id: &DebugAdapterClientId,
         session_name: SharedString,
         thread_id: u64,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let focus_handle = cx.focus_handle();
@@ -125,6 +126,7 @@ impl DebugPanelItem {
                 client_id,
                 variable_list.clone(),
                 dap_store.clone(),
+                window,
                 cx,
             )
         });
@@ -856,7 +858,9 @@ impl Render for DebugPanelItem {
                                             .on_click(cx.listener(|this, _, cx| {
                                                 this.pause_thread(cx);
                                             }))
-                                            .tooltip(move |cx| Tooltip::text("Pause program", cx)),
+                                            .tooltip(move |window, cx| {
+                                                Tooltip::text("Pause program")
+                                            }),
                                     )
                                 } else {
                                     this.child(
@@ -866,8 +870,8 @@ impl Render for DebugPanelItem {
                                                 cx.listener(|this, _, cx| this.continue_thread(cx)),
                                             )
                                             .disabled(thread_status != ThreadStatus::Stopped)
-                                            .tooltip(move |cx| {
-                                                Tooltip::text("Continue program", cx)
+                                            .tooltip(move |window, cx| {
+                                                Tooltip::text("Continue program")
                                             }),
                                     )
                                 }
@@ -880,7 +884,7 @@ impl Render for DebugPanelItem {
                                             this.step_back(cx);
                                         }))
                                         .disabled(thread_status != ThreadStatus::Stopped)
-                                        .tooltip(move |cx| Tooltip::text("Step back", cx)),
+                                        .tooltip(move |window, cx| Tooltip::text("Step back")),
                                 )
                             })
                             .child(
@@ -890,7 +894,7 @@ impl Render for DebugPanelItem {
                                         this.step_over(cx);
                                     }))
                                     .disabled(thread_status != ThreadStatus::Stopped)
-                                    .tooltip(move |cx| Tooltip::text("Step over", cx)),
+                                    .tooltip(move |window, cx| Tooltip::text("Step over")),
                             )
                             .child(
                                 IconButton::new("debug-step-in", IconName::DebugStepInto)
@@ -899,7 +903,7 @@ impl Render for DebugPanelItem {
                                         this.step_in(cx);
                                     }))
                                     .disabled(thread_status != ThreadStatus::Stopped)
-                                    .tooltip(move |cx| Tooltip::text("Step in", cx)),
+                                    .tooltip(move |window, cx| Tooltip::text("Step in")),
                             )
                             .child(
                                 IconButton::new("debug-step-out", IconName::DebugStepOut)
@@ -908,7 +912,7 @@ impl Render for DebugPanelItem {
                                         this.step_out(cx);
                                     }))
                                     .disabled(thread_status != ThreadStatus::Stopped)
-                                    .tooltip(move |cx| Tooltip::text("Step out", cx)),
+                                    .tooltip(move |window, cx| Tooltip::text("Step out")),
                             )
                             .child(
                                 IconButton::new("debug-restart", IconName::DebugRestart)
@@ -919,7 +923,7 @@ impl Render for DebugPanelItem {
                                     .disabled(
                                         !capabilities.supports_restart_request.unwrap_or_default(),
                                     )
-                                    .tooltip(move |cx| Tooltip::text("Restart", cx)),
+                                    .tooltip(move |window, cx| Tooltip::text("Restart")),
                             )
                             .child(
                                 IconButton::new("debug-stop", IconName::DebugStop)
@@ -931,7 +935,7 @@ impl Render for DebugPanelItem {
                                         thread_status != ThreadStatus::Stopped
                                             && thread_status != ThreadStatus::Running,
                                     )
-                                    .tooltip(move |cx| Tooltip::text("Stop", cx)),
+                                    .tooltip(move |window, cx| Tooltip::text("Stop")),
                             )
                             .child(
                                 IconButton::new("debug-disconnect", IconName::DebugDisconnect)
@@ -943,7 +947,7 @@ impl Render for DebugPanelItem {
                                         thread_status == ThreadStatus::Exited
                                             || thread_status == ThreadStatus::Ended,
                                     )
-                                    .tooltip(move |cx| Tooltip::text("Disconnect", cx)),
+                                    .tooltip(move |window, cx| Tooltip::text("Disconnect")),
                             )
                             .child(
                                 IconButton::new(
@@ -964,7 +968,7 @@ impl Render for DebugPanelItem {
                                     thread_status == ThreadStatus::Exited
                                         || thread_status == ThreadStatus::Ended,
                                 )
-                                .tooltip(move |cx| Tooltip::text("Ignore breakpoints", cx)),
+                                .tooltip(move |window, cx| Tooltip::text("Ignore breakpoints")),
                             ),
                     )
                     .child(

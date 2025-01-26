@@ -684,10 +684,7 @@ fn register_actions(
             },
         )
         .register_action(
-            move |_: &mut Workspace,
-                  _: &zed_actions::OpenKeymap,
-                  window: &mut Window,
-                  cx: &mut Context<Workspace>| {
+            move |_: &mut Workspace, _: &zed_actions::OpenKeymap, window, cx| {
                 open_settings_file(
                     paths::keymap_file(),
                     || settings::initial_keymap_content().as_ref().into(),
@@ -696,57 +693,40 @@ fn register_actions(
                 );
             },
         )
+        .register_action(move |_: &mut Workspace, _: &OpenSettings, window, cx| {
+            open_settings_file(
+                paths::settings_file(),
+                || settings::initial_user_settings_content().as_ref().into(),
+                window,
+                cx,
+            );
+        })
         .register_action(
-            move |_: &mut Workspace,
-                  _: &OpenSettings,
-                  window: &mut Window,
-                  cx: &mut Context<Workspace>| {
-                open_settings_file(
-                    paths::settings_file(),
-                    || settings::initial_user_settings_content().as_ref().into(),
-                    window,
-                    cx,
-                );
-            },
-        )
-        .register_action(
-            |_: &mut Workspace,
-             _: &OpenAccountSettings,
-             _: &mut Window,
-             cx: &mut Context<Workspace>| {
+            |_: &mut Workspace, _: &OpenAccountSettings, _: &mut Window, cx| {
                 cx.open_url(&zed_urls::account_url(cx));
             },
         )
-        .register_action(
-            move |_: &mut Workspace,
-                  _: &OpenTasks,
-                  window: &mut Window,
-                  cx: &mut Context<Workspace>| {
-                open_settings_file(
-                    paths::tasks_file(),
-                    || settings::initial_tasks_content().as_ref().into(),
-                    window,
-                    cx,
-                );
-            },
-        )
-        .register_action(
-            move |_: &mut Workspace, _: &OpenDebugTasks, cx: &mut ViewContext<Workspace>| {
-                open_settings_file(
-                    paths::debug_tasks_file(),
-                    || settings::initial_debug_tasks_content().as_ref().into(),
-                    cx,
-                );
-            },
-        )
+        .register_action(move |_: &mut Workspace, _: &OpenTasks, window, cx| {
+            open_settings_file(
+                paths::tasks_file(),
+                || settings::initial_tasks_content().as_ref().into(),
+                window,
+                cx,
+            );
+        })
+        .register_action(move |_: &mut Workspace, _: &OpenDebugTasks, window, cx| {
+            open_settings_file(
+                paths::debug_tasks_file(),
+                || settings::initial_debug_tasks_content().as_ref().into(),
+                window,
+                cx,
+            );
+        })
         .register_action(open_project_settings_file)
         .register_action(open_project_tasks_file)
         .register_action(open_project_debug_tasks_file)
         .register_action(
-            move |workspace: &mut Workspace,
-                  _: &zed_actions::OpenDefaultKeymap,
-                  window: &mut Window,
-                  cx: &mut Context<Workspace>| {
+            move |workspace, _: &zed_actions::OpenDefaultKeymap, window, cx| {
                 open_bundled_file(
                     workspace,
                     settings::default_keymap(),
@@ -757,21 +737,16 @@ fn register_actions(
                 );
             },
         )
-        .register_action(
-            move |workspace: &mut Workspace,
-                  _: &OpenDefaultSettings,
-                  window: &mut Window,
-                  cx: &mut Context<Workspace>| {
-                open_bundled_file(
-                    workspace,
-                    settings::default_settings(),
-                    "Default Settings",
-                    "JSON",
-                    window,
-                    cx,
-                );
-            },
-        )
+        .register_action(move |workspace, _: &OpenDefaultSettings, window, cx| {
+            open_bundled_file(
+                workspace,
+                settings::default_settings(),
+                "Default Settings",
+                "JSON",
+                window,
+                cx,
+            );
+        })
         .register_action(
             |workspace: &mut Workspace,
              _: &project_panel::ToggleFocus,
