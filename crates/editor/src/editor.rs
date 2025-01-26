@@ -16812,7 +16812,7 @@ impl Render for BreakpointPromptEditor {
     }
 }
 
-impl FocusableView for BreakpointPromptEditor {
+impl Focusable for BreakpointPromptEditor {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
         self.prompt.focus_handle(cx)
     }
