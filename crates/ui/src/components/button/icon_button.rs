@@ -67,7 +67,7 @@ impl IconButton {
 
     pub fn on_right_click(
         mut self,
-        handler: impl Fn(&gpui::ClickEvent, &mut WindowContext) + 'static,
+        handler: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.base = self.base.on_right_click(handler);
         self

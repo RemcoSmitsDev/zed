@@ -92,18 +92,18 @@ impl DebugPanelItem {
         client_id: &DebugAdapterClientId,
         session_name: SharedString,
         thread_id: u64,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> Self {
         let focus_handle = cx.focus_handle();
 
         let this = cx.view().clone();
-        let stack_frame_list = cx.new_view(|cx| {
+        let stack_frame_list = cx.new(|cx| {
             StackFrameList::new(
                 &workspace, &this, &dap_store, client_id, session_id, thread_id, cx,
             )
         });
 
-        let variable_list = cx.new_view(|cx| {
+        let variable_list = cx.new(|cx| {
             VariableList::new(
                 &stack_frame_list,
                 dap_store.clone(),
@@ -114,12 +114,12 @@ impl DebugPanelItem {
         });
 
         let module_list =
-            cx.new_view(|cx| ModuleList::new(dap_store.clone(), &client_id, &session_id, cx));
+            cx.new(|cx| ModuleList::new(dap_store.clone(), &client_id, &session_id, cx));
 
         let loaded_source_list =
-            cx.new_view(|cx| LoadedSourceList::new(&this, dap_store.clone(), &client_id, cx));
+            cx.new(|cx| LoadedSourceList::new(&this, dap_store.clone(), &client_id, cx));
 
-        let console = cx.new_view(|cx| {
+        let console = cx.new(|cx| {
             Console::new(
                 &stack_frame_list,
                 client_id,
@@ -219,7 +219,7 @@ impl DebugPanelItem {
         }
     }
 
-    pub(crate) fn from_proto(&mut self, state: &SetDebuggerPanelItem, cx: &mut ViewContext<Self>) {
+    pub(crate) fn from_proto(&mut self, state: &SetDebuggerPanelItem, cx: &mut Context<Self>) {
         self.thread_state.update(cx, |thread_state, _| {
             let (status, stopped) = state
                 .thread_state
@@ -253,7 +253,7 @@ impl DebugPanelItem {
         cx.notify();
     }
 
-    pub fn update_thread_state_status(&mut self, status: ThreadStatus, cx: &mut ViewContext<Self>) {
+    pub fn update_thread_state_status(&mut self, status: ThreadStatus, cx: &mut Context<Self>) {
         self.thread_state.update(cx, |thread_state, cx| {
             thread_state.status = status;
 
@@ -276,7 +276,7 @@ impl DebugPanelItem {
         &mut self,
         client_id: &DebugAdapterClientId,
         event: &ContinuedEvent,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         if self.should_skip_event(client_id, event.thread_id) {
             return;
@@ -290,7 +290,7 @@ impl DebugPanelItem {
         client_id: &DebugAdapterClientId,
         event: &StoppedEvent,
         go_to_stack_frame: bool,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         if self.should_skip_event(client_id, event.thread_id.unwrap_or(self.thread_id)) {
             return;
@@ -309,7 +309,7 @@ impl DebugPanelItem {
         &mut self,
         client_id: &DebugAdapterClientId,
         event: &ThreadEvent,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         if self.should_skip_event(client_id, event.thread_id) {
             return;
@@ -322,7 +322,7 @@ impl DebugPanelItem {
         &mut self,
         client_id: &DebugAdapterClientId,
         event: &OutputEvent,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         if self.should_skip_event(client_id, self.thread_id) {
             return;
@@ -350,7 +350,7 @@ impl DebugPanelItem {
         &mut self,
         client_id: &DebugAdapterClientId,
         event: &ModuleEvent,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         if self.should_skip_event(client_id, self.thread_id) {
             return;
@@ -365,7 +365,7 @@ impl DebugPanelItem {
         &mut self,
         client_id: &DebugAdapterClientId,
         event: &LoadedSourceEvent,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         if self.should_skip_event(client_id, self.thread_id) {
             return;
@@ -380,7 +380,7 @@ impl DebugPanelItem {
     fn handle_client_shutdown_event(
         &mut self,
         client_id: &DebugAdapterClientId,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         if self.should_skip_event(client_id, self.thread_id) {
             return;
@@ -398,7 +398,7 @@ impl DebugPanelItem {
     fn handle_client_exited_and_terminated_event(
         &mut self,
         client_id: &DebugAdapterClientId,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         if Self::should_skip_event(self, client_id, self.thread_id) {
             return;
@@ -416,7 +416,7 @@ impl DebugPanelItem {
     fn handle_capabilities_changed_event(
         &mut self,
         client_id: &DebugAdapterClientId,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         if Self::should_skip_event(self, client_id, self.thread_id) {
             return;
@@ -437,11 +437,7 @@ impl DebugPanelItem {
         }
     }
 
-    pub(crate) fn update_adapter(
-        &mut self,
-        update: &UpdateDebugAdapter,
-        cx: &mut ViewContext<Self>,
-    ) {
+    pub(crate) fn update_adapter(&mut self, update: &UpdateDebugAdapter, cx: &mut Context<Self>) {
         if let Some(update_variant) = update.variant.as_ref() {
             match update_variant {
                 proto::update_debug_adapter::Variant::StackFrameList(stack_frame_list) => {
@@ -512,11 +508,11 @@ impl DebugPanelItem {
             .read_with(cx, |dap, cx| dap.ignore_breakpoints(&self.session_id, cx))
     }
 
-    pub fn capabilities(&self, cx: &mut ViewContext<Self>) -> Capabilities {
+    pub fn capabilities(&self, cx: &mut Context<Self>) -> Capabilities {
         self.dap_store.read(cx).capabilities_by_id(&self.client_id)
     }
 
-    fn clear_highlights(&self, cx: &mut ViewContext<Self>) {
+    fn clear_highlights(&self, cx: &mut Context<Self>) {
         if let Some((_, project_path, _)) = self.dap_store.read(cx).active_debug_line() {
             self.workspace
                 .update(cx, |workspace, cx| {
@@ -536,7 +532,7 @@ impl DebugPanelItem {
         }
     }
 
-    pub fn go_to_current_stack_frame(&self, cx: &mut ViewContext<Self>) {
+    pub fn go_to_current_stack_frame(&self, cx: &mut Context<Self>) {
         self.stack_frame_list.update(cx, |stack_frame_list, cx| {
             if let Some(stack_frame) = stack_frame_list
                 .stack_frames()
@@ -555,7 +551,7 @@ impl DebugPanelItem {
         &self,
         label: &SharedString,
         thread_item: ThreadItem,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> AnyElement {
         let has_indicator =
             matches!(thread_item, ThreadItem::Console) && self.show_console_indicator;
@@ -586,7 +582,7 @@ impl DebugPanelItem {
             .into_any_element()
     }
 
-    pub fn continue_thread(&mut self, cx: &mut ViewContext<Self>) {
+    pub fn continue_thread(&mut self, cx: &mut Context<Self>) {
         self.update_thread_state_status(ThreadStatus::Running, cx);
 
         let task = self.dap_store.update(cx, |store, cx| {
@@ -604,7 +600,7 @@ impl DebugPanelItem {
         .detach();
     }
 
-    pub fn step_over(&mut self, cx: &mut ViewContext<Self>) {
+    pub fn step_over(&mut self, cx: &mut Context<Self>) {
         self.update_thread_state_status(ThreadStatus::Running, cx);
         let granularity = DebuggerSettings::get_global(cx).stepping_granularity;
 
@@ -623,7 +619,7 @@ impl DebugPanelItem {
         .detach();
     }
 
-    pub fn step_in(&mut self, cx: &mut ViewContext<Self>) {
+    pub fn step_in(&mut self, cx: &mut Context<Self>) {
         self.update_thread_state_status(ThreadStatus::Running, cx);
         let granularity = DebuggerSettings::get_global(cx).stepping_granularity;
 
@@ -642,7 +638,7 @@ impl DebugPanelItem {
         .detach();
     }
 
-    pub fn step_out(&mut self, cx: &mut ViewContext<Self>) {
+    pub fn step_out(&mut self, cx: &mut Context<Self>) {
         self.update_thread_state_status(ThreadStatus::Running, cx);
         let granularity = DebuggerSettings::get_global(cx).stepping_granularity;
 
@@ -661,7 +657,7 @@ impl DebugPanelItem {
         .detach();
     }
 
-    pub fn step_back(&mut self, cx: &mut ViewContext<Self>) {
+    pub fn step_back(&mut self, cx: &mut Context<Self>) {
         self.update_thread_state_status(ThreadStatus::Running, cx);
         let granularity = DebuggerSettings::get_global(cx).stepping_granularity;
 
@@ -680,7 +676,7 @@ impl DebugPanelItem {
         .detach();
     }
 
-    pub fn restart_client(&self, cx: &mut ViewContext<Self>) {
+    pub fn restart_client(&self, cx: &mut Context<Self>) {
         self.dap_store.update(cx, |store, cx| {
             store
                 .restart(&self.client_id, None, cx)
@@ -688,7 +684,7 @@ impl DebugPanelItem {
         });
     }
 
-    pub fn pause_thread(&self, cx: &mut ViewContext<Self>) {
+    pub fn pause_thread(&self, cx: &mut Context<Self>) {
         self.dap_store.update(cx, |store, cx| {
             store
                 .pause_thread(&self.client_id, self.thread_id, cx)
@@ -696,7 +692,7 @@ impl DebugPanelItem {
         });
     }
 
-    pub fn stop_thread(&self, cx: &mut ViewContext<Self>) {
+    pub fn stop_thread(&self, cx: &mut Context<Self>) {
         self.dap_store.update(cx, |store, cx| {
             store
                 .terminate_threads(
@@ -709,7 +705,7 @@ impl DebugPanelItem {
         });
     }
 
-    pub fn disconnect_client(&self, cx: &mut ViewContext<Self>) {
+    pub fn disconnect_client(&self, cx: &mut Context<Self>) {
         self.dap_store.update(cx, |store, cx| {
             store
                 .disconnect_client(&self.client_id, cx)
@@ -717,7 +713,7 @@ impl DebugPanelItem {
         });
     }
 
-    pub fn toggle_ignore_breakpoints(&mut self, cx: &mut ViewContext<Self>) {
+    pub fn toggle_ignore_breakpoints(&mut self, cx: &mut Context<Self>) {
         self.workspace
             .update(cx, |workspace, cx| {
                 workspace.project().update(cx, |project, cx| {
@@ -805,13 +801,12 @@ impl FollowableItem for DebugPanelItem {
         &mut self,
         _project: &Model<project::Project>,
         _message: proto::update_view::Variant,
-        _cx: &mut ViewContext<Self>,
+        _cx: &mut Context<Self>,
     ) -> gpui::Task<gpui::Result<()>> {
         Task::ready(Ok(()))
     }
 
-    fn set_leader_peer_id(&mut self, _leader_peer_id: Option<PeerId>, _cx: &mut ViewContext<Self>) {
-    }
+    fn set_leader_peer_id(&mut self, _leader_peer_id: Option<PeerId>, _cx: &mut Context<Self>) {}
 
     fn to_follow_event(_event: &Self::Event) -> Option<workspace::item::FollowEvent> {
         None
@@ -831,7 +826,7 @@ impl FollowableItem for DebugPanelItem {
 }
 
 impl Render for DebugPanelItem {
-    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let thread_status = self.thread_state.read(cx).status;
         let active_thread_item = &self.active_thread_item;
 

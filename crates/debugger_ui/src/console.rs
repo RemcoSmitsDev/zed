@@ -42,9 +42,9 @@ impl Console {
         client_id: &DebugAdapterClientId,
         variable_list: View<VariableList>,
         dap_store: Model<DapStore>,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> Self {
-        let console = cx.new_view(|cx| {
+        let console = cx.new(|cx| {
             let mut editor = Editor::multi_line(cx);
             editor.move_to_end(&editor::actions::MoveToEnd, cx);
             editor.set_read_only(true);
@@ -63,7 +63,7 @@ impl Console {
         });
 
         let this = cx.view().downgrade();
-        let query_bar = cx.new_view(|cx| {
+        let query_bar = cx.new(|cx| {
             let mut editor = Editor::single_line(cx);
             editor.set_placeholder_text("Evaluate an expression", cx);
             editor.set_use_autoclose(false);
@@ -104,7 +104,7 @@ impl Console {
         &mut self,
         _: View<StackFrameList>,
         event: &StackFrameListEvent,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         match event {
             StackFrameListEvent::SelectedStackFrameChanged => cx.notify(),
@@ -112,7 +112,7 @@ impl Console {
         }
     }
 
-    pub fn add_message(&mut self, event: OutputEvent, cx: &mut ViewContext<Self>) {
+    pub fn add_message(&mut self, event: OutputEvent, cx: &mut Context<Self>) {
         self.console.update(cx, |console, cx| {
             let output = event.output.trim_end().to_string();
 
@@ -215,7 +215,7 @@ impl Console {
         )
     }
 
-    pub fn evaluate(&mut self, _: &Confirm, cx: &mut ViewContext<Self>) {
+    pub fn evaluate(&mut self, _: &Confirm, cx: &mut Context<Self>) {
         let expression = self.query_bar.update(cx, |editor, cx| {
             let expression = editor.text(cx);
 
@@ -261,7 +261,7 @@ impl Console {
         .detach_and_log_err(cx);
     }
 
-    fn render_console(&self, cx: &ViewContext<Self>) -> impl IntoElement {
+    fn render_console(&self, cx: &Context<Self>) -> impl IntoElement {
         let settings = ThemeSettings::get_global(cx);
         let text_style = TextStyle {
             color: if self.console.read(cx).read_only(cx) {
@@ -288,7 +288,7 @@ impl Console {
         )
     }
 
-    fn render_query_bar(&self, cx: &ViewContext<Self>) -> impl IntoElement {
+    fn render_query_bar(&self, cx: &Context<Self>) -> impl IntoElement {
         let settings = ThemeSettings::get_global(cx);
         let text_style = TextStyle {
             color: if self.console.read(cx).read_only(cx) {
@@ -318,7 +318,7 @@ impl Console {
 }
 
 impl Render for Console {
-    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .key_context("DebugConsole")
             .on_action(cx.listener(Self::evaluate))

@@ -5475,7 +5475,7 @@ fn render_inline_blame_entry(
 
     let details = blame.read(cx).details_for_entry(&blame_entry);
 
-    let tooltip = cx.new_view(|_| BlameEntryTooltip::new(blame_entry, details, style, workspace));
+    let tooltip = cx.new(|_| BlameEntryTooltip::new(blame_entry, details, style, workspace));
 
     h_flex()
         .id("inline-blame")
@@ -5525,9 +5525,8 @@ fn render_blame_entry(
 
     let workspace = editor.read(cx).workspace.as_ref().map(|(w, _)| w.clone());
 
-    let tooltip = cx.new_view(|_| {
-        BlameEntryTooltip::new(blame_entry.clone(), details.clone(), style, workspace)
-    });
+    let tooltip =
+        cx.new(|_| BlameEntryTooltip::new(blame_entry.clone(), details.clone(), style, workspace));
 
     h_flex()
         .w_full()

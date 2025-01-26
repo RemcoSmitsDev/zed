@@ -55,7 +55,7 @@ impl StackFrameList {
         client_id: &DebugAdapterClientId,
         session_id: &DebugSessionId,
         thread_id: u64,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> Self {
         let weakview = cx.view().downgrade();
         let focus_handle = cx.focus_handle();
@@ -102,7 +102,7 @@ impl StackFrameList {
     pub(crate) fn set_from_proto(
         &mut self,
         stack_frame_list: DebuggerStackFrameList,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         self.thread_id = stack_frame_list.thread_id;
         self.client_id = DebugAdapterClientId::from_proto(stack_frame_list.client_id);
@@ -137,7 +137,7 @@ impl StackFrameList {
         &mut self,
         _: View<DebugPanelItem>,
         event: &debugger_panel_item::DebugPanelItemEvent,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         match event {
             Stopped { go_to_stack_frame } => {
@@ -147,7 +147,7 @@ impl StackFrameList {
         }
     }
 
-    pub fn invalidate(&mut self, cx: &mut ViewContext<Self>) {
+    pub fn invalidate(&mut self, cx: &mut Context<Self>) {
         self.fetch_stack_frames(true, cx);
     }
 
@@ -180,7 +180,7 @@ impl StackFrameList {
         self.list.reset(self.entries.len());
     }
 
-    fn fetch_stack_frames(&mut self, go_to_stack_frame: bool, cx: &mut ViewContext<Self>) {
+    fn fetch_stack_frames(&mut self, go_to_stack_frame: bool, cx: &mut Context<Self>) {
         // If this is a remote debug session we never need to fetch stack frames ourselves
         // because the host will fetch and send us stack frames whenever there's a stop event
         if self.dap_store.read(cx).as_remote().is_some() {
@@ -222,7 +222,7 @@ impl StackFrameList {
         &mut self,
         stack_frame: &StackFrame,
         go_to_stack_frame: bool,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> Task<Result<()>> {
         self.current_stack_frame_id = stack_frame.id;
 
@@ -275,7 +275,7 @@ impl StackFrameList {
     pub fn project_path_from_stack_frame(
         &self,
         stack_frame: &StackFrame,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> Option<ProjectPath> {
         let path = stack_frame.source.as_ref().and_then(|s| s.path.as_ref())?;
 
@@ -288,7 +288,7 @@ impl StackFrameList {
             .ok()?
     }
 
-    pub fn restart_stack_frame(&mut self, stack_frame_id: u64, cx: &mut ViewContext<Self>) {
+    pub fn restart_stack_frame(&mut self, stack_frame_id: u64, cx: &mut Context<Self>) {
         self.dap_store.update(cx, |store, cx| {
             store
                 .restart_stack_frame(&self.client_id, stack_frame_id, cx)
@@ -296,11 +296,7 @@ impl StackFrameList {
         });
     }
 
-    fn render_normal_entry(
-        &self,
-        stack_frame: &StackFrame,
-        cx: &mut ViewContext<Self>,
-    ) -> AnyElement {
+    fn render_normal_entry(&self, stack_frame: &StackFrame, cx: &mut Context<Self>) -> AnyElement {
         let source = stack_frame.source.clone();
         let is_selected_frame = stack_frame.id == self.current_stack_frame_id;
 
@@ -331,7 +327,7 @@ impl StackFrameList {
             .tooltip({
                 let formatted_path = formatted_path.clone();
                 move |cx| {
-                    cx.new_view(|_| {
+                    cx.new(|_| {
                         let mut tooltip = Tooltip::new(formatted_path.clone());
 
                         if let Some(origin) = &origin {
@@ -416,7 +412,7 @@ impl StackFrameList {
         &mut self,
         ix: usize,
         stack_frames: &Vec<StackFrame>,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         self.entries.splice(
             ix..ix + 1,
@@ -432,7 +428,7 @@ impl StackFrameList {
         &self,
         ix: usize,
         stack_frames: &Vec<StackFrame>,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> AnyElement {
         let first_stack_frame = &stack_frames[0];
 
@@ -468,7 +464,7 @@ impl StackFrameList {
             .into_any()
     }
 
-    fn render_entry(&self, ix: usize, cx: &mut ViewContext<Self>) -> AnyElement {
+    fn render_entry(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
         match &self.entries[ix] {
             StackFrameEntry::Normal(stack_frame) => self.render_normal_entry(stack_frame, cx),
             StackFrameEntry::Collapsed(stack_frames) => {
@@ -479,7 +475,7 @@ impl StackFrameList {
 }
 
 impl Render for StackFrameList {
-    fn render(&mut self, _: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Context<Self>) -> impl IntoElement {
         div()
             .size_full()
             .p_1()

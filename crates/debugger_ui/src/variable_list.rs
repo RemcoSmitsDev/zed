@@ -353,7 +353,7 @@ impl VariableList {
         dap_store: Model<DapStore>,
         client_id: &DebugAdapterClientId,
         session_id: &DebugSessionId,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> Self {
         let weakview = cx.view().downgrade();
         let focus_handle = cx.focus_handle();
@@ -365,7 +365,7 @@ impl VariableList {
                 .unwrap_or(div().into_any())
         });
 
-        let set_variable_editor = cx.new_view(Editor::single_line);
+        let set_variable_editor = cx.new(Editor::single_line);
 
         cx.subscribe(
             &set_variable_editor,
@@ -432,7 +432,7 @@ impl VariableList {
     pub(crate) fn set_from_proto(
         &mut self,
         state: &proto::DebuggerVariableList,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         self.variables = state
             .variables
@@ -503,7 +503,7 @@ impl VariableList {
         &mut self,
         _: View<StackFrameList>,
         event: &StackFrameListEvent,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         match event {
             StackFrameListEvent::SelectedStackFrameChanged => {
@@ -552,7 +552,7 @@ impl VariableList {
             .collect()
     }
 
-    pub fn completion_variables(&self, cx: &mut ViewContext<Self>) -> Vec<VariableContainer> {
+    pub fn completion_variables(&self, cx: &mut Context<Self>) -> Vec<VariableContainer> {
         let stack_frame_id = self.stack_frame_list.read(cx).first_stack_frame_id();
 
         self.variables
@@ -561,7 +561,7 @@ impl VariableList {
             .collect()
     }
 
-    fn render_entry(&mut self, ix: usize, cx: &mut ViewContext<Self>) -> AnyElement {
+    fn render_entry(&mut self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
         let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
 
         let Some(entries) = self.entries.get(&stack_frame_id) else {
@@ -599,7 +599,7 @@ impl VariableList {
         scope_id: u64,
         variable: &Variable,
         depth: usize,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
 
@@ -663,7 +663,7 @@ impl VariableList {
         }))
     }
 
-    pub fn toggle_entry(&mut self, entry_id: &OpenEntry, cx: &mut ViewContext<Self>) {
+    pub fn toggle_entry(&mut self, entry_id: &OpenEntry, cx: &mut Context<Self>) {
         match self.open_entries.binary_search(&entry_id) {
             Ok(ix) => {
                 self.open_entries.remove(ix);
@@ -680,7 +680,7 @@ impl VariableList {
         &mut self,
         open_first_scope: bool,
         keep_open_entries: bool,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
 
@@ -830,7 +830,7 @@ impl VariableList {
         container_reference: u64,
         depth: usize,
         open_entries: &Vec<OpenEntry>,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> Task<Result<Vec<VariableContainer>>> {
         let stack_frame_list = self.stack_frame_list.read(cx);
         let thread_id = stack_frame_list.thread_id();
@@ -891,7 +891,7 @@ impl VariableList {
         &self,
         stack_frame_id: u64,
         open_entries: &Vec<OpenEntry>,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> Task<Result<(Vec<Scope>, HashMap<u64, Vec<VariableContainer>>)>> {
         let scopes_task = self.dap_store.update(cx, |store, cx| {
             store.scopes(&self.client_id, stack_frame_id, cx)
@@ -917,7 +917,7 @@ impl VariableList {
         })
     }
 
-    fn fetch_variables(&mut self, cx: &mut ViewContext<Self>) {
+    fn fetch_variables(&mut self, cx: &mut Context<Self>) {
         if self.dap_store.read(cx).upstream_client().is_some() {
             return;
         }
@@ -996,7 +996,7 @@ impl VariableList {
         scope: &Scope,
         variable: &Variable,
         position: Point<Pixels>,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let this = cx.view().clone();
 
@@ -1119,7 +1119,7 @@ impl VariableList {
         self.open_context_menu = Some((context_menu, position, subscription));
     }
 
-    fn cancel_set_variable_value(&mut self, cx: &mut ViewContext<Self>) {
+    fn cancel_set_variable_value(&mut self, cx: &mut Context<Self>) {
         if self.set_variable_state.take().is_none() {
             return;
         };
@@ -1127,7 +1127,7 @@ impl VariableList {
         self.build_entries(false, true, cx);
     }
 
-    fn set_variable_value(&mut self, _: &Confirm, cx: &mut ViewContext<Self>) {
+    fn set_variable_value(&mut self, _: &Confirm, cx: &mut Context<Self>) {
         let new_variable_value = self.set_variable_editor.update(cx, |editor, cx| {
             let new_variable_value = editor.text(cx);
 
@@ -1169,13 +1169,13 @@ impl VariableList {
         .detach_and_log_err(cx);
     }
 
-    pub fn invalidate(&mut self, cx: &mut ViewContext<Self>) {
+    pub fn invalidate(&mut self, cx: &mut Context<Self>) {
         self.stack_frame_list.update(cx, |stack_frame_list, cx| {
             stack_frame_list.invalidate(cx);
         });
     }
 
-    fn select_first(&mut self, _: &SelectFirst, cx: &mut ViewContext<Self>) {
+    fn select_first(&mut self, _: &SelectFirst, cx: &mut Context<Self>) {
         let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
         if let Some(entries) = self.entries.get(&stack_frame_id) {
             self.selection = entries.first().cloned();
@@ -1183,7 +1183,7 @@ impl VariableList {
         };
     }
 
-    fn select_last(&mut self, _: &SelectLast, cx: &mut ViewContext<Self>) {
+    fn select_last(&mut self, _: &SelectLast, cx: &mut Context<Self>) {
         let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
         if let Some(entries) = self.entries.get(&stack_frame_id) {
             self.selection = entries.last().cloned();
@@ -1191,7 +1191,7 @@ impl VariableList {
         };
     }
 
-    fn select_prev(&mut self, _: &SelectPrev, cx: &mut ViewContext<Self>) {
+    fn select_prev(&mut self, _: &SelectPrev, cx: &mut Context<Self>) {
         if let Some(selection) = &self.selection {
             let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
             if let Some(entries) = self.entries.get(&stack_frame_id) {
@@ -1205,7 +1205,7 @@ impl VariableList {
         }
     }
 
-    fn select_next(&mut self, _: &SelectNext, cx: &mut ViewContext<Self>) {
+    fn select_next(&mut self, _: &SelectNext, cx: &mut Context<Self>) {
         if let Some(selection) = &self.selection {
             let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
             if let Some(entries) = self.entries.get(&stack_frame_id) {
@@ -1219,7 +1219,7 @@ impl VariableList {
         }
     }
 
-    fn collapse_selected_entry(&mut self, _: &CollapseSelectedEntry, cx: &mut ViewContext<Self>) {
+    fn collapse_selected_entry(&mut self, _: &CollapseSelectedEntry, cx: &mut Context<Self>) {
         if let Some(selection) = &self.selection {
             match selection {
                 VariableListEntry::Scope(scope) => {
@@ -1261,7 +1261,7 @@ impl VariableList {
         }
     }
 
-    fn expand_selected_entry(&mut self, _: &ExpandSelectedEntry, cx: &mut ViewContext<Self>) {
+    fn expand_selected_entry(&mut self, _: &ExpandSelectedEntry, cx: &mut Context<Self>) {
         if let Some(selection) = &self.selection {
             match selection {
                 VariableListEntry::Scope(scope) => {
@@ -1307,7 +1307,7 @@ impl VariableList {
         &self,
         depth: usize,
         state: &SetVariableState,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> AnyElement {
         div()
             .h_4()
@@ -1328,14 +1328,14 @@ impl VariableList {
         scope_id: u64,
         variable: &Variable,
         depth: usize,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         self.toggle_variable(scope_id, variable, depth, cx);
     }
 
     #[track_caller]
     #[cfg(any(test, feature = "test-support"))]
-    pub fn assert_visual_entries(&self, expected: Vec<&str>, cx: &ViewContext<Self>) {
+    pub fn assert_visual_entries(&self, expected: Vec<&str>, cx: &Context<Self>) {
         const INDENT: &'static str = "    ";
 
         let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
@@ -1407,7 +1407,7 @@ impl VariableList {
         depth: usize,
         has_children: bool,
         is_selected: bool,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> AnyElement {
         let scope_id = scope.variables_reference;
         let entry_id = OpenEntry::Variable {
@@ -1500,12 +1500,7 @@ impl VariableList {
             .into_any()
     }
 
-    fn render_scope(
-        &self,
-        scope: &Scope,
-        is_selected: bool,
-        cx: &mut ViewContext<Self>,
-    ) -> AnyElement {
+    fn render_scope(&self, scope: &Scope, is_selected: bool, cx: &mut Context<Self>) -> AnyElement {
         let element_id = scope.variables_reference;
 
         let entry_id = OpenEntry::Scope {
@@ -1566,7 +1561,7 @@ impl FocusableView for VariableList {
 }
 
 impl Render for VariableList {
-    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .key_context("VariableList")
             .id("variable-list")

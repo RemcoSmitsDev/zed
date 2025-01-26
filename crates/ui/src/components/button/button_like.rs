@@ -399,7 +399,7 @@ impl ButtonLike {
 
     pub fn on_right_click(
         mut self,
-        handler: impl Fn(&ClickEvent, &mut WindowContext) + 'static,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_right_click = Some(Box::new(handler));
         self
@@ -528,29 +528,32 @@ impl RenderOnce for ButtonLike {
             .when_some(
                 self.on_right_click.filter(|_| !self.disabled),
                 |this, on_right_click| {
-                    this.on_mouse_down(MouseButton::Right, |_event, cx| {
-                        cx.prevent_default();
+                    this.on_mouse_down(MouseButton::Right, |_event, window, cx| {
+                        window.prevent_default();
                         cx.stop_propagation();
                     })
-                    .on_mouse_up(MouseButton::Right, move |event, cx| {
-                        cx.stop_propagation();
-                        let click_event = ClickEvent {
-                            down: MouseDownEvent {
-                                button: MouseButton::Right,
-                                position: event.position,
-                                modifiers: event.modifiers,
-                                click_count: 1,
-                                first_mouse: false,
-                            },
-                            up: MouseUpEvent {
-                                button: MouseButton::Right,
-                                position: event.position,
-                                modifiers: event.modifiers,
-                                click_count: 1,
-                            },
-                        };
-                        (on_right_click)(&click_event, cx)
-                    })
+                    .on_mouse_up(
+                        MouseButton::Right,
+                        move |event, window, cx| {
+                            cx.stop_propagation();
+                            let click_event = ClickEvent {
+                                down: MouseDownEvent {
+                                    button: MouseButton::Right,
+                                    position: event.position,
+                                    modifiers: event.modifiers,
+                                    click_count: 1,
+                                    first_mouse: false,
+                                },
+                                up: MouseUpEvent {
+                                    button: MouseButton::Right,
+                                    position: event.position,
+                                    modifiers: event.modifiers,
+                                    click_count: 1,
+                                },
+                            };
+                            (on_right_click)(&click_event, window, cx)
+                        },
+                    )
                 },
             )
             .when_some(

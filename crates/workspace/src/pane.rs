@@ -695,11 +695,7 @@ impl Pane {
         self.can_split_predicate = can_split_predicate;
     }
 
-    pub fn set_close_pane_if_empty(
-        &mut self,
-        close_pane_if_empty: bool,
-        cx: &mut ViewContext<Self>,
-    ) {
+    pub fn set_close_pane_if_empty(&mut self, close_pane_if_empty: bool, cx: &mut Context<Self>) {
         self.close_pane_if_empty = close_pane_if_empty;
         cx.notify();
     }

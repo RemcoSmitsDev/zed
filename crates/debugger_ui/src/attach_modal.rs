@@ -56,9 +56,9 @@ impl AttachModal {
         session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         dap_store: Model<DapStore>,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> Self {
-        let picker = cx.new_view(|cx| {
+        let picker = cx.new(|cx| {
             Picker::uniform_list(
                 AttachModalDelegate::new(*session_id, *client_id, dap_store),
                 cx,
@@ -75,7 +75,7 @@ impl AttachModal {
 }
 
 impl Render for AttachModal {
-    fn render(&mut self, _: &mut ViewContext<Self>) -> impl ui::IntoElement {
+    fn render(&mut self, _: &mut Context<Self>) -> impl ui::IntoElement {
         v_flex()
             .key_context("AttachModal")
             .w(rems(34.))

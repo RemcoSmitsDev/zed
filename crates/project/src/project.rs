@@ -662,7 +662,7 @@ impl Project {
                 .detach();
 
             let environment = ProjectEnvironment::new(&worktree_store, env, cx);
-            let dap_store = cx.new_model(|cx| {
+            let dap_store = cx.new(|cx| {
                 DapStore::new_local(
                     client.http_client(),
                     node.clone(),
@@ -861,7 +861,7 @@ impl Project {
             cx.subscribe(&lsp_store, Self::on_lsp_store_event).detach();
 
             let dap_store =
-                cx.new_model(|cx| DapStore::new_remote(SSH_PROJECT_ID, client.clone().into(), cx));
+                cx.new(|cx| DapStore::new_remote(SSH_PROJECT_ID, client.clone().into(), cx));
 
             cx.subscribe(&ssh, Self::on_ssh_event).detach();
             cx.observe(&ssh, |_, _, cx| cx.notify()).detach();
@@ -1028,7 +1028,7 @@ impl Project {
         })?;
 
         let environment = cx.update(|cx| ProjectEnvironment::new(&worktree_store, None, cx))?;
-        let dap_store = cx.new_model(|cx| {
+        let dap_store = cx.new(|cx| {
             let mut dap_store = DapStore::new_remote(remote_id, client.clone().into(), cx);
 
             dap_store.set_breakpoints_from_proto(response.payload.breakpoints, cx);

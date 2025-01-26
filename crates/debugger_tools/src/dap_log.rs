@@ -510,13 +510,14 @@ impl DapLogView {
     pub fn new(
         project: Entity<Project>,
         log_store: Entity<LogStore>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let (editor, editor_subscriptions) = Self::editor_for_logs(String::new(), cx);
+        let (editor, editor_subscriptions) = Self::editor_for_logs(String::new(), window, cx);
 
         let focus_handle = cx.focus_handle();
 
-        let events_subscriptions = cx.subscribe(&log_store, |log_view, _, e, cx| match e {
+        let events_subscriptions = cx.subscribe(&log_store, |log_view, _, event, cx| match event {
             Event::NewLogEntry { id, entry, kind } => {
                 if log_view.current_view == Some((*id, *kind)) {
                     log_view.editor.update(cx, |editor, cx| {
@@ -548,14 +549,15 @@ impl DapLogView {
 
     fn editor_for_logs(
         log_contents: String,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> (Entity<Editor>, Vec<Subscription>) {
-        let editor = cx.new_view(|cx| {
-            let mut editor = Editor::multi_line(cx);
-            editor.set_text(log_contents, cx);
-            editor.move_to_end(&editor::actions::MoveToEnd, cx);
+        let editor = cx.new(|cx| {
+            let mut editor = Editor::multi_line(window, cx);
+            editor.set_text(log_contents, window, cx);
+            editor.move_to_end(&editor::actions::MoveToEnd, window, cx);
             editor.set_read_only(true);
-            editor.set_show_inline_completions(Some(false), cx);
+            editor.set_show_inline_completions(Some(false), window, cx);
             editor
         });
         let editor_subscription = cx.subscribe(
@@ -714,9 +716,13 @@ impl Render for DapLogView {
 actions!(debug, [OpenDebuggerAdapterLogs]);
 
 pub fn init(cx: &mut App) {
-    let log_store = cx.new_model(|cx| LogStore::new(cx));
+    let log_store = cx.new(|cx| LogStore::new(cx));
 
-    cx.observe_new_views(move |workspace: &mut Workspace, cx| {
+    cx.observe_new(move |workspace: &mut Workspace, window, cx| {
+        let Some(window) = window else {
+            return;
+        };
+
         let project = workspace.project();
         if project.read(cx).is_local() {
             log_store.update(cx, |store, cx| {
@@ -729,8 +735,8 @@ pub fn init(cx: &mut App) {
             let project = workspace.project().read(cx);
             if project.is_local() {
                 workspace.add_item_to_active_pane(
-                    Box::new(cx.new_view(|cx| {
-                        DapLogView::new(workspace.project().clone(), log_store.clone(), cx)
+                    Box::new(cx.new(|cx| {
+                        DapLogView::new(workspace.project().clone(), log_store.clone(), window, cx)
                     })),
                     None,
                     true,

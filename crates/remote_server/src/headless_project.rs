@@ -80,7 +80,7 @@ impl HeadlessProject {
         });
 
         let environment = project::ProjectEnvironment::new(&worktree_store, None, cx);
-        let dap_store = cx.new_model(|cx| {
+        let dap_store = cx.new(|cx| {
             DapStore::new_local(
                 http_client.clone(),
                 node_runtime.clone(),
