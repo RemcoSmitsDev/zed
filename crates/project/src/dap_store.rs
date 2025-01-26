@@ -287,16 +287,13 @@ impl DapStore {
     ) {
         match &mut self.mode {
             DapStoreMode::Remote(remote) => {
-                remote
-                    .sessions
-                    .entry(session_id)
-                    .or_insert(cx.new_model(|_| {
-                        DebugSession::new_remote(
-                            session_id,
-                            "Remote-Debug".to_owned(),
-                            ignore.unwrap_or(false),
-                        )
-                    }));
+                remote.sessions.entry(session_id).or_insert(cx.new(|_| {
+                    DebugSession::new_remote(
+                        session_id,
+                        "Remote-Debug".to_owned(),
+                        ignore.unwrap_or(false),
+                    )
+                }));
             }
             _ => {}
         }
@@ -768,7 +765,7 @@ impl DapStore {
         let start_client_task = self.start_client_internal(session_id, config.clone(), cx);
 
         cx.spawn(|this, mut cx| async move {
-            let session = cx.new_model(|_| DebugSession::new_local(session_id, config))?;
+            let session = cx.new(|_| DebugSession::new_local(session_id, config))?;
 
             let client = match start_client_task.await {
                 Ok(client) => client,

@@ -22,7 +22,7 @@ impl LoadedSourceList {
         debug_panel_item: &View<DebugPanelItem>,
         dap_store: Model<DapStore>,
         client_id: &DebugAdapterClientId,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> Self {
         let weakview = cx.view().downgrade();
         let focus_handle = cx.focus_handle();
@@ -51,7 +51,7 @@ impl LoadedSourceList {
         &mut self,
         _: View<DebugPanelItem>,
         event: &debugger_panel_item::DebugPanelItemEvent,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         match event {
             DebugPanelItemEvent::Stopped { .. } => {
@@ -61,11 +61,7 @@ impl LoadedSourceList {
         }
     }
 
-    pub fn on_loaded_source_event(
-        &mut self,
-        event: &LoadedSourceEvent,
-        cx: &mut ViewContext<Self>,
-    ) {
+    pub fn on_loaded_source_event(&mut self, event: &LoadedSourceEvent, cx: &mut Context<Self>) {
         match event.reason {
             dap::LoadedSourceEventReason::New => self.sources.push(event.source.clone()),
             dap::LoadedSourceEventReason::Changed => {
@@ -97,7 +93,7 @@ impl LoadedSourceList {
         cx.notify();
     }
 
-    fn fetch_loaded_sources(&self, cx: &mut ViewContext<Self>) -> Task<Result<()>> {
+    fn fetch_loaded_sources(&self, cx: &mut Context<Self>) -> Task<Result<()>> {
         let task = self
             .dap_store
             .update(cx, |store, cx| store.loaded_sources(&self.client_id, cx));
@@ -114,7 +110,7 @@ impl LoadedSourceList {
         })
     }
 
-    fn render_entry(&mut self, ix: usize, cx: &mut ViewContext<Self>) -> AnyElement {
+    fn render_entry(&mut self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
         let source = &self.sources[ix];
 
         v_flex()
@@ -146,7 +142,7 @@ impl FocusableView for LoadedSourceList {
 }
 
 impl Render for LoadedSourceList {
-    fn render(&mut self, _: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Context<Self>) -> impl IntoElement {
         div()
             .size_full()
             .p_1()

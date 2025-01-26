@@ -5412,7 +5412,7 @@ impl Editor {
         kind: Arc<BreakpointKind>,
         row: DisplayRow,
         window: &mut Window,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> View<ui::ContextMenu> {
         let editor_weak = cx.view().downgrade();
         let editor_weak2 = editor_weak.clone();
@@ -5454,7 +5454,7 @@ impl Editor {
         position: text::Anchor,
         row: DisplayRow,
         kind: &BreakpointKind,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> IconButton {
         let color = if self
             .gutter_breakpoint_indicator
@@ -6655,7 +6655,7 @@ impl Editor {
         position: Option<text::Anchor>,
         kind: Arc<BreakpointKind>,
         clicked_point: gpui::Point<Pixels>,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let source = self
             .buffer
@@ -6675,7 +6675,7 @@ impl Editor {
         row: DisplayRow,
         anchor: text::Anchor,
         kind: &BreakpointKind,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let position = self
             .snapshot(cx)
@@ -6683,7 +6683,7 @@ impl Editor {
 
         let weak_editor = cx.view().downgrade();
         let bp_prompt =
-            cx.new_view(|cx| BreakpointPromptEditor::new(weak_editor, anchor, kind.clone(), cx));
+            cx.new(|cx| BreakpointPromptEditor::new(weak_editor, anchor, kind.clone(), cx));
 
         let height = bp_prompt.update(cx, |this, cx| {
             this.prompt
@@ -6808,7 +6808,7 @@ impl Editor {
         breakpoint_position: text::Anchor,
         kind: BreakpointKind,
         edit_action: BreakpointEditAction,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let Some(project) = &self.project else {
             return;
@@ -10441,7 +10441,7 @@ impl Editor {
         &mut self,
         row: u32,
         highlight_color: Option<Hsla>,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let snapshot = self.snapshot(cx).display_snapshot;
         let start = snapshot
@@ -12826,7 +12826,7 @@ impl Editor {
         }
     }
 
-    pub fn project_path(&self, cx: &mut ViewContext<Self>) -> Option<ProjectPath> {
+    pub fn project_path(&self, cx: &mut Context<Self>) -> Option<ProjectPath> {
         if let Some(buffer) = self.buffer.read(cx).as_singleton() {
             buffer.read_with(cx, |buffer, cx| buffer.project_path(cx))
         } else {
@@ -12834,7 +12834,7 @@ impl Editor {
         }
     }
 
-    pub fn go_to_active_debug_line(&mut self, cx: &mut ViewContext<Self>) {
+    pub fn go_to_active_debug_line(&mut self, cx: &mut Context<Self>) {
         let Some(dap_store) = self.dap_store.as_ref() else {
             return;
         };
@@ -16642,9 +16642,9 @@ impl BreakpointPromptEditor {
         editor: WeakView<Editor>,
         breakpoint_anchor: text::Anchor,
         kind: BreakpointKind,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> Self {
-        let buffer = cx.new_model(|cx| {
+        let buffer = cx.new(|cx| {
             Buffer::local(
                 kind.log_message()
                     .map(|msg| msg.to_string())
@@ -16652,9 +16652,9 @@ impl BreakpointPromptEditor {
                 cx,
             )
         });
-        let buffer = cx.new_model(|cx| MultiBuffer::singleton(buffer, cx));
+        let buffer = cx.new(|cx| MultiBuffer::singleton(buffer, cx));
 
-        let prompt = cx.new_view(|cx| {
+        let prompt = cx.new(|cx| {
             let mut prompt = Editor::new(
                 EditorMode::AutoHeight {
                     max_lines: Self::MAX_LINES as usize,
@@ -16689,7 +16689,7 @@ impl BreakpointPromptEditor {
         self.block_ids.extend(block_ids)
     }
 
-    fn confirm(&mut self, _: &menu::Confirm, cx: &mut ViewContext<Self>) {
+    fn confirm(&mut self, _: &menu::Confirm, cx: &mut Context<Self>) {
         if let Some(editor) = self.editor.upgrade() {
             let log_message = self
                 .prompt
@@ -16716,7 +16716,7 @@ impl BreakpointPromptEditor {
         }
     }
 
-    fn cancel(&mut self, _: &menu::Cancel, cx: &mut ViewContext<Self>) {
+    fn cancel(&mut self, _: &menu::Cancel, cx: &mut Context<Self>) {
         if let Some(editor) = self.editor.upgrade() {
             editor.update(cx, |editor, cx| {
                 editor.remove_blocks(self.block_ids.clone(), None, cx);
@@ -16725,7 +16725,7 @@ impl BreakpointPromptEditor {
         }
     }
 
-    fn render_prompt_editor(&self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render_prompt_editor(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let settings = ThemeSettings::get_global(cx);
         let text_style = TextStyle {
             color: if self.prompt.read(cx).read_only(cx) {
@@ -16753,7 +16753,7 @@ impl BreakpointPromptEditor {
 }
 
 impl Render for BreakpointPromptEditor {
-    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let gutter_dimensions = *self.gutter_dimensions.lock();
         h_flex()
             .key_context("Editor")

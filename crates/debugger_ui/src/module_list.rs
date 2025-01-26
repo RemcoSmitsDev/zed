@@ -23,7 +23,7 @@ impl ModuleList {
         dap_store: Model<DapStore>,
         client_id: &DebugAdapterClientId,
         session_id: &DebugSessionId,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> Self {
         let weakview = cx.view().downgrade();
         let focus_handle = cx.focus_handle();
@@ -53,7 +53,7 @@ impl ModuleList {
     pub(crate) fn set_from_proto(
         &mut self,
         module_list: &DebuggerModuleList,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         self.modules = module_list
             .modules
@@ -78,7 +78,7 @@ impl ModuleList {
         }
     }
 
-    pub fn on_module_event(&mut self, event: &ModuleEvent, cx: &mut ViewContext<Self>) {
+    pub fn on_module_event(&mut self, event: &ModuleEvent, cx: &mut Context<Self>) {
         match event.reason {
             dap::ModuleEventReason::New => self.modules.push(event.module.clone()),
             dap::ModuleEventReason::Changed => {
@@ -102,7 +102,7 @@ impl ModuleList {
         cx.background_executor().spawn(task).detach();
     }
 
-    fn fetch_modules(&self, cx: &mut ViewContext<Self>) -> Task<Result<()>> {
+    fn fetch_modules(&self, cx: &mut Context<Self>) -> Task<Result<()>> {
         let task = self
             .dap_store
             .update(cx, |store, cx| store.modules(&self.client_id, cx));
@@ -120,7 +120,7 @@ impl ModuleList {
         })
     }
 
-    fn propagate_updates(&self, cx: &ViewContext<Self>) {
+    fn propagate_updates(&self, cx: &Context<Self>) {
         if let Some((client, id)) = self.dap_store.read(cx).downstream_client() {
             let request = UpdateDebugAdapter {
                 session_id: self.session_id.to_proto(),
@@ -136,7 +136,7 @@ impl ModuleList {
         }
     }
 
-    fn render_entry(&mut self, ix: usize, cx: &mut ViewContext<Self>) -> AnyElement {
+    fn render_entry(&mut self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
         let module = &self.modules[ix];
 
         v_flex()
@@ -163,7 +163,7 @@ impl FocusableView for ModuleList {
 }
 
 impl Render for ModuleList {
-    fn render(&mut self, _: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Context<Self>) -> impl IntoElement {
         div()
             .size_full()
             .p_1()

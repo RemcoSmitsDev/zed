@@ -124,8 +124,8 @@ pub struct DebugPanel {
 
 impl DebugPanel {
     pub fn new(workspace: &Workspace, cx: &mut ViewContext<Workspace>) -> View<Self> {
-        cx.new_view(|cx| {
-            let pane = cx.new_view(|cx| {
+        cx.new(|cx| {
+            let pane = cx.new(|cx| {
                 let mut pane = Pane::new(
                     workspace.weak_handle(),
                     workspace.project().clone(),
@@ -297,10 +297,7 @@ impl DebugPanel {
         self.dap_store.clone()
     }
 
-    pub fn active_debug_panel_item(
-        &self,
-        cx: &mut ViewContext<Self>,
-    ) -> Option<View<DebugPanelItem>> {
+    pub fn active_debug_panel_item(&self, cx: &mut Context<Self>) -> Option<View<DebugPanelItem>> {
         self.pane
             .read(cx)
             .active_item()
@@ -311,7 +308,7 @@ impl DebugPanel {
         &self,
         client_id: &DebugAdapterClientId,
         thread_id: u64,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) -> Option<View<DebugPanelItem>> {
         self.pane
             .read(cx)
@@ -324,12 +321,7 @@ impl DebugPanel {
             })
     }
 
-    fn handle_pane_event(
-        &mut self,
-        _: View<Pane>,
-        event: &pane::Event,
-        cx: &mut ViewContext<Self>,
-    ) {
+    fn handle_pane_event(&mut self, _: View<Pane>, event: &pane::Event, cx: &mut Context<Self>) {
         match event {
             pane::Event::RemovedItem { item } => {
                 let thread_panel = item.downcast::<DebugPanelItem>().unwrap();
@@ -381,7 +373,7 @@ impl DebugPanel {
         client_id: &DebugAdapterClientId,
         seq: u64,
         request_args: Option<Value>,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let args = if let Some(args) = request_args {
             serde_json::from_value(args.clone()).ok()
@@ -402,7 +394,7 @@ impl DebugPanel {
         client_id: &DebugAdapterClientId,
         seq: u64,
         request_args: Option<Value>,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let request_args = request_args.and_then(|request_args| {
             serde_json::from_value::<RunInTerminalRequestArguments>(request_args).ok()
@@ -568,7 +560,7 @@ impl DebugPanel {
         &self,
         session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let Some(session) = self
             .dap_store
@@ -651,7 +643,7 @@ impl DebugPanel {
         session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         event: &Events,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         match event {
             Events::Initialized(event) => {
@@ -686,7 +678,7 @@ impl DebugPanel {
         session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         capabilities: &Option<Capabilities>,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         if let Some(capabilities) = capabilities {
             self.dap_store.update(cx, |store, cx| {
@@ -723,7 +715,7 @@ impl DebugPanel {
         &mut self,
         client_id: &DebugAdapterClientId,
         event: &ContinuedEvent,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         cx.emit(DebugPanelEvent::Continued((*client_id, event.clone())));
     }
@@ -733,7 +725,7 @@ impl DebugPanel {
         session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         event: &StoppedEvent,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let Some(thread_id) = event.thread_id else {
             return;
@@ -760,7 +752,7 @@ impl DebugPanel {
                     let thread_state = this
                         .thread_states
                         .entry((client_id, thread_id))
-                        .or_insert(cx.new_model(|_| ThreadState::default()))
+                        .or_insert(cx.new(|_| ThreadState::default()))
                         .clone();
 
                     thread_state.update(cx, |thread_state, _| {
@@ -772,7 +764,7 @@ impl DebugPanel {
                     if existing_item.is_none() {
                         let debug_panel = cx.view().clone();
                         this.pane.update(cx, |pane, cx| {
-                            let tab = cx.new_view(|cx| {
+                            let tab = cx.new(|cx| {
                                 DebugPanelItem::new(
                                     debug_panel,
                                     this.workspace.clone(),
@@ -828,7 +820,7 @@ impl DebugPanel {
         &mut self,
         client_id: &DebugAdapterClientId,
         event: &ThreadEvent,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let thread_id = event.thread_id;
 
@@ -843,10 +835,8 @@ impl DebugPanel {
         }
 
         if event.reason == ThreadEventReason::Started {
-            self.thread_states.insert(
-                (*client_id, thread_id),
-                cx.new_model(|_| ThreadState::default()),
-            );
+            self.thread_states
+                .insert((*client_id, thread_id), cx.new(|_| ThreadState::default()));
         }
 
         cx.emit(DebugPanelEvent::Thread((*client_id, event.clone())));
@@ -857,7 +847,7 @@ impl DebugPanel {
         &mut self,
         client_id: &DebugAdapterClientId,
         _: &ExitedEvent,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         cx.emit(DebugPanelEvent::Exited(*client_id));
     }
@@ -867,7 +857,7 @@ impl DebugPanel {
         session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         event: &Option<TerminatedEvent>,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let restart_args = event.clone().and_then(|e| e.restart);
 
@@ -904,7 +894,7 @@ impl DebugPanel {
         &mut self,
         client_id: &DebugAdapterClientId,
         event: &OutputEvent,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         self.message_queue
             .entry(*client_id)
@@ -918,7 +908,7 @@ impl DebugPanel {
         &mut self,
         _: Model<DapStore>,
         event: &project::dap_store::DapStoreEvent,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         match event {
             project::dap_store::DapStoreEvent::SetDebugPanelItem(set_debug_panel_item) => {
@@ -937,7 +927,7 @@ impl DebugPanel {
     pub(crate) fn handle_thread_status_update(
         &mut self,
         update: &proto::UpdateThreadStatus,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         if let Some(thread_state) = self.thread_states.get_mut(&(
             DebugAdapterClientId::from_proto(update.client_id),
@@ -954,7 +944,7 @@ impl DebugPanel {
     pub(crate) fn handle_debug_adapter_update(
         &mut self,
         update: &UpdateDebugAdapter,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let client_id = DebugAdapterClientId::from_proto(update.client_id);
         let thread_id = update.thread_id;
@@ -1001,13 +991,13 @@ impl DebugPanel {
     pub(crate) fn handle_set_debug_panel_item(
         &mut self,
         payload: &SetDebuggerPanelItem,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         let session_id = DebugSessionId::from_proto(payload.session_id);
         let client_id = DebugAdapterClientId::from_proto(payload.client_id);
         let thread_id = payload.thread_id;
         let thread_state = payload.thread_state.clone().unwrap();
-        let thread_state = cx.new_model(|_| ThreadState::from_proto(thread_state));
+        let thread_state = cx.new(|_| ThreadState::from_proto(thread_state));
 
         let mut existing_item = self
             .pane
@@ -1026,7 +1016,7 @@ impl DebugPanel {
 
             let debug_panel = cx.view().clone();
             let debug_panel_item = self.pane.update(cx, |pane, cx| {
-                let debug_panel_item = cx.new_view(|cx| {
+                let debug_panel_item = cx.new(|cx| {
                     DebugPanelItem::new(
                         debug_panel,
                         self.workspace.clone(),
@@ -1063,7 +1053,7 @@ impl DebugPanel {
         &mut self,
         client_id: &DebugAdapterClientId,
         event: &ModuleEvent,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         cx.emit(DebugPanelEvent::Module((*client_id, event.clone())));
     }
@@ -1072,7 +1062,7 @@ impl DebugPanel {
         &mut self,
         client_id: &DebugAdapterClientId,
         event: &LoadedSourceEvent,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         cx.emit(DebugPanelEvent::LoadedSource((*client_id, event.clone())));
     }
@@ -1082,7 +1072,7 @@ impl DebugPanel {
         session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         event: &CapabilitiesEvent,
-        cx: &mut ViewContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         self.dap_store.update(cx, |store, cx| {
             store.update_capabilities_for_client(session_id, client_id, &event.capabilities, cx);
@@ -1119,13 +1109,13 @@ impl Panel for DebugPanel {
         position == DockPosition::Bottom
     }
 
-    fn set_position(&mut self, _position: DockPosition, _cx: &mut ViewContext<Self>) {}
+    fn set_position(&mut self, _position: DockPosition, _cx: &mut Context<Self>) {}
 
     fn size(&self, _cx: &WindowContext) -> Pixels {
         self.size
     }
 
-    fn set_size(&mut self, size: Option<Pixels>, _cx: &mut ViewContext<Self>) {
+    fn set_size(&mut self, size: Option<Pixels>, _cx: &mut Context<Self>) {
         self.size = size.unwrap();
     }
 
@@ -1155,7 +1145,7 @@ impl Panel for DebugPanel {
 }
 
 impl Render for DebugPanel {
-    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .key_context("DebugPanel")
             .track_focus(&self.focus_handle)
