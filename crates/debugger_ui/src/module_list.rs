@@ -25,15 +25,20 @@ impl ModuleList {
         session_id: &DebugSessionId,
         cx: &mut Context<Self>,
     ) -> Self {
-        let weakview = cx.view().downgrade();
+        let weak_entity = cx.weak_model();
         let focus_handle = cx.focus_handle();
 
-        let list = ListState::new(0, gpui::ListAlignment::Top, px(1000.), move |ix, cx| {
-            weakview
-                .upgrade()
-                .map(|view| view.update(cx, |this, cx| this.render_entry(ix, cx)))
-                .unwrap_or(div().into_any())
-        });
+        let list = ListState::new(
+            0,
+            gpui::ListAlignment::Top,
+            px(1000.),
+            move |ix, _window, cx| {
+                weak_entity
+                    .upgrade()
+                    .map(|module_list| module_list.update(cx, |this, cx| this.render_entry(ix, cx)))
+                    .unwrap_or(div().into_any())
+            },
+        );
 
         let this = Self {
             list,
@@ -163,7 +168,7 @@ impl Focusable for ModuleList {
 }
 
 impl Render for ModuleList {
-    fn render(&mut self, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         div()
             .size_full()
             .p_1()

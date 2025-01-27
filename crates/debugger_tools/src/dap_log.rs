@@ -11,8 +11,7 @@ use futures::{
 };
 use gpui::{
     actions, div, App, AppContext, Context, Empty, Entity, EventEmitter, FocusHandle, Focusable,
-    IntoElement, ParentElement, Render, SharedString, Styled, Subscription, VisualContext,
-    WeakEntity, Window,
+    IntoElement, ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window,
 };
 use project::{search::SearchQuery, Project};
 use settings::Settings as _;
@@ -490,6 +489,7 @@ impl ToolbarItemView for DapLogToolbarItemView {
     fn set_active_pane_item(
         &mut self,
         active_pane_item: Option<&dyn workspace::item::ItemHandle>,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> workspace::ToolbarItemLocation {
         if let Some(item) = active_pane_item {
@@ -629,7 +629,7 @@ impl DapLogView {
                 .expect("log buffer should be a singleton")
                 .update(cx, |_, cx| {
                     cx.spawn({
-                        let buffer = cx.handle();
+                        let buffer = cx.model();
                         |_, mut cx| async move {
                             let language = language.await.ok();
                             buffer.update(&mut cx, |buffer, cx| {
@@ -645,7 +645,7 @@ impl DapLogView {
             cx.notify();
         }
 
-        cx.focus(&self.focus_handle);
+        cx.focus_self(window);
     }
 
     fn show_log_messages_for_adapter(
@@ -674,7 +674,7 @@ impl DapLogView {
             cx.notify();
         }
 
-        cx.focus(&self.focus_handle);
+        cx.focus_self(window);
     }
 }
 
@@ -721,7 +721,7 @@ pub fn init(cx: &mut App) {
     let log_store = cx.new(|cx| LogStore::new(cx));
 
     cx.observe_new(move |workspace: &mut Workspace, window, cx| {
-        let Some(window) = window else {
+        let Some(_window) = window else {
             return;
         };
 
@@ -733,7 +733,7 @@ pub fn init(cx: &mut App) {
         }
 
         let log_store = log_store.clone();
-        workspace.register_action(move |workspace, _: &OpenDebuggerAdapterLogs, cx| {
+        workspace.register_action(move |workspace, _: &OpenDebuggerAdapterLogs, window, cx| {
             let project = workspace.project().read(cx);
             if project.is_local() {
                 workspace.add_item_to_active_pane(
@@ -742,6 +742,7 @@ pub fn init(cx: &mut App) {
                     })),
                     None,
                     true,
+                    window,
                     cx,
                 );
             }
@@ -757,7 +758,7 @@ impl Item for DapLogView {
         Editor::to_item_events(event, f)
     }
 
-    fn tab_content_text(&self, _cx: &WindowContext) -> Option<SharedString> {
+    fn tab_content_text(&self, _window: &Window, _cx: &App) -> Option<SharedString> {
         Some("DAP Logs".into())
     }
 
@@ -767,12 +768,6 @@ impl Item for DapLogView {
 
     fn as_searchable(&self, handle: &Entity<Self>) -> Option<Box<dyn SearchableItemHandle>> {
         Some(Box::new(handle.clone()))
-    }
-}
-
-impl Focusable for DapLogView {
-    fn focus_handle(&self) -> FocusHandle {
-        self.focus_handle
     }
 }
 
@@ -829,7 +824,13 @@ impl SearchableItem for DapLogView {
             .update(cx, |e, cx| e.find_matches(query, window, cx))
     }
 
-    fn replace(&mut self, _: &Self::Match, _: &SearchQuery, _: &mut Context<Self>) {
+    fn replace(
+        &mut self,
+        _: &Self::Match,
+        _: &SearchQuery,
+        _window: &mut Window,
+        _: &mut Context<Self>,
+    ) {
         // Since DAP Log is read-only, it doesn't make sense to support replace operation.
     }
 
@@ -854,8 +855,13 @@ impl SearchableItem for DapLogView {
     }
 }
 
+<<<<<<< HEAD
 impl FocusableView for DapLogView {
     fn focus_handle(&self, _: &AppContext) -> gpui::FocusHandle {
+=======
+impl Focusable for DapLogView {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+>>>>>>> fa4cdeef3a (Get Zed to build !!)
         self.focus_handle.clone()
     }
 }
