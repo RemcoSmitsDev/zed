@@ -35,27 +35,28 @@ pub async fn init_test_workspace(
     project: &Entity<Project>,
     cx: &mut TestAppContext,
 ) -> WindowHandle<Workspace> {
-    let window = cx.add_window(|window, cx| Workspace::test_new(project.clone(), window, cx));
+    let workspace_handle =
+        cx.add_window(|window, cx| Workspace::test_new(project.clone(), window, cx));
 
-    let debugger_panel = window
-        .update(cx, |_, window, cx| cx.spawn(DebugPanel::load))
+    let debugger_panel = workspace_handle
+        .update(cx, |_, window, cx| cx.spawn_in(window, DebugPanel::load))
         .unwrap()
         .await
         .expect("Failed to load debug panel");
 
-    let terminal_panel = window
-        .update(cx, |_, _window, cx| cx.spawn(TerminalPanel::load))
+    let terminal_panel = workspace_handle
+        .update(cx, |_, window, cx| cx.spawn_in(window, TerminalPanel::load))
         .unwrap()
         .await
         .expect("Failed to load terminal panel");
 
-    window
+    workspace_handle
         .update(cx, |workspace, window, cx| {
             workspace.add_panel(debugger_panel, window, cx);
             workspace.add_panel(terminal_panel, window, cx);
         })
         .unwrap();
-    window
+    workspace_handle
 }
 
 pub fn active_debug_panel_item(
