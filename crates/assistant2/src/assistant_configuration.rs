@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use collections::HashMap;
-use gpui::{Action, AnyView, App, EventEmitter, FocusHandle, Focusable, Subscription};
+use gpui::{AnyView, App, EventEmitter, FocusHandle, Focusable, Subscription};
 use language_model::{LanguageModelProvider, LanguageModelProviderId, LanguageModelRegistry};
 use ui::{prelude::*, ElevationIndex};
 use zed_actions::assistant::DeployPromptLibrary;
