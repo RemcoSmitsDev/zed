@@ -740,22 +740,16 @@ async fn test_evaluate_expression(executor: BackgroundExecutor, cx: &mut TestApp
 
     cx.run_until_parked();
 
-    active_debug_panel_item(workspace, cx).update_in(cx, |debug_panel_item, _window, _cx| {
-        debug_panel_item
-            .console()
-            .update_in(cx, |console, window, item_cx| {
-                console
-                    .query_bar()
-                    .update_in(cx, |query_bar, window, console_cx| {
-                        query_bar.set_text(
-                            format!("$variable1 = {}", NEW_VALUE),
-                            window,
-                            console_cx,
-                        );
-                    });
+    active_debug_panel_item(workspace, cx).update_in(cx, |debug_panel_item, window, cx| {
+        debug_panel_item.console().update(cx, |console, item_cx| {
+            console
+                .query_bar()
+                .update(item_cx, |query_bar, console_cx| {
+                    query_bar.set_text(format!("$variable1 = {}", NEW_VALUE), window, console_cx);
+                });
 
-                console.evaluate(&menu::Confirm, window, item_cx);
-            });
+            console.evaluate(&menu::Confirm, window, item_cx);
+        });
     });
 
     cx.run_until_parked();

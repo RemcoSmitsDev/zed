@@ -73,24 +73,6 @@ pub fn init(cx: &mut App) {
                         workspace.focus_panel::<AssistantPanel>(window, cx);
                         panel.update(cx, |panel, cx| panel.open_configuration(window, cx));
                     }
-                })
-                .register_action(|workspace, _: &NewPromptEditor, cx| {
-                    if let Some(panel) = workspace.panel::<AssistantPanel>(cx) {
-                        workspace.focus_panel::<AssistantPanel>(cx);
-                        panel.update(cx, |panel, cx| panel.new_prompt_editor(cx));
-                    }
-                })
-                .register_action(|workspace, _: &OpenPromptEditorHistory, cx| {
-                    if let Some(panel) = workspace.panel::<AssistantPanel>(cx) {
-                        workspace.focus_panel::<AssistantPanel>(cx);
-                        panel.update(cx, |panel, cx| panel.open_prompt_editor_history(cx));
-                    }
-                })
-                .register_action(|workspace, _: &OpenConfiguration, cx| {
-                    if let Some(panel) = workspace.panel::<AssistantPanel>(cx) {
-                        workspace.focus_panel::<AssistantPanel>(cx);
-                        panel.update(cx, |panel, cx| panel.open_configuration(cx));
-                    }
                 });
         },
     )
@@ -176,7 +158,7 @@ impl AssistantPanel {
         let project = workspace.project().clone();
         let language_registry = project.read(cx).languages().clone();
         let workspace = workspace.weak_handle();
-        let weak_self = cx.model().downgrade();
+        let weak_self = cx.weak_model();
 
         let message_editor = cx.new(|cx| {
             MessageEditor::new(
@@ -829,7 +811,7 @@ impl AssistantPanel {
                     .child(v_flex().mx_auto().w_4_5().gap_2().children(
                         recent_threads.into_iter().map(|thread| {
                             // TODO: keyboard navigation
-                            PastThread::new(thread, cx.model().downgrade(), false)
+                            PastThread::new(thread, cx.weak_model(), false)
                         }),
                     ))
                     .child(

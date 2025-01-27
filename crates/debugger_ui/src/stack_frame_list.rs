@@ -54,20 +54,31 @@ impl StackFrameList {
         client_id: &DebugAdapterClientId,
         session_id: &DebugSessionId,
         thread_id: u64,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let weakview = cx.view().downgrade();
+        let weak_entity = cx.weak_model();
         let focus_handle = cx.focus_handle();
 
-        let list = ListState::new(0, gpui::ListAlignment::Top, px(1000.), move |ix, cx| {
-            weakview
-                .upgrade()
-                .map(|view| view.update(cx, |this, cx| this.render_entry(ix, cx)))
-                .unwrap_or(div().into_any())
-        });
+        let list = ListState::new(
+            0,
+            gpui::ListAlignment::Top,
+            px(1000.),
+            move |ix, _window, cx| {
+                weak_entity
+                    .upgrade()
+                    .map(|stack_frame_list| {
+                        stack_frame_list.update(cx, |this, cx| this.render_entry(ix, cx))
+                    })
+                    .unwrap_or(div().into_any())
+            },
+        );
 
-        let _subscriptions =
-            vec![cx.subscribe(debug_panel_item, Self::handle_debug_panel_item_event)];
+        let _subscriptions = vec![cx.subscribe_in(
+            debug_panel_item,
+            window,
+            Self::handle_debug_panel_item_event,
+        )];
 
         Self {
             list,
@@ -134,7 +145,7 @@ impl StackFrameList {
 
     fn handle_debug_panel_item_event(
         &mut self,
-        _: Entity<DebugPanelItem>,
+        _: &Entity<DebugPanelItem>,
         event: &debugger_panel_item::DebugPanelItemEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -183,7 +194,7 @@ impl StackFrameList {
     fn fetch_stack_frames(
         &mut self,
         go_to_stack_frame: bool,
-        window: &mut Window,
+        window: &Window,
         cx: &mut Context<Self>,
     ) {
         // If this is a remote debug session we never need to fetch stack frames ourselves
@@ -227,7 +238,7 @@ impl StackFrameList {
         &mut self,
         stack_frame: &StackFrame,
         go_to_stack_frame: bool,
-        window: &mut Window,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> Task<Result<()>> {
         self.current_stack_frame_id = stack_frame.id;

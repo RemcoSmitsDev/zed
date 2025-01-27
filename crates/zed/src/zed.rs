@@ -1333,7 +1333,7 @@ fn open_project_debug_tasks_file(
     workspace: &mut Workspace,
     _: &OpenProjectDebugTasks,
     window: &mut Window,
-    cx: &mut ViewContext<Workspace>,
+    cx: &mut Context<Workspace>,
 ) {
     open_local_file(
         workspace,

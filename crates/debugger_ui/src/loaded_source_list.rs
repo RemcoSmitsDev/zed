@@ -22,15 +22,22 @@ impl LoadedSourceList {
         client_id: &DebugAdapterClientId,
         cx: &mut Context<Self>,
     ) -> Self {
-        let weakview = cx.view().downgrade();
+        let weak_entity = cx.weak_model();
         let focus_handle = cx.focus_handle();
 
-        let list = ListState::new(0, gpui::ListAlignment::Top, px(1000.), move |ix, cx| {
-            weakview
-                .upgrade()
-                .map(|view| view.update(cx, |this, cx| this.render_entry(ix, cx)))
-                .unwrap_or(div().into_any())
-        });
+        let list = ListState::new(
+            0,
+            gpui::ListAlignment::Top,
+            px(1000.),
+            move |ix, _window, cx| {
+                weak_entity
+                    .upgrade()
+                    .map(|loaded_sources| {
+                        loaded_sources.update(cx, |this, cx| this.render_entry(ix, cx))
+                    })
+                    .unwrap_or(div().into_any())
+            },
+        );
 
         let _subscriptions =
             vec![cx.subscribe(debug_panel_item, Self::handle_debug_panel_item_event)];
@@ -140,7 +147,7 @@ impl Focusable for LoadedSourceList {
 }
 
 impl Render for LoadedSourceList {
-    fn render(&mut self, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         div()
             .size_full()
             .p_1()

@@ -100,7 +100,7 @@ impl DebugPanelItem {
 
         let stack_frame_list = cx.new(|cx| {
             StackFrameList::new(
-                &workspace, &this, &dap_store, client_id, session_id, thread_id, cx,
+                &workspace, &this, &dap_store, client_id, session_id, thread_id, window, cx,
             )
         });
 
@@ -110,6 +110,7 @@ impl DebugPanelItem {
                 dap_store.clone(),
                 &client_id,
                 session_id,
+                window,
                 cx,
             )
         });

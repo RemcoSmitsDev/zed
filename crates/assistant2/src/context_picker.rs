@@ -41,10 +41,10 @@ enum ContextPickerMode {
 
 pub(super) struct ContextPicker {
     mode: ContextPickerMode,
-    workspace: WeakView<Workspace>,
-    editor: WeakView<Editor>,
-    context_store: WeakModel<ContextStore>,
-    thread_store: Option<WeakModel<ThreadStore>>,
+    workspace: WeakEntity<Workspace>,
+    editor: WeakEntity<Editor>,
+    context_store: WeakEntity<ContextStore>,
+    thread_store: Option<WeakEntity<ThreadStore>>,
     confirm_behavior: ConfirmBehavior,
 }
 
