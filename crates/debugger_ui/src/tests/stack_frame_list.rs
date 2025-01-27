@@ -157,7 +157,7 @@ async fn test_fetch_initial_stack_frames_and_go_to_stack_frame(
     cx.run_until_parked();
 
     workspace
-        .update(cx, |workspace, window, cx| {
+        .update(cx, |workspace, _window, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
             let active_debug_panel_item = debug_panel
                 .update(cx, |this, cx| this.active_debug_panel_item(cx))
@@ -373,8 +373,8 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
 
     // select second stack frame
     stack_frame_list
-        .update(cx, |stack_frame_list, cx| {
-            stack_frame_list.select_stack_frame(&stack_frames[1], true, cx)
+        .update_in(cx, |stack_frame_list, window, cx| {
+            stack_frame_list.select_stack_frame(&stack_frames[1], true, window, cx)
         })
         .await
         .unwrap();
