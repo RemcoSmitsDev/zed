@@ -6,9 +6,9 @@ use dap::proto_conversions::ProtoConversion;
 use dap::session::DebugSessionId;
 use dap::StackFrame;
 use gpui::{
-    list, AnyElement, EventEmitter, FocusHandle, ListState, Subscription, Task, View, WeakView,
+    list, AnyElement, Entity, EventEmitter, FocusHandle, Focusable, ListState, Subscription, Task,
+    WeakEntity,
 };
-use gpui::{Entity, Focusable};
 use project::dap_store::DapStore;
 use project::ProjectPath;
 use rpc::proto::{DebuggerStackFrameList, UpdateDebugAdapter};
@@ -137,18 +137,19 @@ impl StackFrameList {
         &mut self,
         _: Entity<DebugPanelItem>,
         event: &debugger_panel_item::DebugPanelItemEvent,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match event {
             Stopped { go_to_stack_frame } => {
-                self.fetch_stack_frames(*go_to_stack_frame, cx);
+                self.fetch_stack_frames(*go_to_stack_frame, window, cx);
             }
             _ => {}
         }
     }
 
-    pub fn invalidate(&mut self, cx: &mut Context<Self>) {
-        self.fetch_stack_frames(true, cx);
+    pub fn invalidate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.fetch_stack_frames(true, window, cx);
     }
 
     fn build_entries(&mut self) {
@@ -180,7 +181,12 @@ impl StackFrameList {
         self.list.reset(self.entries.len());
     }
 
-    fn fetch_stack_frames(&mut self, go_to_stack_frame: bool, cx: &mut Context<Self>) {
+    fn fetch_stack_frames(
+        &mut self,
+        go_to_stack_frame: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         // If this is a remote debug session we never need to fetch stack frames ourselves
         // because the host will fetch and send us stack frames whenever there's a stop event
         if self.dap_store.read(cx).as_remote().is_some() {
@@ -191,10 +197,10 @@ impl StackFrameList {
             store.stack_frames(&self.client_id, self.thread_id, cx)
         });
 
-        self.fetch_stack_frames_task = Some(cx.spawn(|this, mut cx| async move {
+        self.fetch_stack_frames_task = Some(cx.spawn_in(window, |this, mut cx| async move {
             let mut stack_frames = task.await?;
 
-            let task = this.update(&mut cx, |this, cx| {
+            let task = this.update_in(&mut cx, |this, window, cx| {
                 std::mem::swap(&mut this.stack_frames, &mut stack_frames);
 
                 this.build_entries();
@@ -207,7 +213,7 @@ impl StackFrameList {
                     .cloned()
                     .ok_or_else(|| anyhow!("No stack frame found to select"))?;
 
-                anyhow::Ok(this.select_stack_frame(&stack_frame, go_to_stack_frame, cx))
+                anyhow::Ok(this.select_stack_frame(&stack_frame, go_to_stack_frame, window, cx))
             })?;
 
             task?.await?;
@@ -222,6 +228,7 @@ impl StackFrameList {
         &mut self,
         stack_frame: &StackFrame,
         go_to_stack_frame: bool,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Task<Result<()>> {
         self.current_stack_frame_id = stack_frame.id;
@@ -253,12 +260,19 @@ impl StackFrameList {
             return Task::ready(Err(anyhow!("Project path not found")));
         };
 
-        cx.spawn({
+        cx.spawn_in(window, {
             let client_id = self.client_id;
             move |this, mut cx| async move {
-                this.update(&mut cx, |this, cx| {
+                this.update_in(&mut cx, |this, window, cx| {
                     this.workspace.update(cx, |workspace, cx| {
-                        workspace.open_path_preview(project_path.clone(), None, false, true, cx)
+                        workspace.open_path_preview(
+                            project_path.clone(),
+                            None,
+                            false,
+                            true,
+                            window,
+                            cx,
+                        )
                     })
                 })??
                 .await?;
@@ -326,8 +340,8 @@ impl StackFrameList {
             .id(("stack-frame", stack_frame.id))
             .tooltip({
                 let formatted_path = formatted_path.clone();
-                move |cx| {
-                    cx.new(|_| {
+                move |_window, app| {
+                    app.new(|_| {
                         let mut tooltip = Tooltip::new(formatted_path.clone());
 
                         if let Some(origin) = &origin {
@@ -345,8 +359,8 @@ impl StackFrameList {
             })
             .on_click(cx.listener({
                 let stack_frame = stack_frame.clone();
-                move |this, _, cx| {
-                    this.select_stack_frame(&stack_frame, true, cx)
+                move |this, _, window, cx| {
+                    this.select_stack_frame(&stack_frame, true, window, cx)
                         .detach_and_log_err(cx);
                 }
             }))
@@ -396,11 +410,13 @@ impl StackFrameList {
                                 .icon_size(IconSize::Small)
                                 .on_click(cx.listener({
                                     let stack_frame_id = stack_frame.id;
-                                    move |this, _, cx| {
+                                    move |this, _, _window, cx| {
                                         this.restart_stack_frame(stack_frame_id, cx);
                                     }
                                 }))
-                                .tooltip(move |window, cx| Tooltip::text("Restart Stack Frame")),
+                                .tooltip(move |window, cx| {
+                                    Tooltip::text("Restart Stack Frame")(window, cx)
+                                }),
                             ),
                     )
                 },
@@ -441,7 +457,7 @@ impl StackFrameList {
             .p_1()
             .on_click(cx.listener({
                 let stack_frames = stack_frames.clone();
-                move |this, _, cx| {
+                move |this, _, _window, cx| {
                     this.expand_collapsed_entry(ix, &stack_frames, cx);
                 }
             }))
@@ -475,7 +491,7 @@ impl StackFrameList {
 }
 
 impl Render for StackFrameList {
-    fn render(&mut self, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .size_full()
             .p_1()

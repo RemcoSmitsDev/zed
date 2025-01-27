@@ -38,7 +38,7 @@ pub async fn init_test_workspace(
     let window = cx.add_window(|window, cx| Workspace::test_new(project.clone(), window, cx));
 
     let debugger_panel = window
-        .update(cx, |_, _window, cx| cx.spawn(DebugPanel::load))
+        .update(cx, |_, window, cx| cx.spawn(DebugPanel::load))
         .unwrap()
         .await
         .expect("Failed to load debug panel");
