@@ -14,7 +14,7 @@ use dap::{
     TerminatedEvent, ThreadEvent, ThreadEventReason,
 };
 use gpui::{
-    actions, Action, AppContext, AsyncWindowContext, Context, Entity, EventEmitter, FocusHandle,
+    actions, Action, App, AsyncWindowContext, Context, Entity, EventEmitter, FocusHandle,
     Focusable, Subscription, Task, WeakEntity,
 };
 use project::{
@@ -233,10 +233,7 @@ impl DebugPanel {
         })
     }
 
-    pub fn load(
-        workspace: WeakEntity<Workspace>,
-        cx: AsyncAppContext,
-    ) -> Task<Result<Entity<Self>>> {
+    pub fn load(workspace: WeakEntity<Workspace>, cx: AsyncApp) -> Task<Result<Entity<Self>>> {
         cx.spawn(|mut cx| async move {
             workspace.update_in(&mut cx, |workspace, window, cx| {
                 let debug_panel = DebugPanel::new(workspace, window, cx);
@@ -1095,7 +1092,7 @@ impl EventEmitter<DebugPanelEvent> for DebugPanel {}
 impl EventEmitter<project::Event> for DebugPanel {}
 
 impl Focusable for DebugPanel {
-    fn focus_handle(&self, _cx: &AppContext) -> FocusHandle {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
         self.focus_handle.clone()
     }
 }

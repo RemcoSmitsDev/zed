@@ -1,4 +1,4 @@
-use gpui::{Entity, TestAppContext, WindowHandle};
+use gpui::{Entity, TestApp, WindowHandle};
 use project::Project;
 use settings::SettingsStore;
 use terminal_view::terminal_panel::TerminalPanel;
@@ -12,7 +12,7 @@ mod debugger_panel;
 mod stack_frame_list;
 mod variable_list;
 
-pub fn init_test(cx: &mut gpui::TestAppContext) {
+pub fn init_test(cx: &mut gpui::TestApp) {
     if std::env::var("RUST_LOG").is_ok() {
         env_logger::try_init().ok();
     }
@@ -33,7 +33,7 @@ pub fn init_test(cx: &mut gpui::TestAppContext) {
 
 pub async fn init_test_workspace(
     project: &Entity<Project>,
-    cx: &mut TestAppContext,
+    cx: &mut TestApp,
 ) -> WindowHandle<Workspace> {
     let window = cx.add_window(|window, cx| Workspace::test_new(project.clone(), window, cx));
 
@@ -60,7 +60,7 @@ pub async fn init_test_workspace(
 
 pub fn active_debug_panel_item(
     workspace: WindowHandle<Workspace>,
-    cx: &mut TestAppContext,
+    cx: &mut TestApp,
 ) -> Entity<DebugPanelItem> {
     workspace
         .update(cx, |workspace, cx| {

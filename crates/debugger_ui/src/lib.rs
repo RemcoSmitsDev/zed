@@ -1,7 +1,7 @@
 use dap::debugger_settings::DebuggerSettings;
 use debugger_panel::{DebugPanel, ToggleFocus};
 use debugger_panel_item::DebugPanelItem;
-use gpui::AppContext;
+use gpui::App;
 use settings::Settings;
 use workspace::{
     Continue, Pause, Restart, ShutdownDebugAdapters, Start, StepBack, StepInto, StepOut, StepOver,
