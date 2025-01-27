@@ -13,7 +13,7 @@ use editor::{
     actions::{self},
     Editor, EditorMode, MultiBuffer,
 };
-use gpui::{BackgroundExecutor, TestApp, VisualTestContext};
+use gpui::{BackgroundExecutor, TestAppContext, VisualTestContext};
 use project::{
     dap_store::{Breakpoint, BreakpointEditAction, BreakpointKind},
     FakeFs, Project,
@@ -28,10 +28,10 @@ use std::{
 };
 use terminal_view::{terminal_panel::TerminalPanel, TerminalView};
 use tests::{active_debug_panel_item, init_test, init_test_workspace};
-use workspace::{dock::Panel, Item};
+use workspace::dock::Panel;
 
 #[gpui::test]
-async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestApp) {
+async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppContext) {
     init_test(cx);
 
     let fs = FakeFs::new(executor.clone());
@@ -147,7 +147,7 @@ async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut Test
 #[gpui::test]
 async fn test_we_can_only_have_one_panel_per_debug_thread(
     executor: BackgroundExecutor,
-    cx: &mut TestApp,
+    cx: &mut TestAppContext,
 ) {
     init_test(cx);
 
@@ -295,7 +295,7 @@ async fn test_we_can_only_have_one_panel_per_debug_thread(
 #[gpui::test]
 async fn test_client_can_open_multiple_thread_panels(
     executor: BackgroundExecutor,
-    cx: &mut TestApp,
+    cx: &mut TestAppContext,
 ) {
     init_test(cx);
 
@@ -443,7 +443,7 @@ async fn test_client_can_open_multiple_thread_panels(
 #[gpui::test]
 async fn test_handle_successful_run_in_terminal_reverse_request(
     executor: BackgroundExecutor,
-    cx: &mut TestApp,
+    cx: &mut TestAppContext,
 ) {
     init_test(cx);
 
@@ -549,7 +549,7 @@ async fn test_handle_successful_run_in_terminal_reverse_request(
 #[gpui::test]
 async fn test_handle_error_run_in_terminal_reverse_request(
     executor: BackgroundExecutor,
-    cx: &mut TestApp,
+    cx: &mut TestAppContext,
 ) {
     init_test(cx);
 
@@ -645,7 +645,7 @@ async fn test_handle_error_run_in_terminal_reverse_request(
 #[gpui::test]
 async fn test_handle_start_debugging_reverse_request(
     executor: BackgroundExecutor,
-    cx: &mut TestApp,
+    cx: &mut TestAppContext,
 ) {
     init_test(cx);
 
@@ -777,7 +777,7 @@ async fn test_handle_start_debugging_reverse_request(
 #[gpui::test]
 async fn test_debug_panel_item_thread_status_reset_on_failure(
     executor: BackgroundExecutor,
-    cx: &mut TestApp,
+    cx: &mut TestAppContext,
 ) {
     init_test(cx);
 
@@ -972,7 +972,7 @@ async fn test_debug_panel_item_thread_status_reset_on_failure(
 #[gpui::test]
 async fn test_send_breakpoints_when_editor_has_been_saved(
     executor: BackgroundExecutor,
-    cx: &mut TestApp,
+    cx: &mut TestAppContext,
 ) {
     init_test(cx);
 
@@ -1163,7 +1163,7 @@ async fn test_send_breakpoints_when_editor_has_been_saved(
 #[gpui::test]
 async fn test_it_send_breakpoint_request_if_breakpoint_buffer_is_unopened(
     executor: BackgroundExecutor,
-    cx: &mut TestApp,
+    cx: &mut TestAppContext,
 ) {
     init_test(cx);
 
@@ -1306,7 +1306,7 @@ async fn test_it_send_breakpoint_request_if_breakpoint_buffer_is_unopened(
 #[gpui::test]
 async fn test_debug_session_is_shutdown_when_attach_and_launch_request_fails(
     executor: BackgroundExecutor,
-    cx: &mut TestApp,
+    cx: &mut TestAppContext,
 ) {
     init_test(cx);
 

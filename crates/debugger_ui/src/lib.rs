@@ -24,8 +24,8 @@ pub fn init(cx: &mut App) {
     DebuggerSettings::register(cx);
     workspace::FollowableViewRegistry::register::<DebugPanelItem>(cx);
 
-    cx.observe_new(|workspace: &mut Workspace, window, cx| {
-        let Some(window) = window else {
+    cx.observe_new(|workspace: &mut Workspace, window, _cx| {
+        let Some(_) = window else {
             return;
         };
 
@@ -46,7 +46,7 @@ pub fn init(cx: &mut App) {
                     })
                 },
             )
-            .register_action(|workspace: &mut Workspace, _: &Stop, window, cx| {
+            .register_action(|workspace: &mut Workspace, _: &Stop, _window, cx| {
                 let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
 
                 debug_panel.update(cx, |panel, cx| {
