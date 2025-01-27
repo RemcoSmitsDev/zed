@@ -48,6 +48,7 @@ pub enum StackFrameEntry {
 }
 
 impl StackFrameList {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         workspace: &WeakView<Workspace>,
         debug_panel_item: &View<DebugPanelItem>,
