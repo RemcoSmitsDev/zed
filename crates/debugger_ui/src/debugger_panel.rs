@@ -14,8 +14,8 @@ use dap::{
     TerminatedEvent, ThreadEvent, ThreadEventReason,
 };
 use gpui::{
-    actions, Action, App, AsyncWindowContext, Context, Entity, EventEmitter, FocusHandle,
-    Focusable, Subscription, Task, WeakEntity,
+    actions, Action, App, AsyncAppContext, AsyncWindowContext, Context, Entity, EventEmitter,
+    FocusHandle, Focusable, Subscription, Task, WeakEntity,
 };
 use project::{
     dap_store::{DapStore, DapStoreEvent},
@@ -142,7 +142,7 @@ impl DebugPanel {
                 pane.set_can_split(None);
                 pane.set_can_navigate(true, cx);
                 pane.display_nav_history_buttons(None);
-                pane.set_should_display_tab_bar(|_| true);
+                pane.set_should_display_tab_bar(|_window, _cx| true);
                 pane.set_close_pane_if_empty(false, cx);
 
                 pane
@@ -153,12 +153,12 @@ impl DebugPanel {
 
             let _subscriptions = vec![
                 cx.observe(&pane, |_, _, cx| cx.notify()),
-                cx.subscribe(&pane, Self::handle_pane_event),
+                cx.subscribe_in(&pane, window, Self::handle_pane_event),
                 cx.subscribe(&dap_store, Self::on_dap_store_event),
-                cx.subscribe(&project, {
-                    move |this: &mut Self, _, event, cx| match event {
+                cx.subscribe_in(&project, window, {
+                    move |this: &mut Self, _, event, window, cx| match event {
                         project::Event::DebugClientStarted((session_id, client_id)) => {
-                            this.handle_debug_client_started(session_id, client_id, cx);
+                            this.handle_debug_client_started(session_id, client_id, window, cx);
                         }
                         project::Event::DebugClientEvent {
                             session_id,
@@ -183,6 +183,7 @@ impl DebugPanel {
                                         client_id,
                                         request.seq,
                                         request.arguments.clone(),
+                                        window,
                                         cx,
                                     );
                                 }
@@ -199,7 +200,7 @@ impl DebugPanel {
                             cx.notify();
                         }
                         project::Event::SetDebugClient(set_debug_client) => {
-                            this.handle_set_debug_panel_item(set_debug_client, cx);
+                            this.handle_set_debug_panel_item(set_debug_client, window, cx);
                         }
                         _ => {}
                     }
@@ -233,7 +234,10 @@ impl DebugPanel {
         })
     }
 
-    pub fn load(workspace: WeakEntity<Workspace>, cx: AsyncApp) -> Task<Result<Entity<Self>>> {
+    pub fn load(
+        workspace: WeakEntity<Workspace>,
+        cx: AsyncWindowContext,
+    ) -> Task<Result<Entity<Self>>> {
         cx.spawn(|mut cx| async move {
             workspace.update_in(&mut cx, |workspace, window, cx| {
                 let debug_panel = DebugPanel::new(workspace, window, cx);
@@ -299,7 +303,7 @@ impl DebugPanel {
         self.dap_store.clone()
     }
 
-    pub fn active_debug_panel_item(&self, cx: &mut Context<Self>) -> Option<View<DebugPanelItem>> {
+    pub fn active_debug_panel_item(&self, cx: &Context<Self>) -> Option<Entity<DebugPanelItem>> {
         self.pane
             .read(cx)
             .active_item()
@@ -323,7 +327,13 @@ impl DebugPanel {
             })
     }
 
-    fn handle_pane_event(&mut self, _: Entity<Pane>, event: &pane::Event, cx: &mut Context<Self>) {
+    fn handle_pane_event(
+        &mut self,
+        _: &Entity<Pane>,
+        event: &pane::Event,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         match event {
             pane::Event::RemovedItem { item } => {
                 let thread_panel = item.downcast::<DebugPanelItem>().unwrap();
@@ -347,7 +357,7 @@ impl DebugPanel {
             pane::Event::ZoomOut => cx.emit(PanelEvent::ZoomOut),
             pane::Event::AddItem { item } => {
                 self.workspace
-                    .update_in(cx, |workspace, window, cx| {
+                    .update(cx, |workspace, cx| {
                         item.added_to_pane(workspace, self.pane.clone(), window, cx)
                     })
                     .ok();
@@ -360,7 +370,7 @@ impl DebugPanel {
                 if let Some(active_item) = self.pane.read(cx).active_item() {
                     if let Some(debug_item) = active_item.downcast::<DebugPanelItem>() {
                         debug_item.update(cx, |panel, cx| {
-                            panel.go_to_current_stack_frame(cx);
+                            panel.go_to_current_stack_frame(window, cx);
                         });
                     }
                 }
@@ -396,6 +406,7 @@ impl DebugPanel {
         client_id: &DebugAdapterClientId,
         seq: u64,
         request_args: Option<Value>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let request_args = request_args.and_then(|request_args| {
@@ -468,6 +479,7 @@ impl DebugPanel {
                         title: request_args.title,
                     },
                     task::RevealStrategy::Always,
+                    window,
                     cx,
                 );
 
@@ -562,6 +574,7 @@ impl DebugPanel {
         &self,
         session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(session) = self
@@ -577,7 +590,7 @@ impl DebugPanel {
         let client_id = *client_id;
         let workspace = self.workspace.clone();
         let request_type = session.configuration().request.clone();
-        cx.spawn(|this, mut cx| async move {
+        cx.spawn_in(window, |this, mut cx| async move {
             let task = this.update(&mut cx, |this, cx| {
                 this.dap_store.update(cx, |store, cx| {
                     store.initialize(&session_id, &client_id, cx)
@@ -605,9 +618,9 @@ impl DebugPanel {
 
                         task.await
                     } else {
-                        this.update(&mut cx, |this, cx| {
-                            workspace.update_in(cx, |workspace, window, cx| {
-                                workspace.toggle_modal(cx, |cx| {
+                        this.update_in(&mut cx, |this, window, cx| {
+                            workspace.update(cx, |workspace, cx| {
+                                workspace.toggle_modal(window, cx, |window, cx| {
                                     AttachModal::new(
                                         &session_id,
                                         &client_id,
@@ -995,6 +1008,7 @@ impl DebugPanel {
     pub(crate) fn handle_set_debug_panel_item(
         &mut self,
         payload: &SetDebuggerPanelItem,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let session_id = DebugSessionId::from_proto(payload.session_id);

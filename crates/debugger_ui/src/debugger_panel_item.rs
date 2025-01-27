@@ -14,13 +14,12 @@ use dap::{
 };
 use editor::Editor;
 use gpui::{
-    AnyElement, App, Entity, EventEmitter, FocusHandle, Focusable, Subscription, Task, View,
-    WeakView,
+    AnyElement, App, Entity, EventEmitter, FocusHandle, Focusable, Subscription, Task, WeakEntity,
 };
 use project::dap_store::DapStore;
 use rpc::proto::{self, DebuggerThreadStatus, PeerId, SetDebuggerPanelItem, UpdateDebugAdapter};
 use settings::Settings;
-use ui::{prelude::*, Indicator, Tooltip, WindowContext};
+use ui::{prelude::*, Indicator, Tooltip};
 use util::ResultExt as _;
 use workspace::{
     item::{self, Item, ItemEvent},
@@ -63,7 +62,7 @@ impl ThreadItem {
 
 pub struct DebugPanelItem {
     thread_id: u64,
-    console: View<Console>,
+    console: Entity<Console>,
     focus_handle: FocusHandle,
     remote_id: Option<ViewId>,
     session_name: SharedString,
@@ -97,7 +96,8 @@ impl DebugPanelItem {
     ) -> Self {
         let focus_handle = cx.focus_handle();
 
-        let this = cx.view().clone();
+        let this = cx.model();
+
         let stack_frame_list = cx.new(|cx| {
             StackFrameList::new(
                 &workspace, &this, &dap_store, client_id, session_id, thread_id, cx,
@@ -134,8 +134,8 @@ impl DebugPanelItem {
         cx.observe(&module_list, |_, _, cx| cx.notify()).detach();
 
         let _subscriptions = vec![
-            cx.subscribe(&debug_panel, {
-                move |this: &mut Self, _, event: &DebugPanelEvent, cx| {
+            cx.subscribe_in(&debug_panel, window, {
+                move |this: &mut Self, _, event: &DebugPanelEvent, window, cx| {
                     match event {
                         DebugPanelEvent::Stopped {
                             client_id,
@@ -146,7 +146,7 @@ impl DebugPanelItem {
                             this.handle_thread_event(client_id, event, cx)
                         }
                         DebugPanelEvent::Output((client_id, event)) => {
-                            this.handle_output_event(client_id, event, cx)
+                            this.handle_output_event(client_id, event, window, cx)
                         }
                         DebugPanelEvent::Module((client_id, event)) => {
                             this.handle_module_event(client_id, event, cx)
@@ -324,6 +324,7 @@ impl DebugPanelItem {
         &mut self,
         client_id: &DebugAdapterClientId,
         event: &OutputEvent,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if self.should_skip_event(client_id, self.thread_id) {
@@ -342,7 +343,7 @@ impl DebugPanelItem {
         }
 
         self.console.update(cx, |console, cx| {
-            console.add_message(event.clone(), cx);
+            console.add_message(event.clone(), window, cx);
         });
         self.show_console_indicator = true;
         cx.notify();
@@ -534,7 +535,7 @@ impl DebugPanelItem {
         }
     }
 
-    pub fn go_to_current_stack_frame(&self, cx: &mut Context<Self>) {
+    pub fn go_to_current_stack_frame(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.stack_frame_list.update(cx, |stack_frame_list, cx| {
             if let Some(stack_frame) = stack_frame_list
                 .stack_frames()
@@ -543,7 +544,7 @@ impl DebugPanelItem {
                 .cloned()
             {
                 stack_frame_list
-                    .select_stack_frame(&stack_frame, true, cx)
+                    .select_stack_frame(&stack_frame, true, window, cx)
                     .detach_and_log_err(cx);
             }
         });
@@ -572,7 +573,7 @@ impl DebugPanelItem {
                     .child(Button::new(label.clone(), label.clone()))
                     .when(has_indicator, |this| this.child(Indicator::dot())),
             )
-            .on_click(cx.listener(move |this, _, cx| {
+            .on_click(cx.listener(move |this, _, _window, cx| {
                 this.active_thread_item = thread_item.clone();
 
                 if matches!(this.active_thread_item, ThreadItem::Console) {
@@ -785,7 +786,7 @@ impl FollowableItem for DebugPanelItem {
         _remote_id: ViewId,
         _state: &mut Option<proto::view::Variant>,
         _window: &mut Window,
-        _cx: &mut WindowContext,
+        _cx: &mut App,
     ) -> Option<gpui::Task<gpui::Result<Entity<Self>>>> {
         None
     }
@@ -794,8 +795,8 @@ impl FollowableItem for DebugPanelItem {
         &self,
         _event: &Self::Event,
         _update: &mut Option<proto::update_view::Variant>,
-        _window: &mut Window,
-        _cx: &WindowContext,
+        _window: &Window,
+        _cx: &App,
     ) -> bool {
         // update.get_or_insert_with(|| proto::update_view::Variant::DebugPanel(Default::default()));
 
@@ -874,7 +875,7 @@ impl Render for DebugPanelItem {
                                                 this.pause_thread(cx);
                                             }))
                                             .tooltip(move |window, cx| {
-                                                Tooltip::text("Pause program")
+                                                Tooltip::text("Pause program")(window, cx)
                                             }),
                                     )
                                 } else {
@@ -886,7 +887,7 @@ impl Render for DebugPanelItem {
                                             }))
                                             .disabled(thread_status != ThreadStatus::Stopped)
                                             .tooltip(move |window, cx| {
-                                                Tooltip::text("Continue program")
+                                                Tooltip::text("Continue program")(window, cx)
                                             }),
                                     )
                                 }
@@ -899,7 +900,9 @@ impl Render for DebugPanelItem {
                                             this.step_back(cx);
                                         }))
                                         .disabled(thread_status != ThreadStatus::Stopped)
-                                        .tooltip(move |window, cx| Tooltip::text("Step back")),
+                                        .tooltip(move |window, cx| {
+                                            Tooltip::text("Step back")(window, cx)
+                                        }),
                                 )
                             })
                             .child(
@@ -909,7 +912,9 @@ impl Render for DebugPanelItem {
                                         this.step_over(cx);
                                     }))
                                     .disabled(thread_status != ThreadStatus::Stopped)
-                                    .tooltip(move |window, cx| Tooltip::text("Step over")),
+                                    .tooltip(move |window, cx| {
+                                        Tooltip::text("Step over")(window, cx)
+                                    }),
                             )
                             .child(
                                 IconButton::new("debug-step-in", IconName::DebugStepInto)
@@ -918,7 +923,9 @@ impl Render for DebugPanelItem {
                                         this.step_in(cx);
                                     }))
                                     .disabled(thread_status != ThreadStatus::Stopped)
-                                    .tooltip(move |window, cx| Tooltip::text("Step in")),
+                                    .tooltip(move |window, cx| {
+                                        Tooltip::text("Step in")(window, cx)
+                                    }),
                             )
                             .child(
                                 IconButton::new("debug-step-out", IconName::DebugStepOut)
@@ -927,7 +934,9 @@ impl Render for DebugPanelItem {
                                         this.step_out(cx);
                                     }))
                                     .disabled(thread_status != ThreadStatus::Stopped)
-                                    .tooltip(move |window, cx| Tooltip::text("Step out")),
+                                    .tooltip(move |window, cx| {
+                                        Tooltip::text("Step out")(window, cx)
+                                    }),
                             )
                             .child(
                                 IconButton::new("debug-restart", IconName::DebugRestart)
@@ -938,7 +947,9 @@ impl Render for DebugPanelItem {
                                     .disabled(
                                         !capabilities.supports_restart_request.unwrap_or_default(),
                                     )
-                                    .tooltip(move |window, cx| Tooltip::text("Restart")),
+                                    .tooltip(move |window, cx| {
+                                        Tooltip::text("Restart")(window, cx)
+                                    }),
                             )
                             .child(
                                 IconButton::new("debug-stop", IconName::DebugStop)
@@ -950,7 +961,7 @@ impl Render for DebugPanelItem {
                                         thread_status != ThreadStatus::Stopped
                                             && thread_status != ThreadStatus::Running,
                                     )
-                                    .tooltip(move |window, cx| Tooltip::text("Stop")),
+                                    .tooltip(move |window, cx| Tooltip::text("Stop")(window, cx)),
                             )
                             .child(
                                 IconButton::new("debug-disconnect", IconName::DebugDisconnect)
@@ -962,7 +973,9 @@ impl Render for DebugPanelItem {
                                         thread_status == ThreadStatus::Exited
                                             || thread_status == ThreadStatus::Ended,
                                     )
-                                    .tooltip(move |window, cx| Tooltip::text("Disconnect")),
+                                    .tooltip(move |window, cx| {
+                                        Tooltip::text("Disconnect")(window, cx)
+                                    }),
                             )
                             .child(
                                 IconButton::new(
@@ -983,7 +996,9 @@ impl Render for DebugPanelItem {
                                     thread_status == ThreadStatus::Exited
                                         || thread_status == ThreadStatus::Ended,
                                 )
-                                .tooltip(move |window, cx| Tooltip::text("Ignore breakpoints")),
+                                .tooltip(move |window, cx| {
+                                    Tooltip::text("Ignore breakpoints")(window, cx)
+                                }),
                             ),
                     )
                     .child(
