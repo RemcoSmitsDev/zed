@@ -14,7 +14,7 @@ use dap::{
 };
 use editor::Editor;
 use gpui::{
-    AnyElement, AppContext, Entity, EventEmitter, FocusHandle, Focusable, Subscription, Task, View,
+    AnyElement, App, Entity, EventEmitter, FocusHandle, Focusable, Subscription, Task, View,
     WeakView,
 };
 use project::dap_store::DapStore;
@@ -200,7 +200,7 @@ impl DebugPanelItem {
         }
     }
 
-    pub(crate) fn to_proto(&self, project_id: u64, cx: &AppContext) -> SetDebuggerPanelItem {
+    pub(crate) fn to_proto(&self, project_id: u64, cx: &App) -> SetDebuggerPanelItem {
         let thread_state = Some(self.thread_state.read(cx).to_proto());
         let variable_list = Some(self.variable_list.read(cx).to_proto());
         let stack_frame_list = Some(self.stack_frame_list.read(cx).to_proto());
@@ -505,7 +505,7 @@ impl DebugPanelItem {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub fn are_breakpoints_ignored(&self, cx: &AppContext) -> bool {
+    pub fn are_breakpoints_ignored(&self, cx: &App) -> bool {
         self.dap_store
             .read_with(cx, |dap, cx| dap.ignore_breakpoints(&self.session_id, cx))
     }

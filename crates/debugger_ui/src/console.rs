@@ -63,7 +63,7 @@ impl Console {
             editor
         });
 
-        let this = cx.view().downgrade();
+        let this = cx.weak_model();
         let query_bar = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
             editor.set_placeholder_text("Evaluate an expression", cx);
@@ -113,7 +113,7 @@ impl Console {
         }
     }
 
-    pub fn add_message(&mut self, event: OutputEvent, cx: &mut Context<Self>) {
+    pub fn add_message(&mut self, event: OutputEvent, window: &mut Window, cx: &mut Context<Self>) {
         self.console.update(cx, |console, cx| {
             let output = event.output.trim_end().to_string();
 
@@ -137,8 +137,8 @@ impl Console {
             };
 
             console.set_read_only(false);
-            console.move_to_end(&editor::actions::MoveToEnd, cx);
-            console.insert(format!("{}{}\n", indent, output).as_str(), cx);
+            console.move_to_end(&editor::actions::MoveToEnd, window, cx);
+            console.insert(format!("{}{}\n", indent, output).as_str(), window, cx);
             console.set_read_only(true);
 
             let end = snapshot.anchor_before(snapshot.max_point());
@@ -179,7 +179,7 @@ impl Console {
                         console.insert_creases(creases.clone(), cx);
 
                         if group.collapsed {
-                            console.fold_creases(creases, false, cx);
+                            console.fold_creases(creases, false, window, cx);
                         }
                     }
                 }
@@ -196,7 +196,7 @@ impl Console {
             FoldPlaceholder {
                 render: Arc::new({
                     let placeholder = placeholder.clone();
-                    move |_id, _range, _cx| {
+                    move |_id, _range, _window, _cx| {
                         ButtonLike::new("output-group-placeholder")
                             .style(ButtonStyle::Transparent)
                             .layer(ElevationIndex::ElevatedSurface)
@@ -206,21 +206,21 @@ impl Console {
                 }),
                 ..Default::default()
             },
-            move |row, is_folded, fold, _cx| {
+            move |row, is_folded, fold, _window, _cx| {
                 Disclosure::new(("output-group", row.0 as u64), !is_folded)
                     .toggle_state(is_folded)
-                    .on_click(move |_event, cx| fold(!is_folded, cx))
+                    .on_click(move |_event, window, cx| fold(!is_folded, window, cx))
                     .into_any_element()
             },
-            move |_id, _range, _cx| gpui::Empty.into_any_element(),
+            move |_id, _range, _window, _cx| gpui::Empty.into_any_element(),
         )
     }
 
-    pub fn evaluate(&mut self, _: &Confirm, cx: &mut Context<Self>) {
+    pub fn evaluate(&mut self, _: &Confirm, window: &mut Window, cx: &mut Context<Self>) {
         let expression = self.query_bar.update(cx, |editor, cx| {
             let expression = editor.text(cx);
 
-            editor.clear(cx);
+            editor.clear(window, cx);
 
             expression
         });
@@ -236,30 +236,34 @@ impl Console {
             )
         });
 
-        cx.spawn(|this, mut cx| async move {
-            let response = evaluate_task.await?;
+        let weak_console = cx.weak_model();
 
-            this.update(&mut cx, |console, cx| {
-                console.add_message(
-                    OutputEvent {
-                        category: None,
-                        output: response.result,
-                        group: None,
-                        variables_reference: Some(response.variables_reference),
-                        source: None,
-                        line: None,
-                        column: None,
-                        data: None,
-                    },
-                    cx,
-                );
+        window
+            .spawn(cx, |mut cx| async move {
+                let response = evaluate_task.await?;
 
-                console.variable_list.update(cx, |variable_list, cx| {
-                    variable_list.invalidate(cx);
+                weak_console.update_in(&mut cx, |console, window, cx| {
+                    console.add_message(
+                        OutputEvent {
+                            category: None,
+                            output: response.result,
+                            group: None,
+                            variables_reference: Some(response.variables_reference),
+                            source: None,
+                            line: None,
+                            column: None,
+                            data: None,
+                        },
+                        window,
+                        cx,
+                    );
+
+                    console.variable_list.update(cx, |variable_list, cx| {
+                        variable_list.invalidate(cx);
+                    })
                 })
             })
-        })
-        .detach_and_log_err(cx);
+            .detach_and_log_err(cx);
     }
 
     fn render_console(&self, cx: &Context<Self>) -> impl IntoElement {
@@ -319,7 +323,7 @@ impl Console {
 }
 
 impl Render for Console {
-    fn render(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .key_context("DebugConsole")
             .on_action(cx.listener(Self::evaluate))
@@ -342,6 +346,7 @@ impl CompletionProvider for ConsoleQueryBarCompletionProvider {
         buffer: &Entity<Buffer>,
         buffer_position: language::Anchor,
         _trigger: editor::CompletionContext,
+        _window: &mut Window,
         cx: &mut Context<Editor>,
     ) -> gpui::Task<gpui::Result<Vec<project::Completion>>> {
         let Some(console) = self.0.upgrade() else {
@@ -478,7 +483,7 @@ impl ConsoleQueryBarCompletionProvider {
         console: &Entity<Console>,
         buffer: &Entity<Buffer>,
         buffer_position: language::Anchor,
-        cx: &mut ViewContext<Editor>,
+        cx: &mut Context<Editor>,
     ) -> gpui::Task<gpui::Result<Vec<project::Completion>>> {
         let text = buffer.read(cx).text();
         let start_position = buffer.read(cx).anchor_before(0);

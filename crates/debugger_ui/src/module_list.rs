@@ -157,7 +157,7 @@ impl ModuleList {
 }
 
 impl Focusable for ModuleList {
-    fn focus_handle(&self, _: &gpui::AppContext) -> gpui::FocusHandle {
+    fn focus_handle(&self, _: &gpui::App) -> gpui::FocusHandle {
         self.focus_handle.clone()
     }
 }
