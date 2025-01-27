@@ -14,8 +14,8 @@ use dap::{
     TerminatedEvent, ThreadEvent, ThreadEventReason,
 };
 use gpui::{
-    actions, Action, App, AsyncAppContext, AsyncWindowContext, Context, Entity, EventEmitter,
-    FocusHandle, Focusable, Subscription, Task, WeakEntity,
+    actions, Action, App, AsyncWindowContext, Context, Entity, EventEmitter, FocusHandle,
+    Focusable, Subscription, Task, WeakEntity,
 };
 use project::{
     dap_store::{DapStore, DapStoreEvent},
@@ -154,7 +154,7 @@ impl DebugPanel {
             let _subscriptions = vec![
                 cx.observe(&pane, |_, _, cx| cx.notify()),
                 cx.subscribe_in(&pane, window, Self::handle_pane_event),
-                cx.subscribe(&dap_store, Self::on_dap_store_event),
+                cx.subscribe_in(&dap_store, window, Self::on_dap_store_event),
                 cx.subscribe_in(&project, window, {
                     move |this: &mut Self, _, event, window, cx| match event {
                         project::Event::DebugClientStarted((session_id, client_id)) => {
@@ -166,7 +166,9 @@ impl DebugPanel {
                             message,
                         } => match message {
                             Message::Event(event) => {
-                                this.handle_debug_client_events(session_id, client_id, event, cx);
+                                this.handle_debug_client_events(
+                                    session_id, client_id, event, window, cx,
+                                );
                             }
                             Message::Request(request) => {
                                 if StartDebugging::COMMAND == request.command {
@@ -226,7 +228,12 @@ impl DebugPanel {
                 .update(cx, |this, _| this.remote_event_queue())
             {
                 while let Some(dap_event) = dap_event_queue.pop_front() {
-                    debug_panel.on_dap_store_event(debug_panel.dap_store.clone(), &dap_event, cx);
+                    debug_panel.on_dap_store_event(
+                        &debug_panel.dap_store.clone(),
+                        &dap_event,
+                        window,
+                        cx,
+                    );
                 }
             }
 
@@ -659,13 +666,16 @@ impl DebugPanel {
         session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         event: &Events,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match event {
             Events::Initialized(event) => {
                 self.handle_initialized_event(&session_id, &client_id, event, cx)
             }
-            Events::Stopped(event) => self.handle_stopped_event(&session_id, &client_id, event, cx),
+            Events::Stopped(event) => {
+                self.handle_stopped_event(&session_id, &client_id, event, window, cx)
+            }
             Events::Continued(event) => self.handle_continued_event(&client_id, event, cx),
             Events::Exited(event) => self.handle_exited_event(&client_id, event, cx),
             Events::Terminated(event) => {
@@ -741,6 +751,7 @@ impl DebugPanel {
         session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
         event: &StoppedEvent,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(thread_id) = event.thread_id else {
@@ -761,10 +772,10 @@ impl DebugPanel {
 
         let session_name = SharedString::from(session_name);
 
-        cx.spawn({
+        cx.spawn_in(window, {
             let event = event.clone();
             |this, mut cx| async move {
-                let workspace = this.update(&mut cx, |this, cx| {
+                let workspace = this.update_in(&mut cx, |this, window, cx| {
                     let thread_state = this
                         .thread_states
                         .entry((client_id, thread_id))
@@ -778,7 +789,7 @@ impl DebugPanel {
 
                     let existing_item = this.debug_panel_item_by_client(&client_id, thread_id, cx);
                     if existing_item.is_none() {
-                        let debug_panel = cx.view().clone();
+                        let debug_panel = cx.model().clone();
                         this.pane.update(cx, |pane, cx| {
                             let tab = cx.new(|cx| {
                                 DebugPanelItem::new(
@@ -795,7 +806,7 @@ impl DebugPanel {
                                 )
                             });
 
-                            pane.add_item(Box::new(tab), true, true, None, cx);
+                            pane.add_item(Box::new(tab), true, true, None, window, cx);
                         });
 
                         if let Some(message_queue) = this.message_queue.get(&client_id) {
@@ -823,9 +834,9 @@ impl DebugPanel {
                     this.workspace.clone()
                 })?;
 
-                cx.update(|cx| {
+                cx.update(|window, cx| {
                     workspace.update(cx, |workspace, cx| {
-                        workspace.focus_panel::<Self>(cx);
+                        workspace.focus_panel::<Self>(window, cx);
                     })
                 })
             }
@@ -923,16 +934,17 @@ impl DebugPanel {
 
     fn on_dap_store_event(
         &mut self,
-        _: Entity<DapStore>,
+        _: &Entity<DapStore>,
         event: &project::dap_store::DapStoreEvent,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match event {
             project::dap_store::DapStoreEvent::SetDebugPanelItem(set_debug_panel_item) => {
-                self.handle_set_debug_panel_item(set_debug_panel_item, cx);
+                self.handle_set_debug_panel_item(set_debug_panel_item, window, cx);
             }
             project::dap_store::DapStoreEvent::UpdateDebugAdapter(debug_adapter_update) => {
-                self.handle_debug_adapter_update(debug_adapter_update, cx);
+                self.handle_debug_adapter_update(debug_adapter_update, window, cx);
             }
             project::dap_store::DapStoreEvent::UpdateThreadStatus(thread_status_update) => {
                 self.handle_thread_status_update(thread_status_update, cx);
@@ -961,6 +973,7 @@ impl DebugPanel {
     pub(crate) fn handle_debug_adapter_update(
         &mut self,
         update: &UpdateDebugAdapter,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let client_id = DebugAdapterClientId::from_proto(update.client_id);
@@ -999,7 +1012,7 @@ impl DebugPanel {
                 this.update_adapter(update, cx);
 
                 if is_active_item {
-                    this.go_to_current_stack_frame(cx);
+                    this.go_to_current_stack_frame(window, cx);
                 }
             });
         }
@@ -1032,7 +1045,7 @@ impl DebugPanel {
             self.thread_states
                 .insert((client_id, thread_id), thread_state.clone());
 
-            let debug_panel = cx.view().clone();
+            let debug_panel = cx.model().clone();
             let debug_panel_item = self.pane.update(cx, |pane, cx| {
                 let debug_panel_item = cx.new(|cx| {
                     DebugPanelItem::new(
@@ -1054,7 +1067,14 @@ impl DebugPanel {
                     dap_store.add_client_to_session(session_id, client_id);
                 });
 
-                pane.add_item(Box::new(debug_panel_item.clone()), true, true, None, cx);
+                pane.add_item(
+                    Box::new(debug_panel_item.clone()),
+                    true,
+                    true,
+                    None,
+                    window,
+                    cx,
+                );
                 debug_panel_item
             });
 
@@ -1120,7 +1140,7 @@ impl Panel for DebugPanel {
         "DebugPanel"
     }
 
-    fn position(&self, _cx: &WindowContext) -> DockPosition {
+    fn position(&self, _window: &Window, _cx: &App) -> DockPosition {
         DockPosition::Bottom
     }
 
@@ -1128,13 +1148,19 @@ impl Panel for DebugPanel {
         position == DockPosition::Bottom
     }
 
-    fn set_position(&mut self, _position: DockPosition, _cx: &mut Context<Self>) {}
+    fn set_position(
+        &mut self,
+        _position: DockPosition,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
+    }
 
-    fn size(&self, _cx: &WindowContext) -> Pixels {
+    fn size(&self, _window: &Window, _cx: &App) -> Pixels {
         self.size
     }
 
-    fn set_size(&mut self, size: Option<Pixels>, _cx: &mut Context<Self>) {
+    fn set_size(&mut self, size: Option<Pixels>, _window: &mut Window, _cx: &mut Context<Self>) {
         self.size = size.unwrap();
     }
 
@@ -1142,11 +1168,11 @@ impl Panel for DebugPanel {
         Some(proto::PanelId::DebugPanel)
     }
 
-    fn icon(&self, _cx: &WindowContext) -> Option<IconName> {
+    fn icon(&self, _window: &Window, _cx: &App) -> Option<IconName> {
         Some(IconName::Debug)
     }
 
-    fn icon_tooltip(&self, cx: &WindowContext) -> Option<&'static str> {
+    fn icon_tooltip(&self, _window: &Window, cx: &App) -> Option<&'static str> {
         if DebuggerSettings::get_global(cx).button {
             Some("Debug Panel")
         } else {
@@ -1164,7 +1190,7 @@ impl Panel for DebugPanel {
 }
 
 impl Render for DebugPanel {
-    fn render(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .key_context("DebugPanel")
             .track_focus(&self.focus_handle)
@@ -1190,8 +1216,8 @@ impl Render for DebugPanel {
                                             "Choose a debugger",
                                         )
                                         .label_size(LabelSize::Small)
-                                        .on_click(move |_, cx| {
-                                            cx.dispatch_action(Start.boxed_clone());
+                                        .on_click(move |_, _window, cx| {
+                                            cx.dispatch_action(&Start);
                                         })
                                     ),
                                 ),
