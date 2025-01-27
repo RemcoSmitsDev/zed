@@ -259,7 +259,7 @@ impl Console {
                     );
 
                     console.variable_list.update(cx, |variable_list, cx| {
-                        variable_list.invalidate(cx);
+                        variable_list.invalidate(window, cx);
                     })
                 })
             })

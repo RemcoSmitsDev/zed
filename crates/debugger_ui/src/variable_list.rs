@@ -352,19 +352,25 @@ impl VariableList {
         dap_store: Entity<DapStore>,
         client_id: &DebugAdapterClientId,
         session_id: &DebugSessionId,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let weakview = cx.view().downgrade();
+        let weak_variable_list = cx.weak_model();
         let focus_handle = cx.focus_handle();
 
-        let list = ListState::new(0, gpui::ListAlignment::Top, px(1000.), move |ix, cx| {
-            weakview
-                .upgrade()
-                .map(|view| view.update(cx, |this, cx| this.render_entry(ix, cx)))
-                .unwrap_or(div().into_any())
-        });
+        let list = ListState::new(
+            0,
+            gpui::ListAlignment::Top,
+            px(1000.),
+            move |ix, _window, cx| {
+                weak_variable_list
+                    .upgrade()
+                    .map(|var_list| var_list.update(cx, |this, cx| this.render_entry(ix, cx)))
+                    .unwrap_or(div().into_any())
+            },
+        );
 
-        let set_variable_editor = cx.new(Editor::single_line);
+        let set_variable_editor = cx.new(|cx| Editor::single_line(window, cx));
 
         cx.subscribe(
             &set_variable_editor,
@@ -998,8 +1004,6 @@ impl VariableList {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let this = cx.view().clone();
-
         let support_set_variable = self
             .dap_store
             .read(cx)
@@ -1007,67 +1011,60 @@ impl VariableList {
             .supports_set_variable
             .unwrap_or_default();
 
-        let context_menu = ContextMenu::build(window, cx, |menu, cx| {
-            menu.entry(
-                "Copy name",
-                None,
-                cx.handler_for(&this, {
-                    let variable_name = variable.name.clone();
-                    move |_, cx| {
-                        cx.write_to_clipboard(ClipboardItem::new_string(variable_name.clone()))
-                    }
-                }),
-            )
-            .entry(
-                "Copy value",
-                None,
-                cx.handler_for(&this, {
-                    let variable_value = variable.value.clone();
-                    let variable_name = variable.name.clone();
-                    let evaluate_name = variable.evaluate_name.clone();
-                    let source = scope.source.clone();
-                    move |this, cx| {
-                        this.dap_store.update(cx, |dap_store, cx| {
-                            if dap_store
-                                .capabilities_by_id(&this.client_id)
-                                .supports_clipboard_context
-                                .unwrap_or_default()
-                            {
-                                let task = dap_store.evaluate(
-                                    &this.client_id,
-                                    this.stack_frame_list.read(cx).current_stack_frame_id(),
-                                    evaluate_name.clone().unwrap_or(variable_name.clone()),
-                                    dap::EvaluateArgumentsContext::Clipboard,
-                                    source.clone(),
-                                    cx,
-                                );
+        let this = cx.model();
 
-                                cx.spawn(|_, cx| async move {
-                                    let response = task.await?;
+        let context_menu = ContextMenu::build(window, cx, |menu, window, _cx| {
+            menu.entry("Copy name", None, {
+                let variable_name = variable.name.clone();
+                move |_window, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(variable_name.clone()))
+                }
+            })
+            .entry("Copy value", None, {
+                let source = scope.source.clone();
+                let variable_value = variable.value.clone();
+                let variable_name = variable.name.clone();
+                let evaluate_name = variable.evaluate_name.clone();
 
-                                    cx.update(|cx| {
-                                        cx.write_to_clipboard(ClipboardItem::new_string(
-                                            response.result,
-                                        ))
-                                    })
+                window.handler_for(&this.clone(), move |this, _window, cx| {
+                    this.dap_store.update(cx, |dap_store, cx| {
+                        if dap_store
+                            .capabilities_by_id(&this.client_id)
+                            .supports_clipboard_context
+                            .unwrap_or_default()
+                        {
+                            let task = dap_store.evaluate(
+                                &this.client_id,
+                                this.stack_frame_list.read(cx).current_stack_frame_id(),
+                                evaluate_name.clone().unwrap_or(variable_name.clone()),
+                                dap::EvaluateArgumentsContext::Clipboard,
+                                source.clone(),
+                                cx,
+                            );
+
+                            cx.spawn(|_, cx| async move {
+                                let response = task.await?;
+
+                                cx.update(|cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(
+                                        response.result,
+                                    ))
                                 })
-                                .detach_and_log_err(cx);
-                            } else {
-                                cx.write_to_clipboard(ClipboardItem::new_string(
-                                    variable_value.clone(),
-                                ))
-                            }
-                        });
-                    }
-                }),
-            )
+                            })
+                            .detach_and_log_err(cx);
+                        } else {
+                            cx.write_to_clipboard(ClipboardItem::new_string(variable_value.clone()))
+                        }
+                    });
+                })
+            })
             .when_some(
                 variable.memory_reference.clone(),
                 |menu, memory_reference| {
                     menu.entry(
                         "Copy memory reference",
                         None,
-                        cx.handler_for(&this, move |_, cx| {
+                        window.handler_for(&this, move |_, _window, cx| {
                             cx.write_to_clipboard(ClipboardItem::new_string(
                                 memory_reference.clone(),
                             ))
@@ -1075,14 +1072,14 @@ impl VariableList {
                     )
                 },
             )
-            .when(support_set_variable, move |menu| {
+            .when(support_set_variable, |menu| {
                 let variable = variable.clone();
                 let scope = scope.clone();
 
                 menu.entry(
                     "Set value",
                     None,
-                    cx.handler_for(&this, move |this, cx| {
+                    window.handler_for(&this, move |this, window, cx| {
                         this.set_variable_state = Some(SetVariableState {
                             parent_variables_reference,
                             name: variable.name.clone(),
@@ -1093,9 +1090,9 @@ impl VariableList {
                         });
 
                         this.set_variable_editor.update(cx, |editor, cx| {
-                            editor.set_text(variable.value.clone(), cx);
-                            editor.select_all(&SelectAll, cx);
-                            editor.focus(cx);
+                            editor.set_text(variable.value.clone(), window, cx);
+                            editor.select_all(&SelectAll, window, cx);
+                            window.focus(&editor.focus_handle(cx))
                         });
 
                         this.build_entries(false, true, cx);
@@ -1105,15 +1102,19 @@ impl VariableList {
         });
 
         cx.focus_view(&context_menu, window);
-        let subscription = cx.subscribe(&context_menu, |this, _, _: &DismissEvent, cx| {
-            if this.open_context_menu.as_ref().is_some_and(|context_menu| {
-                context_menu.0.focus_handle(cx).contains_focused(window, cx)
-            }) {
-                cx.focus_self(window);
-            }
-            this.open_context_menu.take();
-            cx.notify();
-        });
+        let subscription = cx.subscribe_in(
+            &context_menu,
+            window,
+            |this, _entity, _event: &DismissEvent, window, cx| {
+                if this.open_context_menu.as_ref().is_some_and(|context_menu| {
+                    context_menu.0.focus_handle(cx).contains_focused(window, cx)
+                }) {
+                    cx.focus_self(window);
+                }
+                this.open_context_menu.take();
+                cx.notify();
+            },
+        );
 
         self.open_context_menu = Some((context_menu, position, subscription));
     }
@@ -1126,16 +1127,14 @@ impl VariableList {
         self.build_entries(false, true, cx);
     }
 
-    fn set_variable_value(&mut self, _: &Confirm, cx: &mut Context<Self>) {
-        let new_variable_value = self
-            .set_variable_editor
-            .update_in(cx, |editor, window, cx| {
-                let new_variable_value = editor.text(cx);
+    fn set_variable_value(&mut self, _: &Confirm, window: &mut Window, cx: &mut Context<Self>) {
+        let new_variable_value = self.set_variable_editor.update(cx, |editor, cx| {
+            let new_variable_value = editor.text(cx);
 
-                editor.clear(window, cx);
+            editor.clear(window, cx);
 
-                new_variable_value
-            });
+            new_variable_value
+        });
 
         let Some(state) = self.set_variable_state.take() else {
             return;
@@ -1159,24 +1158,24 @@ impl VariableList {
             )
         });
 
-        cx.spawn(|this, mut cx| async move {
+        cx.spawn_in(window, |this, mut cx| async move {
             set_value_task.await?;
 
-            this.update(&mut cx, |this, cx| {
+            this.update_in(&mut cx, |this, window, cx| {
                 this.build_entries(false, true, cx);
-                this.invalidate(cx);
+                this.invalidate(window, cx);
             })
         })
         .detach_and_log_err(cx);
     }
 
-    pub fn invalidate(&mut self, cx: &mut Context<Self>) {
+    pub fn invalidate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.stack_frame_list.update(cx, |stack_frame_list, cx| {
-            stack_frame_list.invalidate(cx);
+            stack_frame_list.invalidate(window, cx);
         });
     }
 
-    fn select_first(&mut self, _: &SelectFirst, window: &mut Window, cx: &mut Context<Self>) {
+    fn select_first(&mut self, _: &SelectFirst, _window: &mut Window, cx: &mut Context<Self>) {
         let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
         if let Some(entries) = self.entries.get(&stack_frame_id) {
             self.selection = entries.first().cloned();
@@ -1184,7 +1183,7 @@ impl VariableList {
         };
     }
 
-    fn select_last(&mut self, _: &SelectLast, window: &mut Window, cx: &mut Context<Self>) {
+    fn select_last(&mut self, _: &SelectLast, _window: &mut Window, cx: &mut Context<Self>) {
         let stack_frame_id = self.stack_frame_list.read(cx).current_stack_frame_id();
         if let Some(entries) = self.entries.get(&stack_frame_id) {
             self.selection = entries.last().cloned();
@@ -1455,7 +1454,7 @@ impl VariableList {
             .on_click(cx.listener({
                 let scope = scope.clone();
                 let variable = variable.clone();
-                move |this, _, cx| {
+                move |this, _, _window, cx| {
                     this.selection = Some(VariableListEntry::Variable {
                         depth,
                         has_children,
@@ -1479,18 +1478,21 @@ impl VariableList {
                 .when(has_children, |list_item| {
                     list_item.on_toggle(cx.listener({
                         let variable = variable.clone();
-                        move |this, _, cx| this.toggle_variable(scope_id, &variable, depth, cx)
+                        move |this, _, _window, cx| {
+                            this.toggle_variable(scope_id, &variable, depth, cx)
+                        }
                     }))
                 })
                 .on_secondary_mouse_down(cx.listener({
                     let scope = scope.clone();
                     let variable = variable.clone();
-                    move |this, event: &MouseDownEvent, cx| {
+                    move |this, event: &MouseDownEvent, window, cx| {
                         this.deploy_variable_context_menu(
                             container_reference,
                             &scope,
                             &variable,
                             event.position,
+                            window,
                             cx,
                         )
                     }
@@ -1543,7 +1545,7 @@ impl VariableList {
             .hover(|style| style.bg(bg_hover_color))
             .on_click(cx.listener({
                 let scope = scope.clone();
-                move |this, _, cx| {
+                move |this, _, _window, cx| {
                     this.selection = Some(VariableListEntry::Scope(scope.clone()));
                     cx.notify();
                 }
@@ -1558,7 +1560,9 @@ impl VariableList {
                 .indent_step_size(px(20.))
                 .always_show_disclosure_icon(true)
                 .toggle(disclosed)
-                .on_toggle(cx.listener(move |this, _, cx| this.toggle_entry(&entry_id, cx)))
+                .on_toggle(
+                    cx.listener(move |this, _, _window, cx| this.toggle_entry(&entry_id, cx)),
+                )
                 .child(div().text_ui(cx).w_full().child(scope.name.clone())),
             )
             .into_any()
