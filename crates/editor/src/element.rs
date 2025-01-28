@@ -4238,9 +4238,9 @@ impl EditorElement {
             // In singleton buffers, we select corresponding lines on the line number click, so use | -like cursor.
             // In multi buffers, we open file at the line number clicked, so use a pointing hand cursor.
             if is_singleton {
-                window.set_cursor_style(CursorStyle::IBeam, hitbox);
+                window.set_cursor_style(CursorStyle::IBeam, &hitbox);
             } else {
-                window.set_cursor_style(CursorStyle::PointingHand, hitbox);
+                window.set_cursor_style(CursorStyle::PointingHand, &hitbox);
             }
         }
     }
@@ -6341,7 +6341,7 @@ impl Element for EditorElement {
 
                         let height = self.style.text.line_height_in_pixels(rem_size);
                         if auto_width {
-                            let editor_handle = cx.model().clone();
+                            let editor_handle = cx.entity().clone();
                             let style = self.style.clone();
                             window.request_measured_layout(
                                 Style::default(),
@@ -6382,7 +6382,7 @@ impl Element for EditorElement {
                         }
                     }
                     EditorMode::AutoHeight { max_lines } => {
-                        let editor_handle = cx.model().clone();
+                        let editor_handle = cx.entity().clone();
                         let max_line_number_width =
                             self.max_line_number_width(&editor.snapshot(window, cx), window, cx);
                         window.request_measured_layout(

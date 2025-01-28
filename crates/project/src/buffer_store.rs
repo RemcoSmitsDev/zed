@@ -13,8 +13,7 @@ use fs::Fs;
 use futures::{channel::oneshot, future::Shared, Future, FutureExt as _, StreamExt};
 use git::{blame::Blame, diff::BufferDiff, repository::RepoPath};
 use gpui::{
-    App, AppContext as _, AsyncAppContext, Context, Entity, EventEmitter, Subscription, Task,
-    WeakEntity,
+    App, AppContext as _, AsyncApp, Context, Entity, EventEmitter, Subscription, Task, WeakEntity,
 };
 use http_client::Url;
 use language::{
@@ -690,7 +689,7 @@ impl LocalBufferStore {
                     buffer_id,
                 );
                 events.push(BufferStoreEvent::BufferChangedFilePath {
-                    buffer: cx.model(),
+                    buffer: cx.entity(),
                     old_file: buffer.file().cloned(),
                 });
             }
@@ -789,7 +788,7 @@ impl LocalBufferStore {
     ) -> Task<Result<Entity<Buffer>>> {
         let load_buffer = worktree.update(cx, |worktree, cx| {
             let load_file = worktree.load_file(path.as_ref(), cx);
-            let reservation = cx.reserve_model();
+            let reservation = cx.reserve_entity();
             let buffer_id = BufferId::from(reservation.entity_id().as_non_zero_u64());
             cx.spawn(move |_, mut cx| async move {
                 let loaded = load_file.await?;
@@ -797,7 +796,7 @@ impl LocalBufferStore {
                     .background_executor()
                     .spawn(async move { text::Buffer::new(0, buffer_id, loaded.text) })
                     .await;
-                cx.insert_model(reservation, |_| {
+                cx.insert_entity(reservation, |_| {
                     Buffer::build(text_buffer, Some(loaded.file), Capability::ReadWrite)
                 })
             })
@@ -878,7 +877,7 @@ impl LocalBufferStore {
                         if !push_to_history {
                             buffer.forget_transaction(transaction.id);
                         }
-                        project_transaction.0.insert(cx.model(), transaction);
+                        project_transaction.0.insert(cx.entity(), transaction);
                     }
                 })?;
             }
@@ -1089,7 +1088,7 @@ impl BufferStore {
         this: WeakEntity<Self>,
         text: Result<Option<String>>,
         buffer: Entity<Buffer>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<Entity<BufferChangeSet>> {
         let text = match text {
             Err(e) => {
@@ -1334,7 +1333,7 @@ impl BufferStore {
             unstaged_changes: None,
         };
 
-        let handle = cx.model().downgrade();
+        let handle = cx.entity().downgrade();
         buffer.update(cx, move |_, cx| {
             cx.on_release(move |buffer, cx| {
                 handle
@@ -1598,7 +1597,7 @@ impl BufferStore {
     pub async fn handle_update_buffer(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::UpdateBuffer>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::Ack> {
         let payload = envelope.payload.clone();
         let buffer_id = BufferId::new(payload.buffer_id)?;
@@ -1753,7 +1752,7 @@ impl BufferStore {
     pub async fn handle_update_buffer_file(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::UpdateBufferFile>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         let buffer_id = envelope.payload.buffer_id;
         let buffer_id = BufferId::new(buffer_id)?;
@@ -1801,7 +1800,7 @@ impl BufferStore {
     pub async fn handle_save_buffer(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::SaveBuffer>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::BufferSaved> {
         let buffer_id = BufferId::new(envelope.payload.buffer_id)?;
         let (buffer, project_id) = this.update(&mut cx, |this, _| {
@@ -1842,7 +1841,7 @@ impl BufferStore {
     pub async fn handle_close_buffer(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::CloseBuffer>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         let peer_id = envelope.sender_id;
         let buffer_id = BufferId::new(envelope.payload.buffer_id)?;
@@ -1866,7 +1865,7 @@ impl BufferStore {
     pub async fn handle_buffer_saved(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::BufferSaved>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         let buffer_id = BufferId::new(envelope.payload.buffer_id)?;
         let version = deserialize_version(&envelope.payload.version);
@@ -1894,7 +1893,7 @@ impl BufferStore {
     pub async fn handle_buffer_reloaded(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::BufferReloaded>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         let buffer_id = BufferId::new(envelope.payload.buffer_id)?;
         let version = deserialize_version(&envelope.payload.version);
@@ -1927,7 +1926,7 @@ impl BufferStore {
     pub async fn handle_blame_buffer(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::BlameBuffer>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::BlameBufferResponse> {
         let buffer_id = BufferId::new(envelope.payload.buffer_id)?;
         let version = deserialize_version(&envelope.payload.version);
@@ -1948,7 +1947,7 @@ impl BufferStore {
     pub async fn handle_get_permalink_to_line(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::GetPermalinkToLine>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::GetPermalinkToLineResponse> {
         let buffer_id = BufferId::new(envelope.payload.buffer_id)?;
         // let version = deserialize_version(&envelope.payload.version);
@@ -1973,7 +1972,7 @@ impl BufferStore {
     pub async fn handle_get_staged_text(
         this: Entity<Self>,
         request: TypedEnvelope<proto::GetStagedText>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::GetStagedTextResponse> {
         let buffer_id = BufferId::new(request.payload.buffer_id)?;
         let change_set = this
@@ -2002,7 +2001,7 @@ impl BufferStore {
     pub async fn handle_update_diff_base(
         this: Entity<Self>,
         request: TypedEnvelope<proto::UpdateDiffBase>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         let buffer_id = BufferId::new(request.payload.buffer_id)?;
         let Some((buffer, change_set)) = this.update(&mut cx, |this, _| {
@@ -2047,7 +2046,7 @@ impl BufferStore {
     async fn handle_reload_buffers(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::ReloadBuffers>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::ReloadBuffersResponse> {
         let sender_id = envelope.original_sender_id().unwrap_or_default();
         let reload = this.update(&mut cx, |this, cx| {

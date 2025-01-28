@@ -560,6 +560,7 @@ version = "0.1.0"
 dependencies = [
  "anthropic",
  "anyhow",
+ "deepseek",
  "feature_flags",
  "fs",
  "gpui",
@@ -3799,6 +3800,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "deepseek"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures 0.3.31",
+ "http_client",
+ "schemars",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "deflate64"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5578,6 +5591,7 @@ dependencies = [
 name = "gpui_macros"
 version = "0.1.0"
 dependencies = [
+ "gpui",
  "proc-macro2",
  "quote",
  "syn 1.0.109",
@@ -6921,6 +6935,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "collections",
+ "deepseek",
  "futures 0.3.31",
  "google_ai",
  "gpui",
@@ -6964,6 +6979,7 @@ dependencies = [
  "client",
  "collections",
  "copilot",
+ "deepseek",
  "editor",
  "feature_flags",
  "fs",
@@ -7069,6 +7085,7 @@ dependencies = [
  "serde_json",
  "settings",
  "smol",
+ "snippet_provider",
  "task",
  "text",
  "theme",
@@ -12175,6 +12192,7 @@ dependencies = [
  "gpui",
  "parking_lot",
  "paths",
+ "schemars",
  "serde",
  "serde_json",
  "snippet",
@@ -14518,6 +14536,7 @@ dependencies = [
  "command_palette_hooks",
  "editor",
  "futures 0.3.31",
+ "git_ui",
  "gpui",
  "indoc",
  "itertools 0.14.0",

@@ -4,7 +4,7 @@ use async_tar::Archive;
 use async_trait::async_trait;
 use collections::HashMap;
 use futures::StreamExt;
-use gpui::{App, AsyncAppContext};
+use gpui::{App, AsyncApp};
 use http_client::github::{latest_github_release, GitHubLspBinaryVersion};
 use language::{LanguageRegistry, LanguageToolchainStore, LspAdapter, LspAdapterDelegate};
 use lsp::{LanguageServerBinary, LanguageServerName};
@@ -86,6 +86,7 @@ impl JsonLspAdapter {
         );
         let tasks_schema = task::TaskTemplates::generate_json_schema();
         let debug_schema = task::DebugTaskFile::generate_json_schema();
+        let snippets_schema = snippet_provider::format::VSSnippetsFile::generate_json_schema();
         let tsconfig_schema = serde_json::Value::from_str(TSCONFIG_SCHEMA).unwrap();
         let package_json_schema = serde_json::Value::from_str(PACKAGE_JSON_SCHEMA).unwrap();
 
@@ -126,6 +127,16 @@ impl JsonLspAdapter {
                             paths::local_tasks_file_relative_path()
                         ],
                         "schema": tasks_schema,
+                    },
+                    {
+                        "fileMatch": [
+                            schema_file_match(
+                                paths::snippets_dir()
+                                    .join("*.json")
+                                    .as_path()
+                            )
+                        ],
+                        "schema": snippets_schema,
                     },
                     {
                         "fileMatch": [
@@ -228,7 +239,7 @@ impl LspAdapter for JsonLspAdapter {
         _: &dyn Fs,
         delegate: &Arc<dyn LspAdapterDelegate>,
         _: Arc<dyn LanguageToolchainStore>,
-        cx: &mut AsyncAppContext,
+        cx: &mut AsyncApp,
     ) -> Result<Value> {
         let mut config = cx.update(|cx| {
             self.workspace_config

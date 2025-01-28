@@ -24,10 +24,9 @@ use feature_flags::FeatureFlagAppExt;
 use futures::FutureExt;
 use futures::{channel::mpsc, select_biased, StreamExt};
 use gpui::{
-    actions, point, px, Action, App, AppContext as _, AsyncAppContext, Context, DismissEvent,
-    Element, Entity, Focusable, KeyBinding, MenuItem, ParentElement, PathPromptOptions,
-    PromptLevel, ReadGlobal, SharedString, Styled, Task, TitlebarOptions, Window, WindowKind,
-    WindowOptions,
+    actions, point, px, Action, App, AppContext as _, AsyncApp, Context, DismissEvent, Element,
+    Entity, Focusable, KeyBinding, MenuItem, ParentElement, PathPromptOptions, PromptLevel,
+    ReadGlobal, SharedString, Styled, Task, TitlebarOptions, Window, WindowKind, WindowOptions,
 };
 pub use open_listener::*;
 use outline_panel::OutlinePanel;
@@ -151,7 +150,7 @@ pub fn initialize_workspace(
             return;
         };
 
-        let workspace_handle = cx.model().clone();
+        let workspace_handle = cx.entity().clone();
         let center_pane = workspace.active_pane().clone();
         initialize_pane(workspace, &center_pane, window, cx);
         cx.subscribe_in(&workspace_handle, window, {
@@ -222,7 +221,7 @@ pub fn initialize_workspace(
 
         auto_update_ui::notify_of_any_new_update(window, cx);
 
-        let handle = cx.model().downgrade();
+        let handle = cx.entity().downgrade();
         window.on_window_should_close(cx, move |window, cx| {
             handle
                 .update(cx, |workspace, cx| {
@@ -452,12 +451,14 @@ fn initialize_panels(
         };
 
         let (assistant_panel, assistant2_panel) = if is_assistant2_enabled {
+            log::info!("[assistant2-debug] initializing Assistant2");
             let assistant2_panel = assistant2::AssistantPanel::load(
                 workspace_handle.clone(),
                 prompt_builder,
                 cx.clone(),
             )
             .await?;
+            log::info!("[assistant2-debug] finished initializing Assistant2");
 
             (None, Some(assistant2_panel))
         } else {
@@ -473,6 +474,7 @@ fn initialize_panels(
 
         workspace_handle.update_in(&mut cx, |workspace, window, cx| {
             if let Some(assistant2_panel) = assistant2_panel {
+                log::info!("[assistant2-debug] adding Assistant2 panel");
                 workspace.add_panel(assistant2_panel, window, cx);
             }
 
@@ -1196,8 +1198,7 @@ fn show_keymap_file_json_error(
                     cx.emit(DismissEvent);
                 })
         })
-    })
-    .log_err();
+    });
 }
 
 fn show_keymap_file_load_error(
@@ -1220,7 +1221,7 @@ fn show_keymap_file_load_error(
         let parsed_markdown = Rc::new(parsed_markdown.await);
         cx.update(|cx| {
             show_app_notification(notification_id, cx, move |cx| {
-                let workspace_handle = cx.model().downgrade();
+                let workspace_handle = cx.entity().downgrade();
                 let parsed_markdown = parsed_markdown.clone();
                 cx.new(move |_cx| {
                     MessageNotification::new_from_builder(move |window, cx| {
@@ -1241,7 +1242,6 @@ fn show_keymap_file_load_error(
                     })
                 })
             })
-            .log_err();
         })
         .ok();
     })
@@ -1547,7 +1547,7 @@ fn open_settings_file(
     .detach_and_log_err(cx);
 }
 
-async fn register_zed_scheme(cx: &AsyncAppContext) -> anyhow::Result<()> {
+async fn register_zed_scheme(cx: &AsyncApp) -> anyhow::Result<()> {
     cx.update(|cx| cx.register_url_scheme(ZED_URL_SCHEME))?
         .await
 }
@@ -2588,7 +2588,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            opened_workspace.root_model(cx).unwrap().entity_id(),
+            opened_workspace.root(cx).unwrap().entity_id(),
             workspace.entity_id(),
             "Excluded files in subfolders of a workspace root should be opened in the workspace"
         );

@@ -789,7 +789,7 @@ impl DebugPanel {
 
                     let existing_item = this.debug_panel_item_by_client(&client_id, thread_id, cx);
                     if existing_item.is_none() {
-                        let debug_panel = cx.model().clone();
+                        let debug_panel = cx.entity().clone();
                         this.pane.update(cx, |pane, cx| {
                             let tab = cx.new(|cx| {
                                 DebugPanelItem::new(
@@ -1045,7 +1045,7 @@ impl DebugPanel {
             self.thread_states
                 .insert((client_id, thread_id), thread_state.clone());
 
-            let debug_panel = cx.model().clone();
+            let debug_panel = cx.entity().clone();
             let debug_panel_item = self.pane.update(cx, |pane, cx| {
                 let debug_panel_item = cx.new(|cx| {
                     DebugPanelItem::new(

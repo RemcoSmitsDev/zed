@@ -36,7 +36,7 @@ use dap_adapters::build_adapter;
 use fs::Fs;
 use futures::future::Shared;
 use futures::FutureExt;
-use gpui::{App, AppContext, AsyncAppContext, Context, Entity, EventEmitter, SharedString, Task};
+use gpui::{App, AppContext, AsyncApp, Context, Entity, EventEmitter, SharedString, Task};
 use http_client::HttpClient;
 use language::{
     proto::{deserialize_anchor, serialize_anchor as serialize_text_anchor},
@@ -457,7 +457,7 @@ impl DapStore {
     async fn handle_session_has_shutdown(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::DebuggerSessionEnded>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         this.update(&mut cx, |this, cx| {
             this.remove_session(DebugSessionId::from_proto(envelope.payload.session_id), cx);
@@ -469,7 +469,7 @@ impl DapStore {
     async fn handle_ignore_breakpoint_state(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::IgnoreBreakpointState>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         let session_id = DebugSessionId::from_proto(envelope.payload.session_id);
 
@@ -1794,7 +1794,7 @@ impl DapStore {
     async fn handle_shutdown_session_request(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::DapShutdownSession>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::Ack> {
         if let Some(session_id) = envelope.payload.session_id {
             this.update(&mut cx, |dap_store, cx| {
@@ -1812,7 +1812,7 @@ impl DapStore {
     async fn handle_dap_command<T: DapCommand>(
         this: Entity<Self>,
         envelope: TypedEnvelope<T::ProtoRequest>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<<T::ProtoRequest as proto::RequestMessage>::Response>
     where
         <T::DapRequest as dap::requests::Request>::Arguments: Send,
@@ -1834,7 +1834,7 @@ impl DapStore {
     async fn handle_synchronize_breakpoints(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::SynchronizeBreakpoints>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         let project_path = ProjectPath::from_proto(
             envelope
@@ -1869,7 +1869,7 @@ impl DapStore {
     async fn handle_set_debug_panel_item(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::SetDebuggerPanelItem>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         this.update(&mut cx, |_, cx| {
             cx.emit(DapStoreEvent::SetDebugPanelItem(envelope.payload));
@@ -1879,7 +1879,7 @@ impl DapStore {
     async fn handle_update_debug_adapter(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::UpdateDebugAdapter>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         this.update(&mut cx, |_, cx| {
             cx.emit(DapStoreEvent::UpdateDebugAdapter(envelope.payload));
@@ -1889,7 +1889,7 @@ impl DapStore {
     async fn handle_update_thread_status(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::UpdateThreadStatus>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         this.update(&mut cx, |_, cx| {
             cx.emit(DapStoreEvent::UpdateThreadStatus(envelope.payload));
@@ -1899,7 +1899,7 @@ impl DapStore {
     async fn handle_set_debug_client_capabilities(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::SetDebugClientCapabilities>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         this.update(&mut cx, |dap_store, cx| {
             dap_store.update_capabilities_for_client(
@@ -1914,7 +1914,7 @@ impl DapStore {
     async fn handle_shutdown_debug_client(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::ShutdownDebugClient>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         this.update(&mut cx, |dap_store, cx| {
             let client_id = DebugAdapterClientId::from_proto(envelope.payload.client_id);
@@ -1929,7 +1929,7 @@ impl DapStore {
     async fn handle_set_active_debug_line(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::SetActiveDebugLine>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         let project_path = ProjectPath::from_proto(
             envelope
@@ -1953,7 +1953,7 @@ impl DapStore {
     async fn handle_remove_active_debug_line(
         this: Entity<Self>,
         _: TypedEnvelope<proto::RemoveActiveDebugLine>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         this.update(&mut cx, |store, cx| {
             store.active_debug_line.take();

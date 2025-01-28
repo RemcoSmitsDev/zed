@@ -58,7 +58,7 @@ impl StackFrameList {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let weak_entity = cx.weak_model();
+        let weak_entity = cx.weak_entity();
         let focus_handle = cx.focus_handle();
 
         let list = ListState::new(
