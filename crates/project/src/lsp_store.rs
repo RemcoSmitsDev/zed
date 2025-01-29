@@ -26,8 +26,7 @@ use futures::{
 };
 use globset::{Glob, GlobBuilder, GlobMatcher, GlobSet, GlobSetBuilder};
 use gpui::{
-    App, AppContext as _, AsyncAppContext, Context, Entity, EventEmitter, PromptLevel, Task,
-    WeakEntity,
+    App, AppContext as _, AsyncApp, Context, Entity, EventEmitter, PromptLevel, Task, WeakEntity,
 };
 use http_client::HttpClient;
 use itertools::Itertools as _;
@@ -420,7 +419,7 @@ impl LocalLspStore {
             let delegate = LocalLspAdapterDelegate::new(
                 self.languages.clone(),
                 &self.environment,
-                cx.weak_model(),
+                cx.weak_entity(),
                 &worktree,
                 self.http_client.clone(),
                 self.fs.clone(),
@@ -1091,7 +1090,7 @@ impl LocalLspStore {
         target: &LspFormatTarget,
         push_to_history: bool,
         trigger: FormatTrigger,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> anyhow::Result<ProjectTransaction> {
         // Do not allow multiple concurrent formatting requests for the
         // same buffer.
@@ -1439,7 +1438,7 @@ impl LocalLspStore {
         adapters_and_servers: &[(Arc<CachedLspAdapter>, Arc<LanguageServer>)],
         push_to_history: bool,
         transaction: &mut ProjectTransaction,
-        cx: &mut AsyncAppContext,
+        cx: &mut AsyncApp,
     ) -> Result<Option<FormatOperation>, anyhow::Error> {
         let result = match formatter {
             Formatter::LanguageServer { name } => {
@@ -1529,7 +1528,7 @@ impl LocalLspStore {
         abs_path: &Path,
         language_server: &Arc<LanguageServer>,
         settings: &LanguageSettings,
-        cx: &mut AsyncAppContext,
+        cx: &mut AsyncApp,
     ) -> Result<Vec<(Range<Anchor>, String)>> {
         let capabilities = &language_server.capabilities();
         let range_formatting_provider = capabilities.document_range_formatting_provider.as_ref();
@@ -1600,7 +1599,7 @@ impl LocalLspStore {
         abs_path: &Path,
         language_server: &Arc<LanguageServer>,
         settings: &LanguageSettings,
-        cx: &mut AsyncAppContext,
+        cx: &mut AsyncApp,
     ) -> Result<Vec<(Range<Anchor>, String)>> {
         let uri = lsp::Url::from_file_path(abs_path)
             .map_err(|_| anyhow!("failed to convert abs path to uri"))?;
@@ -1653,7 +1652,7 @@ impl LocalLspStore {
         buffer: &FormattableBuffer,
         command: &str,
         arguments: Option<&[String]>,
-        cx: &mut AsyncAppContext,
+        cx: &mut AsyncApp,
     ) -> Result<Option<Diff>> {
         let working_dir_path = buffer.handle.update(cx, |buffer, cx| {
             let file = File::from_dyn(buffer.file())?;
@@ -2031,7 +2030,7 @@ impl LocalLspStore {
         buffer: &Entity<Buffer>,
         push_to_history: bool,
         project_transaction: &mut ProjectTransaction,
-        cx: &mut AsyncAppContext,
+        cx: &mut AsyncApp,
     ) -> Result<(), anyhow::Error> {
         for (lsp_adapter, language_server) in adapters_and_servers.iter() {
             let code_actions = code_actions.clone();
@@ -2109,7 +2108,7 @@ impl LocalLspStore {
         push_to_history: bool,
         _: Arc<CachedLspAdapter>,
         language_server: Arc<LanguageServer>,
-        cx: &mut AsyncAppContext,
+        cx: &mut AsyncApp,
     ) -> Result<Option<Transaction>> {
         let edits = this
             .update(cx, |this, cx| {
@@ -2255,7 +2254,7 @@ impl LocalLspStore {
         push_to_history: bool,
         lsp_adapter: Arc<CachedLspAdapter>,
         language_server: Arc<LanguageServer>,
-        cx: &mut AsyncAppContext,
+        cx: &mut AsyncApp,
     ) -> Result<ProjectTransaction> {
         let fs = this.read_with(cx, |this, _| this.as_local().unwrap().fs.clone())?;
 
@@ -2480,7 +2479,7 @@ impl LocalLspStore {
         params: lsp::ApplyWorkspaceEditParams,
         server_id: LanguageServerId,
         adapter: Arc<CachedLspAdapter>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<lsp::ApplyWorkspaceEditResponse> {
         let this = this
             .upgrade()
@@ -5142,7 +5141,7 @@ impl LspStore {
     pub(crate) async fn refresh_workspace_configurations(
         this: &WeakEntity<Self>,
         fs: Arc<dyn Fs>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) {
         maybe!(async move {
             let servers = this
@@ -5162,7 +5161,7 @@ impl LspStore {
                             let delegate = LocalLspAdapterDelegate::new(
                                 local.languages.clone(),
                                 &local.environment,
-                                cx.weak_model(),
+                                cx.weak_entity(),
                                 &worktree,
                                 local.http_client.clone(),
                                 local.fs.clone(),
@@ -5687,7 +5686,7 @@ impl LspStore {
     async fn handle_lsp_command<T: LspCommand>(
         this: Entity<Self>,
         envelope: TypedEnvelope<T::ProtoRequest>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<<T::ProtoRequest as proto::RequestMessage>::Response>
     where
         <T::LspRequest as lsp::request::Request>::Params: Send,
@@ -5729,7 +5728,7 @@ impl LspStore {
     async fn handle_multi_lsp_query(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::MultiLspQuery>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::MultiLspQueryResponse> {
         let response_from_ssh = this.update(&mut cx, |this, _| {
             let (upstream_client, project_id) = this.upstream_client()?;
@@ -5880,7 +5879,7 @@ impl LspStore {
     async fn handle_apply_code_action(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::ApplyCodeAction>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::ApplyCodeActionResponse> {
         let sender_id = envelope.original_sender_id().unwrap_or_default();
         let action = Self::deserialize_code_action(
@@ -5913,7 +5912,7 @@ impl LspStore {
     async fn handle_register_buffer_with_language_servers(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::RegisterBufferWithLanguageServers>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::Ack> {
         let buffer_id = BufferId::new(envelope.payload.buffer_id)?;
         let peer_id = envelope.original_sender_id.unwrap_or(envelope.sender_id);
@@ -5942,7 +5941,7 @@ impl LspStore {
     async fn handle_rename_project_entry(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::RenameProjectEntry>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::ProjectEntryResponse> {
         let entry_id = ProjectEntryId::from_proto(envelope.payload.entry_id);
         let (worktree_id, worktree, old_path, is_dir) = this
@@ -5988,7 +5987,7 @@ impl LspStore {
     async fn handle_update_diagnostic_summary(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::UpdateDiagnosticSummary>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         this.update(&mut cx, |this, cx| {
             let worktree_id = WorktreeId::from_proto(envelope.payload.worktree_id);
@@ -6049,7 +6048,7 @@ impl LspStore {
     async fn handle_start_language_server(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::StartLanguageServer>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         let server = envelope
             .payload
@@ -6080,7 +6079,7 @@ impl LspStore {
     async fn handle_update_language_server(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::UpdateLanguageServer>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         this.update(&mut cx, |this, cx| {
             let language_server_id = LanguageServerId(envelope.payload.language_server_id as usize);
@@ -6142,7 +6141,7 @@ impl LspStore {
     async fn handle_language_server_log(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::LanguageServerLog>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         let language_server_id = LanguageServerId(envelope.payload.language_server_id as usize);
         let log_type = envelope
@@ -6306,7 +6305,7 @@ impl LspStore {
         old_path: &Path,
         new_path: &Path,
         is_dir: bool,
-        cx: AsyncAppContext,
+        cx: AsyncApp,
     ) -> Task<()> {
         let old_uri = lsp::Url::from_file_path(old_path).ok().map(String::from);
         let new_uri = lsp::Url::from_file_path(new_path).ok().map(String::from);
@@ -6595,7 +6594,7 @@ impl LspStore {
     pub async fn handle_resolve_completion_documentation(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::ResolveCompletionDocumentation>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::ResolveCompletionDocumentationResponse> {
         let lsp_completion = serde_json::from_slice(&envelope.payload.lsp_completion)?;
 
@@ -6674,7 +6673,7 @@ impl LspStore {
     async fn handle_on_type_formatting(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::OnTypeFormatting>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::OnTypeFormattingResponse> {
         let on_type_formatting = this.update(&mut cx, |this, cx| {
             let buffer_id = BufferId::new(envelope.payload.buffer_id)?;
@@ -6702,7 +6701,7 @@ impl LspStore {
     async fn handle_refresh_inlay_hints(
         this: Entity<Self>,
         _: TypedEnvelope<proto::RefreshInlayHints>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::Ack> {
         this.update(&mut cx, |_, cx| {
             cx.emit(LspStoreEvent::RefreshInlayHints);
@@ -6713,7 +6712,7 @@ impl LspStore {
     async fn handle_inlay_hints(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::InlayHints>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::InlayHintsResponse> {
         let sender_id = envelope.original_sender_id().unwrap_or_default();
         let buffer_id = BufferId::new(envelope.payload.buffer_id)?;
@@ -6758,7 +6757,7 @@ impl LspStore {
     async fn handle_resolve_inlay_hint(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::ResolveInlayHint>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::ResolveInlayHintResponse> {
         let proto_hint = envelope
             .payload
@@ -6789,7 +6788,7 @@ impl LspStore {
     async fn handle_open_buffer_for_symbol(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::OpenBufferForSymbol>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::OpenBufferForSymbolResponse> {
         let peer_id = envelope.original_sender_id().unwrap_or_default();
         let symbol = envelope
@@ -6858,7 +6857,7 @@ impl LspStore {
     pub async fn handle_get_project_symbols(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::GetProjectSymbols>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::GetProjectSymbolsResponse> {
         let symbols = this
             .update(&mut cx, |this, cx| {
@@ -6874,7 +6873,7 @@ impl LspStore {
     pub async fn handle_restart_language_servers(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::RestartLanguageServers>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::Ack> {
         this.update(&mut cx, |this, cx| {
             let buffers = this.buffer_ids_to_buffers(envelope.payload.buffer_ids.into_iter(), cx);
@@ -6887,7 +6886,7 @@ impl LspStore {
     pub async fn handle_cancel_language_server_work(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::CancelLanguageServerWork>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::Ack> {
         this.update(&mut cx, |this, cx| {
             if let Some(work) = envelope.payload.work {
@@ -6926,7 +6925,7 @@ impl LspStore {
     async fn handle_apply_additional_edits_for_completion(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::ApplyCompletionAdditionalEdits>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::ApplyCompletionAdditionalEditsResponse> {
         let (buffer, completion) = this.update(&mut cx, |this, cx| {
             let buffer_id = BufferId::new(envelope.payload.buffer_id)?;
@@ -7102,7 +7101,7 @@ impl LspStore {
     async fn handle_format_buffers(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::FormatBuffers>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<proto::FormatBuffersResponse> {
         let sender_id = envelope.original_sender_id().unwrap_or_default();
         let format = this.update(&mut cx, |this, cx| {
@@ -7133,7 +7132,7 @@ impl LspStore {
     async fn shutdown_language_server(
         server_state: Option<LanguageServerState>,
         name: LanguageServerName,
-        cx: AsyncAppContext,
+        cx: AsyncApp,
     ) {
         let server = match server_state {
             Some(LanguageServerState::Starting(task)) => {
@@ -8168,7 +8167,7 @@ impl LanguageServerWatchedPathsBuilder {
         language_server_id: LanguageServerId,
         cx: &mut Context<LspStore>,
     ) -> LanguageServerWatchedPaths {
-        let project = cx.weak_model();
+        let project = cx.weak_entity();
 
         const LSP_ABS_PATH_OBSERVE: Duration = Duration::from_millis(100);
         let abs_paths = self
@@ -8443,7 +8442,7 @@ impl LspAdapter for SshLspAdapter {
         &self,
         _: &dyn LspAdapterDelegate,
         _: Arc<dyn LanguageToolchainStore>,
-        _: &AsyncAppContext,
+        _: &AsyncApp,
     ) -> Option<LanguageServerBinary> {
         Some(self.binary.clone())
     }
@@ -8810,16 +8809,59 @@ fn ensure_uniform_list_compatible_label(label: &mut CodeLabel) {
         return;
     }
 
-    for (range, _) in &mut label.runs {
-        range.start = offset_map[range.start];
-        range.end = offset_map[range.end];
+    let last_index = new_idx;
+    let mut run_ranges_errors = Vec::new();
+    label.runs.retain_mut(|(range, _)| {
+        match offset_map.get(range.start) {
+            Some(&start) => range.start = start,
+            None => {
+                run_ranges_errors.push(range.clone());
+                return false;
+            }
+        }
+
+        match offset_map.get(range.end) {
+            Some(&end) => range.end = end,
+            None => {
+                run_ranges_errors.push(range.clone());
+                range.end = last_index;
+            }
+        }
+        true
+    });
+    if !run_ranges_errors.is_empty() {
+        log::error!(
+            "Completion label has errors in its run ranges: {run_ranges_errors:?}, label text: {}",
+            label.text
+        );
     }
 
+    let mut wrong_filter_range = None;
     if label.filter_range == (0..label.text.len()) {
         label.filter_range = 0..new_text.len();
     } else {
-        label.filter_range.start = offset_map[label.filter_range.start];
-        label.filter_range.end = offset_map[label.filter_range.end];
+        let mut original_filter_range = Some(label.filter_range.clone());
+        match offset_map.get(label.filter_range.start) {
+            Some(&start) => label.filter_range.start = start,
+            None => {
+                wrong_filter_range = original_filter_range.take();
+                label.filter_range.start = last_index;
+            }
+        }
+
+        match offset_map.get(label.filter_range.end) {
+            Some(&end) => label.filter_range.end = end,
+            None => {
+                wrong_filter_range = original_filter_range.take();
+                label.filter_range.end = last_index;
+            }
+        }
+    }
+    if let Some(wrong_filter_range) = wrong_filter_range {
+        log::error!(
+            "Completion label has an invalid filter range: {wrong_filter_range:?}, label text: {}",
+            label.text
+        );
     }
 
     label.text = new_text;

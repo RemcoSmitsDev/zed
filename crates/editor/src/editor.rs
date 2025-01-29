@@ -79,11 +79,11 @@ use git::blame::GitBlame;
 use gpui::{
     div, impl_actions, point, prelude::*, px, relative, size, Action, AnyElement, App,
     AsyncWindowContext, AvailableSpace, Bounds, ClickEvent, ClipboardEntry, ClipboardItem, Context,
-    DispatchPhase, ElementId, Entity, EventEmitter, FocusHandle, FocusOutEvent, Focusable, FontId,
-    FontWeight, Global, HighlightStyle, Hsla, InteractiveText, KeyContext, MouseButton, PaintQuad,
-    ParentElement, Pixels, Render, SharedString, Size, Styled, StyledText, Subscription, Task,
-    TextStyle, TextStyleRefinement, UTF16Selection, UnderlineStyle, UniformListScrollHandle,
-    ViewInputHandler, WeakEntity, WeakFocusHandle, Window,
+    DispatchPhase, ElementId, Entity, EntityInputHandler, EventEmitter, FocusHandle, FocusOutEvent,
+    Focusable, FontId, FontWeight, Global, HighlightStyle, Hsla, InputHandler, InteractiveText,
+    KeyContext, MouseButton, PaintQuad, ParentElement, Pixels, Render, SharedString, Size, Styled,
+    StyledText, Subscription, Task, TextStyle, TextStyleRefinement, UTF16Selection, UnderlineStyle,
+    UniformListScrollHandle, WeakEntity, WeakFocusHandle, Window,
 };
 use highlight_matching_bracket::refresh_matching_bracket_highlights;
 use hover_links::{find_file, HoverLink, HoveredLinkState, InlayHighlight};
@@ -1172,7 +1172,7 @@ impl Editor {
     ) -> Self {
         let style = window.text_style();
         let font_size = style.font_size.to_pixels(window.rem_size());
-        let editor = cx.model().downgrade();
+        let editor = cx.entity().downgrade();
         let fold_placeholder = FoldPlaceholder {
             constrain_width: true,
             render: Arc::new(move |fold_id, fold_range, _, cx| {
@@ -5412,7 +5412,7 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<ui::ContextMenu> {
-        let weak_editor = cx.weak_model();
+        let weak_editor = cx.weak_entity();
         let weak_editor2 = weak_editor.clone();
         let focus_handle = self.focus_handle(cx);
 
@@ -6694,7 +6694,7 @@ impl Editor {
             .snapshot(window, cx)
             .display_point_to_anchor(DisplayPoint::new(row, 0), Bias::Right);
 
-        let weak_editor = cx.weak_model();
+        let weak_editor = cx.weak_entity();
         let bp_prompt =
             cx.new(|cx| BreakpointPromptEditor::new(weak_editor, anchor, kind.clone(), window, cx));
 
@@ -13923,6 +13923,9 @@ impl Editor {
 
                 cx.emit(EditorEvent::Reparsed(*buffer_id));
             }
+            multi_buffer::Event::DiffHunksToggled => {
+                self.tasks_update_task = Some(self.refresh_runnables(window, cx));
+            }
             multi_buffer::Event::LanguageChanged(buffer_id) => {
                 linked_editing_ranges::refresh_linked_ranges(self, window, cx);
                 cx.emit(EditorEvent::Reparsed(*buffer_id));
@@ -15893,7 +15896,7 @@ impl Render for Editor {
         };
 
         EditorElement::new(
-            &cx.model(),
+            &cx.entity(),
             EditorStyle {
                 background,
                 local_player: cx.theme().players().local(),
@@ -15909,7 +15912,7 @@ impl Render for Editor {
     }
 }
 
-impl ViewInputHandler for Editor {
+impl EntityInputHandler for Editor {
     fn text_for_range(
         &mut self,
         range_utf16: Range<usize>,

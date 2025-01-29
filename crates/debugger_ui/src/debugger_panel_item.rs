@@ -96,7 +96,7 @@ impl DebugPanelItem {
     ) -> Self {
         let focus_handle = cx.focus_handle();
 
-        let this = cx.model();
+        let this = cx.entity();
 
         let stack_frame_list = cx.new(|cx| {
             StackFrameList::new(

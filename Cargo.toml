@@ -35,6 +35,7 @@ members = [
     "crates/debugger_ui",
     "crates/db",
     "crates/diagnostics",
+    "crates/deepseek",
     "crates/docs_preprocessor",
     "crates/editor",
     "crates/evals",
@@ -237,6 +238,7 @@ dap_adapters = { path = "crates/dap_adapters" }
 db = { path = "crates/db" }
 debugger_ui = { path = "crates/debugger_ui" }
 debugger_tools = { path = "crates/debugger_tools" }
+deepseek = { path = "crates/deepseek" }
 diagnostics = { path = "crates/diagnostics" }
 editor = { path = "crates/editor" }
 extension = { path = "crates/extension" }

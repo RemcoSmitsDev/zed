@@ -78,8 +78,10 @@ use unicode_segmentation::UnicodeSegmentation;
 use util::{RangeExt, ResultExt};
 use workspace::{item::Item, notifications::NotifyTaskExt, Workspace};
 
+const INLINE_BLAME_PADDING_EM_WIDTHS: f32 = 7.;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DisplayDiffHunk {
+enum DisplayDiffHunk {
     Folded {
         display_row: DisplayRow,
     },
@@ -1564,16 +1566,19 @@ impl EditorElement {
             let hunk_display_start = snapshot.point_to_display_point(hunk_start_point, Bias::Left);
             let hunk_display_end = snapshot.point_to_display_point(hunk_end_point, Bias::Right);
 
-            let display_hunk = if hunk_display_start.column() != 0 || hunk_display_end.column() != 0
-            {
+            let display_hunk = if hunk_display_start.column() != 0 {
                 DisplayDiffHunk::Folded {
                     display_row: hunk_display_start.row(),
                 }
             } else {
+                let mut end_row = hunk_display_end.row();
+                if hunk_display_end.column() > 0 {
+                    end_row.0 += 1;
+                }
                 DisplayDiffHunk::Unfolded {
                     status: hunk.status(),
                     diff_base_byte_range: hunk.diff_base_byte_range,
-                    display_row_range: hunk_display_start.row()..hunk_display_end.row(),
+                    display_row_range: hunk_display_start.row()..end_row,
                     multi_buffer_range: Anchor::range_in_buffer(
                         hunk.excerpt_id,
                         hunk.buffer_id,
@@ -4238,9 +4243,9 @@ impl EditorElement {
             // In singleton buffers, we select corresponding lines on the line number click, so use | -like cursor.
             // In multi buffers, we open file at the line number clicked, so use a pointing hand cursor.
             if is_singleton {
-                window.set_cursor_style(CursorStyle::IBeam, hitbox);
+                window.set_cursor_style(CursorStyle::IBeam, &hitbox);
             } else {
-                window.set_cursor_style(CursorStyle::PointingHand, hitbox);
+                window.set_cursor_style(CursorStyle::PointingHand, &hitbox);
             }
         }
     }
@@ -4314,7 +4319,7 @@ impl EditorElement {
         });
     }
 
-    pub(super) fn diff_hunk_bounds(
+    fn diff_hunk_bounds(
         snapshot: &EditorSnapshot,
         line_height: Pixels,
         gutter_bounds: Bounds<Pixels>,
@@ -4322,15 +4327,14 @@ impl EditorElement {
     ) -> Bounds<Pixels> {
         let scroll_position = snapshot.scroll_position();
         let scroll_top = scroll_position.y * line_height;
+        let gutter_strip_width = (0.275 * line_height).floor();
 
         match hunk {
             DisplayDiffHunk::Folded { display_row, .. } => {
                 let start_y = display_row.as_f32() * line_height - scroll_top;
                 let end_y = start_y + line_height;
-
-                let width = Self::diff_hunk_strip_width(line_height);
                 let highlight_origin = gutter_bounds.origin + point(px(0.), start_y);
-                let highlight_size = size(width, end_y - start_y);
+                let highlight_size = size(gutter_strip_width, end_y - start_y);
                 Bounds::new(highlight_origin, highlight_size)
             }
             DisplayDiffHunk::Unfolded {
@@ -4372,19 +4376,12 @@ impl EditorElement {
                     let start_y = start_row.as_f32() * line_height - scroll_top;
                     let end_y = end_row_in_current_excerpt.as_f32() * line_height - scroll_top;
 
-                    let width = Self::diff_hunk_strip_width(line_height);
                     let highlight_origin = gutter_bounds.origin + point(px(0.), start_y);
-                    let highlight_size = size(width, end_y - start_y);
+                    let highlight_size = size(gutter_strip_width, end_y - start_y);
                     Bounds::new(highlight_origin, highlight_size)
                 }
             }
         }
-    }
-
-    /// Returns the width of the diff strip that will be displayed in the gutter.
-    pub(super) fn diff_hunk_strip_width(line_height: Pixels) -> Pixels {
-        // We floor the value to prevent pixel rounding.
-        (0.275 * line_height).floor()
     }
 
     fn paint_gutter_indicators(
@@ -5305,7 +5302,7 @@ impl EditorElement {
             let editor = self.editor.clone();
             let text_hitbox = layout.text_hitbox.clone();
             let gutter_hitbox = layout.gutter_hitbox.clone();
-            let hovered_hunk =
+            let multi_buffer_range =
                 layout
                     .display_hunks
                     .iter()
@@ -5334,7 +5331,7 @@ impl EditorElement {
                             Self::mouse_left_down(
                                 editor,
                                 event,
-                                hovered_hunk.clone(),
+                                multi_buffer_range.clone(),
                                 &position_map,
                                 &text_hitbox,
                                 &gutter_hitbox,
@@ -6341,7 +6338,7 @@ impl Element for EditorElement {
 
                         let height = self.style.text.line_height_in_pixels(rem_size);
                         if auto_width {
-                            let editor_handle = cx.model().clone();
+                            let editor_handle = cx.entity().clone();
                             let style = self.style.clone();
                             window.request_measured_layout(
                                 Style::default(),
@@ -6382,7 +6379,7 @@ impl Element for EditorElement {
                         }
                     }
                     EditorMode::AutoHeight { max_lines } => {
-                        let editor_handle = cx.model().clone();
+                        let editor_handle = cx.entity().clone();
                         let max_line_number_width =
                             self.max_line_number_width(&editor.snapshot(window, cx), window, cx);
                         window.request_measured_layout(
@@ -6743,7 +6740,6 @@ impl Element for EditorElement {
                         cx,
                     );
 
-                    let mut max_visible_line_width = Pixels::ZERO;
                     let mut line_layouts = Self::layout_lines(
                         start_row..end_row,
                         &snapshot,
@@ -6753,11 +6749,38 @@ impl Element for EditorElement {
                         window,
                         cx,
                     );
-                    for line_with_invisibles in &line_layouts {
-                        if line_with_invisibles.width > max_visible_line_width {
-                            max_visible_line_width = line_with_invisibles.width;
-                        }
-                    }
+
+                    let longest_line_blame_width = self
+                        .editor
+                        .update(cx, |editor, cx| {
+                            if !editor.show_git_blame_inline {
+                                return None;
+                            }
+                            let blame = editor.blame.as_ref()?;
+                            let blame_entry = blame
+                                .update(cx, |blame, cx| {
+                                    let row_infos =
+                                        snapshot.row_infos(snapshot.longest_row()).next()?;
+                                    blame.blame_for_rows(&[row_infos], cx).next()
+                                })
+                                .flatten()?;
+                            let workspace = editor.workspace.as_ref().map(|(w, _)| w.to_owned());
+                            let mut element = render_inline_blame_entry(
+                                blame,
+                                blame_entry,
+                                &style,
+                                workspace,
+                                cx,
+                            );
+                            let inline_blame_padding = INLINE_BLAME_PADDING_EM_WIDTHS * em_advance;
+                            Some(
+                                element
+                                    .layout_as_root(AvailableSpace::min_size(), window, cx)
+                                    .width
+                                    + inline_blame_padding,
+                            )
+                        })
+                        .unwrap_or(Pixels::ZERO);
 
                     let longest_line_width = layout_line(
                         snapshot.longest_row(),
@@ -6775,6 +6798,7 @@ impl Element for EditorElement {
                         letter_size,
                         &snapshot,
                         longest_line_width,
+                        longest_line_blame_width,
                         &style,
                         cx,
                     );
@@ -7383,6 +7407,7 @@ impl ScrollbarRangeData {
         letter_size: Size<Pixels>,
         snapshot: &EditorSnapshot,
         longest_line_width: Pixels,
+        longest_line_blame_width: Pixels,
         style: &EditorStyle,
 
         cx: &mut App,
@@ -7401,7 +7426,7 @@ impl ScrollbarRangeData {
         };
 
         let overscroll = size(
-            scrollbar_width + (letter_size.width / 2.0),
+            scrollbar_width + (letter_size.width / 2.0) + longest_line_blame_width,
             letter_size.height * scroll_beyond_last_line,
         );
 
