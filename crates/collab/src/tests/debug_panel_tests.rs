@@ -7,7 +7,7 @@ use dap::{
 use dap::{Scope, Variable};
 use debugger_ui::{debugger_panel::DebugPanel, variable_list::VariableContainer};
 use editor::Editor;
-use gpui::{Context, Entity, TestAppContext, VisualTestContext, Window};
+use gpui::{Entity, TestAppContext, VisualTestContext};
 use project::ProjectPath;
 use serde_json::json;
 use std::sync::Arc;
@@ -37,7 +37,7 @@ pub fn init_test(cx: &mut gpui::TestAppContext) {
 
 async fn add_debugger_panel(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) {
     let debugger_panel = workspace
-        .update_in(cx, |workspace, window, cx| {
+        .update_in(cx, |_workspace, window, cx| {
             cx.spawn_in(window, DebugPanel::load)
         })
         .await
