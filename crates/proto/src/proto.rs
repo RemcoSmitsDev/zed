@@ -201,6 +201,7 @@ messages!(
     (ExpandProjectEntry, Foreground),
     (ExpandProjectEntryResponse, Foreground),
     (FindSearchCandidatesResponse, Background),
+    (FindSearchCandidates, Background),
     (FlushBufferedMessages, Foreground),
     (ExpandAllForProjectEntry, Foreground),
     (ExpandAllForProjectEntryResponse, Foreground),

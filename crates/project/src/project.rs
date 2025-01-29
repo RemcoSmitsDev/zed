@@ -59,8 +59,8 @@ use ::git::{
     status::FileStatus,
 };
 use gpui::{
-    AnyEntity, App, AppContext as _, AsyncApp, BorrowAppContext, Context, Entity, EventEmitter,
-    Hsla, SharedString, Task, WeakEntity, Window,
+    AnyEntity, App, AppContext, AsyncApp, BorrowAppContext, Context, Entity, EventEmitter, Hsla,
+    SharedString, Task, WeakEntity, Window,
 };
 use itertools::Itertools;
 use language::{
@@ -1394,7 +1394,7 @@ impl Project {
     async fn handle_toggle_ignore_breakpoints(
         this: Entity<Self>,
         envelope: TypedEnvelope<proto::ToggleIgnoreBreakpoints>,
-        mut cx: AsyncAppContext,
+        mut cx: AsyncApp,
     ) -> Result<()> {
         this.update(&mut cx, |project, cx| {
             // Only the host should handle this message because the host
@@ -3958,7 +3958,7 @@ impl Project {
         &self,
         abs_path: &Path,
         cx: &AppContext,
-    ) -> Option<(Model<Worktree>, PathBuf)> {
+    ) -> Option<(Entity<Worktree>, PathBuf)> {
         let trees = self.worktrees(cx);
 
         for tree in trees {

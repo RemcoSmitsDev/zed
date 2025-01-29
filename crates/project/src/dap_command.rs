@@ -7,7 +7,7 @@ use dap::{
     ContinueArguments, NextArguments, StepInArguments, StepOutArguments, SteppingGranularity,
     ValueFormat, Variable, VariablesArgumentsFilter,
 };
-use gpui::{AsyncAppContext, WeakEntity};
+use gpui::{AsyncApp, WeakEntity};
 use rpc::proto;
 use util::ResultExt;
 
@@ -23,7 +23,7 @@ pub trait DapCommand: 'static + Sized + Send + Sync + std::fmt::Debug {
         _dap_store: WeakEntity<DapStore>,
         _client_id: &DebugAdapterClientId,
         response: Result<Self::Response>,
-        _cx: &mut AsyncAppContext,
+        _cx: &mut AsyncApp,
     ) -> Result<Self::Response> {
         response
     }
@@ -233,7 +233,7 @@ impl DapCommand for StepOutCommand {
         dap_store: WeakEntity<DapStore>,
         client_id: &DebugAdapterClientId,
         response: Result<Self::Response>,
-        cx: &mut AsyncAppContext,
+        cx: &mut AsyncApp,
     ) -> Result<Self::Response> {
         if response.is_ok() {
             dap_store
@@ -403,7 +403,7 @@ impl DapCommand for ContinueCommand {
         dap_store: WeakEntity<DapStore>,
         client_id: &DebugAdapterClientId,
         response: Result<Self::Response>,
-        cx: &mut AsyncAppContext,
+        cx: &mut AsyncApp,
     ) -> Result<Self::Response> {
         if response.is_ok() {
             dap_store
@@ -824,7 +824,7 @@ impl DapCommand for VariablesCommand {
         dap_store: WeakEntity<DapStore>,
         client_id: &DebugAdapterClientId,
         response: Result<Self::Response>,
-        cx: &mut AsyncAppContext,
+        cx: &mut AsyncApp,
     ) -> Result<Self::Response> {
         let variables = response?;
 

@@ -855,13 +855,8 @@ impl SearchableItem for DapLogView {
     }
 }
 
-<<<<<<< HEAD
-impl FocusableView for DapLogView {
-    fn focus_handle(&self, _: &AppContext) -> gpui::FocusHandle {
-=======
 impl Focusable for DapLogView {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {
->>>>>>> fa4cdeef3a (Get Zed to build !!)
         self.focus_handle.clone()
     }
 }
