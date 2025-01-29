@@ -7,7 +7,7 @@ use async_compression::futures::bufread::GzipDecoder;
 use async_tar::Archive;
 use async_trait::async_trait;
 use futures::io::BufReader;
-use gpui::{AsyncAppContext, SharedString};
+use gpui::{AsyncApp, SharedString};
 pub use http_client::{github::latest_github_release, HttpClient};
 use language::LanguageToolchainStore;
 use node_runtime::NodeRuntime;
@@ -216,7 +216,7 @@ pub trait DebugAdapter: 'static + Send + Sync {
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
         user_installed_path: Option<PathBuf>,
-        cx: &mut AsyncAppContext,
+        cx: &mut AsyncApp,
     ) -> Result<DebugAdapterBinary> {
         if delegate
             .updated_adapters()
@@ -282,7 +282,7 @@ pub trait DebugAdapter: 'static + Send + Sync {
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
         user_installed_path: Option<PathBuf>,
-        cx: &mut AsyncAppContext,
+        cx: &mut AsyncApp,
     ) -> Result<DebugAdapterBinary>;
 
     /// Should return base configuration to make the debug adapter work
@@ -331,7 +331,7 @@ impl DebugAdapter for FakeAdapter {
         _: &dyn DapDelegate,
         _: &DebugAdapterConfig,
         _: Option<PathBuf>,
-        _: &mut AsyncAppContext,
+        _: &mut AsyncApp,
     ) -> Result<DebugAdapterBinary> {
         Ok(DebugAdapterBinary {
             command: "command".into(),
@@ -361,7 +361,7 @@ impl DebugAdapter for FakeAdapter {
         _: &dyn DapDelegate,
         _: &DebugAdapterConfig,
         _: Option<PathBuf>,
-        _: &mut AsyncAppContext,
+        _: &mut AsyncApp,
     ) -> Result<DebugAdapterBinary> {
         unimplemented!("get installed binary");
     }

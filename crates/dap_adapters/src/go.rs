@@ -1,5 +1,5 @@
 use dap::transport::{TcpTransport, Transport};
-use gpui::AsyncAppContext;
+use gpui::AsyncApp;
 use std::{ffi::OsStr, net::Ipv4Addr, path::PathBuf, sync::Arc};
 
 use crate::*;
@@ -37,7 +37,7 @@ impl DebugAdapter for GoDebugAdapter {
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
         user_installed_path: Option<PathBuf>,
-        cx: &mut AsyncAppContext,
+        cx: &mut AsyncApp,
     ) -> Result<DebugAdapterBinary> {
         self.get_installed_binary(delegate, config, user_installed_path, cx)
             .await
@@ -70,7 +70,7 @@ impl DebugAdapter for GoDebugAdapter {
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
         _: Option<PathBuf>,
-        _: &mut AsyncAppContext,
+        _: &mut AsyncApp,
     ) -> Result<DebugAdapterBinary> {
         let delve_path = delegate
             .which(OsStr::new("dlv"))

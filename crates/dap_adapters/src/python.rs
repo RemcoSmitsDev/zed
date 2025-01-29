@@ -1,5 +1,5 @@
 use dap::transport::{TcpTransport, Transport};
-use gpui::AsyncAppContext;
+use gpui::AsyncApp;
 use std::{net::Ipv4Addr, path::PathBuf, sync::Arc};
 
 use crate::*;
@@ -80,7 +80,7 @@ impl DebugAdapter for PythonDebugAdapter {
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
         user_installed_path: Option<PathBuf>,
-        cx: &mut AsyncAppContext,
+        cx: &mut AsyncApp,
     ) -> Result<DebugAdapterBinary> {
         let debugpy_dir = if let Some(user_installed_path) = user_installed_path {
             user_installed_path
