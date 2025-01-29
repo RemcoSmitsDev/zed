@@ -1,6 +1,6 @@
 use anyhow::Result;
 use collections::HashMap;
-use gpui::App;
+use gpui::AppContext;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use settings::{Settings, SettingsSources};
@@ -40,7 +40,7 @@ impl Settings for ExtensionSettings {
 
     type FileContent = Self;
 
-    fn load(sources: SettingsSources<Self::FileContent>, _cx: &mut App) -> Result<Self> {
+    fn load(sources: SettingsSources<Self::FileContent>, _cx: &mut AppContext) -> Result<Self> {
         SettingsSources::<Self::FileContent>::json_merge_with(
             [sources.default]
                 .into_iter()

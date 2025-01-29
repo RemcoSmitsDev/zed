@@ -114,7 +114,7 @@ impl Settings for OutlinePanelSettings {
 
     fn load(
         sources: SettingsSources<Self::FileContent>,
-        _: &mut gpui::App,
+        _: &mut gpui::AppContext,
     ) -> anyhow::Result<Self> {
         sources.json_merge()
     }

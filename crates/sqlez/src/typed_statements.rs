@@ -1,4 +1,4 @@
-use anyhow::{Context as _, Result};
+use anyhow::{Context, Result};
 
 use crate::{
     bindable::{Bind, Column},

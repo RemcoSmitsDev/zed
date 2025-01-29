@@ -4,7 +4,7 @@ use std::sync::{atomic::AtomicBool, Arc};
 use anyhow::Result;
 use async_trait::async_trait;
 use extension::{Extension, ExtensionHostProxy, ExtensionSlashCommandProxy, WorktreeDelegate};
-use gpui::{App, Task, WeakEntity, Window};
+use gpui::{AppContext, Task, WeakView, WindowContext};
 use language::{BufferSnapshot, LspAdapterDelegate};
 use ui::prelude::*;
 use workspace::Workspace;
@@ -14,7 +14,7 @@ use crate::{
     SlashCommandRegistry, SlashCommandResult,
 };
 
-pub fn init(cx: &mut App) {
+pub fn init(cx: &mut AppContext) {
     let proxy = ExtensionHostProxy::default_global(cx);
     proxy.register_slash_command_proxy(SlashCommandRegistryProxy {
         slash_command_registry: SlashCommandRegistry::global(cx),
@@ -97,9 +97,8 @@ impl SlashCommand for ExtensionSlashCommand {
         self: Arc<Self>,
         arguments: &[String],
         _cancel: Arc<AtomicBool>,
-        _workspace: Option<WeakEntity<Workspace>>,
-        _window: &mut Window,
-        cx: &mut App,
+        _workspace: Option<WeakView<Workspace>>,
+        cx: &mut WindowContext,
     ) -> Task<Result<Vec<ArgumentCompletion>>> {
         let command = self.command.clone();
         let arguments = arguments.to_owned();
@@ -128,10 +127,9 @@ impl SlashCommand for ExtensionSlashCommand {
         arguments: &[String],
         _context_slash_command_output_sections: &[SlashCommandOutputSection<language::Anchor>],
         _context_buffer: BufferSnapshot,
-        _workspace: WeakEntity<Workspace>,
+        _workspace: WeakView<Workspace>,
         delegate: Option<Arc<dyn LspAdapterDelegate>>,
-        _window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Task<SlashCommandResult> {
         let command = self.command.clone();
         let arguments = arguments.to_owned();

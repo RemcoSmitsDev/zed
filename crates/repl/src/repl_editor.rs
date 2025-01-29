@@ -3,9 +3,9 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context, Result};
 use editor::Editor;
-use gpui::{prelude::*, App, Entity, WeakEntity, Window};
+use gpui::{prelude::*, Entity, View, WeakView, WindowContext};
 use language::{BufferSnapshot, Language, LanguageName, Point};
 use project::{ProjectItem as _, WorktreeId};
 
@@ -17,9 +17,8 @@ use crate::{
 
 pub fn assign_kernelspec(
     kernel_specification: KernelSpecification,
-    weak_editor: WeakEntity<Editor>,
-    window: &mut Window,
-    cx: &mut App,
+    weak_editor: WeakView<Editor>,
+    cx: &mut WindowContext,
 ) -> Result<()> {
     let store = ReplStore::global(cx);
     if !store.read(cx).is_enabled() {
@@ -39,13 +38,12 @@ pub fn assign_kernelspec(
         // Drop previous session, start new one
         session.update(cx, |session, cx| {
             session.clear_outputs(cx);
-            session.shutdown(window, cx);
+            session.shutdown(cx);
             cx.notify();
         });
     }
 
-    let session =
-        cx.new(|cx| Session::new(weak_editor.clone(), fs, kernel_specification, window, cx));
+    let session = cx.new_view(|cx| Session::new(weak_editor.clone(), fs, kernel_specification, cx));
 
     weak_editor
         .update(cx, |_editor, cx| {
@@ -72,12 +70,7 @@ pub fn assign_kernelspec(
     Ok(())
 }
 
-pub fn run(
-    editor: WeakEntity<Editor>,
-    move_down: bool,
-    window: &mut Window,
-    cx: &mut App,
-) -> Result<()> {
+pub fn run(editor: WeakView<Editor>, move_down: bool, cx: &mut WindowContext) -> Result<()> {
     let store = ReplStore::global(cx);
     if !store.read(cx).is_enabled() {
         return Ok(());
@@ -116,8 +109,7 @@ pub fn run(
             session
         } else {
             let weak_editor = editor.downgrade();
-            let session =
-                cx.new(|cx| Session::new(weak_editor, fs, kernel_specification, window, cx));
+            let session = cx.new_view(|cx| Session::new(weak_editor, fs, kernel_specification, cx));
 
             editor.update(cx, |_editor, cx| {
                 cx.notify();
@@ -156,14 +148,7 @@ pub fn run(
         }
 
         session.update(cx, |session, cx| {
-            session.execute(
-                selected_text,
-                anchor_range,
-                next_cursor,
-                move_down,
-                window,
-                cx,
-            );
+            session.execute(selected_text, anchor_range, next_cursor, move_down, cx);
         });
     }
 
@@ -172,13 +157,16 @@ pub fn run(
 
 #[allow(clippy::large_enum_variant)]
 pub enum SessionSupport {
-    ActiveSession(Entity<Session>),
+    ActiveSession(View<Session>),
     Inactive(KernelSpecification),
     RequiresSetup(LanguageName),
     Unsupported,
 }
 
-pub fn worktree_id_for_editor(editor: WeakEntity<Editor>, cx: &mut App) -> Option<WorktreeId> {
+pub fn worktree_id_for_editor(
+    editor: WeakView<Editor>,
+    cx: &mut WindowContext,
+) -> Option<WorktreeId> {
     editor.upgrade().and_then(|editor| {
         editor
             .read(cx)
@@ -191,7 +179,7 @@ pub fn worktree_id_for_editor(editor: WeakEntity<Editor>, cx: &mut App) -> Optio
     })
 }
 
-pub fn session(editor: WeakEntity<Editor>, cx: &mut App) -> SessionSupport {
+pub fn session(editor: WeakView<Editor>, cx: &mut WindowContext) -> SessionSupport {
     let store = ReplStore::global(cx);
     let entity_id = editor.entity_id();
 
@@ -225,7 +213,7 @@ pub fn session(editor: WeakEntity<Editor>, cx: &mut App) -> SessionSupport {
     }
 }
 
-pub fn clear_outputs(editor: WeakEntity<Editor>, cx: &mut App) {
+pub fn clear_outputs(editor: WeakView<Editor>, cx: &mut WindowContext) {
     let store = ReplStore::global(cx);
     let entity_id = editor.entity_id();
     let Some(session) = store.read(cx).get_session(entity_id).cloned() else {
@@ -237,7 +225,7 @@ pub fn clear_outputs(editor: WeakEntity<Editor>, cx: &mut App) {
     });
 }
 
-pub fn interrupt(editor: WeakEntity<Editor>, cx: &mut App) {
+pub fn interrupt(editor: WeakView<Editor>, cx: &mut WindowContext) {
     let store = ReplStore::global(cx);
     let entity_id = editor.entity_id();
     let Some(session) = store.read(cx).get_session(entity_id).cloned() else {
@@ -250,7 +238,7 @@ pub fn interrupt(editor: WeakEntity<Editor>, cx: &mut App) {
     });
 }
 
-pub fn shutdown(editor: WeakEntity<Editor>, window: &mut Window, cx: &mut App) {
+pub fn shutdown(editor: WeakView<Editor>, cx: &mut WindowContext) {
     let store = ReplStore::global(cx);
     let entity_id = editor.entity_id();
     let Some(session) = store.read(cx).get_session(entity_id).cloned() else {
@@ -258,12 +246,12 @@ pub fn shutdown(editor: WeakEntity<Editor>, window: &mut Window, cx: &mut App) {
     };
 
     session.update(cx, |session, cx| {
-        session.shutdown(window, cx);
+        session.shutdown(cx);
         cx.notify();
     });
 }
 
-pub fn restart(editor: WeakEntity<Editor>, window: &mut Window, cx: &mut App) {
+pub fn restart(editor: WeakView<Editor>, cx: &mut WindowContext) {
     let Some(editor) = editor.upgrade() else {
         return;
     };
@@ -279,16 +267,16 @@ pub fn restart(editor: WeakEntity<Editor>, window: &mut Window, cx: &mut App) {
     };
 
     session.update(cx, |session, cx| {
-        session.restart(window, cx);
+        session.restart(cx);
         cx.notify();
     });
 }
 
-pub fn setup_editor_session_actions(editor: &mut Editor, editor_handle: WeakEntity<Editor>) {
+pub fn setup_editor_session_actions(editor: &mut Editor, editor_handle: WeakView<Editor>) {
     editor
         .register_action({
             let editor_handle = editor_handle.clone();
-            move |_: &ClearOutputs, _, cx| {
+            move |_: &ClearOutputs, cx| {
                 if !JupyterSettings::enabled(cx) {
                     return;
                 }
@@ -301,7 +289,7 @@ pub fn setup_editor_session_actions(editor: &mut Editor, editor_handle: WeakEnti
     editor
         .register_action({
             let editor_handle = editor_handle.clone();
-            move |_: &Interrupt, _, cx| {
+            move |_: &Interrupt, cx| {
                 if !JupyterSettings::enabled(cx) {
                     return;
                 }
@@ -314,12 +302,12 @@ pub fn setup_editor_session_actions(editor: &mut Editor, editor_handle: WeakEnti
     editor
         .register_action({
             let editor_handle = editor_handle.clone();
-            move |_: &Shutdown, window, cx| {
+            move |_: &Shutdown, cx| {
                 if !JupyterSettings::enabled(cx) {
                     return;
                 }
 
-                crate::shutdown(editor_handle.clone(), window, cx);
+                crate::shutdown(editor_handle.clone(), cx);
             }
         })
         .detach();
@@ -327,12 +315,12 @@ pub fn setup_editor_session_actions(editor: &mut Editor, editor_handle: WeakEnti
     editor
         .register_action({
             let editor_handle = editor_handle.clone();
-            move |_: &Restart, window, cx| {
+            move |_: &Restart, cx| {
                 if !JupyterSettings::enabled(cx) {
                     return;
                 }
 
-                crate::restart(editor_handle.clone(), window, cx);
+                crate::restart(editor_handle.clone(), cx);
             }
         })
         .detach();
@@ -460,7 +448,7 @@ fn language_supported(language: &Arc<Language>) -> bool {
     }
 }
 
-fn get_language(editor: WeakEntity<Editor>, cx: &mut App) -> Option<Arc<Language>> {
+fn get_language(editor: WeakView<Editor>, cx: &mut WindowContext) -> Option<Arc<Language>> {
     editor
         .update(cx, |editor, cx| {
             let selection = editor.selections.newest::<usize>(cx);
@@ -474,12 +462,12 @@ fn get_language(editor: WeakEntity<Editor>, cx: &mut App) -> Option<Arc<Language
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui::App;
+    use gpui::{AppContext, Context};
     use indoc::indoc;
     use language::{Buffer, Language, LanguageConfig, LanguageRegistry};
 
     #[gpui::test]
-    fn test_snippet_ranges(cx: &mut App) {
+    fn test_snippet_ranges(cx: &mut AppContext) {
         // Create a test language
         let test_language = Arc::new(Language::new(
             LanguageConfig {
@@ -490,7 +478,7 @@ mod tests {
             None,
         ));
 
-        let buffer = cx.new(|cx| {
+        let buffer = cx.new_model(|cx| {
             Buffer::local(
                 indoc! { r#"
                     print(1 + 1)
@@ -545,7 +533,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn test_jupytext_snippet_ranges(cx: &mut App) {
+    fn test_jupytext_snippet_ranges(cx: &mut AppContext) {
         // Create a test language
         let test_language = Arc::new(Language::new(
             LanguageConfig {
@@ -556,7 +544,7 @@ mod tests {
             None,
         ));
 
-        let buffer = cx.new(|cx| {
+        let buffer = cx.new_model(|cx| {
             Buffer::local(
                 indoc! { r#"
                     # Hello!
@@ -623,7 +611,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn test_markdown_code_blocks(cx: &mut App) {
+    fn test_markdown_code_blocks(cx: &mut AppContext) {
         let markdown = languages::language("markdown", tree_sitter_md::LANGUAGE.into());
         let typescript = languages::language(
             "typescript",
@@ -636,7 +624,7 @@ mod tests {
         language_registry.add(python.clone());
 
         // Two code blocks intersecting with selection
-        let buffer = cx.new(|cx| {
+        let buffer = cx.new_model(|cx| {
             let mut buffer = Buffer::local(
                 indoc! { r#"
                     Hey this is Markdown!
@@ -678,7 +666,7 @@ mod tests {
         );
 
         // Three code blocks intersecting with selection
-        let buffer = cx.new(|cx| {
+        let buffer = cx.new_model(|cx| {
             let mut buffer = Buffer::local(
                 indoc! { r#"
                     Hey this is Markdown!
@@ -724,7 +712,7 @@ mod tests {
         );
 
         // Python code block
-        let buffer = cx.new(|cx| {
+        let buffer = cx.new_model(|cx| {
             let mut buffer = Buffer::local(
                 indoc! { r#"
                     Hey this is Markdown!

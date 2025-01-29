@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Context as _};
+use anyhow::{anyhow, Context};
 use collections::{HashMap, HashSet};
 use fs::Fs;
-use gpui::{AsyncApp, Entity};
+use gpui::{AsyncAppContext, Model};
 use language::{language_settings::language_settings, Buffer, Diff};
 use lsp::{LanguageServer, LanguageServerId};
 use node_runtime::NodeRuntime;
@@ -235,7 +235,7 @@ impl Prettier {
         _: LanguageServerId,
         prettier_dir: PathBuf,
         _: NodeRuntime,
-        _: AsyncApp,
+        _: AsyncAppContext,
     ) -> anyhow::Result<Self> {
         Ok(Self::Test(TestPrettier {
             default: prettier_dir == default_prettier_dir().as_path(),
@@ -248,7 +248,7 @@ impl Prettier {
         server_id: LanguageServerId,
         prettier_dir: PathBuf,
         node: NodeRuntime,
-        cx: AsyncApp,
+        cx: AsyncAppContext,
     ) -> anyhow::Result<Self> {
         use lsp::{LanguageServerBinary, LanguageServerName};
 
@@ -302,10 +302,10 @@ impl Prettier {
 
     pub async fn format(
         &self,
-        buffer: &Entity<Buffer>,
+        buffer: &Model<Buffer>,
         buffer_path: Option<PathBuf>,
         ignore_dir: Option<PathBuf>,
-        cx: &mut AsyncApp,
+        cx: &mut AsyncAppContext,
     ) -> anyhow::Result<Diff> {
         match self {
             Self::Real(local) => {

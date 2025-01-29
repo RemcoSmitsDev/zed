@@ -1,6 +1,9 @@
 use crate::{CompletionDiffElement, InlineCompletion, InlineCompletionRating, Zeta};
 use editor::Editor;
-use gpui::{actions, prelude::*, App, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable};
+use gpui::{
+    actions, prelude::*, AppContext, DismissEvent, EventEmitter, FocusHandle, FocusableView, Model,
+    View, ViewContext,
+};
 use language::language_settings;
 use std::time::Duration;
 use ui::{prelude::*, KeyBinding, List, ListItem, ListItemSpacing, Tooltip};
@@ -19,17 +22,17 @@ actions!(
     ]
 );
 
-pub fn init(cx: &mut App) {
-    cx.observe_new(move |workspace: &mut Workspace, _, _cx| {
-        workspace.register_action(|workspace, _: &RateCompletions, window, cx| {
-            RateCompletionModal::toggle(workspace, window, cx);
+pub fn init(cx: &mut AppContext) {
+    cx.observe_new_views(move |workspace: &mut Workspace, _cx| {
+        workspace.register_action(|workspace, _: &RateCompletions, cx| {
+            RateCompletionModal::toggle(workspace, cx);
         });
     })
     .detach();
 }
 
 pub struct RateCompletionModal {
-    zeta: Entity<Zeta>,
+    zeta: Model<Zeta>,
     active_completion: Option<ActiveCompletion>,
     selected_index: usize,
     focus_handle: FocusHandle,
@@ -39,7 +42,7 @@ pub struct RateCompletionModal {
 
 struct ActiveCompletion {
     completion: InlineCompletion,
-    feedback_editor: Entity<Editor>,
+    feedback_editor: View<Editor>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -58,13 +61,13 @@ impl RateCompletionView {
 }
 
 impl RateCompletionModal {
-    pub fn toggle(workspace: &mut Workspace, window: &mut Window, cx: &mut Context<Workspace>) {
+    pub fn toggle(workspace: &mut Workspace, cx: &mut ViewContext<Workspace>) {
         if let Some(zeta) = Zeta::global(cx) {
-            workspace.toggle_modal(window, cx, |_window, cx| RateCompletionModal::new(zeta, cx));
+            workspace.toggle_modal(cx, |cx| RateCompletionModal::new(zeta, cx));
         }
     }
 
-    pub fn new(zeta: Entity<Zeta>, cx: &mut Context<Self>) -> Self {
+    pub fn new(zeta: Model<Zeta>, cx: &mut ViewContext<Self>) -> Self {
         let subscription = cx.observe(&zeta, |_, _, cx| cx.notify());
 
         Self {
@@ -77,11 +80,11 @@ impl RateCompletionModal {
         }
     }
 
-    fn dismiss(&mut self, _: &menu::Cancel, _: &mut Window, cx: &mut Context<Self>) {
+    fn dismiss(&mut self, _: &menu::Cancel, cx: &mut ViewContext<Self>) {
         cx.emit(DismissEvent);
     }
 
-    fn select_next(&mut self, _: &menu::SelectNext, _: &mut Window, cx: &mut Context<Self>) {
+    fn select_next(&mut self, _: &menu::SelectNext, cx: &mut ViewContext<Self>) {
         self.selected_index += 1;
         self.selected_index = usize::min(
             self.selected_index,
@@ -90,12 +93,12 @@ impl RateCompletionModal {
         cx.notify();
     }
 
-    fn select_prev(&mut self, _: &menu::SelectPrev, _: &mut Window, cx: &mut Context<Self>) {
+    fn select_prev(&mut self, _: &menu::SelectPrev, cx: &mut ViewContext<Self>) {
         self.selected_index = self.selected_index.saturating_sub(1);
         cx.notify();
     }
 
-    fn select_next_edit(&mut self, _: &NextEdit, _: &mut Window, cx: &mut Context<Self>) {
+    fn select_next_edit(&mut self, _: &NextEdit, cx: &mut ViewContext<Self>) {
         let next_index = self
             .zeta
             .read(cx)
@@ -112,7 +115,7 @@ impl RateCompletionModal {
         }
     }
 
-    fn select_prev_edit(&mut self, _: &PreviousEdit, _: &mut Window, cx: &mut Context<Self>) {
+    fn select_prev_edit(&mut self, _: &PreviousEdit, cx: &mut ViewContext<Self>) {
         let zeta = self.zeta.read(cx);
         let completions_len = zeta.shown_completions_len();
 
@@ -134,22 +137,17 @@ impl RateCompletionModal {
         cx.notify();
     }
 
-    fn select_first(&mut self, _: &menu::SelectFirst, _: &mut Window, cx: &mut Context<Self>) {
+    fn select_first(&mut self, _: &menu::SelectFirst, cx: &mut ViewContext<Self>) {
         self.selected_index = 0;
         cx.notify();
     }
 
-    fn select_last(&mut self, _: &menu::SelectLast, _window: &mut Window, cx: &mut Context<Self>) {
+    fn select_last(&mut self, _: &menu::SelectLast, cx: &mut ViewContext<Self>) {
         self.selected_index = self.zeta.read(cx).shown_completions_len() - 1;
         cx.notify();
     }
 
-    pub fn thumbs_up_active(
-        &mut self,
-        _: &ThumbsUpActiveCompletion,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn thumbs_up_active(&mut self, _: &ThumbsUpActiveCompletion, cx: &mut ViewContext<Self>) {
         self.zeta.update(cx, |zeta, cx| {
             if let Some(active) = &self.active_completion {
                 zeta.rate_completion(
@@ -165,9 +163,9 @@ impl RateCompletionModal {
             .active_completion
             .as_ref()
             .map(|completion| completion.completion.clone());
-        self.select_completion(current_completion, false, window, cx);
-        self.select_next_edit(&Default::default(), window, cx);
-        self.confirm(&Default::default(), window, cx);
+        self.select_completion(current_completion, false, cx);
+        self.select_next_edit(&Default::default(), cx);
+        self.confirm(&Default::default(), cx);
 
         cx.notify();
     }
@@ -175,8 +173,7 @@ impl RateCompletionModal {
     pub fn thumbs_down_active(
         &mut self,
         _: &ThumbsDownActiveCompletion,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) {
         if let Some(active) = &self.active_completion {
             if active.feedback_editor.read(cx).text(cx).is_empty() {
@@ -197,29 +194,19 @@ impl RateCompletionModal {
             .active_completion
             .as_ref()
             .map(|completion| completion.completion.clone());
-        self.select_completion(current_completion, false, window, cx);
-        self.select_next_edit(&Default::default(), window, cx);
-        self.confirm(&Default::default(), window, cx);
+        self.select_completion(current_completion, false, cx);
+        self.select_next_edit(&Default::default(), cx);
+        self.confirm(&Default::default(), cx);
 
         cx.notify();
     }
 
-    fn focus_completions(
-        &mut self,
-        _: &FocusCompletions,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        cx.focus_self(window);
+    fn focus_completions(&mut self, _: &FocusCompletions, cx: &mut ViewContext<Self>) {
+        cx.focus_self();
         cx.notify();
     }
 
-    fn preview_completion(
-        &mut self,
-        _: &PreviewCompletion,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn preview_completion(&mut self, _: &PreviewCompletion, cx: &mut ViewContext<Self>) {
         let completion = self
             .zeta
             .read(cx)
@@ -229,10 +216,10 @@ impl RateCompletionModal {
             .next()
             .cloned();
 
-        self.select_completion(completion, false, window, cx);
+        self.select_completion(completion, false, cx);
     }
 
-    fn confirm(&mut self, _: &menu::Confirm, window: &mut Window, cx: &mut Context<Self>) {
+    fn confirm(&mut self, _: &menu::Confirm, cx: &mut ViewContext<Self>) {
         let completion = self
             .zeta
             .read(cx)
@@ -242,15 +229,14 @@ impl RateCompletionModal {
             .next()
             .cloned();
 
-        self.select_completion(completion, true, window, cx);
+        self.select_completion(completion, true, cx);
     }
 
     pub fn select_completion(
         &mut self,
         completion: Option<InlineCompletion>,
         focus: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) {
         // Avoid resetting completion rating if it's already selected.
         if let Some(completion) = completion.as_ref() {
@@ -267,7 +253,7 @@ impl RateCompletionModal {
             if let Some(prev_completion) = self.active_completion.as_ref() {
                 if completion.id == prev_completion.completion.id {
                     if focus {
-                        window.focus(&prev_completion.feedback_editor.focus_handle(cx));
+                        cx.focus_view(&prev_completion.feedback_editor);
                     }
                     return;
                 }
@@ -276,8 +262,8 @@ impl RateCompletionModal {
 
         self.active_completion = completion.map(|completion| ActiveCompletion {
             completion,
-            feedback_editor: cx.new(|cx| {
-                let mut editor = Editor::multi_line(window, cx);
+            feedback_editor: cx.new_view(|cx| {
+                let mut editor = Editor::multi_line(cx);
                 editor.set_soft_wrap_mode(language_settings::SoftWrap::EditorWidth, cx);
                 editor.set_show_line_numbers(false, cx);
                 editor.set_show_scrollbars(false, cx);
@@ -286,10 +272,10 @@ impl RateCompletionModal {
                 editor.set_show_runnables(false, cx);
                 editor.set_show_wrap_guides(false, cx);
                 editor.set_show_indent_guides(false, cx);
-                editor.set_show_inline_completions(Some(false), window, cx);
+                editor.set_show_inline_completions(Some(false), cx);
                 editor.set_placeholder_text("Add your feedback…", cx);
                 if focus {
-                    cx.focus_self(window);
+                    cx.focus_self();
                 }
                 editor
             }),
@@ -297,7 +283,7 @@ impl RateCompletionModal {
         cx.notify();
     }
 
-    fn render_view_nav(&self, cx: &Context<Self>) -> impl IntoElement {
+    fn render_view_nav(&self, cx: &ViewContext<Self>) -> impl IntoElement {
         h_flex()
             .h_8()
             .px_1()
@@ -311,7 +297,7 @@ impl RateCompletionModal {
                     RateCompletionView::SuggestedEdits.name(),
                 )
                 .label_size(LabelSize::Small)
-                .on_click(cx.listener(move |this, _, _window, cx| {
+                .on_click(cx.listener(move |this, _, cx| {
                     this.current_view = RateCompletionView::SuggestedEdits;
                     cx.notify();
                 }))
@@ -323,7 +309,7 @@ impl RateCompletionModal {
                     RateCompletionView::RawInput.name(),
                 )
                 .label_size(LabelSize::Small)
-                .on_click(cx.listener(move |this, _, _window, cx| {
+                .on_click(cx.listener(move |this, _, cx| {
                     this.current_view = RateCompletionView::RawInput;
                     cx.notify();
                 }))
@@ -331,7 +317,7 @@ impl RateCompletionModal {
             )
     }
 
-    fn render_suggested_edits(&self, cx: &mut Context<Self>) -> Option<gpui::Stateful<Div>> {
+    fn render_suggested_edits(&self, cx: &mut ViewContext<Self>) -> Option<gpui::Stateful<Div>> {
         let active_completion = self.active_completion.as_ref()?;
         let bg_color = cx.theme().colors().editor_background;
 
@@ -350,7 +336,7 @@ impl RateCompletionModal {
         )
     }
 
-    fn render_raw_input(&self, cx: &mut Context<Self>) -> Option<gpui::Stateful<Div>> {
+    fn render_raw_input(&self, cx: &mut ViewContext<Self>) -> Option<gpui::Stateful<Div>> {
         Some(
             v_flex()
                 .size_full()
@@ -378,11 +364,7 @@ impl RateCompletionModal {
         )
     }
 
-    fn render_active_completion(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<impl IntoElement> {
+    fn render_active_completion(&mut self, cx: &mut ViewContext<Self>) -> Option<impl IntoElement> {
         let active_completion = self.active_completion.as_ref()?;
         let completion_id = active_completion.completion.id;
         let focus_handle = &self.focus_handle(cx);
@@ -491,17 +473,19 @@ impl RateCompletionModal {
                                         .icon_position(IconPosition::Start)
                                         .disabled(rated || feedback_empty)
                                         .when(feedback_empty, |this| {
-                                            this.tooltip(Tooltip::text("Explain what's bad about it before reporting it"))
+                                            this.tooltip(|cx| {
+                                                Tooltip::text("Explain what's bad about it before reporting it", cx)
+                                            })
                                         })
                                         .key_binding(KeyBinding::for_action_in(
                                             &ThumbsDownActiveCompletion,
                                             focus_handle,
-                                            window,
+                                            cx,
                                         ))
-                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                        .on_click(cx.listener(move |this, _, cx| {
                                             this.thumbs_down_active(
                                                 &ThumbsDownActiveCompletion,
-                                                window, cx,
+                                                cx,
                                             );
                                         })),
                                 )
@@ -514,10 +498,10 @@ impl RateCompletionModal {
                                         .key_binding(KeyBinding::for_action_in(
                                             &ThumbsUpActiveCompletion,
                                             focus_handle,
-                                            window,
+                                            cx,
                                         ))
-                                        .on_click(cx.listener(move |this, _, window, cx| {
-                                            this.thumbs_up_active(&ThumbsUpActiveCompletion, window, cx);
+                                        .on_click(cx.listener(move |this, _, cx| {
+                                            this.thumbs_up_active(&ThumbsUpActiveCompletion, cx);
                                         })),
                                 ),
                         ),
@@ -527,7 +511,7 @@ impl RateCompletionModal {
 }
 
 impl Render for RateCompletionModal {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         let border_color = cx.theme().colors().border;
 
         h_flex()
@@ -548,8 +532,8 @@ impl Render for RateCompletionModal {
             .bg(cx.theme().colors().elevated_surface_background)
             .border_1()
             .border_color(border_color)
-            .w(window.viewport_size().width - px(320.))
-            .h(window.viewport_size().height - px(300.))
+            .w(cx.viewport_size().width - px(320.))
+            .h(cx.viewport_size().height - px(300.))
             .rounded_lg()
             .shadow_lg()
             .child(
@@ -639,24 +623,26 @@ impl Render for RateCompletionModal {
                                                                 )
                                                         )
                                                 )
-                                                .tooltip(Tooltip::text(tooltip_text))
-                                                .on_click(cx.listener(move |this, _, window, cx| {
-                                                    this.select_completion(Some(completion.clone()), true, window, cx);
+                                                .tooltip(move |cx| {
+                                                    Tooltip::text(tooltip_text, cx)
+                                                })
+                                                .on_click(cx.listener(move |this, _, cx| {
+                                                    this.select_completion(Some(completion.clone()), true, cx);
                                                 }))
                                         },
                                     )),
                             )
                     ),
             )
-            .children(self.render_active_completion(window, cx))
-            .on_mouse_down_out(cx.listener(|_, _, _, cx| cx.emit(DismissEvent)))
+            .children(self.render_active_completion(cx))
+            .on_mouse_down_out(cx.listener(|_, _, cx| cx.emit(DismissEvent)))
     }
 }
 
 impl EventEmitter<DismissEvent> for RateCompletionModal {}
 
-impl Focusable for RateCompletionModal {
-    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+impl FocusableView for RateCompletionModal {
+    fn focus_handle(&self, _cx: &AppContext) -> FocusHandle {
         self.focus_handle.clone()
     }
 }

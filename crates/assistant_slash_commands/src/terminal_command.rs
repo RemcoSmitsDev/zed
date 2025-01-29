@@ -6,7 +6,7 @@ use assistant_slash_command::{
     ArgumentCompletion, SlashCommand, SlashCommandOutput, SlashCommandOutputSection,
     SlashCommandResult,
 };
-use gpui::{App, Entity, Task, WeakEntity};
+use gpui::{AppContext, Task, View, WeakView};
 use language::{BufferSnapshot, CodeLabel, LspAdapterDelegate};
 use terminal_view::{terminal_panel::TerminalPanel, TerminalView};
 use ui::prelude::*;
@@ -25,7 +25,7 @@ impl SlashCommand for TerminalSlashCommand {
         "terminal".into()
     }
 
-    fn label(&self, cx: &App) -> CodeLabel {
+    fn label(&self, cx: &AppContext) -> CodeLabel {
         create_label_for_command("terminal", &[LINE_COUNT_ARG], cx)
     }
 
@@ -53,9 +53,8 @@ impl SlashCommand for TerminalSlashCommand {
         self: Arc<Self>,
         _arguments: &[String],
         _cancel: Arc<AtomicBool>,
-        _workspace: Option<WeakEntity<Workspace>>,
-        _window: &mut Window,
-        _cx: &mut App,
+        _workspace: Option<WeakView<Workspace>>,
+        _cx: &mut WindowContext,
     ) -> Task<Result<Vec<ArgumentCompletion>>> {
         Task::ready(Ok(Vec::new()))
     }
@@ -65,10 +64,9 @@ impl SlashCommand for TerminalSlashCommand {
         arguments: &[String],
         _context_slash_command_output_sections: &[SlashCommandOutputSection<language::Anchor>],
         _context_buffer: BufferSnapshot,
-        workspace: WeakEntity<Workspace>,
+        workspace: WeakView<Workspace>,
         _delegate: Option<Arc<dyn LspAdapterDelegate>>,
-        _: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Task<SlashCommandResult> {
         let Some(workspace) = workspace.upgrade() else {
             return Task::ready(Err(anyhow::anyhow!("workspace was dropped")));
@@ -85,7 +83,7 @@ impl SlashCommand for TerminalSlashCommand {
 
         let lines = active_terminal
             .read(cx)
-            .entity()
+            .model()
             .read(cx)
             .last_n_non_empty_lines(line_count);
 
@@ -109,9 +107,9 @@ impl SlashCommand for TerminalSlashCommand {
 }
 
 fn resolve_active_terminal(
-    workspace: &Entity<Workspace>,
-    cx: &mut App,
-) -> Option<Entity<TerminalView>> {
+    workspace: &View<Workspace>,
+    cx: &WindowContext,
+) -> Option<View<TerminalView>> {
     if let Some(terminal_view) = workspace
         .read(cx)
         .active_item(cx)

@@ -7,7 +7,7 @@ use collections::HashMap;
 use command_palette_hooks::{CommandPaletteFilter, CommandPaletteInterceptor};
 use editor::{Anchor, ClipboardSelection, Editor};
 use gpui::{
-    Action, App, BorrowAppContext, ClipboardEntry, ClipboardItem, Entity, Global, WeakEntity,
+    Action, AppContext, BorrowAppContext, ClipboardEntry, ClipboardItem, Global, View, WeakView,
 };
 use language::Point;
 use schemars::JsonSchema;
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use settings::{Settings, SettingsStore};
 use std::borrow::BorrowMut;
 use std::{fmt::Display, ops::Range, sync::Arc};
-use ui::{Context, SharedString};
+use ui::{SharedString, ViewContext};
 use workspace::searchable::Direction;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, JsonSchema, Serialize)]
@@ -199,15 +199,15 @@ pub struct VimGlobals {
     pub registers: HashMap<char, Register>,
     pub recordings: HashMap<char, Vec<ReplayableAction>>,
 
-    pub focused_vim: Option<WeakEntity<Vim>>,
+    pub focused_vim: Option<WeakView<Vim>>,
 }
 impl Global for VimGlobals {}
 
 impl VimGlobals {
-    pub(crate) fn register(cx: &mut App) {
+    pub(crate) fn register(cx: &mut AppContext) {
         cx.set_global(VimGlobals::default());
 
-        cx.observe_keystrokes(|event, _, cx| {
+        cx.observe_keystrokes(|event, cx| {
             let Some(action) = event.action.as_ref().map(|action| action.boxed_clone()) else {
                 return;
             };
@@ -242,7 +242,7 @@ impl VimGlobals {
         register: Option<char>,
         is_yank: bool,
         linewise: bool,
-        cx: &mut Context<Editor>,
+        cx: &mut ViewContext<Editor>,
     ) {
         if let Some(register) = register {
             let lower = register.to_lowercase().next().unwrap_or(register);
@@ -316,7 +316,7 @@ impl VimGlobals {
         &mut self,
         register: Option<char>,
         editor: Option<&mut Editor>,
-        cx: &mut Context<Editor>,
+        cx: &mut ViewContext<Editor>,
     ) -> Option<Register> {
         let Some(register) = register.filter(|reg| *reg != '"') else {
             let setting = VimSettings::get_global(cx).use_system_clipboard;
@@ -361,7 +361,7 @@ impl VimGlobals {
         }
     }
 
-    fn system_clipboard_is_newer(&self, cx: &mut Context<Editor>) -> bool {
+    fn system_clipboard_is_newer(&self, cx: &ViewContext<Editor>) -> bool {
         cx.read_from_clipboard().is_some_and(|item| {
             if let Some(last_state) = &self.last_yank {
                 Some(last_state.as_ref()) != item.text().as_deref()
@@ -418,19 +418,19 @@ impl VimGlobals {
         }
     }
 
-    pub fn focused_vim(&self) -> Option<Entity<Vim>> {
+    pub fn focused_vim(&self) -> Option<View<Vim>> {
         self.focused_vim.as_ref().and_then(|vim| vim.upgrade())
     }
 }
 
 impl Vim {
-    pub fn globals(cx: &mut App) -> &mut VimGlobals {
+    pub fn globals(cx: &mut AppContext) -> &mut VimGlobals {
         cx.global_mut::<VimGlobals>()
     }
 
     pub fn update_globals<C, R>(cx: &mut C, f: impl FnOnce(&mut VimGlobals, &mut C) -> R) -> R
     where
-        C: BorrowMut<App>,
+        C: BorrowMut<AppContext>,
     {
         cx.update_global(f)
     }

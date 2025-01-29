@@ -4,13 +4,13 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 use extension::{Extension, ExtensionHostProxy, ExtensionIndexedDocsProviderProxy};
-use gpui::App;
+use gpui::AppContext;
 
 use crate::{
     IndexedDocsDatabase, IndexedDocsProvider, IndexedDocsRegistry, PackageName, ProviderId,
 };
 
-pub fn init(cx: &mut App) {
+pub fn init(cx: &mut AppContext) {
     let proxy = ExtensionHostProxy::default_global(cx);
     proxy.register_indexed_docs_provider_proxy(IndexedDocsRegistryProxy {
         indexed_docs_registry: IndexedDocsRegistry::global(cx),

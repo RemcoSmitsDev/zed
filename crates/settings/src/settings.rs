@@ -5,7 +5,7 @@ mod keymap_file;
 mod settings_file;
 mod settings_store;
 
-use gpui::App;
+use gpui::AppContext;
 use rust_embed::RustEmbed;
 use std::{borrow::Cow, fmt, str};
 use util::asset_str;
@@ -60,7 +60,7 @@ impl fmt::Display for WorktreeId {
 #[exclude = "*.DS_Store"]
 pub struct SettingsAssets;
 
-pub fn init(cx: &mut App) {
+pub fn init(cx: &mut AppContext) {
     let mut settings = SettingsStore::new(cx);
     settings
         .set_default_settings(&default_settings(), cx)

@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use client::ParticipantIndex;
 use client::{proto, User};
 use collections::HashMap;
-use gpui::WeakEntity;
+use gpui::WeakModel;
 pub use livekit_client_macos::Frame;
 pub use livekit_client_macos::{RemoteAudioTrack, RemoteVideoTrack};
 use project::Project;
@@ -35,7 +35,7 @@ impl ParticipantLocation {
 #[derive(Clone, Default)]
 pub struct LocalParticipant {
     pub projects: Vec<proto::ParticipantProject>,
-    pub active_project: Option<WeakEntity<Project>>,
+    pub active_project: Option<WeakModel<Project>>,
     pub role: proto::ChannelRole,
 }
 

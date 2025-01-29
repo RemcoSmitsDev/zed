@@ -4,9 +4,9 @@ use anyhow::Context as _;
 use editor::items::entry_git_aware_label_color;
 use file_icons::FileIcons;
 use gpui::{
-    canvas, div, fill, img, opaque_grey, point, size, AnyElement, App, Bounds, Context, Entity,
-    EventEmitter, FocusHandle, Focusable, InteractiveElement, IntoElement, ObjectFit,
-    ParentElement, Render, Styled, Task, WeakEntity, Window,
+    canvas, div, fill, img, opaque_grey, point, size, AnyElement, AppContext, Bounds, EventEmitter,
+    FocusHandle, FocusableView, InteractiveElement, IntoElement, Model, ObjectFit, ParentElement,
+    Render, Styled, Task, View, ViewContext, VisualContext, WeakView, WindowContext,
 };
 use persistence::IMAGE_VIEWER;
 use project::{image_store::ImageItemEvent, ImageItem, Project, ProjectPath};
@@ -22,17 +22,16 @@ use workspace::{
 const IMAGE_VIEWER_KIND: &str = "ImageView";
 
 pub struct ImageView {
-    image_item: Entity<ImageItem>,
-    project: Entity<Project>,
+    image_item: Model<ImageItem>,
+    project: Model<Project>,
     focus_handle: FocusHandle,
 }
 
 impl ImageView {
     pub fn new(
-        image_item: Entity<ImageItem>,
-        project: Entity<Project>,
-
-        cx: &mut Context<Self>,
+        image_item: Model<ImageItem>,
+        project: Model<Project>,
+        cx: &mut ViewContext<Self>,
     ) -> Self {
         cx.subscribe(&image_item, Self::on_image_event).detach();
         Self {
@@ -44,9 +43,9 @@ impl ImageView {
 
     fn on_image_event(
         &mut self,
-        _: Entity<ImageItem>,
+        _: Model<ImageItem>,
         event: &ImageItemEvent,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) {
         match event {
             ImageItemEvent::FileHandleChanged | ImageItemEvent::Reloaded => {
@@ -78,23 +77,23 @@ impl Item for ImageView {
 
     fn for_each_project_item(
         &self,
-        cx: &App,
+        cx: &AppContext,
         f: &mut dyn FnMut(gpui::EntityId, &dyn project::ProjectItem),
     ) {
         f(self.image_item.entity_id(), self.image_item.read(cx))
     }
 
-    fn is_singleton(&self, _cx: &App) -> bool {
+    fn is_singleton(&self, _cx: &AppContext) -> bool {
         true
     }
 
-    fn tab_tooltip_text(&self, cx: &App) -> Option<SharedString> {
+    fn tab_tooltip_text(&self, cx: &AppContext) -> Option<SharedString> {
         let abs_path = self.image_item.read(cx).file.as_local()?.abs_path(cx);
         let file_path = abs_path.compact().to_string_lossy().to_string();
         Some(file_path.into())
     }
 
-    fn tab_content(&self, params: TabContentParams, _: &Window, cx: &App) -> AnyElement {
+    fn tab_content(&self, params: TabContentParams, cx: &WindowContext) -> AnyElement {
         let project_path = self.image_item.read(cx).project_path(cx);
 
         let label_color = if ItemSettings::get_global(cx).git_status {
@@ -130,7 +129,7 @@ impl Item for ImageView {
             .into_any_element()
     }
 
-    fn tab_icon(&self, _: &Window, cx: &App) -> Option<Icon> {
+    fn tab_icon(&self, cx: &WindowContext) -> Option<Icon> {
         let path = self.image_item.read(cx).path();
         ItemSettings::get_global(cx)
             .file_icons
@@ -139,11 +138,11 @@ impl Item for ImageView {
             .map(Icon::from_path)
     }
 
-    fn breadcrumb_location(&self, _: &App) -> ToolbarItemLocation {
+    fn breadcrumb_location(&self, _: &AppContext) -> ToolbarItemLocation {
         ToolbarItemLocation::PrimaryLeft
     }
 
-    fn breadcrumbs(&self, _theme: &Theme, cx: &App) -> Option<Vec<BreadcrumbText>> {
+    fn breadcrumbs(&self, _theme: &Theme, cx: &AppContext) -> Option<Vec<BreadcrumbText>> {
         let text = breadcrumbs_text_for_image(self.project.read(cx), self.image_item.read(cx), cx);
         Some(vec![BreadcrumbText {
             text,
@@ -155,13 +154,12 @@ impl Item for ImageView {
     fn clone_on_split(
         &self,
         _workspace_id: Option<WorkspaceId>,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<Entity<Self>>
+        cx: &mut ViewContext<Self>,
+    ) -> Option<View<Self>>
     where
         Self: Sized,
     {
-        Some(cx.new(|cx| Self {
+        Some(cx.new_view(|cx| Self {
             image_item: self.image_item.clone(),
             project: self.project.clone(),
             focus_handle: cx.focus_handle(),
@@ -169,7 +167,7 @@ impl Item for ImageView {
     }
 }
 
-fn breadcrumbs_text_for_image(project: &Project, image: &ImageItem, cx: &App) -> String {
+fn breadcrumbs_text_for_image(project: &Project, image: &ImageItem, cx: &AppContext) -> String {
     let path = image.file.file_name(cx);
     if project.visible_worktrees(cx).count() <= 1 {
         return path.to_string_lossy().to_string();
@@ -192,14 +190,13 @@ impl SerializableItem for ImageView {
     }
 
     fn deserialize(
-        project: Entity<Project>,
-        _workspace: WeakEntity<Workspace>,
+        project: Model<Project>,
+        _workspace: WeakView<Workspace>,
         workspace_id: WorkspaceId,
         item_id: ItemId,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> Task<gpui::Result<Entity<Self>>> {
-        window.spawn(cx, |mut cx| async move {
+        cx: &mut WindowContext,
+    ) -> Task<gpui::Result<View<Self>>> {
+        cx.spawn(|mut cx| async move {
             let image_path = IMAGE_VIEWER
                 .get_image_path(item_id, workspace_id)?
                 .ok_or_else(|| anyhow::anyhow!("No image path found"))?;
@@ -221,19 +218,16 @@ impl SerializableItem for ImageView {
                 .update(&mut cx, |project, cx| project.open_image(project_path, cx))?
                 .await?;
 
-            cx.update(|_, cx| Ok(cx.new(|cx| ImageView::new(image_item, project, cx))))?
+            cx.update(|cx| Ok(cx.new_view(|cx| ImageView::new(image_item, project, cx))))?
         })
     }
 
     fn cleanup(
         workspace_id: WorkspaceId,
         alive_items: Vec<ItemId>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Task<gpui::Result<()>> {
-        window.spawn(cx, |_| {
-            IMAGE_VIEWER.delete_unloaded_items(workspace_id, alive_items)
-        })
+        cx.spawn(|_| IMAGE_VIEWER.delete_unloaded_items(workspace_id, alive_items))
     }
 
     fn serialize(
@@ -241,8 +235,7 @@ impl SerializableItem for ImageView {
         workspace: &mut Workspace,
         item_id: ItemId,
         _closing: bool,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) -> Option<Task<gpui::Result<()>>> {
         let workspace_id = workspace.database_id()?;
         let image_path = self.image_item.read(cx).file.as_local()?.abs_path(cx);
@@ -262,19 +255,16 @@ impl SerializableItem for ImageView {
 }
 
 impl EventEmitter<()> for ImageView {}
-impl Focusable for ImageView {
-    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+impl FocusableView for ImageView {
+    fn focus_handle(&self, _cx: &AppContext) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
 
 impl Render for ImageView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         let image = self.image_item.read(cx).image.clone();
-        let checkered_background = |bounds: Bounds<Pixels>,
-                                    _,
-                                    window: &mut Window,
-                                    _cx: &mut App| {
+        let checkered_background = |bounds: Bounds<Pixels>, _, cx: &mut WindowContext| {
             let square_size = 32.0;
 
             let start_y = bounds.origin.y.0;
@@ -299,7 +289,7 @@ impl Render for ImageView {
                         opaque_grey(0.7, 0.4)
                     };
 
-                    window.paint_quad(fill(rect, color));
+                    cx.paint_quad(fill(rect, color));
                     color_swapper = !color_swapper;
                     x += square_size;
                 }
@@ -309,7 +299,7 @@ impl Render for ImageView {
             }
         };
 
-        let checkered_background = canvas(|_, _, _| (), checkered_background)
+        let checkered_background = canvas(|_, _| (), checkered_background)
             .border_2()
             .border_color(cx.theme().styles.colors.border)
             .size_full()
@@ -344,10 +334,9 @@ impl ProjectItem for ImageView {
     type Item = ImageItem;
 
     fn for_project_item(
-        project: Entity<Project>,
-        item: Entity<Self::Item>,
-        _: &mut Window,
-        cx: &mut Context<Self>,
+        project: Model<Project>,
+        item: Model<Self::Item>,
+        cx: &mut ViewContext<Self>,
     ) -> Self
     where
         Self: Sized,
@@ -356,7 +345,7 @@ impl ProjectItem for ImageView {
     }
 }
 
-pub fn init(cx: &mut App) {
+pub fn init(cx: &mut AppContext) {
     workspace::register_project_item::<ImageView>(cx);
     workspace::register_serializable_item::<ImageView>(cx)
 }

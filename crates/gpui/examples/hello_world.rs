@@ -1,5 +1,5 @@
 use gpui::{
-    div, prelude::*, px, rgb, size, App, Application, Bounds, Context, SharedString, Window,
+    div, prelude::*, px, rgb, size, App, AppContext, Bounds, SharedString, ViewContext,
     WindowBounds, WindowOptions,
 };
 
@@ -8,7 +8,7 @@ struct HelloWorld {
 }
 
 impl Render for HelloWorld {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _cx: &mut ViewContext<Self>) -> impl IntoElement {
         div()
             .flex()
             .flex_col()
@@ -38,15 +38,15 @@ impl Render for HelloWorld {
 }
 
 fn main() {
-    Application::new().run(|cx: &mut App| {
+    App::new().run(|cx: &mut AppContext| {
         let bounds = Bounds::centered(None, size(px(500.), px(500.0)), cx);
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             },
-            |_, cx| {
-                cx.new(|_| HelloWorld {
+            |cx| {
+                cx.new_view(|_cx| HelloWorld {
                     text: "World".into(),
                 })
             },

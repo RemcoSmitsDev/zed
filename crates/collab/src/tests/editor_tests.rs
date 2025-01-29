@@ -10,7 +10,7 @@ use editor::{
         ToggleCodeActions, Undo,
     },
     test::editor_test_context::{AssertionContextManager, EditorTestContext},
-    Editor, RowInfo,
+    Editor,
 };
 use fs::Fs;
 use futures::StreamExt;
@@ -20,6 +20,7 @@ use language::{
     language_settings::{AllLanguageSettings, InlayHintSettings},
     FakeLspAdapter,
 };
+use multi_buffer::MultiBufferRow;
 use project::{
     project_settings::{InlineBlameSettings, ProjectSettings},
     ProjectPath, SERVER_PROGRESS_THROTTLE_TIMEOUT,
@@ -81,21 +82,14 @@ async fn test_host_disconnect(
 
     assert!(worktree_a.read_with(cx_a, |tree, _| tree.has_update_observer()));
 
-    let workspace_b = cx_b.add_window(|window, cx| {
-        Workspace::new(
-            None,
-            project_b.clone(),
-            client_b.app_state.clone(),
-            window,
-            cx,
-        )
-    });
+    let workspace_b = cx_b
+        .add_window(|cx| Workspace::new(None, project_b.clone(), client_b.app_state.clone(), cx));
     let cx_b = &mut VisualTestContext::from_window(*workspace_b, cx_b);
-    let workspace_b_view = workspace_b.root(cx_b).unwrap();
+    let workspace_b_view = workspace_b.root_view(cx_b).unwrap();
 
     let editor_b = workspace_b
-        .update(cx_b, |workspace, window, cx| {
-            workspace.open_path((worktree_id, "b.txt"), None, true, window, cx)
+        .update(cx_b, |workspace, cx| {
+            workspace.open_path((worktree_id, "b.txt"), None, true, cx)
         })
         .unwrap()
         .await
@@ -104,10 +98,10 @@ async fn test_host_disconnect(
         .unwrap();
 
     //TODO: focus
-    assert!(cx_b.update_window_entity(&editor_b, |editor, window, _| editor.is_focused(window)));
-    editor_b.update_in(cx_b, |editor, window, cx| editor.insert("X", window, cx));
+    assert!(cx_b.update_view(&editor_b, |editor, cx| editor.is_focused(cx)));
+    editor_b.update(cx_b, |editor, cx| editor.insert("X", cx));
 
-    cx_b.update(|_, cx| {
+    cx_b.update(|cx| {
         assert!(workspace_b_view.read(cx).is_edited());
     });
 
@@ -127,7 +121,7 @@ async fn test_host_disconnect(
 
     // Ensure client B's edited state is reset and that the whole window is blurred.
     workspace_b
-        .update(cx_b, |workspace, _, cx| {
+        .update(cx_b, |workspace, cx| {
             assert!(workspace.active_modal::<DisconnectedOverlay>(cx).is_some());
             assert!(!workspace.is_edited());
         })
@@ -135,8 +129,8 @@ async fn test_host_disconnect(
 
     // Ensure client B is not prompted to save edits when closing window after disconnecting.
     let can_close = workspace_b
-        .update(cx_b, |workspace, window, cx| {
-            workspace.prepare_to_close(CloseIntent::Quit, window, cx)
+        .update(cx_b, |workspace, cx| {
+            workspace.prepare_to_close(CloseIntent::Quit, cx)
         })
         .unwrap()
         .await
@@ -207,12 +201,11 @@ async fn test_newline_above_or_below_does_not_move_guest_cursor(
         .await
         .unwrap();
     let cx_a = cx_a.add_empty_window();
-    let editor_a = cx_a
-        .new_window_entity(|window, cx| Editor::for_buffer(buffer_a, Some(project_a), window, cx));
+    let editor_a = cx_a.new_view(|cx| Editor::for_buffer(buffer_a, Some(project_a), cx));
 
     let mut editor_cx_a = EditorTestContext {
         cx: cx_a.clone(),
-        window: cx_a.window_handle(),
+        window: cx_a.handle(),
         editor: editor_a,
         assertion_cx: AssertionContextManager::new(),
     };
@@ -223,12 +216,11 @@ async fn test_newline_above_or_below_does_not_move_guest_cursor(
         .update(cx_b, |p, cx| p.open_buffer((worktree_id, "a.txt"), cx))
         .await
         .unwrap();
-    let editor_b = cx_b
-        .new_window_entity(|window, cx| Editor::for_buffer(buffer_b, Some(project_b), window, cx));
+    let editor_b = cx_b.new_view(|cx| Editor::for_buffer(buffer_b, Some(project_b), cx));
 
     let mut editor_cx_b = EditorTestContext {
         cx: cx_b.clone(),
-        window: cx_b.window_handle(),
+        window: cx_b.handle(),
         editor: editor_b,
         assertion_cx: AssertionContextManager::new(),
     };
@@ -240,9 +232,8 @@ async fn test_newline_above_or_below_does_not_move_guest_cursor(
     editor_cx_b.set_selections_state(indoc! {"
         Some textˇ
     "});
-    editor_cx_a.update_editor(|editor, window, cx| {
-        editor.newline_above(&editor::actions::NewlineAbove, window, cx)
-    });
+    editor_cx_a
+        .update_editor(|editor, cx| editor.newline_above(&editor::actions::NewlineAbove, cx));
     executor.run_until_parked();
     editor_cx_a.assert_editor_state(indoc! {"
         ˇ
@@ -262,9 +253,8 @@ async fn test_newline_above_or_below_does_not_move_guest_cursor(
 
         Some textˇ
     "});
-    editor_cx_a.update_editor(|editor, window, cx| {
-        editor.newline_below(&editor::actions::NewlineBelow, window, cx)
-    });
+    editor_cx_a
+        .update_editor(|editor, cx| editor.newline_below(&editor::actions::NewlineBelow, cx));
     executor.run_until_parked();
     editor_cx_a.assert_editor_state(indoc! {"
 
@@ -327,9 +317,8 @@ async fn test_collaborating_with_completion(cx_a: &mut TestAppContext, cx_b: &mu
         .await
         .unwrap();
     let cx_b = cx_b.add_empty_window();
-    let editor_b = cx_b.new_window_entity(|window, cx| {
-        Editor::for_buffer(buffer_b.clone(), Some(project_b.clone()), window, cx)
-    });
+    let editor_b =
+        cx_b.new_view(|cx| Editor::for_buffer(buffer_b.clone(), Some(project_b.clone()), cx));
 
     let fake_language_server = fake_language_servers.next().await.unwrap();
     cx_a.background_executor.run_until_parked();
@@ -339,11 +328,11 @@ async fn test_collaborating_with_completion(cx_a: &mut TestAppContext, cx_b: &mu
     });
 
     // Type a completion trigger character as the guest.
-    editor_b.update_in(cx_b, |editor, window, cx| {
-        editor.change_selections(None, window, cx, |s| s.select_ranges([13..13]));
-        editor.handle_input(".", window, cx);
+    editor_b.update(cx_b, |editor, cx| {
+        editor.change_selections(None, cx, |s| s.select_ranges([13..13]));
+        editor.handle_input(".", cx);
     });
-    cx_b.focus(&editor_b);
+    cx_b.focus_view(&editor_b);
 
     // Receive a completion request as the host's language server.
     // Return some completions from the host's language server.
@@ -405,9 +394,9 @@ async fn test_collaborating_with_completion(cx_a: &mut TestAppContext, cx_b: &mu
     });
 
     // Confirm a completion on the guest.
-    editor_b.update_in(cx_b, |editor, window, cx| {
+    editor_b.update(cx_b, |editor, cx| {
         assert!(editor.context_menu_visible());
-        editor.confirm_completion(&ConfirmCompletion { item_ix: Some(0) }, window, cx);
+        editor.confirm_completion(&ConfirmCompletion { item_ix: Some(0) }, cx);
         assert_eq!(editor.text(cx), "fn main() { a.first_method() }");
     });
 
@@ -452,10 +441,10 @@ async fn test_collaborating_with_completion(cx_a: &mut TestAppContext, cx_b: &mu
 
     // Now we do a second completion, this time to ensure that documentation/snippets are
     // resolved
-    editor_b.update_in(cx_b, |editor, window, cx| {
-        editor.change_selections(None, window, cx, |s| s.select_ranges([46..46]));
-        editor.handle_input("; a", window, cx);
-        editor.handle_input(".", window, cx);
+    editor_b.update(cx_b, |editor, cx| {
+        editor.change_selections(None, cx, |s| s.select_ranges([46..46]));
+        editor.handle_input("; a", cx);
+        editor.handle_input(".", cx);
     });
 
     buffer_b.read_with(cx_b, |buffer, _| {
@@ -519,18 +508,18 @@ async fn test_collaborating_with_completion(cx_a: &mut TestAppContext, cx_b: &mu
 
     completion_response.next().await.unwrap();
 
-    editor_b.update_in(cx_b, |editor, window, cx| {
+    editor_b.update(cx_b, |editor, cx| {
         assert!(editor.context_menu_visible());
-        editor.context_menu_first(&ContextMenuFirst {}, window, cx);
+        editor.context_menu_first(&ContextMenuFirst {}, cx);
     });
 
     resolve_completion_response.next().await.unwrap();
     cx_b.executor().run_until_parked();
 
     // When accepting the completion, the snippet is insert.
-    editor_b.update_in(cx_b, |editor, window, cx| {
+    editor_b.update(cx_b, |editor, cx| {
         assert!(editor.context_menu_visible());
-        editor.confirm_completion(&ConfirmCompletion { item_ix: Some(0) }, window, cx);
+        editor.confirm_completion(&ConfirmCompletion { item_ix: Some(0) }, cx);
         assert_eq!(
             editor.text(cx),
             "use d::SomeTrait;\nfn main() { a.first_method(); a.third_method(, , ) }"
@@ -580,8 +569,8 @@ async fn test_collaborating_with_code_actions(
     let project_b = client_b.join_remote_project(project_id, cx_b).await;
     let (workspace_b, cx_b) = client_b.build_workspace(&project_b, cx_b);
     let editor_b = workspace_b
-        .update_in(cx_b, |workspace, window, cx| {
-            workspace.open_path((worktree_id, "main.rs"), None, true, window, cx)
+        .update(cx_b, |workspace, cx| {
+            workspace.open_path((worktree_id, "main.rs"), None, true, cx)
         })
         .await
         .unwrap()
@@ -604,12 +593,12 @@ async fn test_collaborating_with_code_actions(
     requests.next().await;
 
     // Move cursor to a location that contains code actions.
-    editor_b.update_in(cx_b, |editor, window, cx| {
-        editor.change_selections(None, window, cx, |s| {
+    editor_b.update(cx_b, |editor, cx| {
+        editor.change_selections(None, cx, |s| {
             s.select_ranges([Point::new(1, 31)..Point::new(1, 31)])
         });
     });
-    cx_b.focus(&editor_b);
+    cx_b.focus_view(&editor_b);
 
     let mut requests = fake_language_server
         .handle_request::<lsp::request::CodeActionRequest, _, _>(|params, _| async move {
@@ -669,12 +658,11 @@ async fn test_collaborating_with_code_actions(
     requests.next().await;
 
     // Toggle code actions and wait for them to display.
-    editor_b.update_in(cx_b, |editor, window, cx| {
+    editor_b.update(cx_b, |editor, cx| {
         editor.toggle_code_actions(
             &ToggleCodeActions {
                 deployed_from_indicator: None,
             },
-            window,
             cx,
         );
     });
@@ -686,8 +674,8 @@ async fn test_collaborating_with_code_actions(
 
     // Confirming the code action will trigger a resolve request.
     let confirm_action = editor_b
-        .update_in(cx_b, |editor, window, cx| {
-            Editor::confirm_code_action(editor, &ConfirmCodeAction { item_ix: Some(0) }, window, cx)
+        .update(cx_b, |editor, cx| {
+            Editor::confirm_code_action(editor, &ConfirmCodeAction { item_ix: Some(0) }, cx)
         })
         .unwrap();
     fake_language_server.handle_request::<lsp::request::CodeActionResolveRequest, _, _>(
@@ -738,14 +726,14 @@ async fn test_collaborating_with_code_actions(
             .downcast::<Editor>()
             .unwrap()
     });
-    code_action_editor.update_in(cx_b, |editor, window, cx| {
+    code_action_editor.update(cx_b, |editor, cx| {
         assert_eq!(editor.text(cx), "mod other;\nfn main() { let foo = 4; }\n");
-        editor.undo(&Undo, window, cx);
+        editor.undo(&Undo, cx);
         assert_eq!(
             editor.text(cx),
             "mod other;\nfn main() { let foo = other::foo(); }\npub fn foo() -> usize { 4 }"
         );
-        editor.redo(&Redo, window, cx);
+        editor.redo(&Redo, cx);
         assert_eq!(editor.text(cx), "mod other;\nfn main() { let foo = 4; }\n");
     });
 }
@@ -797,8 +785,8 @@ async fn test_collaborating_with_renames(cx_a: &mut TestAppContext, cx_b: &mut T
 
     let (workspace_b, cx_b) = client_b.build_workspace(&project_b, cx_b);
     let editor_b = workspace_b
-        .update_in(cx_b, |workspace, window, cx| {
-            workspace.open_path((worktree_id, "one.rs"), None, true, window, cx)
+        .update(cx_b, |workspace, cx| {
+            workspace.open_path((worktree_id, "one.rs"), None, true, cx)
         })
         .await
         .unwrap()
@@ -807,9 +795,9 @@ async fn test_collaborating_with_renames(cx_a: &mut TestAppContext, cx_b: &mut T
     let fake_language_server = fake_language_servers.next().await.unwrap();
 
     // Move cursor to a location that can be renamed.
-    let prepare_rename = editor_b.update_in(cx_b, |editor, window, cx| {
-        editor.change_selections(None, window, cx, |s| s.select_ranges([7..7]));
-        editor.rename(&Rename, window, cx).unwrap()
+    let prepare_rename = editor_b.update(cx_b, |editor, cx| {
+        editor.change_selections(None, cx, |s| s.select_ranges([7..7]));
+        editor.rename(&Rename, cx).unwrap()
     });
 
     fake_language_server
@@ -847,12 +835,12 @@ async fn test_collaborating_with_renames(cx_a: &mut TestAppContext, cx_b: &mut T
     });
 
     // Cancel the rename, and repeat the same, but use selections instead of cursor movement
-    editor_b.update_in(cx_b, |editor, window, cx| {
-        editor.cancel(&editor::actions::Cancel, window, cx);
+    editor_b.update(cx_b, |editor, cx| {
+        editor.cancel(&editor::actions::Cancel, cx);
     });
-    let prepare_rename = editor_b.update_in(cx_b, |editor, window, cx| {
-        editor.change_selections(None, window, cx, |s| s.select_ranges([7..8]));
-        editor.rename(&Rename, window, cx).unwrap()
+    let prepare_rename = editor_b.update(cx_b, |editor, cx| {
+        editor.change_selections(None, cx, |s| s.select_ranges([7..8]));
+        editor.rename(&Rename, cx).unwrap()
     });
 
     fake_language_server
@@ -888,8 +876,8 @@ async fn test_collaborating_with_renames(cx_a: &mut TestAppContext, cx_b: &mut T
         });
     });
 
-    let confirm_rename = editor_b.update_in(cx_b, |editor, window, cx| {
-        Editor::confirm_rename(editor, &ConfirmRename, window, cx).unwrap()
+    let confirm_rename = editor_b.update(cx_b, |editor, cx| {
+        Editor::confirm_rename(editor, &ConfirmRename, cx).unwrap()
     });
     fake_language_server
         .handle_request::<lsp::request::Rename, _, _>(|params, _| async move {
@@ -947,17 +935,17 @@ async fn test_collaborating_with_renames(cx_a: &mut TestAppContext, cx_b: &mut T
         workspace.active_item_as::<Editor>(cx).unwrap()
     });
 
-    rename_editor.update_in(cx_b, |editor, window, cx| {
+    rename_editor.update(cx_b, |editor, cx| {
         assert_eq!(
             editor.text(cx),
             "const THREE: usize = 1;\nconst TWO: usize = one::THREE + one::THREE;"
         );
-        editor.undo(&Undo, window, cx);
+        editor.undo(&Undo, cx);
         assert_eq!(
             editor.text(cx),
             "const ONE: usize = 1;\nconst TWO: usize = one::ONE + one::ONE;"
         );
-        editor.redo(&Redo, window, cx);
+        editor.redo(&Redo, cx);
         assert_eq!(
             editor.text(cx),
             "const THREE: usize = 1;\nconst TWO: usize = one::THREE + one::THREE;"
@@ -965,12 +953,12 @@ async fn test_collaborating_with_renames(cx_a: &mut TestAppContext, cx_b: &mut T
     });
 
     // Ensure temporary rename edits cannot be undone/redone.
-    editor_b.update_in(cx_b, |editor, window, cx| {
-        editor.undo(&Undo, window, cx);
+    editor_b.update(cx_b, |editor, cx| {
+        editor.undo(&Undo, cx);
         assert_eq!(editor.text(cx), "const ONE: usize = 1;");
-        editor.undo(&Undo, window, cx);
+        editor.undo(&Undo, cx);
         assert_eq!(editor.text(cx), "const ONE: usize = 1;");
-        editor.redo(&Redo, window, cx);
+        editor.redo(&Redo, cx);
         assert_eq!(editor.text(cx), "const THREE: usize = 1;");
     })
 }
@@ -1205,8 +1193,7 @@ async fn test_share_project(
         .await
         .unwrap();
 
-    let editor_b =
-        cx_b.new_window_entity(|window, cx| Editor::for_buffer(buffer_b, None, window, cx));
+    let editor_b = cx_b.new_view(|cx| Editor::for_buffer(buffer_b, None, cx));
 
     // Client A sees client B's selection
     executor.run_until_parked();
@@ -1220,9 +1207,7 @@ async fn test_share_project(
     });
 
     // Edit the buffer as client B and see that edit as client A.
-    editor_b.update_in(cx_b, |editor, window, cx| {
-        editor.handle_input("ok, ", window, cx)
-    });
+    editor_b.update(cx_b, |editor, cx| editor.handle_input("ok, ", cx));
     executor.run_until_parked();
 
     buffer_a.read_with(cx_a, |buffer, _| {
@@ -1249,7 +1234,7 @@ async fn test_share_project(
     let _project_c = client_c.join_remote_project(initial_project.id, cx_c).await;
 
     // Client B closes the editor, and client A sees client B's selections removed.
-    cx_b.update(move |_, _| drop(editor_b));
+    cx_b.update(move |_| drop(editor_b));
     executor.run_until_parked();
 
     buffer_a.read_with(cx_a, |buffer, _| {
@@ -1313,9 +1298,7 @@ async fn test_on_input_format_from_host_to_guest(
         .await
         .unwrap();
     let cx_a = cx_a.add_empty_window();
-    let editor_a = cx_a.new_window_entity(|window, cx| {
-        Editor::for_buffer(buffer_a, Some(project_a.clone()), window, cx)
-    });
+    let editor_a = cx_a.new_view(|cx| Editor::for_buffer(buffer_a, Some(project_a.clone()), cx));
 
     let fake_language_server = fake_language_servers.next().await.unwrap();
     executor.run_until_parked();
@@ -1347,10 +1330,10 @@ async fn test_on_input_format_from_host_to_guest(
         .unwrap();
 
     // Type a on type formatting trigger character as the guest.
-    cx_a.focus(&editor_a);
-    editor_a.update_in(cx_a, |editor, window, cx| {
-        editor.change_selections(None, window, cx, |s| s.select_ranges([13..13]));
-        editor.handle_input(">", window, cx);
+    cx_a.focus_view(&editor_a);
+    editor_a.update(cx_a, |editor, cx| {
+        editor.change_selections(None, cx, |s| s.select_ranges([13..13]));
+        editor.handle_input(">", cx);
     });
 
     executor.run_until_parked();
@@ -1360,9 +1343,9 @@ async fn test_on_input_format_from_host_to_guest(
     });
 
     // Undo should remove LSP edits first
-    editor_a.update_in(cx_a, |editor, window, cx| {
+    editor_a.update(cx_a, |editor, cx| {
         assert_eq!(editor.text(cx), "fn main() { a>~< }");
-        editor.undo(&Undo, window, cx);
+        editor.undo(&Undo, cx);
         assert_eq!(editor.text(cx), "fn main() { a> }");
     });
     executor.run_until_parked();
@@ -1371,9 +1354,9 @@ async fn test_on_input_format_from_host_to_guest(
         assert_eq!(buffer.text(), "fn main() { a> }")
     });
 
-    editor_a.update_in(cx_a, |editor, window, cx| {
+    editor_a.update(cx_a, |editor, cx| {
         assert_eq!(editor.text(cx), "fn main() { a> }");
-        editor.undo(&Undo, window, cx);
+        editor.undo(&Undo, cx);
         assert_eq!(editor.text(cx), "fn main() { a }");
     });
     executor.run_until_parked();
@@ -1435,18 +1418,16 @@ async fn test_on_input_format_from_guest_to_host(
         .await
         .unwrap();
     let cx_b = cx_b.add_empty_window();
-    let editor_b = cx_b.new_window_entity(|window, cx| {
-        Editor::for_buffer(buffer_b, Some(project_b.clone()), window, cx)
-    });
+    let editor_b = cx_b.new_view(|cx| Editor::for_buffer(buffer_b, Some(project_b.clone()), cx));
 
     let fake_language_server = fake_language_servers.next().await.unwrap();
     executor.run_until_parked();
 
     // Type a on type formatting trigger character as the guest.
-    cx_b.focus(&editor_b);
-    editor_b.update_in(cx_b, |editor, window, cx| {
-        editor.change_selections(None, window, cx, |s| s.select_ranges([13..13]));
-        editor.handle_input(":", window, cx);
+    cx_b.focus_view(&editor_b);
+    editor_b.update(cx_b, |editor, cx| {
+        editor.change_selections(None, cx, |s| s.select_ranges([13..13]));
+        editor.handle_input(":", cx);
     });
 
     // Receive an OnTypeFormatting request as the host's language server.
@@ -1485,9 +1466,9 @@ async fn test_on_input_format_from_guest_to_host(
     });
 
     // Undo should remove LSP edits first
-    editor_b.update_in(cx_b, |editor, window, cx| {
+    editor_b.update(cx_b, |editor, cx| {
         assert_eq!(editor.text(cx), "fn main() { a:~: }");
-        editor.undo(&Undo, window, cx);
+        editor.undo(&Undo, cx);
         assert_eq!(editor.text(cx), "fn main() { a: }");
     });
     executor.run_until_parked();
@@ -1496,9 +1477,9 @@ async fn test_on_input_format_from_guest_to_host(
         assert_eq!(buffer.text(), "fn main() { a: }")
     });
 
-    editor_b.update_in(cx_b, |editor, window, cx| {
+    editor_b.update(cx_b, |editor, cx| {
         assert_eq!(editor.text(cx), "fn main() { a: }");
-        editor.undo(&Undo, window, cx);
+        editor.undo(&Undo, cx);
         assert_eq!(editor.text(cx), "fn main() { a }");
     });
     executor.run_until_parked();
@@ -1591,8 +1572,6 @@ async fn test_mutual_editor_inlay_hint_cache_update(
         .await
         .unwrap();
 
-    executor.run_until_parked();
-
     // Client B joins the project
     let project_b = client_b.join_remote_project(project_id, cx_b).await;
     active_call_b
@@ -1611,8 +1590,8 @@ async fn test_mutual_editor_inlay_hint_cache_update(
         .await
         .unwrap();
     let editor_a = workspace_a
-        .update_in(cx_a, |workspace, window, cx| {
-            workspace.open_path((worktree_id, "main.rs"), None, true, window, cx)
+        .update(cx_a, |workspace, cx| {
+            workspace.open_path((worktree_id, "main.rs"), None, true, cx)
         })
         .await
         .unwrap()
@@ -1661,8 +1640,8 @@ async fn test_mutual_editor_inlay_hint_cache_update(
     });
     let (workspace_b, cx_b) = client_b.build_workspace(&project_b, cx_b);
     let editor_b = workspace_b
-        .update_in(cx_b, |workspace, window, cx| {
-            workspace.open_path((worktree_id, "main.rs"), None, true, window, cx)
+        .update(cx_b, |workspace, cx| {
+            workspace.open_path((worktree_id, "main.rs"), None, true, cx)
         })
         .await
         .unwrap()
@@ -1679,11 +1658,11 @@ async fn test_mutual_editor_inlay_hint_cache_update(
     });
 
     let after_client_edit = edits_made.fetch_add(1, atomic::Ordering::Release) + 1;
-    editor_b.update_in(cx_b, |editor, window, cx| {
-        editor.change_selections(None, window, cx, |s| s.select_ranges([13..13].clone()));
-        editor.handle_input(":", window, cx);
+    editor_b.update(cx_b, |editor, cx| {
+        editor.change_selections(None, cx, |s| s.select_ranges([13..13].clone()));
+        editor.handle_input(":", cx);
     });
-    cx_b.focus(&editor_b);
+    cx_b.focus_view(&editor_b);
 
     executor.run_until_parked();
     editor_a.update(cx_a, |editor, _| {
@@ -1700,11 +1679,11 @@ async fn test_mutual_editor_inlay_hint_cache_update(
     });
 
     let after_host_edit = edits_made.fetch_add(1, atomic::Ordering::Release) + 1;
-    editor_a.update_in(cx_a, |editor, window, cx| {
-        editor.change_selections(None, window, cx, |s| s.select_ranges([13..13]));
-        editor.handle_input("a change to increment both buffers' versions", window, cx);
+    editor_a.update(cx_a, |editor, cx| {
+        editor.change_selections(None, cx, |s| s.select_ranges([13..13]));
+        editor.handle_input("a change to increment both buffers' versions", cx);
     });
-    cx_a.focus(&editor_a);
+    cx_a.focus_view(&editor_a);
 
     executor.run_until_parked();
     editor_a.update(cx_a, |editor, _| {
@@ -1837,8 +1816,8 @@ async fn test_inlay_hint_refresh_is_forwarded(
     cx_a.background_executor.start_waiting();
 
     let editor_a = workspace_a
-        .update_in(cx_a, |workspace, window, cx| {
-            workspace.open_path((worktree_id, "main.rs"), None, true, window, cx)
+        .update(cx_a, |workspace, cx| {
+            workspace.open_path((worktree_id, "main.rs"), None, true, cx)
         })
         .await
         .unwrap()
@@ -1846,8 +1825,8 @@ async fn test_inlay_hint_refresh_is_forwarded(
         .unwrap();
 
     let editor_b = workspace_b
-        .update_in(cx_b, |workspace, window, cx| {
-            workspace.open_path((worktree_id, "main.rs"), None, true, window, cx)
+        .update(cx_b, |workspace, cx| {
+            workspace.open_path((worktree_id, "main.rs"), None, true, cx)
         })
         .await
         .unwrap()
@@ -2007,8 +1986,8 @@ async fn test_git_blame_is_forwarded(cx_a: &mut TestAppContext, cx_b: &mut TestA
     // Create editor_a
     let (workspace_a, cx_a) = client_a.build_workspace(&project_a, cx_a);
     let editor_a = workspace_a
-        .update_in(cx_a, |workspace, window, cx| {
-            workspace.open_path((worktree_id, "file.txt"), None, true, window, cx)
+        .update(cx_a, |workspace, cx| {
+            workspace.open_path((worktree_id, "file.txt"), None, true, cx)
         })
         .await
         .unwrap()
@@ -2019,8 +1998,8 @@ async fn test_git_blame_is_forwarded(cx_a: &mut TestAppContext, cx_b: &mut TestA
     let project_b = client_b.join_remote_project(project_id, cx_b).await;
     let (workspace_b, cx_b) = client_b.build_workspace(&project_b, cx_b);
     let editor_b = workspace_b
-        .update_in(cx_b, |workspace, window, cx| {
-            workspace.open_path((worktree_id, "file.txt"), None, true, window, cx)
+        .update(cx_b, |workspace, cx| {
+            workspace.open_path((worktree_id, "file.txt"), None, true, cx)
         })
         .await
         .unwrap()
@@ -2028,9 +2007,9 @@ async fn test_git_blame_is_forwarded(cx_a: &mut TestAppContext, cx_b: &mut TestA
         .unwrap();
 
     // client_b now requests git blame for the open buffer
-    editor_b.update_in(cx_b, |editor_b, window, cx| {
+    editor_b.update(cx_b, |editor_b, cx| {
         assert!(editor_b.blame().is_none());
-        editor_b.toggle_git_blame(&editor::actions::ToggleGitBlame {}, window, cx);
+        editor_b.toggle_git_blame(&editor::actions::ToggleGitBlame {}, cx);
     });
 
     cx_a.executor().run_until_parked();
@@ -2040,15 +2019,7 @@ async fn test_git_blame_is_forwarded(cx_a: &mut TestAppContext, cx_b: &mut TestA
         let blame = editor_b.blame().expect("editor_b should have blame now");
         let entries = blame.update(cx, |blame, cx| {
             blame
-                .blame_for_rows(
-                    &(0..4)
-                        .map(|row| RowInfo {
-                            buffer_row: Some(row),
-                            ..Default::default()
-                        })
-                        .collect::<Vec<_>>(),
-                    cx,
-                )
+                .blame_for_rows((0..4).map(MultiBufferRow).map(Some), cx)
                 .collect::<Vec<_>>()
         });
 
@@ -2076,7 +2047,7 @@ async fn test_git_blame_is_forwarded(cx_a: &mut TestAppContext, cx_b: &mut TestA
 
     // editor_b updates the file, which gets sent to client_a, which updates git blame,
     // which gets back to client_b.
-    editor_b.update_in(cx_b, |editor_b, _, cx| {
+    editor_b.update(cx_b, |editor_b, cx| {
         editor_b.edit([(Point::new(0, 3)..Point::new(0, 3), "FOO")], cx);
     });
 
@@ -2087,15 +2058,7 @@ async fn test_git_blame_is_forwarded(cx_a: &mut TestAppContext, cx_b: &mut TestA
         let blame = editor_b.blame().expect("editor_b should have blame now");
         let entries = blame.update(cx, |blame, cx| {
             blame
-                .blame_for_rows(
-                    &(0..4)
-                        .map(|row| RowInfo {
-                            buffer_row: Some(row),
-                            ..Default::default()
-                        })
-                        .collect::<Vec<_>>(),
-                    cx,
-                )
+                .blame_for_rows((0..4).map(MultiBufferRow).map(Some), cx)
                 .collect::<Vec<_>>()
         });
 
@@ -2111,7 +2074,7 @@ async fn test_git_blame_is_forwarded(cx_a: &mut TestAppContext, cx_b: &mut TestA
     });
 
     // Now editor_a also updates the file
-    editor_a.update_in(cx_a, |editor_a, _, cx| {
+    editor_a.update(cx_a, |editor_a, cx| {
         editor_a.edit([(Point::new(1, 3)..Point::new(1, 3), "FOO")], cx);
     });
 
@@ -2122,15 +2085,7 @@ async fn test_git_blame_is_forwarded(cx_a: &mut TestAppContext, cx_b: &mut TestA
         let blame = editor_b.blame().expect("editor_b should have blame now");
         let entries = blame.update(cx, |blame, cx| {
             blame
-                .blame_for_rows(
-                    &(0..4)
-                        .map(|row| RowInfo {
-                            buffer_row: Some(row),
-                            ..Default::default()
-                        })
-                        .collect::<Vec<_>>(),
-                    cx,
-                )
+                .blame_for_rows((0..4).map(MultiBufferRow).map(Some), cx)
                 .collect::<Vec<_>>()
         });
 
@@ -2197,21 +2152,19 @@ async fn test_collaborating_with_editorconfig(
         .await
         .unwrap();
     let cx_a = cx_a.add_empty_window();
-    let main_editor_a = cx_a.new_window_entity(|window, cx| {
-        Editor::for_buffer(main_buffer_a, Some(project_a.clone()), window, cx)
-    });
-    let other_editor_a = cx_a.new_window_entity(|window, cx| {
-        Editor::for_buffer(other_buffer_a, Some(project_a), window, cx)
-    });
+    let main_editor_a =
+        cx_a.new_view(|cx| Editor::for_buffer(main_buffer_a, Some(project_a.clone()), cx));
+    let other_editor_a =
+        cx_a.new_view(|cx| Editor::for_buffer(other_buffer_a, Some(project_a), cx));
     let mut main_editor_cx_a = EditorTestContext {
         cx: cx_a.clone(),
-        window: cx_a.window_handle(),
+        window: cx_a.handle(),
         editor: main_editor_a,
         assertion_cx: AssertionContextManager::new(),
     };
     let mut other_editor_cx_a = EditorTestContext {
         cx: cx_a.clone(),
-        window: cx_a.window_handle(),
+        window: cx_a.handle(),
         editor: other_editor_a,
         assertion_cx: AssertionContextManager::new(),
     };
@@ -2231,21 +2184,19 @@ async fn test_collaborating_with_editorconfig(
         .await
         .unwrap();
     let cx_b = cx_b.add_empty_window();
-    let main_editor_b = cx_b.new_window_entity(|window, cx| {
-        Editor::for_buffer(main_buffer_b, Some(project_b.clone()), window, cx)
-    });
-    let other_editor_b = cx_b.new_window_entity(|window, cx| {
-        Editor::for_buffer(other_buffer_b, Some(project_b.clone()), window, cx)
-    });
+    let main_editor_b =
+        cx_b.new_view(|cx| Editor::for_buffer(main_buffer_b, Some(project_b.clone()), cx));
+    let other_editor_b =
+        cx_b.new_view(|cx| Editor::for_buffer(other_buffer_b, Some(project_b.clone()), cx));
     let mut main_editor_cx_b = EditorTestContext {
         cx: cx_b.clone(),
-        window: cx_b.window_handle(),
+        window: cx_b.handle(),
         editor: main_editor_b,
         assertion_cx: AssertionContextManager::new(),
     };
     let mut other_editor_cx_b = EditorTestContext {
         cx: cx_b.clone(),
-        window: cx_b.window_handle(),
+        window: cx_b.handle(),
         editor: other_editor_b,
         assertion_cx: AssertionContextManager::new(),
     };
@@ -2442,8 +2393,8 @@ async fn test_add_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppConte
 
     // Client A opens an editor.
     let editor_a = workspace_a
-        .update_in(cx_a, |workspace, window, cx| {
-            workspace.open_path(project_path.clone(), None, true, window, cx)
+        .update(cx_a, |workspace, cx| {
+            workspace.open_path(project_path.clone(), None, true, cx)
         })
         .await
         .unwrap()
@@ -2452,8 +2403,8 @@ async fn test_add_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppConte
 
     // Client B opens same editor as A.
     let editor_b = workspace_b
-        .update_in(cx_b, |workspace, window, cx| {
-            workspace.open_path(project_path.clone(), None, true, window, cx)
+        .update(cx_b, |workspace, cx| {
+            workspace.open_path(project_path.clone(), None, true, cx)
         })
         .await
         .unwrap()
@@ -2464,8 +2415,8 @@ async fn test_add_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppConte
     cx_b.run_until_parked();
 
     // Client A adds breakpoint on line (1)
-    editor_a.update_in(cx_a, |editor, window, cx| {
-        editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, window, cx);
+    editor_a.update(cx_a, |editor, cx| {
+        editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, cx);
     });
 
     cx_a.run_until_parked();
@@ -2495,10 +2446,10 @@ async fn test_add_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppConte
     assert_eq!(breakpoints_a, breakpoints_b);
 
     // Client B adds breakpoint on line(2)
-    editor_b.update_in(cx_b, |editor, window, cx| {
-        editor.move_down(&editor::actions::MoveDown, window, cx);
-        editor.move_down(&editor::actions::MoveDown, window, cx);
-        editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, window, cx);
+    editor_b.update(cx_b, |editor, cx| {
+        editor.move_down(&editor::actions::MoveDown, cx);
+        editor.move_down(&editor::actions::MoveDown, cx);
+        editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, cx);
     });
 
     cx_a.run_until_parked();
@@ -2528,10 +2479,10 @@ async fn test_add_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppConte
     assert_eq!(2, breakpoints_a.get(&project_path).unwrap().len());
 
     // Client A removes last added breakpoint from client B
-    editor_a.update_in(cx_a, |editor, window, cx| {
-        editor.move_down(&editor::actions::MoveDown, window, cx);
-        editor.move_down(&editor::actions::MoveDown, window, cx);
-        editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, window, cx);
+    editor_a.update(cx_a, |editor, cx| {
+        editor.move_down(&editor::actions::MoveDown, cx);
+        editor.move_down(&editor::actions::MoveDown, cx);
+        editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, cx);
     });
 
     cx_a.run_until_parked();
@@ -2561,10 +2512,10 @@ async fn test_add_breakpoints(cx_a: &mut TestAppContext, cx_b: &mut TestAppConte
     assert_eq!(1, breakpoints_a.get(&project_path).unwrap().len());
 
     // Client B removes first added breakpoint by client A
-    editor_b.update_in(cx_b, |editor, window, cx| {
-        editor.move_up(&editor::actions::MoveUp, window, cx);
-        editor.move_up(&editor::actions::MoveUp, window, cx);
-        editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, window, cx);
+    editor_b.update(cx_b, |editor, cx| {
+        editor.move_up(&editor::actions::MoveUp, cx);
+        editor.move_up(&editor::actions::MoveUp, cx);
+        editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, cx);
     });
 
     cx_a.run_until_parked();
@@ -2605,12 +2556,12 @@ fn tab_undo_assert(
     cx_b.assert_editor_state(expected_initial);
 
     if a_tabs {
-        cx_a.update_editor(|editor, window, cx| {
-            editor.tab(&editor::actions::Tab, window, cx);
+        cx_a.update_editor(|editor, cx| {
+            editor.tab(&editor::actions::Tab, cx);
         });
     } else {
-        cx_b.update_editor(|editor, window, cx| {
-            editor.tab(&editor::actions::Tab, window, cx);
+        cx_b.update_editor(|editor, cx| {
+            editor.tab(&editor::actions::Tab, cx);
         });
     }
 
@@ -2621,12 +2572,12 @@ fn tab_undo_assert(
     cx_b.assert_editor_state(expected_tabbed);
 
     if a_tabs {
-        cx_a.update_editor(|editor, window, cx| {
-            editor.undo(&editor::actions::Undo, window, cx);
+        cx_a.update_editor(|editor, cx| {
+            editor.undo(&editor::actions::Undo, cx);
         });
     } else {
-        cx_b.update_editor(|editor, window, cx| {
-            editor.undo(&editor::actions::Undo, window, cx);
+        cx_b.update_editor(|editor, cx| {
+            editor.undo(&editor::actions::Undo, cx);
         });
     }
     cx_a.run_until_parked();

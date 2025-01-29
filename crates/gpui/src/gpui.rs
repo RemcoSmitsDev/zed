@@ -129,7 +129,7 @@ pub use elements::*;
 pub use executor::*;
 pub use geometry::*;
 pub use global::*;
-pub use gpui_macros::{register_action, test, AppContext, IntoElement, Render, VisualContext};
+pub use gpui_macros::{register_action, test, IntoElement, Render};
 pub use http_client;
 pub use input::*;
 pub use interactive::*;
@@ -138,6 +138,7 @@ pub use keymap::*;
 pub use platform::*;
 pub use refineable::*;
 pub use scene::*;
+use seal::Sealed;
 pub use shared_string::*;
 pub use shared_uri::*;
 pub use smol::Timer;
@@ -158,44 +159,44 @@ use taffy::TaffyLayoutEngine;
 
 /// The context trait, allows the different contexts in GPUI to be used
 /// interchangeably for certain operations.
-pub trait AppContext {
+pub trait Context {
     /// The result type for this context, used for async contexts that
     /// can't hold a direct reference to the application context.
     type Result<T>;
 
     /// Create a new model in the app context.
-    fn new<T: 'static>(
+    fn new_model<T: 'static>(
         &mut self,
-        build_model: impl FnOnce(&mut Context<'_, T>) -> T,
-    ) -> Self::Result<Entity<T>>;
+        build_model: impl FnOnce(&mut ModelContext<'_, T>) -> T,
+    ) -> Self::Result<Model<T>>;
 
     /// Reserve a slot for a model to be inserted later.
     /// The returned [Reservation] allows you to obtain the [EntityId] for the future model.
-    fn reserve_entity<T: 'static>(&mut self) -> Self::Result<Reservation<T>>;
+    fn reserve_model<T: 'static>(&mut self) -> Self::Result<Reservation<T>>;
 
-    /// Insert a new model in the app context based on a [Reservation] previously obtained from [`reserve_entity`].
+    /// Insert a new model in the app context based on a [Reservation] previously obtained from [`reserve_model`].
     ///
-    /// [`reserve_entity`]: Self::reserve_entity
-    fn insert_entity<T: 'static>(
+    /// [`reserve_model`]: Self::reserve_model
+    fn insert_model<T: 'static>(
         &mut self,
         reservation: Reservation<T>,
-        build_model: impl FnOnce(&mut Context<'_, T>) -> T,
-    ) -> Self::Result<Entity<T>>;
+        build_model: impl FnOnce(&mut ModelContext<'_, T>) -> T,
+    ) -> Self::Result<Model<T>>;
 
     /// Update a model in the app context.
-    fn update_entity<T, R>(
+    fn update_model<T, R>(
         &mut self,
-        handle: &Entity<T>,
-        update: impl FnOnce(&mut T, &mut Context<'_, T>) -> R,
+        handle: &Model<T>,
+        update: impl FnOnce(&mut T, &mut ModelContext<'_, T>) -> R,
     ) -> Self::Result<R>
     where
         T: 'static;
 
     /// Read a model from the app context.
-    fn read_entity<T, R>(
+    fn read_model<T, R>(
         &self,
-        handle: &Entity<T>,
-        read: impl FnOnce(&T, &App) -> R,
+        handle: &Model<T>,
+        read: impl FnOnce(&T, &AppContext) -> R,
     ) -> Self::Result<R>
     where
         T: 'static;
@@ -203,19 +204,19 @@ pub trait AppContext {
     /// Update a window for the given handle.
     fn update_window<T, F>(&mut self, window: AnyWindowHandle, f: F) -> Result<T>
     where
-        F: FnOnce(AnyView, &mut Window, &mut App) -> T;
+        F: FnOnce(AnyView, &mut WindowContext) -> T;
 
     /// Read a window off of the application context.
     fn read_window<T, R>(
         &self,
         window: &WindowHandle<T>,
-        read: impl FnOnce(Entity<T>, &App) -> R,
+        read: impl FnOnce(View<T>, &AppContext) -> R,
     ) -> Result<R>
     where
         T: 'static;
 }
 
-/// Returned by [Context::reserve_entity] to later be passed to [Context::insert_model].
+/// Returned by [Context::reserve_model] to later be passed to [Context::insert_model].
 /// Allows you to obtain the [EntityId] for a model before it is created.
 pub struct Reservation<T>(pub(crate) Slot<T>);
 
@@ -228,35 +229,56 @@ impl<T: 'static> Reservation<T> {
 
 /// This trait is used for the different visual contexts in GPUI that
 /// require a window to be present.
-pub trait VisualContext: AppContext {
-    /// Returns the handle of the window associated with this context.
-    fn window_handle(&self) -> AnyWindowHandle;
+pub trait VisualContext: Context {
+    /// Construct a new view in the window referenced by this context.
+    fn new_view<V>(
+        &mut self,
+        build_view: impl FnOnce(&mut ViewContext<V>) -> V,
+    ) -> Self::Result<View<V>>
+    where
+        V: 'static + Render;
 
     /// Update a view with the given callback
-    fn update_window_entity<T: 'static, R>(
+    fn update_view<V: 'static, R>(
         &mut self,
-        model: &Entity<T>,
-        update: impl FnOnce(&mut T, &mut Window, &mut Context<T>) -> R,
+        view: &View<V>,
+        update: impl FnOnce(&mut V, &mut ViewContext<V>) -> R,
     ) -> Self::Result<R>;
-
-    /// Update a view with the given callback
-    fn new_window_entity<T: 'static>(
-        &mut self,
-        build_model: impl FnOnce(&mut Window, &mut Context<'_, T>) -> T,
-    ) -> Self::Result<Entity<T>>;
 
     /// Replace the root view of a window with a new view.
     fn replace_root_view<V>(
         &mut self,
-        build_view: impl FnOnce(&mut Window, &mut Context<V>) -> V,
-    ) -> Self::Result<Entity<V>>
+        build_view: impl FnOnce(&mut ViewContext<V>) -> V,
+    ) -> Self::Result<View<V>>
     where
         V: 'static + Render;
 
-    /// Focus a model in the window, if it implements the [`Focusable`] trait.
-    fn focus<V>(&mut self, model: &Entity<V>) -> Self::Result<()>
+    /// Focus a view in the window, if it implements the [`FocusableView`] trait.
+    fn focus_view<V>(&mut self, view: &View<V>) -> Self::Result<()>
     where
-        V: Focusable;
+        V: FocusableView;
+
+    /// Dismiss a view in the window, if it implements the [`ManagedView`] trait.
+    fn dismiss_view<V>(&mut self, view: &View<V>) -> Self::Result<()>
+    where
+        V: ManagedView;
+}
+
+/// A trait that allows models and views to be interchangeable in certain operations
+pub trait Entity<T>: Sealed {
+    /// The weak reference type for this entity.
+    type Weak: 'static;
+
+    /// The ID for this entity
+    fn entity_id(&self) -> EntityId;
+
+    /// Downgrade this entity to a weak reference.
+    fn downgrade(&self) -> Self::Weak;
+
+    /// Upgrade this entity from a weak reference.
+    fn upgrade_from(weak: &Self::Weak) -> Option<Self>
+    where
+        Self: Sized;
 }
 
 /// A trait for tying together the types of a GPUI entity and the events it can
@@ -280,7 +302,7 @@ pub trait BorrowAppContext {
 
 impl<C> BorrowAppContext for C
 where
-    C: BorrowMut<App>,
+    C: BorrowMut<AppContext>,
 {
     fn set_global<G: Global>(&mut self, global: G) {
         self.borrow_mut().set_global(global)

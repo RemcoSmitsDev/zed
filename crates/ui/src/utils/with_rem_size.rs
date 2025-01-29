@@ -1,7 +1,7 @@
 use gpui::{
-    div, AnyElement, App, Bounds, Div, DivFrameState, Element, ElementId, GlobalElementId, Hitbox,
+    div, AnyElement, Bounds, Div, DivFrameState, Element, ElementId, GlobalElementId, Hitbox,
     InteractiveElement as _, IntoElement, LayoutId, ParentElement, Pixels, StyleRefinement, Styled,
-    Window,
+    WindowContext,
 };
 
 /// An element that sets a particular rem size for its children.
@@ -51,12 +51,9 @@ impl Element for WithRemSize {
     fn request_layout(
         &mut self,
         id: Option<&GlobalElementId>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> (LayoutId, Self::RequestLayoutState) {
-        window.with_rem_size(Some(self.rem_size), |window| {
-            self.div.request_layout(id, window, cx)
-        })
+        cx.with_rem_size(Some(self.rem_size), |cx| self.div.request_layout(id, cx))
     }
 
     fn prepaint(
@@ -64,11 +61,10 @@ impl Element for WithRemSize {
         id: Option<&GlobalElementId>,
         bounds: Bounds<Pixels>,
         request_layout: &mut Self::RequestLayoutState,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Self::PrepaintState {
-        window.with_rem_size(Some(self.rem_size), |window| {
-            self.div.prepaint(id, bounds, request_layout, window, cx)
+        cx.with_rem_size(Some(self.rem_size), |cx| {
+            self.div.prepaint(id, bounds, request_layout, cx)
         })
     }
 
@@ -78,12 +74,10 @@ impl Element for WithRemSize {
         bounds: Bounds<Pixels>,
         request_layout: &mut Self::RequestLayoutState,
         prepaint: &mut Self::PrepaintState,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) {
-        window.with_rem_size(Some(self.rem_size), |window| {
-            self.div
-                .paint(id, bounds, request_layout, prepaint, window, cx)
+        cx.with_rem_size(Some(self.rem_size), |cx| {
+            self.div.paint(id, bounds, request_layout, prepaint, cx)
         })
     }
 }

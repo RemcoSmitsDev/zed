@@ -3,11 +3,11 @@ pub mod parser;
 use crate::parser::CodeBlockKind;
 use futures::FutureExt;
 use gpui::{
-    actions, point, quad, AnyElement, App, Bounds, ClipboardItem, CursorStyle, DispatchPhase,
-    Edges, Entity, FocusHandle, Focusable, FontStyle, FontWeight, GlobalElementId, Hitbox, Hsla,
-    KeyContext, Length, MouseDownEvent, MouseEvent, MouseMoveEvent, MouseUpEvent, Point, Render,
-    Stateful, StrikethroughStyle, StyleRefinement, StyledText, Task, TextLayout, TextRun,
-    TextStyle, TextStyleRefinement,
+    actions, point, quad, AnyElement, AppContext, Bounds, ClipboardItem, CursorStyle,
+    DispatchPhase, Edges, FocusHandle, FocusableView, FontStyle, FontWeight, GlobalElementId,
+    Hitbox, Hsla, KeyContext, Length, MouseDownEvent, MouseEvent, MouseMoveEvent, MouseUpEvent,
+    Point, Render, Stateful, StrikethroughStyle, StyleRefinement, StyledText, Task, TextLayout,
+    TextRun, TextStyle, TextStyleRefinement, View,
 };
 use language::{Language, LanguageRegistry, Rope};
 use parser::{parse_links_only, parse_markdown, MarkdownEvent, MarkdownTag, MarkdownTagEnd};
@@ -78,8 +78,7 @@ impl Markdown {
         style: MarkdownStyle,
         language_registry: Option<Arc<LanguageRegistry>>,
         fallback_code_block_language: Option<String>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &ViewContext<Self>,
     ) -> Self {
         let focus_handle = cx.focus_handle();
         let mut this = Self {
@@ -99,7 +98,7 @@ impl Markdown {
                 copy_code_block_buttons: true,
             },
         };
-        this.parse(window, cx);
+        this.parse(cx);
         this
     }
 
@@ -108,8 +107,7 @@ impl Markdown {
         style: MarkdownStyle,
         language_registry: Option<Arc<LanguageRegistry>>,
         fallback_code_block_language: Option<String>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &ViewContext<Self>,
     ) -> Self {
         let focus_handle = cx.focus_handle();
         let mut this = Self {
@@ -129,7 +127,7 @@ impl Markdown {
                 copy_code_block_buttons: true,
             },
         };
-        this.parse(window, cx);
+        this.parse(cx);
         this
     }
 
@@ -137,12 +135,12 @@ impl Markdown {
         &self.source
     }
 
-    pub fn append(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn append(&mut self, text: &str, cx: &ViewContext<Self>) {
         self.source.push_str(text);
-        self.parse(window, cx);
+        self.parse(cx);
     }
 
-    pub fn reset(&mut self, source: String, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn reset(&mut self, source: String, cx: &ViewContext<Self>) {
         if source == self.source() {
             return;
         }
@@ -152,14 +150,14 @@ impl Markdown {
         self.pending_parse = None;
         self.should_reparse = false;
         self.parsed_markdown = ParsedMarkdown::default();
-        self.parse(window, cx);
+        self.parse(cx);
     }
 
     pub fn parsed_markdown(&self) -> &ParsedMarkdown {
         &self.parsed_markdown
     }
 
-    fn copy(&self, text: &RenderedText, _: &mut Window, cx: &mut Context<Self>) {
+    fn copy(&self, text: &RenderedText, cx: &ViewContext<Self>) {
         if self.selection.end <= self.selection.start {
             return;
         }
@@ -167,7 +165,7 @@ impl Markdown {
         cx.write_to_clipboard(ClipboardItem::new_string(text));
     }
 
-    fn parse(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn parse(&mut self, cx: &ViewContext<Self>) {
         if self.source.is_empty() {
             return;
         }
@@ -192,14 +190,14 @@ impl Markdown {
         });
 
         self.should_reparse = false;
-        self.pending_parse = Some(cx.spawn_in(window, |this, mut cx| {
+        self.pending_parse = Some(cx.spawn(|this, mut cx| {
             async move {
                 let parsed = parsed.await?;
-                this.update_in(&mut cx, |this, window, cx| {
+                this.update(&mut cx, |this, cx| {
                     this.parsed_markdown = parsed;
                     this.pending_parse.take();
                     if this.should_reparse {
-                        this.parse(window, cx);
+                        this.parse(cx);
                     }
                     cx.notify();
                 })
@@ -217,9 +215,9 @@ impl Markdown {
 }
 
 impl Render for Markdown {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         MarkdownElement::new(
-            cx.entity().clone(),
+            cx.view().clone(),
             self.style.clone(),
             self.language_registry.clone(),
             self.fallback_code_block_language.clone(),
@@ -227,8 +225,8 @@ impl Render for Markdown {
     }
 }
 
-impl Focusable for Markdown {
-    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+impl FocusableView for Markdown {
+    fn focus_handle(&self, _cx: &AppContext) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
@@ -284,7 +282,7 @@ impl ParsedMarkdown {
 }
 
 pub struct MarkdownElement {
-    markdown: Entity<Markdown>,
+    markdown: View<Markdown>,
     style: MarkdownStyle,
     language_registry: Option<Arc<LanguageRegistry>>,
     fallback_code_block_language: Option<String>,
@@ -292,7 +290,7 @@ pub struct MarkdownElement {
 
 impl MarkdownElement {
     fn new(
-        markdown: Entity<Markdown>,
+        markdown: View<Markdown>,
         style: MarkdownStyle,
         language_registry: Option<Arc<LanguageRegistry>>,
         fallback_code_block_language: Option<String>,
@@ -305,12 +303,7 @@ impl MarkdownElement {
         }
     }
 
-    fn load_language(
-        &self,
-        name: &str,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> Option<Arc<Language>> {
+    fn load_language(&self, name: &str, cx: &mut WindowContext) -> Option<Arc<Language>> {
         let language_test = self.language_registry.as_ref()?.language_for_name(name);
 
         let language_name = match language_test.now_or_never() {
@@ -332,12 +325,11 @@ impl MarkdownElement {
             Some(language) => language,
             None => {
                 let markdown = self.markdown.downgrade();
-                window
-                    .spawn(cx, |mut cx| async move {
-                        language.await;
-                        markdown.update(&mut cx, |_, cx| cx.notify())
-                    })
-                    .detach_and_log_err(cx);
+                cx.spawn(|mut cx| async move {
+                    language.await;
+                    markdown.update(&mut cx, |_, cx| cx.notify())
+                })
+                .detach_and_log_err(cx);
                 None
             }
         }
@@ -347,8 +339,7 @@ impl MarkdownElement {
         &self,
         bounds: Bounds<Pixels>,
         rendered_text: &RenderedText,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) {
         let selection = self.markdown.read(cx).selection;
         let selection_start = rendered_text.position_for_source_index(selection.start);
@@ -358,7 +349,7 @@ impl MarkdownElement {
             selection_start.zip(selection_end)
         {
             if start_position.y == end_position.y {
-                window.paint_quad(quad(
+                cx.paint_quad(quad(
                     Bounds::from_corners(
                         start_position,
                         point(end_position.x, end_position.y + end_line_height),
@@ -369,7 +360,7 @@ impl MarkdownElement {
                     Hsla::transparent_black(),
                 ));
             } else {
-                window.paint_quad(quad(
+                cx.paint_quad(quad(
                     Bounds::from_corners(
                         start_position,
                         point(bounds.right(), start_position.y + start_line_height),
@@ -381,7 +372,7 @@ impl MarkdownElement {
                 ));
 
                 if end_position.y > start_position.y + start_line_height {
-                    window.paint_quad(quad(
+                    cx.paint_quad(quad(
                         Bounds::from_corners(
                             point(bounds.left(), start_position.y + start_line_height),
                             point(bounds.right(), end_position.y),
@@ -393,7 +384,7 @@ impl MarkdownElement {
                     ));
                 }
 
-                window.paint_quad(quad(
+                cx.paint_quad(quad(
                     Bounds::from_corners(
                         point(bounds.left(), end_position.y),
                         point(end_position.x, end_position.y + end_line_height),
@@ -411,26 +402,25 @@ impl MarkdownElement {
         &self,
         hitbox: &Hitbox,
         rendered_text: &RenderedText,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) {
-        let is_hovering_link = hitbox.is_hovered(window)
+        let is_hovering_link = hitbox.is_hovered(cx)
             && !self.markdown.read(cx).selection.pending
             && rendered_text
-                .link_for_position(window.mouse_position())
+                .link_for_position(cx.mouse_position())
                 .is_some();
 
         if is_hovering_link {
-            window.set_cursor_style(CursorStyle::PointingHand, hitbox);
+            cx.set_cursor_style(CursorStyle::PointingHand, hitbox);
         } else {
-            window.set_cursor_style(CursorStyle::IBeam, hitbox);
+            cx.set_cursor_style(CursorStyle::IBeam, hitbox);
         }
 
-        self.on_mouse_event(window, cx, {
+        self.on_mouse_event(cx, {
             let rendered_text = rendered_text.clone();
             let hitbox = hitbox.clone();
-            move |markdown, event: &MouseDownEvent, phase, window, cx| {
-                if hitbox.is_hovered(window) {
+            move |markdown, event: &MouseDownEvent, phase, cx| {
+                if hitbox.is_hovered(cx) {
                     if phase.bubble() {
                         if let Some(link) = rendered_text.link_for_position(event.position) {
                             markdown.pressed_link = Some(link.clone());
@@ -452,8 +442,8 @@ impl MarkdownElement {
                                 reversed: false,
                                 pending: true,
                             };
-                            window.focus(&markdown.focus_handle);
-                            window.prevent_default()
+                            cx.focus(&markdown.focus_handle);
+                            cx.prevent_default()
                         }
 
                         cx.notify();
@@ -465,11 +455,11 @@ impl MarkdownElement {
                 }
             }
         });
-        self.on_mouse_event(window, cx, {
+        self.on_mouse_event(cx, {
             let rendered_text = rendered_text.clone();
             let hitbox = hitbox.clone();
             let was_hovering_link = is_hovering_link;
-            move |markdown, event: &MouseMoveEvent, phase, window, cx| {
+            move |markdown, event: &MouseMoveEvent, phase, cx| {
                 if phase.capture() {
                     return;
                 }
@@ -483,7 +473,7 @@ impl MarkdownElement {
                     markdown.autoscroll_request = Some(source_index);
                     cx.notify();
                 } else {
-                    let is_hovering_link = hitbox.is_hovered(window)
+                    let is_hovering_link = hitbox.is_hovered(cx)
                         && rendered_text.link_for_position(event.position).is_some();
                     if is_hovering_link != was_hovering_link {
                         cx.notify();
@@ -491,9 +481,9 @@ impl MarkdownElement {
                 }
             }
         });
-        self.on_mouse_event(window, cx, {
+        self.on_mouse_event(cx, {
             let rendered_text = rendered_text.clone();
-            move |markdown, event: &MouseUpEvent, phase, _, cx| {
+            move |markdown, event: &MouseUpEvent, phase, cx| {
                 if phase.bubble() {
                     if let Some(pressed_link) = markdown.pressed_link.take() {
                         if Some(&pressed_link) == rendered_text.link_for_position(event.position) {
@@ -514,27 +504,22 @@ impl MarkdownElement {
         });
     }
 
-    fn autoscroll(
-        &self,
-        rendered_text: &RenderedText,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> Option<()> {
+    fn autoscroll(&self, rendered_text: &RenderedText, cx: &mut WindowContext) -> Option<()> {
         let autoscroll_index = self
             .markdown
             .update(cx, |markdown, _| markdown.autoscroll_request.take())?;
         let (position, line_height) = rendered_text.position_for_source_index(autoscroll_index)?;
 
         let text_style = self.style.base_text_style.clone();
-        let font_id = window.text_system().resolve_font(&text_style.font());
-        let font_size = text_style.font_size.to_pixels(window.rem_size());
-        let em_width = window
+        let font_id = cx.text_system().resolve_font(&text_style.font());
+        let font_size = text_style.font_size.to_pixels(cx.rem_size());
+        let em_width = cx
             .text_system()
             .typographic_bounds(font_id, font_size, 'm')
             .unwrap()
             .size
             .width;
-        window.request_autoscroll(Bounds::from_corners(
+        cx.request_autoscroll(Bounds::from_corners(
             point(position.x - 3. * em_width, position.y - 3. * line_height),
             point(position.x + 3. * em_width, position.y + 3. * line_height),
         ));
@@ -543,16 +528,14 @@ impl MarkdownElement {
 
     fn on_mouse_event<T: MouseEvent>(
         &self,
-        window: &mut Window,
-        _cx: &mut App,
-        mut f: impl 'static
-            + FnMut(&mut Markdown, &T, DispatchPhase, &mut Window, &mut Context<Markdown>),
+        cx: &mut WindowContext,
+        mut f: impl 'static + FnMut(&mut Markdown, &T, DispatchPhase, &mut ViewContext<Markdown>),
     ) {
-        window.on_mouse_event({
+        cx.on_mouse_event({
             let markdown = self.markdown.downgrade();
-            move |event, phase, window, cx| {
+            move |event, phase, cx| {
                 markdown
-                    .update(cx, |markdown, cx| f(markdown, event, phase, window, cx))
+                    .update(cx, |markdown, cx| f(markdown, event, phase, cx))
                     .log_err();
             }
         });
@@ -570,8 +553,7 @@ impl Element for MarkdownElement {
     fn request_layout(
         &mut self,
         _id: Option<&GlobalElementId>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> (gpui::LayoutId, Self::RequestLayoutState) {
         let mut builder = MarkdownElementBuilder::new(
             self.style.base_text_style.clone(),
@@ -623,7 +605,7 @@ impl Element for MarkdownElement {
                         }
                         MarkdownTag::CodeBlock(kind) => {
                             let language = if let CodeBlockKind::Fenced(language) = kind {
-                                self.load_language(language.as_ref(), window, cx)
+                                self.load_language(language.as_ref(), cx)
                             } else {
                                 None
                             };
@@ -712,14 +694,14 @@ impl Element for MarkdownElement {
                                     IconButton::new(id, IconName::Copy)
                                         .icon_color(Color::Muted)
                                         .shape(ui::IconButtonShape::Square)
-                                        .tooltip(Tooltip::text("Copy Code Block"))
+                                        .tooltip(|cx| Tooltip::text("Copy Code Block", cx))
                                         .on_click({
                                             let code = without_fences(
                                                 parsed_markdown.source()[range.clone()].trim(),
                                             )
                                             .to_string();
 
-                                            move |_, _, cx| {
+                                            move |_, cx| {
                                                 cx.write_to_clipboard(ClipboardItem::new_string(
                                                     code.clone(),
                                                 ))
@@ -792,8 +774,8 @@ impl Element for MarkdownElement {
             }
         }
         let mut rendered_markdown = builder.build();
-        let child_layout_id = rendered_markdown.element.request_layout(window, cx);
-        let layout_id = window.request_layout(gpui::Style::default(), [child_layout_id], cx);
+        let child_layout_id = rendered_markdown.element.request_layout(cx);
+        let layout_id = cx.request_layout(gpui::Style::default(), [child_layout_id]);
         (layout_id, rendered_markdown)
     }
 
@@ -802,15 +784,14 @@ impl Element for MarkdownElement {
         _id: Option<&GlobalElementId>,
         bounds: Bounds<Pixels>,
         rendered_markdown: &mut Self::RequestLayoutState,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Self::PrepaintState {
         let focus_handle = self.markdown.read(cx).focus_handle.clone();
-        window.set_focus_handle(&focus_handle, cx);
+        cx.set_focus_handle(&focus_handle);
 
-        let hitbox = window.insert_hitbox(bounds, false);
-        rendered_markdown.element.prepaint(window, cx);
-        self.autoscroll(&rendered_markdown.text, window, cx);
+        let hitbox = cx.insert_hitbox(bounds, false);
+        rendered_markdown.element.prepaint(cx);
+        self.autoscroll(&rendered_markdown.text, cx);
         hitbox
     }
 
@@ -820,26 +801,25 @@ impl Element for MarkdownElement {
         bounds: Bounds<Pixels>,
         rendered_markdown: &mut Self::RequestLayoutState,
         hitbox: &mut Self::PrepaintState,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) {
         let mut context = KeyContext::default();
         context.add("Markdown");
-        window.set_key_context(context);
-        let model = self.markdown.clone();
-        window.on_action(std::any::TypeId::of::<crate::Copy>(), {
+        cx.set_key_context(context);
+        let view = self.markdown.clone();
+        cx.on_action(std::any::TypeId::of::<crate::Copy>(), {
             let text = rendered_markdown.text.clone();
-            move |_, phase, window, cx| {
+            move |_, phase, cx| {
                 let text = text.clone();
                 if phase == DispatchPhase::Bubble {
-                    model.update(cx, move |this, cx| this.copy(&text, window, cx))
+                    view.update(cx, move |this, cx| this.copy(&text, cx))
                 }
             }
         });
 
-        self.paint_mouse_listeners(hitbox, &rendered_markdown.text, window, cx);
-        rendered_markdown.element.paint(window, cx);
-        self.paint_selection(bounds, &rendered_markdown.text, window, cx);
+        self.paint_mouse_listeners(hitbox, &rendered_markdown.text, cx);
+        rendered_markdown.element.paint(cx);
+        self.paint_selection(bounds, &rendered_markdown.text, cx);
     }
 }
 

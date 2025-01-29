@@ -2,6 +2,7 @@ use std::fmt::format;
 
 use gpui::{
     colors, div, prelude::*, uniform_list, DefaultColor, DefaultThemeAppearance, Hsla, Render,
+    View, ViewContext, WindowContext,
 };
 use story::Story;
 use strum::IntoEnumIterator;
@@ -16,7 +17,7 @@ pub struct IndentGuidesStory {
 }
 
 impl IndentGuidesStory {
-    pub fn model(window: &mut Window, cx: &mut AppContext) -> Model<Self> {
+    pub fn view(cx: &mut WindowContext) -> View<Self> {
         let mut depths = Vec::new();
         depths.push(0);
         depths.push(1);
@@ -28,18 +29,18 @@ impl IndentGuidesStory {
         depths.push(1);
         depths.push(0);
 
-        cx.new(|_cx| Self { depths })
+        cx.new_view(|_cx| Self { depths })
     }
 }
 
 impl Render for IndentGuidesStory {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         Story::container()
             .child(Story::title("Indent guides"))
             .child(
                 v_flex().size_full().child(
                     uniform_list(
-                        cx.entity().clone(),
+                        cx.view().clone(),
                         "some-list",
                         self.depths.len(),
                         |this, range, cx| {
@@ -60,7 +61,7 @@ impl Render for IndentGuidesStory {
                     )
                     .with_sizing_behavior(gpui::ListSizingBehavior::Infer)
                     .with_decoration(ui::indent_guides(
-                        cx.entity().clone(),
+                        cx.view().clone(),
                         px(16.),
                         ui::IndentGuideColors {
                             default: Color::Info.color(cx),

@@ -1,45 +1,83 @@
 #![cfg_attr(target_os = "windows", allow(unused, dead_code))]
 
-mod assistant_configuration;
 pub mod assistant_panel;
+mod context;
+pub mod context_store;
 mod inline_assistant;
+mod patch;
+mod slash_command;
+pub(crate) mod slash_command_picker;
 pub mod slash_command_settings;
 mod terminal_inline_assistant;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use assistant_settings::AssistantSettings;
 use assistant_slash_command::SlashCommandRegistry;
 use assistant_slash_commands::{ProjectSlashCommandFeatureFlag, SearchSlashCommandFeatureFlag};
-use client::Client;
+use client::{proto, Client};
 use command_palette_hooks::CommandPaletteFilter;
 use feature_flags::FeatureFlagAppExt;
 use fs::Fs;
-use gpui::{actions, App, Global, UpdateGlobal};
+use gpui::impl_internal_actions;
+use gpui::{actions, AppContext, Global, SharedString, UpdateGlobal};
 use language_model::{
     LanguageModelId, LanguageModelProviderId, LanguageModelRegistry, LanguageModelResponseMessage,
 };
-use prompt_library::PromptBuilder;
+use prompt_library::{PromptBuilder, PromptLoadingParams};
 use semantic_index::{CloudEmbeddingProvider, SemanticDb};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use settings::{Settings, SettingsStore};
+use util::ResultExt;
 
 pub use crate::assistant_panel::{AssistantPanel, AssistantPanelEvent};
+pub use crate::context::*;
+pub use crate::context_store::*;
 pub(crate) use crate::inline_assistant::*;
+pub use crate::patch::*;
 use crate::slash_command_settings::SlashCommandSettings;
 
 actions!(
     assistant,
     [
+        Assist,
+        Edit,
+        Split,
+        CopyCode,
+        CycleMessageRole,
+        QuoteSelection,
+        InsertIntoEditor,
+        ToggleFocus,
         InsertActivePrompt,
         DeployHistory,
+        DeployPromptLibrary,
+        ConfirmCommand,
         NewContext,
+        ToggleModelSelector,
         CycleNextInlineAssist,
         CyclePreviousInlineAssist
     ]
 );
 
+#[derive(PartialEq, Clone)]
+pub enum InsertDraggedFiles {
+    ProjectPaths(Vec<PathBuf>),
+    ExternalFiles(Vec<PathBuf>),
+}
+
+impl_internal_actions!(assistant, [InsertDraggedFiles]);
+
 const DEFAULT_CONTEXT_LINES: usize = 50;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct MessageId(clock::Lamport);
+
+impl MessageId {
+    pub fn as_u64(self) -> u64 {
+        self.0.as_u64()
+    }
+}
 
 #[derive(Deserialize, Debug)]
 pub struct LanguageModelUsage {
@@ -55,6 +93,55 @@ pub struct LanguageModelChoiceDelta {
     pub finish_reason: Option<String>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum MessageStatus {
+    Pending,
+    Done,
+    Error(SharedString),
+    Canceled,
+}
+
+impl MessageStatus {
+    pub fn from_proto(status: proto::ContextMessageStatus) -> MessageStatus {
+        match status.variant {
+            Some(proto::context_message_status::Variant::Pending(_)) => MessageStatus::Pending,
+            Some(proto::context_message_status::Variant::Done(_)) => MessageStatus::Done,
+            Some(proto::context_message_status::Variant::Error(error)) => {
+                MessageStatus::Error(error.message.into())
+            }
+            Some(proto::context_message_status::Variant::Canceled(_)) => MessageStatus::Canceled,
+            None => MessageStatus::Pending,
+        }
+    }
+
+    pub fn to_proto(&self) -> proto::ContextMessageStatus {
+        match self {
+            MessageStatus::Pending => proto::ContextMessageStatus {
+                variant: Some(proto::context_message_status::Variant::Pending(
+                    proto::context_message_status::Pending {},
+                )),
+            },
+            MessageStatus::Done => proto::ContextMessageStatus {
+                variant: Some(proto::context_message_status::Variant::Done(
+                    proto::context_message_status::Done {},
+                )),
+            },
+            MessageStatus::Error(message) => proto::ContextMessageStatus {
+                variant: Some(proto::context_message_status::Variant::Error(
+                    proto::context_message_status::Error {
+                        message: message.to_string(),
+                    },
+                )),
+            },
+            MessageStatus::Canceled => proto::ContextMessageStatus {
+                variant: Some(proto::context_message_status::Variant::Canceled(
+                    proto::context_message_status::Canceled {},
+                )),
+            },
+        }
+    }
+}
+
 /// The state pertaining to the Assistant.
 #[derive(Default)]
 struct Assistant {
@@ -67,7 +154,7 @@ impl Global for Assistant {}
 impl Assistant {
     const NAMESPACE: &'static str = "assistant";
 
-    fn set_enabled(&mut self, enabled: bool, cx: &mut App) {
+    fn set_enabled(&mut self, enabled: bool, cx: &mut AppContext) {
         if self.enabled == enabled {
             return;
         }
@@ -91,9 +178,9 @@ impl Assistant {
 pub fn init(
     fs: Arc<dyn Fs>,
     client: Arc<Client>,
-    prompt_builder: Arc<PromptBuilder>,
-    cx: &mut App,
-) {
+    stdout_is_a_pty: bool,
+    cx: &mut AppContext,
+) -> Arc<PromptBuilder> {
     cx.set_global(Assistant::default());
     AssistantSettings::register(cx);
     SlashCommandSettings::register(cx);
@@ -125,7 +212,7 @@ pub fn init(
     })
     .detach();
 
-    assistant_context_editor::init(client.clone(), cx);
+    context_store::init(&client.clone().into());
     prompt_library::init(cx);
     init_language_model_settings(cx);
     assistant_slash_command::init(cx);
@@ -133,6 +220,16 @@ pub fn init(
     assistant_panel::init(cx);
     context_server::init(cx);
 
+    let prompt_builder = PromptBuilder::new(Some(PromptLoadingParams {
+        fs: fs.clone(),
+        repo_path: stdout_is_a_pty
+            .then(|| std::env::current_dir().log_err())
+            .flatten(),
+        cx,
+    }))
+    .log_err()
+    .map(Arc::new)
+    .unwrap_or_else(|| Arc::new(PromptBuilder::new(None).unwrap()));
     register_slash_commands(Some(prompt_builder.clone()), cx);
     inline_assistant::init(
         fs.clone(),
@@ -163,9 +260,11 @@ pub fn init(
         });
     })
     .detach();
+
+    prompt_builder
 }
 
-fn init_language_model_settings(cx: &mut App) {
+fn init_language_model_settings(cx: &mut AppContext) {
     update_active_language_model_from_settings(cx);
 
     cx.observe_global::<SettingsStore>(update_active_language_model_from_settings)
@@ -184,7 +283,7 @@ fn init_language_model_settings(cx: &mut App) {
     .detach();
 }
 
-fn update_active_language_model_from_settings(cx: &mut App) {
+fn update_active_language_model_from_settings(cx: &mut AppContext) {
     let settings = AssistantSettings::get_global(cx);
     let provider_name = LanguageModelProviderId::from(settings.default_model.provider.clone());
     let model_id = LanguageModelId::from(settings.default_model.model.clone());
@@ -204,7 +303,7 @@ fn update_active_language_model_from_settings(cx: &mut App) {
     });
 }
 
-fn register_slash_commands(prompt_builder: Option<Arc<PromptBuilder>>, cx: &mut App) {
+fn register_slash_commands(prompt_builder: Option<Arc<PromptBuilder>>, cx: &mut AppContext) {
     let slash_command_registry = SlashCommandRegistry::global(cx);
 
     slash_command_registry.register_command(assistant_slash_commands::FileSlashCommand, true);
@@ -278,7 +377,7 @@ fn register_slash_commands(prompt_builder: Option<Arc<PromptBuilder>>, cx: &mut 
     .detach();
 }
 
-fn update_slash_commands_from_settings(cx: &mut App) {
+fn update_slash_commands_from_settings(cx: &mut AppContext) {
     let slash_command_registry = SlashCommandRegistry::global(cx);
     let settings = SlashCommandSettings::get_global(cx);
 
@@ -294,6 +393,24 @@ fn update_slash_commands_from_settings(cx: &mut App) {
     } else {
         slash_command_registry
             .unregister_command(assistant_slash_commands::CargoWorkspaceSlashCommand);
+    }
+}
+
+pub fn humanize_token_count(count: usize) -> String {
+    match count {
+        0..=999 => count.to_string(),
+        1000..=9999 => {
+            let thousands = count / 1000;
+            let hundreds = (count % 1000 + 50) / 100;
+            if hundreds == 0 {
+                format!("{}k", thousands)
+            } else if hundreds == 10 {
+                format!("{}k", thousands + 1)
+            } else {
+                format!("{}.{}k", thousands, hundreds)
+            }
+        }
+        _ => format!("{}k", (count + 500) / 1000),
     }
 }
 

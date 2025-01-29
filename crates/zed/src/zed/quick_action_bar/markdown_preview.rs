@@ -1,4 +1,4 @@
-use gpui::{AnyElement, Modifiers, WeakEntity};
+use gpui::{AnyElement, Modifiers, WeakView};
 use markdown_preview::{
     markdown_preview_view::MarkdownPreviewView, OpenPreview, OpenPreviewToTheSide,
 };
@@ -10,8 +10,8 @@ use super::QuickActionBar;
 impl QuickActionBar {
     pub fn render_toggle_markdown_preview(
         &self,
-        workspace: WeakEntity<Workspace>,
-        cx: &mut Context<Self>,
+        workspace: WeakView<Workspace>,
+        cx: &mut ViewContext<Self>,
     ) -> Option<AnyElement> {
         let mut active_editor_is_markdown = false;
 
@@ -37,7 +37,7 @@ impl QuickActionBar {
             .shape(IconButtonShape::Square)
             .icon_size(IconSize::Small)
             .style(ButtonStyle::Subtle)
-            .tooltip(move |window, cx| {
+            .tooltip(move |cx| {
                 Tooltip::with_meta(
                     "Preview Markdown",
                     Some(&markdown_preview::OpenPreview),
@@ -45,17 +45,16 @@ impl QuickActionBar {
                         "{} to open in a split",
                         text_for_keystroke(&alt_click, PlatformStyle::platform())
                     ),
-                    window,
                     cx,
                 )
             })
-            .on_click(move |_, window, cx| {
+            .on_click(move |_, cx| {
                 if let Some(workspace) = workspace.upgrade() {
                     workspace.update(cx, |_, cx| {
-                        if window.modifiers().alt {
-                            window.dispatch_action(Box::new(OpenPreviewToTheSide), cx);
+                        if cx.modifiers().alt {
+                            cx.dispatch_action(Box::new(OpenPreviewToTheSide));
                         } else {
-                            window.dispatch_action(Box::new(OpenPreview), cx);
+                            cx.dispatch_action(Box::new(OpenPreview));
                         }
                     });
                 }

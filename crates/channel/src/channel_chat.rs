@@ -7,7 +7,9 @@ use client::{
 };
 use collections::HashSet;
 use futures::lock::Mutex;
-use gpui::{App, AppContext as _, AsyncApp, Context, Entity, EventEmitter, Task, WeakEntity};
+use gpui::{
+    AppContext, AsyncAppContext, Context, EventEmitter, Model, ModelContext, Task, WeakModel,
+};
 use rand::prelude::*;
 use rpc::AnyProtoClient;
 use std::{
@@ -22,12 +24,12 @@ pub struct ChannelChat {
     pub channel_id: ChannelId,
     messages: SumTree<ChannelMessage>,
     acknowledged_message_ids: HashSet<u64>,
-    channel_store: Entity<ChannelStore>,
+    channel_store: Model<ChannelStore>,
     loaded_all_messages: bool,
     last_acknowledged_id: Option<u64>,
     next_pending_message_id: usize,
     first_loaded_message_id: Option<u64>,
-    user_store: Entity<UserStore>,
+    user_store: Model<UserStore>,
     rpc: Arc<Client>,
     outgoing_messages_lock: Arc<Mutex<()>>,
     rng: StdRng,
@@ -103,11 +105,11 @@ pub fn init(client: &AnyProtoClient) {
 impl ChannelChat {
     pub async fn new(
         channel: Arc<Channel>,
-        channel_store: Entity<ChannelStore>,
-        user_store: Entity<UserStore>,
+        channel_store: Model<ChannelStore>,
+        user_store: Model<UserStore>,
         client: Arc<Client>,
-        mut cx: AsyncApp,
-    ) -> Result<Entity<Self>> {
+        mut cx: AsyncAppContext,
+    ) -> Result<Model<Self>> {
         let channel_id = channel.id;
         let subscription = client.subscribe_to_entity(channel_id.0).unwrap();
 
@@ -117,7 +119,7 @@ impl ChannelChat {
             })
             .await?;
 
-        let handle = cx.new(|cx| {
+        let handle = cx.new_model(|cx| {
             cx.on_release(Self::release).detach();
             Self {
                 channel_id: channel.id,
@@ -132,7 +134,7 @@ impl ChannelChat {
                 last_acknowledged_id: None,
                 rng: StdRng::from_entropy(),
                 first_loaded_message_id: None,
-                _subscription: subscription.set_model(&cx.entity(), &mut cx.to_async()),
+                _subscription: subscription.set_model(&cx.handle(), &mut cx.to_async()),
             }
         })?;
         Self::handle_loaded_messages(
@@ -147,7 +149,7 @@ impl ChannelChat {
         Ok(handle)
     }
 
-    fn release(&mut self, _: &mut App) {
+    fn release(&mut self, _: &mut AppContext) {
         self.rpc
             .send(proto::LeaveChannelChat {
                 channel_id: self.channel_id.0,
@@ -155,7 +157,7 @@ impl ChannelChat {
             .log_err();
     }
 
-    pub fn channel(&self, cx: &App) -> Option<Arc<Channel>> {
+    pub fn channel(&self, cx: &AppContext) -> Option<Arc<Channel>> {
         self.channel_store
             .read(cx)
             .channel_for_id(self.channel_id)
@@ -169,7 +171,7 @@ impl ChannelChat {
     pub fn send_message(
         &mut self,
         message: MessageParams,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) -> Result<Task<Result<u64>>> {
         if message.text.trim().is_empty() {
             Err(anyhow!("message body can't be empty"))?;
@@ -229,7 +231,7 @@ impl ChannelChat {
         }))
     }
 
-    pub fn remove_message(&mut self, id: u64, cx: &mut Context<Self>) -> Task<Result<()>> {
+    pub fn remove_message(&mut self, id: u64, cx: &mut ModelContext<Self>) -> Task<Result<()>> {
         let response = self.rpc.request(proto::RemoveChannelMessage {
             channel_id: self.channel_id.0,
             message_id: id,
@@ -247,7 +249,7 @@ impl ChannelChat {
         &mut self,
         id: u64,
         message: MessageParams,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) -> Result<Task<Result<()>>> {
         self.message_update(
             ChannelMessageId::Saved(id),
@@ -272,7 +274,7 @@ impl ChannelChat {
         }))
     }
 
-    pub fn load_more_messages(&mut self, cx: &mut Context<Self>) -> Option<Task<Option<()>>> {
+    pub fn load_more_messages(&mut self, cx: &mut ModelContext<Self>) -> Option<Task<Option<()>>> {
         if self.loaded_all_messages {
             return None;
         }
@@ -321,9 +323,9 @@ impl ChannelChat {
     ///
     /// For now, we always maintain a suffix of the channel's messages.
     pub async fn load_history_since_message(
-        chat: Entity<Self>,
+        chat: Model<Self>,
         message_id: u64,
-        mut cx: AsyncApp,
+        mut cx: AsyncAppContext,
     ) -> Option<usize> {
         loop {
             let step = chat
@@ -355,7 +357,7 @@ impl ChannelChat {
         }
     }
 
-    pub fn acknowledge_last_message(&mut self, cx: &mut Context<Self>) {
+    pub fn acknowledge_last_message(&mut self, cx: &mut ModelContext<Self>) {
         if let ChannelMessageId::Saved(latest_message_id) = self.messages.summary().max_id {
             if self
                 .last_acknowledged_id
@@ -376,12 +378,12 @@ impl ChannelChat {
     }
 
     async fn handle_loaded_messages(
-        this: WeakEntity<Self>,
-        user_store: Entity<UserStore>,
+        this: WeakModel<Self>,
+        user_store: Model<UserStore>,
         rpc: Arc<Client>,
         proto_messages: Vec<proto::ChannelMessage>,
         loaded_all_messages: bool,
-        cx: &mut AsyncApp,
+        cx: &mut AsyncAppContext,
     ) -> Result<()> {
         let loaded_messages = messages_from_proto(proto_messages, &user_store, cx).await?;
 
@@ -435,7 +437,7 @@ impl ChannelChat {
         Ok(())
     }
 
-    pub fn rejoin(&mut self, cx: &mut Context<Self>) {
+    pub fn rejoin(&mut self, cx: &mut ModelContext<Self>) {
         let user_store = self.user_store.clone();
         let rpc = self.rpc.clone();
         let channel_id = self.channel_id;
@@ -525,9 +527,9 @@ impl ChannelChat {
     }
 
     async fn handle_message_sent(
-        this: Entity<Self>,
+        this: Model<Self>,
         message: TypedEnvelope<proto::ChannelMessageSent>,
-        mut cx: AsyncApp,
+        mut cx: AsyncAppContext,
     ) -> Result<()> {
         let user_store = this.update(&mut cx, |this, _| this.user_store.clone())?;
         let message = message
@@ -549,9 +551,9 @@ impl ChannelChat {
     }
 
     async fn handle_message_removed(
-        this: Entity<Self>,
+        this: Model<Self>,
         message: TypedEnvelope<proto::RemoveChannelMessage>,
-        mut cx: AsyncApp,
+        mut cx: AsyncAppContext,
     ) -> Result<()> {
         this.update(&mut cx, |this, cx| {
             this.message_removed(message.payload.message_id, cx)
@@ -560,9 +562,9 @@ impl ChannelChat {
     }
 
     async fn handle_message_updated(
-        this: Entity<Self>,
+        this: Model<Self>,
         message: TypedEnvelope<proto::ChannelMessageUpdate>,
-        mut cx: AsyncApp,
+        mut cx: AsyncAppContext,
     ) -> Result<()> {
         let user_store = this.update(&mut cx, |this, _| this.user_store.clone())?;
         let message = message
@@ -584,7 +586,7 @@ impl ChannelChat {
         Ok(())
     }
 
-    fn insert_messages(&mut self, messages: SumTree<ChannelMessage>, cx: &mut Context<Self>) {
+    fn insert_messages(&mut self, messages: SumTree<ChannelMessage>, cx: &mut ModelContext<Self>) {
         if let Some((first_message, last_message)) = messages.first().zip(messages.last()) {
             let nonces = messages
                 .cursor::<()>(&())
@@ -643,7 +645,7 @@ impl ChannelChat {
         }
     }
 
-    fn message_removed(&mut self, id: u64, cx: &mut Context<Self>) {
+    fn message_removed(&mut self, id: u64, cx: &mut ModelContext<Self>) {
         let mut cursor = self.messages.cursor::<ChannelMessageId>(&());
         let mut messages = cursor.slice(&ChannelMessageId::Saved(id), Bias::Left, &());
         if let Some(item) = cursor.item() {
@@ -681,7 +683,7 @@ impl ChannelChat {
         body: String,
         mentions: Vec<(Range<usize>, u64)>,
         edited_at: Option<OffsetDateTime>,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) {
         let mut cursor = self.messages.cursor::<ChannelMessageId>(&());
         let mut messages = cursor.slice(&id, Bias::Left, &());
@@ -710,8 +712,8 @@ impl ChannelChat {
 
 async fn messages_from_proto(
     proto_messages: Vec<proto::ChannelMessage>,
-    user_store: &Entity<UserStore>,
-    cx: &mut AsyncApp,
+    user_store: &Model<UserStore>,
+    cx: &mut AsyncAppContext,
 ) -> Result<SumTree<ChannelMessage>> {
     let messages = ChannelMessage::from_proto_vec(proto_messages, user_store, cx).await?;
     let mut result = SumTree::default();
@@ -722,8 +724,8 @@ async fn messages_from_proto(
 impl ChannelMessage {
     pub async fn from_proto(
         message: proto::ChannelMessage,
-        user_store: &Entity<UserStore>,
-        cx: &mut AsyncApp,
+        user_store: &Model<UserStore>,
+        cx: &mut AsyncAppContext,
     ) -> Result<Self> {
         let sender = user_store
             .update(cx, |user_store, cx| {
@@ -767,8 +769,8 @@ impl ChannelMessage {
 
     pub async fn from_proto_vec(
         proto_messages: Vec<proto::ChannelMessage>,
-        user_store: &Entity<UserStore>,
-        cx: &mut AsyncApp,
+        user_store: &Model<UserStore>,
+        cx: &mut AsyncAppContext,
     ) -> Result<Vec<Self>> {
         let unique_user_ids = proto_messages
             .iter()

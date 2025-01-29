@@ -1,31 +1,26 @@
 use editor::{movement, scroll::Autoscroll, DisplayPoint, Editor};
 use gpui::{actions, Action};
-use gpui::{Context, Window};
 use language::{CharClassifier, CharKind};
+use ui::ViewContext;
 
 use crate::{motion::Motion, state::Mode, Vim};
 
 actions!(vim, [HelixNormalAfter, HelixDelete]);
 
-pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
+pub fn register(editor: &mut Editor, cx: &mut ViewContext<Vim>) {
     Vim::action(editor, cx, Vim::helix_normal_after);
     Vim::action(editor, cx, Vim::helix_delete);
 }
 
 impl Vim {
-    pub fn helix_normal_after(
-        &mut self,
-        action: &HelixNormalAfter,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn helix_normal_after(&mut self, action: &HelixNormalAfter, cx: &mut ViewContext<Self>) {
         if self.active_operator().is_some() {
             self.operator_stack.clear();
-            self.sync_vim_settings(window, cx);
+            self.sync_vim_settings(cx);
             return;
         }
         self.stop_recording_immediately(action.boxed_clone(), cx);
-        self.switch_mode(Mode::HelixNormal, false, window, cx);
+        self.switch_mode(Mode::HelixNormal, false, cx);
         return;
     }
 
@@ -33,21 +28,19 @@ impl Vim {
         &mut self,
         motion: Motion,
         times: Option<usize>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) {
-        self.helix_move_cursor(motion, times, window, cx);
+        self.helix_move_cursor(motion, times, cx);
     }
 
     fn helix_find_range_forward(
         &mut self,
         times: Option<usize>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
         mut is_boundary: impl FnMut(char, char, &CharClassifier) -> bool,
     ) {
-        self.update_editor(window, cx, |_, editor, window, cx| {
-            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+        self.update_editor(cx, |_, editor, cx| {
+            editor.change_selections(Some(Autoscroll::fit()), cx, |s| {
                 s.move_with(|map, selection| {
                     let times = times.unwrap_or(1);
 
@@ -95,12 +88,11 @@ impl Vim {
     fn helix_find_range_backward(
         &mut self,
         times: Option<usize>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
         mut is_boundary: impl FnMut(char, char, &CharClassifier) -> bool,
     ) {
-        self.update_editor(window, cx, |_, editor, window, cx| {
-            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+        self.update_editor(cx, |_, editor, cx| {
+            editor.change_selections(Some(Autoscroll::fit()), cx, |s| {
                 s.move_with(|map, selection| {
                     let times = times.unwrap_or(1);
 
@@ -153,12 +145,11 @@ impl Vim {
         &mut self,
         motion: Motion,
         times: Option<usize>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) {
-        self.update_editor(window, cx, |_, editor, window, cx| {
-            let text_layout_details = editor.text_layout_details(window);
-            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+        self.update_editor(cx, |_, editor, cx| {
+            let text_layout_details = editor.text_layout_details(cx);
+            editor.change_selections(Some(Autoscroll::fit()), cx, |s| {
                 s.move_with(|map, selection| {
                     let goal = selection.goal;
                     let cursor = if selection.is_empty() || selection.reversed {
@@ -181,12 +172,11 @@ impl Vim {
         &mut self,
         motion: Motion,
         times: Option<usize>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) {
         match motion {
             Motion::NextWordStart { ignore_punctuation } => {
-                self.helix_find_range_forward(times, window, cx, |left, right, classifier| {
+                self.helix_find_range_forward(times, cx, |left, right, classifier| {
                     let left_kind = classifier.kind_with(left, ignore_punctuation);
                     let right_kind = classifier.kind_with(right, ignore_punctuation);
                     let at_newline = right == '\n';
@@ -198,7 +188,7 @@ impl Vim {
                 })
             }
             Motion::NextWordEnd { ignore_punctuation } => {
-                self.helix_find_range_forward(times, window, cx, |left, right, classifier| {
+                self.helix_find_range_forward(times, cx, |left, right, classifier| {
                     let left_kind = classifier.kind_with(left, ignore_punctuation);
                     let right_kind = classifier.kind_with(right, ignore_punctuation);
                     let at_newline = right == '\n';
@@ -210,7 +200,7 @@ impl Vim {
                 })
             }
             Motion::PreviousWordStart { ignore_punctuation } => {
-                self.helix_find_range_backward(times, window, cx, |left, right, classifier| {
+                self.helix_find_range_backward(times, cx, |left, right, classifier| {
                     let left_kind = classifier.kind_with(left, ignore_punctuation);
                     let right_kind = classifier.kind_with(right, ignore_punctuation);
                     let at_newline = right == '\n';
@@ -222,7 +212,7 @@ impl Vim {
                 })
             }
             Motion::PreviousWordEnd { ignore_punctuation } => {
-                self.helix_find_range_backward(times, window, cx, |left, right, classifier| {
+                self.helix_find_range_backward(times, cx, |left, right, classifier| {
                     let left_kind = classifier.kind_with(left, ignore_punctuation);
                     let right_kind = classifier.kind_with(right, ignore_punctuation);
                     let at_newline = right == '\n';
@@ -234,18 +224,18 @@ impl Vim {
                     found
                 })
             }
-            _ => self.helix_move_and_collapse(motion, times, window, cx),
+            _ => self.helix_move_and_collapse(motion, times, cx),
         }
     }
 
-    pub fn helix_delete(&mut self, _: &HelixDelete, window: &mut Window, cx: &mut Context<Self>) {
-        self.store_visual_marks(window, cx);
-        self.update_editor(window, cx, |vim, editor, window, cx| {
+    pub fn helix_delete(&mut self, _: &HelixDelete, cx: &mut ViewContext<Self>) {
+        self.store_visual_marks(cx);
+        self.update_editor(cx, |vim, editor, cx| {
             // Fixup selections so they have helix's semantics.
             // Specifically:
             //  - Make sure that each cursor acts as a 1 character wide selection
-            editor.transact(window, cx, |editor, window, cx| {
-                editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+            editor.transact(cx, |editor, cx| {
+                editor.change_selections(Some(Autoscroll::fit()), cx, |s| {
                     s.move_with(|map, selection| {
                         if selection.is_empty() && !selection.reversed {
                             selection.end = movement::right(map, selection.end);
@@ -255,7 +245,7 @@ impl Vim {
             });
 
             vim.copy_selections_content(editor, false, cx);
-            editor.insert("", window, cx);
+            editor.insert("", cx);
         });
     }
 }

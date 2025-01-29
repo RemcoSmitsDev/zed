@@ -1,19 +1,20 @@
 use crate::handle_open_request;
 use crate::restorable_workspace_locations;
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{anyhow, Context, Result};
 use cli::{ipc, IpcHandshake};
 use cli::{ipc::IpcSender, CliRequest, CliResponse};
 use client::parse_zed_link;
 use collections::HashMap;
 use db::kvp::KEY_VALUE_STORE;
+use editor::scroll::Autoscroll;
 use editor::Editor;
 use fs::Fs;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::channel::{mpsc, oneshot};
 use futures::future::join_all;
 use futures::{FutureExt, SinkExt, StreamExt};
-use gpui::{App, AsyncApp, Global, WindowHandle};
-use language::Point;
+use gpui::{AppContext, AsyncAppContext, Global, WindowHandle};
+use language::{Bias, Point};
 use recent_projects::{open_ssh_project, SshSettings};
 use remote::SshConnectionOptions;
 use settings::Settings;
@@ -37,7 +38,7 @@ pub struct OpenRequest {
 }
 
 impl OpenRequest {
-    pub fn parse(urls: Vec<String>, cx: &App) -> Result<Self> {
+    pub fn parse(urls: Vec<String>, cx: &AppContext) -> Result<Self> {
         let mut this = Self::default();
         for url in urls {
             if let Some(server_name) = url.strip_prefix("zed-cli://") {
@@ -67,7 +68,7 @@ impl OpenRequest {
         }
     }
 
-    fn parse_ssh_file_path(&mut self, file: &str, cx: &App) -> Result<()> {
+    fn parse_ssh_file_path(&mut self, file: &str, cx: &AppContext) -> Result<()> {
         let url = url::Url::parse(file)?;
         let host = url
             .host()
@@ -198,7 +199,7 @@ pub async fn open_paths_with_positions(
     path_positions: &[PathWithPosition],
     app_state: Arc<AppState>,
     open_options: workspace::OpenOptions,
-    cx: &mut AsyncApp,
+    cx: &mut AsyncAppContext,
 ) -> Result<(
     WindowHandle<Workspace>,
     Vec<Option<Result<Box<dyn ItemHandle>>>>,
@@ -233,9 +234,13 @@ pub async fn open_paths_with_positions(
         };
         if let Some(active_editor) = item.downcast::<Editor>() {
             workspace
-                .update(cx, |_, window, cx| {
+                .update(cx, |_, cx| {
                     active_editor.update(cx, |editor, cx| {
-                        editor.go_to_singleton_buffer_point(point, window, cx);
+                        let snapshot = editor.snapshot(cx).display_snapshot;
+                        let point = snapshot.buffer_snapshot.clip_point(point, Bias::Left);
+                        editor.change_selections(Some(Autoscroll::center()), cx, |s| {
+                            s.select_ranges([point..point])
+                        });
                     });
                 })
                 .log_err();
@@ -248,7 +253,7 @@ pub async fn open_paths_with_positions(
 pub async fn handle_cli_connection(
     (mut requests, responses): (mpsc::Receiver<CliRequest>, IpcSender<CliResponse>),
     app_state: Arc<AppState>,
-    mut cx: AsyncApp,
+    mut cx: AsyncAppContext,
 ) {
     if let Some(request) = requests.next().await {
         match request {
@@ -305,7 +310,7 @@ async fn open_workspaces(
     wait: bool,
     app_state: Arc<AppState>,
     env: Option<collections::HashMap<String, String>>,
-    cx: &mut AsyncApp,
+    cx: &mut AsyncAppContext,
 ) -> Result<()> {
     let grouped_locations = if paths.is_empty() {
         // If no paths are provided, restore from previous workspaces unless a new workspace is requested with -n
@@ -334,8 +339,8 @@ async fn open_workspaces(
                     env,
                     ..Default::default()
                 };
-                workspace::open_new(open_options, app_state, cx, |workspace, window, cx| {
-                    Editor::new_file(workspace, &Default::default(), window, cx)
+                workspace::open_new(open_options, app_state, cx, |workspace, cx| {
+                    Editor::new_file(workspace, &Default::default(), cx)
                 })
                 .detach();
             })
@@ -412,7 +417,7 @@ async fn open_local_workspace(
     responses: &IpcSender<CliResponse>,
     env: Option<&HashMap<String, String>>,
     app_state: &Arc<AppState>,
-    cx: &mut AsyncApp,
+    cx: &mut AsyncAppContext,
 ) -> bool {
     let mut errored = false;
 
@@ -466,8 +471,8 @@ async fn open_local_workspace(
                 let wait = async move {
                     if paths_with_position.is_empty() {
                         let (done_tx, done_rx) = oneshot::channel();
-                        let _subscription = workspace.update(cx, |_, _, cx| {
-                            cx.on_release(move |_, _| {
+                        let _subscription = workspace.update(cx, |_, cx| {
+                            cx.on_release(move |_, _, _| {
                                 let _ = done_tx.send(());
                             })
                         });
@@ -565,7 +570,7 @@ mod tests {
         assert_eq!(cx.windows().len(), 1);
         let workspace = cx.windows()[0].downcast::<Workspace>().unwrap();
         workspace
-            .update(cx, |workspace, _, cx| {
+            .update(cx, |workspace, cx| {
                 assert!(workspace.active_item_as::<Editor>(cx).is_none())
             })
             .unwrap();
@@ -575,7 +580,7 @@ mod tests {
 
         assert_eq!(cx.windows().len(), 1);
         workspace
-            .update(cx, |workspace, _, cx| {
+            .update(cx, |workspace, cx| {
                 assert!(workspace.active_item_as::<Editor>(cx).is_some());
             })
             .unwrap();
@@ -587,7 +592,7 @@ mod tests {
 
         let workspace_2 = cx.windows()[1].downcast::<Workspace>().unwrap();
         workspace_2
-            .update(cx, |workspace, _, cx| {
+            .update(cx, |workspace, cx| {
                 assert!(workspace.active_item_as::<Editor>(cx).is_some());
                 let items = workspace.items(cx).collect::<Vec<_>>();
                 assert_eq!(items.len(), 1, "Workspace should have two items");
@@ -609,7 +614,7 @@ mod tests {
         assert_eq!(cx.windows().len(), 1);
         let workspace_1 = cx.windows()[0].downcast::<Workspace>().unwrap();
         workspace_1
-            .update(cx, |workspace, _, cx| {
+            .update(cx, |workspace, cx| {
                 assert!(workspace.active_item_as::<Editor>(cx).is_some())
             })
             .unwrap();
@@ -620,7 +625,7 @@ mod tests {
 
         assert_eq!(cx.windows().len(), 1);
         workspace_1
-            .update(cx, |workspace, _, cx| {
+            .update(cx, |workspace, cx| {
                 let items = workspace.items(cx).collect::<Vec<_>>();
                 assert_eq!(items.len(), 2, "Workspace should have two items");
             })
@@ -633,7 +638,7 @@ mod tests {
         assert_eq!(cx.windows().len(), 2);
         let workspace_2 = cx.windows()[1].downcast::<Workspace>().unwrap();
         workspace_2
-            .update(cx, |workspace, _, cx| {
+            .update(cx, |workspace, cx| {
                 let items = workspace.items(cx).collect::<Vec<_>>();
                 assert_eq!(items.len(), 1, "Workspace should have two items");
             })

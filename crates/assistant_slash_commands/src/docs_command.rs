@@ -8,7 +8,7 @@ use assistant_slash_command::{
     ArgumentCompletion, SlashCommand, SlashCommandOutput, SlashCommandOutputSection,
     SlashCommandResult,
 };
-use gpui::{App, BackgroundExecutor, Entity, Task, WeakEntity};
+use gpui::{AppContext, BackgroundExecutor, Model, Task, WeakView};
 use indexed_docs::{
     DocsDotRsProvider, IndexedDocsRegistry, IndexedDocsStore, LocalRustdocProvider, PackageName,
     ProviderId,
@@ -24,7 +24,7 @@ pub struct DocsSlashCommand;
 impl DocsSlashCommand {
     pub const NAME: &'static str = "docs";
 
-    fn path_to_cargo_toml(project: Entity<Project>, cx: &mut App) -> Option<Arc<Path>> {
+    fn path_to_cargo_toml(project: Model<Project>, cx: &mut AppContext) -> Option<Arc<Path>> {
         let worktree = project.read(cx).worktrees(cx).next()?;
         let worktree = worktree.read(cx);
         let entry = worktree.entry_for_path("Cargo.toml")?;
@@ -43,8 +43,8 @@ impl DocsSlashCommand {
     /// access the workspace so we can read the project.
     fn ensure_rust_doc_providers_are_registered(
         &self,
-        workspace: Option<WeakEntity<Workspace>>,
-        cx: &mut App,
+        workspace: Option<WeakView<Workspace>>,
+        cx: &mut AppContext,
     ) {
         let indexed_docs_registry = IndexedDocsRegistry::global(cx);
         if indexed_docs_registry
@@ -164,9 +164,8 @@ impl SlashCommand for DocsSlashCommand {
         self: Arc<Self>,
         arguments: &[String],
         _cancel: Arc<AtomicBool>,
-        workspace: Option<WeakEntity<Workspace>>,
-        _: &mut Window,
-        cx: &mut App,
+        workspace: Option<WeakView<Workspace>>,
+        cx: &mut WindowContext,
     ) -> Task<Result<Vec<ArgumentCompletion>>> {
         self.ensure_rust_doc_providers_are_registered(workspace, cx);
 
@@ -273,10 +272,9 @@ impl SlashCommand for DocsSlashCommand {
         arguments: &[String],
         _context_slash_command_output_sections: &[SlashCommandOutputSection<language::Anchor>],
         _context_buffer: BufferSnapshot,
-        _workspace: WeakEntity<Workspace>,
+        _workspace: WeakView<Workspace>,
         _delegate: Option<Arc<dyn LspAdapterDelegate>>,
-        _: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Task<SlashCommandResult> {
         if arguments.is_empty() {
             return Task::ready(Err(anyhow!("missing an argument")));

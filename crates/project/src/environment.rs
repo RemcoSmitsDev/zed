@@ -3,7 +3,7 @@ use std::{path::Path, sync::Arc};
 use util::ResultExt;
 
 use collections::HashMap;
-use gpui::{App, AppContext as _, Context, Entity, Task};
+use gpui::{AppContext, Context, Model, ModelContext, Task};
 use settings::Settings as _;
 use worktree::WorktreeId;
 
@@ -13,7 +13,7 @@ use crate::{
 };
 
 pub struct ProjectEnvironment {
-    worktree_store: Entity<WorktreeStore>,
+    worktree_store: Model<WorktreeStore>,
     cli_environment: Option<HashMap<String, String>>,
     environments: HashMap<WorktreeId, Shared<Task<Option<HashMap<String, String>>>>>,
     environment_error_messages: HashMap<WorktreeId, EnvironmentErrorMessage>,
@@ -21,11 +21,11 @@ pub struct ProjectEnvironment {
 
 impl ProjectEnvironment {
     pub fn new(
-        worktree_store: &Entity<WorktreeStore>,
+        worktree_store: &Model<WorktreeStore>,
         cli_environment: Option<HashMap<String, String>>,
-        cx: &mut App,
-    ) -> Entity<Self> {
-        cx.new(|cx| {
+        cx: &mut AppContext,
+    ) -> Model<Self> {
+        cx.new_model(|cx| {
             cx.subscribe(worktree_store, |this: &mut Self, _, event, _| {
                 if let WorktreeStoreEvent::WorktreeRemoved(_, id) = event {
                     this.remove_worktree_environment(*id);
@@ -78,7 +78,7 @@ impl ProjectEnvironment {
         &mut self,
         worktree_id: Option<WorktreeId>,
         worktree_abs_path: Option<Arc<Path>>,
-        cx: &Context<Self>,
+        cx: &ModelContext<Self>,
     ) -> Shared<Task<Option<HashMap<String, String>>>> {
         if cfg!(any(test, feature = "test-support")) {
             return Task::ready(Some(HashMap::default())).shared();
@@ -129,7 +129,7 @@ impl ProjectEnvironment {
         &mut self,
         worktree_id: WorktreeId,
         worktree_abs_path: Arc<Path>,
-        cx: &Context<Self>,
+        cx: &ModelContext<Self>,
     ) -> Task<Option<HashMap<String, String>>> {
         let load_direnv = ProjectSettings::get_global(cx).load_direnv.clone();
 

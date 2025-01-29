@@ -3,7 +3,9 @@ use std::sync::Arc;
 use anyhow::Result;
 use collections::HashMap;
 use command_palette_hooks::CommandPaletteFilter;
-use gpui::{prelude::*, App, Context, Entity, EntityId, Global, Subscription, Task};
+use gpui::{
+    prelude::*, AppContext, EntityId, Global, Model, ModelContext, Subscription, Task, View,
+};
 use jupyter_websocket_client::RemoteServer;
 use language::Language;
 use project::{Fs, Project, WorktreeId};
@@ -14,14 +16,14 @@ use crate::kernels::{
 };
 use crate::{JupyterSettings, KernelSpecification, Session};
 
-struct GlobalReplStore(Entity<ReplStore>);
+struct GlobalReplStore(Model<ReplStore>);
 
 impl Global for GlobalReplStore {}
 
 pub struct ReplStore {
     fs: Arc<dyn Fs>,
     enabled: bool,
-    sessions: HashMap<EntityId, Entity<Session>>,
+    sessions: HashMap<EntityId, View<Session>>,
     kernel_specifications: Vec<KernelSpecification>,
     selected_kernel_for_worktree: HashMap<WorktreeId, KernelSpecification>,
     kernel_specifications_for_worktree: HashMap<WorktreeId, Vec<KernelSpecification>>,
@@ -31,8 +33,8 @@ pub struct ReplStore {
 impl ReplStore {
     const NAMESPACE: &'static str = "repl";
 
-    pub(crate) fn init(fs: Arc<dyn Fs>, cx: &mut App) {
-        let store = cx.new(move |cx| Self::new(fs, cx));
+    pub(crate) fn init(fs: Arc<dyn Fs>, cx: &mut AppContext) {
+        let store = cx.new_model(move |cx| Self::new(fs, cx));
 
         store
             .update(cx, |store, cx| store.refresh_kernelspecs(cx))
@@ -41,11 +43,11 @@ impl ReplStore {
         cx.set_global(GlobalReplStore(store))
     }
 
-    pub fn global(cx: &App) -> Entity<Self> {
+    pub fn global(cx: &AppContext) -> Model<Self> {
         cx.global::<GlobalReplStore>().0.clone()
     }
 
-    pub fn new(fs: Arc<dyn Fs>, cx: &mut Context<Self>) -> Self {
+    pub fn new(fs: Arc<dyn Fs>, cx: &mut ModelContext<Self>) -> Self {
         let subscriptions = vec![cx.observe_global::<SettingsStore>(move |this, cx| {
             this.set_enabled(JupyterSettings::enabled(cx), cx);
         })];
@@ -86,11 +88,11 @@ impl ReplStore {
         self.kernel_specifications.iter()
     }
 
-    pub fn sessions(&self) -> impl Iterator<Item = &Entity<Session>> {
+    pub fn sessions(&self) -> impl Iterator<Item = &View<Session>> {
         self.sessions.values()
     }
 
-    fn set_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+    fn set_enabled(&mut self, enabled: bool, cx: &mut ModelContext<Self>) {
         if self.enabled == enabled {
             return;
         }
@@ -99,7 +101,7 @@ impl ReplStore {
         self.on_enabled_changed(cx);
     }
 
-    fn on_enabled_changed(&self, cx: &mut Context<Self>) {
+    fn on_enabled_changed(&self, cx: &mut ModelContext<Self>) {
         if !self.enabled {
             CommandPaletteFilter::update_global(cx, |filter, _cx| {
                 filter.hide_namespace(Self::NAMESPACE);
@@ -118,8 +120,8 @@ impl ReplStore {
     pub fn refresh_python_kernelspecs(
         &mut self,
         worktree_id: WorktreeId,
-        project: &Entity<Project>,
-        cx: &mut Context<Self>,
+        project: &Model<Project>,
+        cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let kernel_specifications = python_env_kernel_specifications(project, worktree_id, cx);
         cx.spawn(move |this, mut cx| async move {
@@ -137,7 +139,7 @@ impl ReplStore {
 
     fn get_remote_kernel_specifications(
         &self,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) -> Option<Task<Result<Vec<KernelSpecification>>>> {
         match (
             std::env::var("JUPYTER_SERVER"),
@@ -159,7 +161,7 @@ impl ReplStore {
         }
     }
 
-    pub fn refresh_kernelspecs(&mut self, cx: &mut Context<Self>) -> Task<Result<()>> {
+    pub fn refresh_kernelspecs(&mut self, cx: &mut ModelContext<Self>) -> Task<Result<()>> {
         let local_kernel_specifications = local_kernel_specifications(self.fs.clone());
 
         let remote_kernel_specifications = self.get_remote_kernel_specifications(cx);
@@ -199,7 +201,7 @@ impl ReplStore {
         &mut self,
         worktree_id: WorktreeId,
         kernelspec: KernelSpecification,
-        _cx: &mut Context<Self>,
+        _cx: &mut ModelContext<Self>,
     ) {
         self.selected_kernel_for_worktree
             .insert(worktree_id, kernelspec);
@@ -209,7 +211,7 @@ impl ReplStore {
         &self,
         worktree_id: WorktreeId,
         language_at_cursor: Option<Arc<Language>>,
-        cx: &App,
+        cx: &AppContext,
     ) -> Option<KernelSpecification> {
         let selected_kernelspec = self.selected_kernel_for_worktree.get(&worktree_id).cloned();
 
@@ -224,7 +226,7 @@ impl ReplStore {
     fn kernelspec_legacy_by_lang_only(
         &self,
         language_at_cursor: Arc<Language>,
-        cx: &App,
+        cx: &AppContext,
     ) -> Option<KernelSpecification> {
         let settings = JupyterSettings::get_global(cx);
         let selected_kernel = settings
@@ -268,11 +270,11 @@ impl ReplStore {
             .cloned()
     }
 
-    pub fn get_session(&self, entity_id: EntityId) -> Option<&Entity<Session>> {
+    pub fn get_session(&self, entity_id: EntityId) -> Option<&View<Session>> {
         self.sessions.get(&entity_id)
     }
 
-    pub fn insert_session(&mut self, entity_id: EntityId, session: Entity<Session>) {
+    pub fn insert_session(&mut self, entity_id: EntityId, session: View<Session>) {
         self.sessions.insert(entity_id, session);
     }
 

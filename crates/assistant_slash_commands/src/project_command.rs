@@ -10,7 +10,7 @@ use assistant_slash_command::{
     SlashCommandResult,
 };
 use feature_flags::FeatureFlag;
-use gpui::{App, Task, WeakEntity};
+use gpui::{AppContext, Task, WeakView, WindowContext};
 use language::{Anchor, CodeLabel, LspAdapterDelegate};
 use language_model::{LanguageModelRegistry, LanguageModelTool};
 use prompt_library::PromptBuilder;
@@ -43,7 +43,7 @@ impl SlashCommand for ProjectSlashCommand {
         "project".into()
     }
 
-    fn label(&self, cx: &App) -> CodeLabel {
+    fn label(&self, cx: &AppContext) -> CodeLabel {
         create_label_for_command("project", &[], cx)
     }
 
@@ -67,9 +67,8 @@ impl SlashCommand for ProjectSlashCommand {
         self: Arc<Self>,
         _arguments: &[String],
         _cancel: Arc<AtomicBool>,
-        _workspace: Option<WeakEntity<Workspace>>,
-        _window: &mut Window,
-        _cx: &mut App,
+        _workspace: Option<WeakView<Workspace>>,
+        _cx: &mut WindowContext,
     ) -> Task<Result<Vec<ArgumentCompletion>>> {
         Task::ready(Ok(Vec::new()))
     }
@@ -79,10 +78,9 @@ impl SlashCommand for ProjectSlashCommand {
         _arguments: &[String],
         _context_slash_command_output_sections: &[SlashCommandOutputSection<Anchor>],
         context_buffer: language::BufferSnapshot,
-        workspace: WeakEntity<Workspace>,
+        workspace: WeakView<Workspace>,
         _delegate: Option<Arc<dyn LspAdapterDelegate>>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Task<SlashCommandResult> {
         let model_registry = LanguageModelRegistry::read_global(cx);
         let current_model = model_registry.active_model();
@@ -99,7 +97,7 @@ impl SlashCommand for ProjectSlashCommand {
             return Task::ready(Err(anyhow::anyhow!("no project indexer")));
         };
 
-        window.spawn(cx, |mut cx| async move {
+        cx.spawn(|mut cx| async move {
             let current_model = current_model.ok_or_else(|| anyhow!("no model selected"))?;
 
             let prompt =

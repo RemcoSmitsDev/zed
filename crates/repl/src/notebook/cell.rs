@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use editor::{Editor, EditorMode, MultiBuffer};
 use futures::future::Shared;
-use gpui::{prelude::*, App, Entity, Hsla, Task, TextStyleRefinement};
+use gpui::{prelude::*, AppContext, Hsla, Task, TextStyleRefinement, View};
 use language::{Buffer, Language, LanguageRegistry};
 use markdown_preview::{markdown_parser::parse_markdown, markdown_renderer::render_markdown_block};
 use nbformat::v4::{CellId, CellMetadata, CellType};
@@ -62,10 +62,7 @@ impl CellControl {
 }
 
 impl Clickable for CellControl {
-    fn on_click(
-        self,
-        handler: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
+    fn on_click(self, handler: impl Fn(&gpui::ClickEvent, &mut WindowContext) + 'static) -> Self {
         let button = self.button.on_click(handler);
         Self { button }
     }
@@ -78,33 +75,28 @@ impl Clickable for CellControl {
 /// A notebook cell
 #[derive(Clone)]
 pub enum Cell {
-    Code(Entity<CodeCell>),
-    Markdown(Entity<MarkdownCell>),
-    Raw(Entity<RawCell>),
+    Code(View<CodeCell>),
+    Markdown(View<MarkdownCell>),
+    Raw(View<RawCell>),
 }
 
-fn convert_outputs(
-    outputs: &Vec<nbformat::v4::Output>,
-    window: &mut Window,
-    cx: &mut App,
-) -> Vec<Output> {
+fn convert_outputs(outputs: &Vec<nbformat::v4::Output>, cx: &mut WindowContext) -> Vec<Output> {
     outputs
         .into_iter()
         .map(|output| match output {
             nbformat::v4::Output::Stream { text, .. } => Output::Stream {
-                content: cx.new(|cx| TerminalOutput::from(&text.0, window, cx)),
+                content: cx.new_view(|cx| TerminalOutput::from(&text.0, cx)),
             },
             nbformat::v4::Output::DisplayData(display_data) => {
-                Output::new(&display_data.data, None, window, cx)
+                Output::new(&display_data.data, None, cx)
             }
             nbformat::v4::Output::ExecuteResult(execute_result) => {
-                Output::new(&execute_result.data, None, window, cx)
+                Output::new(&execute_result.data, None, cx)
             }
             nbformat::v4::Output::Error(error) => Output::ErrorOutput(ErrorView {
                 ename: error.ename.clone(),
                 evalue: error.evalue.clone(),
-                traceback: cx
-                    .new(|cx| TerminalOutput::from(&error.traceback.join("\n"), window, cx)),
+                traceback: cx.new_view(|cx| TerminalOutput::from(&error.traceback.join("\n"), cx)),
             }),
         })
         .collect()
@@ -115,8 +107,7 @@ impl Cell {
         cell: &nbformat::v4::Cell,
         languages: &Arc<LanguageRegistry>,
         notebook_language: Shared<Task<Option<Arc<Language>>>>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Self {
         match cell {
             nbformat::v4::Cell::Markdown {
@@ -127,12 +118,12 @@ impl Cell {
             } => {
                 let source = source.join("");
 
-                let model = cx.new(|cx| {
+                let view = cx.new_view(|cx| {
                     let markdown_parsing_task = {
                         let languages = languages.clone();
                         let source = source.clone();
 
-                        cx.spawn_in(window, |this, mut cx| async move {
+                        cx.spawn(|this, mut cx| async move {
                             let parsed_markdown = cx
                                 .background_executor()
                                 .spawn(async move {
@@ -159,7 +150,7 @@ impl Cell {
                     }
                 });
 
-                Cell::Markdown(model)
+                Cell::Markdown(view)
             }
             nbformat::v4::Cell::Code {
                 id,
@@ -167,19 +158,18 @@ impl Cell {
                 execution_count,
                 source,
                 outputs,
-            } => Cell::Code(cx.new(|cx| {
+            } => Cell::Code(cx.new_view(|cx| {
                 let text = source.join("");
 
-                let buffer = cx.new(|cx| Buffer::local(text.clone(), cx));
-                let multi_buffer = cx.new(|cx| MultiBuffer::singleton(buffer.clone(), cx));
+                let buffer = cx.new_model(|cx| Buffer::local(text.clone(), cx));
+                let multi_buffer = cx.new_model(|cx| MultiBuffer::singleton(buffer.clone(), cx));
 
-                let editor_view = cx.new(|cx| {
+                let editor_view = cx.new_view(|cx| {
                     let mut editor = Editor::new(
                         EditorMode::AutoHeight { max_lines: 1024 },
                         multi_buffer,
                         None,
                         false,
-                        window,
                         cx,
                     );
 
@@ -193,7 +183,7 @@ impl Cell {
                         ..Default::default()
                     };
 
-                    editor.set_text(text, window, cx);
+                    editor.set_text(text, cx);
                     editor.set_show_gutter(false, cx);
                     editor.set_text_style_refinement(refinement);
 
@@ -202,7 +192,7 @@ impl Cell {
                 });
 
                 let buffer = buffer.clone();
-                let language_task = cx.spawn_in(window, |this, mut cx| async move {
+                let language_task = cx.spawn(|this, mut cx| async move {
                     let language = notebook_language.await;
 
                     buffer.update(&mut cx, |buffer, cx| {
@@ -216,7 +206,7 @@ impl Cell {
                     execution_count: *execution_count,
                     source: source.join(""),
                     editor: editor_view,
-                    outputs: convert_outputs(outputs, window, cx),
+                    outputs: convert_outputs(outputs, cx),
                     selected: false,
                     language_task,
                     cell_position: None,
@@ -226,7 +216,7 @@ impl Cell {
                 id,
                 metadata,
                 source,
-            } => Cell::Raw(cx.new(|_| RawCell {
+            } => Cell::Raw(cx.new_view(|_| RawCell {
                 id: id.clone(),
                 metadata: metadata.clone(),
                 source: source.join(""),
@@ -246,7 +236,7 @@ pub trait RenderableCell: Render {
     fn source(&self) -> &String;
     fn selected(&self) -> bool;
     fn set_selected(&mut self, selected: bool) -> &mut Self;
-    fn selected_bg_color(&self, window: &mut Window, cx: &mut Context<Self>) -> Hsla {
+    fn selected_bg_color(&self, cx: &ViewContext<Self>) -> Hsla {
         if self.selected() {
             let mut color = cx.theme().colors().icon_accent;
             color.fade_out(0.9);
@@ -256,15 +246,14 @@ pub trait RenderableCell: Render {
             cx.theme().colors().tab_bar_background
         }
     }
-    fn control(&self, _window: &mut Window, _cx: &mut Context<Self>) -> Option<CellControl> {
+    fn control(&self, _cx: &ViewContext<Self>) -> Option<CellControl> {
         None
     }
 
     fn cell_position_spacer(
         &self,
         is_first: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &ViewContext<Self>,
     ) -> Option<impl IntoElement> {
         let cell_position = self.cell_position();
 
@@ -277,7 +266,7 @@ pub trait RenderableCell: Render {
         }
     }
 
-    fn gutter(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn gutter(&self, cx: &ViewContext<Self>) -> impl IntoElement {
         let is_selected = self.selected();
 
         div()
@@ -300,7 +289,7 @@ pub trait RenderableCell: Render {
                             .when(!is_selected, |this| this.bg(cx.theme().colors().border)),
                     ),
             )
-            .when_some(self.control(window, cx), |this, control| {
+            .when_some(self.control(cx), |this, control| {
                 this.child(
                     div()
                         .absolute()
@@ -325,7 +314,7 @@ pub trait RenderableCell: Render {
 pub trait RunnableCell: RenderableCell {
     fn execution_count(&self) -> Option<i32>;
     fn set_execution_count(&mut self, count: i32) -> &mut Self;
-    fn run(&mut self, window: &mut Window, cx: &mut Context<Self>) -> ();
+    fn run(&mut self, cx: &mut ViewContext<Self>) -> ();
 }
 
 pub struct MarkdownCell {
@@ -367,7 +356,7 @@ impl RenderableCell for MarkdownCell {
         self
     }
 
-    fn control(&self, _window: &mut Window, _: &mut Context<Self>) -> Option<CellControl> {
+    fn control(&self, _: &ViewContext<Self>) -> Option<CellControl> {
         None
     }
 
@@ -382,18 +371,18 @@ impl RenderableCell for MarkdownCell {
 }
 
 impl Render for MarkdownCell {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         let Some(parsed) = self.parsed_markdown.as_ref() else {
             return div();
         };
 
         let mut markdown_render_context =
-            markdown_preview::markdown_renderer::RenderContext::new(None, window, cx);
+            markdown_preview::markdown_renderer::RenderContext::new(None, cx);
 
         v_flex()
             .size_full()
             // TODO: Move base cell render into trait impl so we don't have to repeat this
-            .children(self.cell_position_spacer(true, window, cx))
+            .children(self.cell_position_spacer(true, cx))
             .child(
                 h_flex()
                     .w_full()
@@ -401,8 +390,8 @@ impl Render for MarkdownCell {
                     .rounded_sm()
                     .items_start()
                     .gap(DynamicSpacing::Base08.rems(cx))
-                    .bg(self.selected_bg_color(window, cx))
-                    .child(self.gutter(window, cx))
+                    .bg(self.selected_bg_color(cx))
+                    .child(self.gutter(cx))
                     .child(
                         v_flex()
                             .size_full()
@@ -419,7 +408,7 @@ impl Render for MarkdownCell {
                     ),
             )
             // TODO: Move base cell render into trait impl so we don't have to repeat this
-            .children(self.cell_position_spacer(false, window, cx))
+            .children(self.cell_position_spacer(false, cx))
     }
 }
 
@@ -428,7 +417,7 @@ pub struct CodeCell {
     metadata: CellMetadata,
     execution_count: Option<i32>,
     source: String,
-    editor: Entity<editor::Editor>,
+    editor: View<editor::Editor>,
     outputs: Vec<Output>,
     selected: bool,
     cell_position: Option<CellPosition>,
@@ -436,7 +425,7 @@ pub struct CodeCell {
 }
 
 impl CodeCell {
-    pub fn is_dirty(&self, cx: &App) -> bool {
+    pub fn is_dirty(&self, cx: &AppContext) -> bool {
         self.editor.read(cx).buffer().read(cx).is_dirty(cx)
     }
     pub fn has_outputs(&self) -> bool {
@@ -455,7 +444,7 @@ impl CodeCell {
         }
     }
 
-    pub fn gutter_output(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    pub fn gutter_output(&self, cx: &ViewContext<Self>) -> impl IntoElement {
         let is_selected = self.selected();
 
         div()
@@ -516,12 +505,12 @@ impl RenderableCell for CodeCell {
         &self.source
     }
 
-    fn control(&self, window: &mut Window, cx: &mut Context<Self>) -> Option<CellControl> {
+    fn control(&self, cx: &ViewContext<Self>) -> Option<CellControl> {
         let cell_control = if self.has_outputs() {
             CellControl::new("rerun-cell", CellControlType::RerunCell)
         } else {
             CellControl::new("run-cell", CellControlType::RunCell)
-                .on_click(cx.listener(move |this, _, window, cx| this.run(window, cx)))
+                .on_click(cx.listener(move |this, _, cx| this.run(cx)))
         };
 
         Some(cell_control)
@@ -547,7 +536,7 @@ impl RenderableCell for CodeCell {
 }
 
 impl RunnableCell for CodeCell {
-    fn run(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn run(&mut self, cx: &mut ViewContext<Self>) {
         println!("Running code cell: {}", self.id);
     }
 
@@ -563,11 +552,11 @@ impl RunnableCell for CodeCell {
 }
 
 impl Render for CodeCell {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         v_flex()
             .size_full()
             // TODO: Move base cell render into trait impl so we don't have to repeat this
-            .children(self.cell_position_spacer(true, window, cx))
+            .children(self.cell_position_spacer(true, cx))
             // Editor portion
             .child(
                 h_flex()
@@ -576,8 +565,8 @@ impl Render for CodeCell {
                     .rounded_sm()
                     .items_start()
                     .gap(DynamicSpacing::Base08.rems(cx))
-                    .bg(self.selected_bg_color(window, cx))
-                    .child(self.gutter(window, cx))
+                    .bg(self.selected_bg_color(cx))
+                    .child(self.gutter(cx))
                     .child(
                         div().py_1p5().w_full().child(
                             div()
@@ -602,8 +591,8 @@ impl Render for CodeCell {
                     .rounded_sm()
                     .items_start()
                     .gap(DynamicSpacing::Base08.rems(cx))
-                    .bg(self.selected_bg_color(window, cx))
-                    .child(self.gutter_output(window, cx))
+                    .bg(self.selected_bg_color(cx))
+                    .child(self.gutter_output(cx))
                     .child(
                         div().py_1p5().w_full().child(
                             div()
@@ -638,7 +627,7 @@ impl Render for CodeCell {
                                                 Some(content.clone().into_any_element())
                                             }
                                             Output::ErrorOutput(error_view) => {
-                                                error_view.render(window, cx)
+                                                error_view.render(cx)
                                             }
                                             Output::ClearOutputWaitMarker => None,
                                         };
@@ -659,7 +648,7 @@ impl Render for CodeCell {
                     ),
             )
             // TODO: Move base cell render into trait impl so we don't have to repeat this
-            .children(self.cell_position_spacer(false, window, cx))
+            .children(self.cell_position_spacer(false, cx))
     }
 }
 
@@ -710,11 +699,11 @@ impl RenderableCell for RawCell {
 }
 
 impl Render for RawCell {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         v_flex()
             .size_full()
             // TODO: Move base cell render into trait impl so we don't have to repeat this
-            .children(self.cell_position_spacer(true, window, cx))
+            .children(self.cell_position_spacer(true, cx))
             .child(
                 h_flex()
                     .w_full()
@@ -722,8 +711,8 @@ impl Render for RawCell {
                     .rounded_sm()
                     .items_start()
                     .gap(DynamicSpacing::Base08.rems(cx))
-                    .bg(self.selected_bg_color(window, cx))
-                    .child(self.gutter(window, cx))
+                    .bg(self.selected_bg_color(cx))
+                    .child(self.gutter(cx))
                     .child(
                         div()
                             .flex()
@@ -736,6 +725,6 @@ impl Render for RawCell {
                     ),
             )
             // TODO: Move base cell render into trait impl so we don't have to repeat this
-            .children(self.cell_position_spacer(false, window, cx))
+            .children(self.cell_position_spacer(false, cx))
     }
 }

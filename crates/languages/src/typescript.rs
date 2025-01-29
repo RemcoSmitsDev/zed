@@ -3,13 +3,13 @@ use async_compression::futures::bufread::GzipDecoder;
 use async_tar::Archive;
 use async_trait::async_trait;
 use collections::HashMap;
-use gpui::AsyncApp;
+use gpui::AsyncAppContext;
 use http_client::github::{build_asset_url, AssetKind, GitHubLspBinaryVersion};
 use language::{LanguageToolchainStore, LspAdapter, LspAdapterDelegate};
 use lsp::{CodeActionKind, LanguageServerBinary, LanguageServerName};
 use node_runtime::NodeRuntime;
+use project::lsp_store::language_server_settings;
 use project::ContextProviderWithTasks;
-use project::{lsp_store::language_server_settings, Fs};
 use serde_json::{json, Value};
 use smol::{fs, io::BufReader, stream::StreamExt};
 use std::{
@@ -77,25 +77,16 @@ impl TypeScriptLspAdapter {
     pub fn new(node: NodeRuntime) -> Self {
         TypeScriptLspAdapter { node }
     }
-    async fn tsdk_path(fs: &dyn Fs, adapter: &Arc<dyn LspAdapterDelegate>) -> Option<&'static str> {
+    async fn tsdk_path(adapter: &Arc<dyn LspAdapterDelegate>) -> &'static str {
         let is_yarn = adapter
             .read_text_file(PathBuf::from(".yarn/sdks/typescript/lib/typescript.js"))
             .await
             .is_ok();
 
-        let tsdk_path = if is_yarn {
+        if is_yarn {
             ".yarn/sdks/typescript/lib"
         } else {
             "node_modules/typescript/lib"
-        };
-
-        if fs
-            .is_dir(&adapter.worktree_root_path().join(tsdk_path))
-            .await
-        {
-            Some(tsdk_path)
-        } else {
-            None
         }
     }
 }
@@ -221,14 +212,16 @@ impl LspAdapter for TypeScriptLspAdapter {
             _ => None,
         }?;
 
+        let one_line = |s: &str| s.replace("    ", "").replace('\n', " ");
+
         let text = if let Some(description) = item
             .label_details
             .as_ref()
             .and_then(|label_details| label_details.description.as_ref())
         {
-            format!("{} {}", item.label, description)
+            format!("{} {}", item.label, one_line(description))
         } else if let Some(detail) = &item.detail {
-            format!("{} {}", item.label, detail)
+            format!("{} {}", item.label, one_line(detail))
         } else {
             item.label.clone()
         };
@@ -242,10 +235,9 @@ impl LspAdapter for TypeScriptLspAdapter {
 
     async fn initialization_options(
         self: Arc<Self>,
-        fs: &dyn Fs,
         adapter: &Arc<dyn LspAdapterDelegate>,
     ) -> Result<Option<serde_json::Value>> {
-        let tsdk_path = Self::tsdk_path(fs, adapter).await;
+        let tsdk_path = Self::tsdk_path(adapter).await;
         Ok(Some(json!({
             "provideFormatter": true,
             "hostInfo": "zed",
@@ -267,10 +259,9 @@ impl LspAdapter for TypeScriptLspAdapter {
 
     async fn workspace_configuration(
         self: Arc<Self>,
-        _: &dyn Fs,
         delegate: &Arc<dyn LspAdapterDelegate>,
         _: Arc<dyn LanguageToolchainStore>,
-        cx: &mut AsyncApp,
+        cx: &mut AsyncAppContext,
     ) -> Result<Value> {
         let override_options = cx.update(|cx| {
             language_server_settings(delegate.as_ref(), &Self::SERVER_NAME, cx)
@@ -364,10 +355,9 @@ impl LspAdapter for EsLintLspAdapter {
 
     async fn workspace_configuration(
         self: Arc<Self>,
-        _: &dyn Fs,
         delegate: &Arc<dyn LspAdapterDelegate>,
         _: Arc<dyn LanguageToolchainStore>,
-        cx: &mut AsyncApp,
+        cx: &mut AsyncAppContext,
     ) -> Result<Value> {
         let workspace_root = delegate.worktree_root_path();
 
@@ -593,7 +583,7 @@ async fn handle_symlink(src_dir: PathBuf, dest_dir: PathBuf) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use gpui::{AppContext as _, TestAppContext};
+    use gpui::{Context, TestAppContext};
     use unindent::Unindent;
 
     #[gpui::test]
@@ -618,7 +608,8 @@ mod tests {
         "#
         .unindent();
 
-        let buffer = cx.new(|cx| language::Buffer::local(text, cx).with_language(language, cx));
+        let buffer =
+            cx.new_model(|cx| language::Buffer::local(text, cx).with_language(language, cx));
         let outline = buffer.update(cx, |buffer, _| buffer.snapshot().outline(None).unwrap());
         assert_eq!(
             outline

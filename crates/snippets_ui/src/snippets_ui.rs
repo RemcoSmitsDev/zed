@@ -1,23 +1,23 @@
 use fuzzy::{match_strings, StringMatch, StringMatchCandidate};
 use gpui::{
-    actions, App, Context, DismissEvent, Entity, EventEmitter, Focusable, ParentElement, Render,
-    Styled, WeakEntity, Window,
+    actions, AppContext, DismissEvent, EventEmitter, FocusableView, ParentElement, Render, Styled,
+    View, ViewContext, VisualContext, WeakView,
 };
 use language::LanguageRegistry;
 use paths::config_dir;
 use picker::{Picker, PickerDelegate};
 use std::{borrow::Borrow, fs, sync::Arc};
-use ui::{prelude::*, HighlightedLabel, ListItem, ListItemSpacing};
+use ui::{prelude::*, HighlightedLabel, ListItem, ListItemSpacing, WindowContext};
 use util::ResultExt;
 use workspace::{notifications::NotifyResultExt, ModalView, Workspace};
 
 actions!(snippets, [ConfigureSnippets, OpenFolder]);
 
-pub fn init(cx: &mut App) {
-    cx.observe_new(register).detach();
+pub fn init(cx: &mut AppContext) {
+    cx.observe_new_views(register).detach();
 }
 
-fn register(workspace: &mut Workspace, _window: Option<&mut Window>, _: &mut Context<Workspace>) {
+fn register(workspace: &mut Workspace, _: &mut ViewContext<Workspace>) {
     workspace.register_action(configure_snippets);
     workspace.register_action(open_folder);
 }
@@ -25,42 +25,35 @@ fn register(workspace: &mut Workspace, _window: Option<&mut Window>, _: &mut Con
 fn configure_snippets(
     workspace: &mut Workspace,
     _: &ConfigureSnippets,
-    window: &mut Window,
-    cx: &mut Context<Workspace>,
+    cx: &mut ViewContext<Workspace>,
 ) {
     let language_registry = workspace.app_state().languages.clone();
     let workspace_handle = workspace.weak_handle();
 
-    workspace.toggle_modal(window, cx, move |window, cx| {
-        ScopeSelector::new(language_registry, workspace_handle, window, cx)
+    workspace.toggle_modal(cx, move |cx| {
+        ScopeSelector::new(language_registry, workspace_handle, cx)
     });
 }
 
-fn open_folder(
-    workspace: &mut Workspace,
-    _: &OpenFolder,
-    _: &mut Window,
-    cx: &mut Context<Workspace>,
-) {
+fn open_folder(workspace: &mut Workspace, _: &OpenFolder, cx: &mut ViewContext<Workspace>) {
     fs::create_dir_all(config_dir().join("snippets")).notify_err(workspace, cx);
     cx.open_with_system(config_dir().join("snippets").borrow());
 }
 
 pub struct ScopeSelector {
-    picker: Entity<Picker<ScopeSelectorDelegate>>,
+    picker: View<Picker<ScopeSelectorDelegate>>,
 }
 
 impl ScopeSelector {
     fn new(
         language_registry: Arc<LanguageRegistry>,
-        workspace: WeakEntity<Workspace>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        workspace: WeakView<Workspace>,
+        cx: &mut ViewContext<Self>,
     ) -> Self {
         let delegate =
-            ScopeSelectorDelegate::new(workspace, cx.entity().downgrade(), language_registry);
+            ScopeSelectorDelegate::new(workspace, cx.view().downgrade(), language_registry);
 
-        let picker = cx.new(|cx| Picker::uniform_list(delegate, window, cx));
+        let picker = cx.new_view(|cx| Picker::uniform_list(delegate, cx));
 
         Self { picker }
     }
@@ -70,21 +63,21 @@ impl ModalView for ScopeSelector {}
 
 impl EventEmitter<DismissEvent> for ScopeSelector {}
 
-impl Focusable for ScopeSelector {
-    fn focus_handle(&self, cx: &App) -> gpui::FocusHandle {
+impl FocusableView for ScopeSelector {
+    fn focus_handle(&self, cx: &AppContext) -> gpui::FocusHandle {
         self.picker.focus_handle(cx)
     }
 }
 
 impl Render for ScopeSelector {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _cx: &mut ViewContext<Self>) -> impl IntoElement {
         v_flex().w(rems(34.)).child(self.picker.clone())
     }
 }
 
 pub struct ScopeSelectorDelegate {
-    workspace: WeakEntity<Workspace>,
-    scope_selector: WeakEntity<ScopeSelector>,
+    workspace: WeakView<Workspace>,
+    scope_selector: WeakView<ScopeSelector>,
     language_registry: Arc<LanguageRegistry>,
     candidates: Vec<StringMatchCandidate>,
     matches: Vec<StringMatch>,
@@ -93,8 +86,8 @@ pub struct ScopeSelectorDelegate {
 
 impl ScopeSelectorDelegate {
     fn new(
-        workspace: WeakEntity<Workspace>,
-        scope_selector: WeakEntity<ScopeSelector>,
+        workspace: WeakView<Workspace>,
+        scope_selector: WeakView<ScopeSelector>,
         language_registry: Arc<LanguageRegistry>,
     ) -> Self {
         let candidates = Vec::from(["Global".to_string()]).into_iter();
@@ -120,7 +113,7 @@ impl ScopeSelectorDelegate {
 impl PickerDelegate for ScopeSelectorDelegate {
     type ListItem = ListItem;
 
-    fn placeholder_text(&self, _window: &mut Window, _: &mut App) -> Arc<str> {
+    fn placeholder_text(&self, _: &mut WindowContext) -> Arc<str> {
         "Select snippet scope...".into()
     }
 
@@ -128,24 +121,23 @@ impl PickerDelegate for ScopeSelectorDelegate {
         self.matches.len()
     }
 
-    fn confirm(&mut self, _: bool, window: &mut Window, cx: &mut Context<Picker<Self>>) {
+    fn confirm(&mut self, _: bool, cx: &mut ViewContext<Picker<Self>>) {
         if let Some(mat) = self.matches.get(self.selected_index) {
             let scope_name = self.candidates[mat.candidate_id].string.clone();
             let language = self.language_registry.language_for_name(&scope_name);
 
             if let Some(workspace) = self.workspace.upgrade() {
-                cx.spawn_in(window, |_, mut cx| async move {
+                cx.spawn(|_, mut cx| async move {
                     let scope = match scope_name.as_str() {
                         "Global" => "snippets".to_string(),
                         _ => language.await?.lsp_id(),
                     };
 
-                    workspace.update_in(&mut cx, |workspace, window, cx| {
+                    workspace.update(&mut cx, |workspace, cx| {
                         workspace
                             .open_abs_path(
                                 config_dir().join("snippets").join(scope + ".json"),
                                 false,
-                                window,
                                 cx,
                             )
                             .detach();
@@ -154,10 +146,10 @@ impl PickerDelegate for ScopeSelectorDelegate {
                 .detach_and_log_err(cx);
             };
         }
-        self.dismissed(window, cx);
+        self.dismissed(cx);
     }
 
-    fn dismissed(&mut self, _: &mut Window, cx: &mut Context<Picker<Self>>) {
+    fn dismissed(&mut self, cx: &mut ViewContext<Picker<Self>>) {
         self.scope_selector
             .update(cx, |_, cx| cx.emit(DismissEvent))
             .log_err();
@@ -167,24 +159,18 @@ impl PickerDelegate for ScopeSelectorDelegate {
         self.selected_index
     }
 
-    fn set_selected_index(
-        &mut self,
-        ix: usize,
-        _window: &mut Window,
-        _: &mut Context<Picker<Self>>,
-    ) {
+    fn set_selected_index(&mut self, ix: usize, _: &mut ViewContext<Picker<Self>>) {
         self.selected_index = ix;
     }
 
     fn update_matches(
         &mut self,
         query: String,
-        window: &mut Window,
-        cx: &mut Context<Picker<Self>>,
+        cx: &mut ViewContext<Picker<Self>>,
     ) -> gpui::Task<()> {
         let background = cx.background_executor().clone();
         let candidates = self.candidates.clone();
-        cx.spawn_in(window, |this, mut cx| async move {
+        cx.spawn(|this, mut cx| async move {
             let matches = if query.is_empty() {
                 candidates
                     .into_iter()
@@ -224,8 +210,7 @@ impl PickerDelegate for ScopeSelectorDelegate {
         &self,
         ix: usize,
         selected: bool,
-        _window: &mut Window,
-        _: &mut Context<Picker<Self>>,
+        _: &mut ViewContext<Picker<Self>>,
     ) -> Option<Self::ListItem> {
         let mat = &self.matches[ix];
         let label = mat.string.clone();

@@ -1,4 +1,4 @@
-use anyhow::Context as _;
+use anyhow::Context;
 use collections::HashMap;
 use futures::{channel::oneshot, Future, FutureExt};
 use parking_lot::{Mutex, RwLock};

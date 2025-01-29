@@ -5,7 +5,8 @@ use assistant_slash_command::{
 };
 use editor::Editor;
 use futures::StreamExt;
-use gpui::{App, Context, SharedString, Task, WeakEntity, Window};
+use gpui::{AppContext, Task, WeakView};
+use gpui::{SharedString, ViewContext, WindowContext};
 use language::{BufferSnapshot, CodeLabel, LspAdapterDelegate};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -21,7 +22,7 @@ impl SlashCommand for SelectionCommand {
         "selection".into()
     }
 
-    fn label(&self, _cx: &App) -> CodeLabel {
+    fn label(&self, _cx: &AppContext) -> CodeLabel {
         CodeLabel::plain(self.name(), None)
     }
 
@@ -49,9 +50,8 @@ impl SlashCommand for SelectionCommand {
         self: Arc<Self>,
         _arguments: &[String],
         _cancel: Arc<AtomicBool>,
-        _workspace: Option<WeakEntity<Workspace>>,
-        _window: &mut Window,
-        _cx: &mut App,
+        _workspace: Option<WeakView<Workspace>>,
+        _cx: &mut WindowContext,
     ) -> Task<Result<Vec<ArgumentCompletion>>> {
         Task::ready(Err(anyhow!("this command does not require argument")))
     }
@@ -61,10 +61,9 @@ impl SlashCommand for SelectionCommand {
         _arguments: &[String],
         _context_slash_command_output_sections: &[SlashCommandOutputSection<language::Anchor>],
         _context_buffer: BufferSnapshot,
-        workspace: WeakEntity<Workspace>,
+        workspace: WeakView<Workspace>,
         _delegate: Option<Arc<dyn LspAdapterDelegate>>,
-        _window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Task<SlashCommandResult> {
         let mut events = vec![];
 
@@ -103,7 +102,7 @@ impl SlashCommand for SelectionCommand {
 
 pub fn selections_creases(
     workspace: &mut workspace::Workspace,
-    cx: &mut Context<Workspace>,
+    cx: &mut ViewContext<Workspace>,
 ) -> Option<Vec<(String, String)>> {
     let editor = workspace
         .active_item(cx)

@@ -19,7 +19,10 @@ impl Settings for TaskSettings {
 
     type FileContent = TaskSettingsContent;
 
-    fn load(sources: SettingsSources<Self::FileContent>, _: &mut gpui::App) -> gpui::Result<Self> {
+    fn load(
+        sources: SettingsSources<Self::FileContent>,
+        _: &mut gpui::AppContext,
+    ) -> gpui::Result<Self> {
         sources.json_merge()
     }
 }

@@ -1,7 +1,7 @@
 use crate::inline_prompt_editor::CodegenStatus;
 use client::telemetry::Telemetry;
 use futures::{channel::mpsc, SinkExt, StreamExt};
-use gpui::{App, Context, Entity, EventEmitter, Task};
+use gpui::{AppContext, EventEmitter, Model, ModelContext, Task};
 use language_model::{LanguageModelRegistry, LanguageModelRequest};
 use language_models::report_assistant_event;
 use std::{sync::Arc, time::Instant};
@@ -11,7 +11,7 @@ use terminal::Terminal;
 pub struct TerminalCodegen {
     pub status: CodegenStatus,
     pub telemetry: Option<Arc<Telemetry>>,
-    terminal: Entity<Terminal>,
+    terminal: Model<Terminal>,
     generation: Task<()>,
     pub message_id: Option<String>,
     transaction: Option<TerminalTransaction>,
@@ -20,7 +20,7 @@ pub struct TerminalCodegen {
 impl EventEmitter<CodegenEvent> for TerminalCodegen {}
 
 impl TerminalCodegen {
-    pub fn new(terminal: Entity<Terminal>, telemetry: Option<Arc<Telemetry>>) -> Self {
+    pub fn new(terminal: Model<Terminal>, telemetry: Option<Arc<Telemetry>>) -> Self {
         Self {
             terminal,
             telemetry,
@@ -31,7 +31,7 @@ impl TerminalCodegen {
         }
     }
 
-    pub fn start(&mut self, prompt: LanguageModelRequest, cx: &mut Context<Self>) {
+    pub fn start(&mut self, prompt: LanguageModelRequest, cx: &mut ModelContext<Self>) {
         let Some(model) = LanguageModelRegistry::read_global(cx).active_model() else {
             return;
         };
@@ -131,20 +131,20 @@ impl TerminalCodegen {
         cx.notify();
     }
 
-    pub fn stop(&mut self, cx: &mut Context<Self>) {
+    pub fn stop(&mut self, cx: &mut ModelContext<Self>) {
         self.status = CodegenStatus::Done;
         self.generation = Task::ready(());
         cx.emit(CodegenEvent::Finished);
         cx.notify();
     }
 
-    pub fn complete(&mut self, cx: &mut Context<Self>) {
+    pub fn complete(&mut self, cx: &mut ModelContext<Self>) {
         if let Some(transaction) = self.transaction.take() {
             transaction.complete(cx);
         }
     }
 
-    pub fn undo(&mut self, cx: &mut Context<Self>) {
+    pub fn undo(&mut self, cx: &mut ModelContext<Self>) {
         if let Some(transaction) = self.transaction.take() {
             transaction.undo(cx);
         }
@@ -160,27 +160,27 @@ pub const CLEAR_INPUT: &str = "\x15";
 const CARRIAGE_RETURN: &str = "\x0d";
 
 struct TerminalTransaction {
-    terminal: Entity<Terminal>,
+    terminal: Model<Terminal>,
 }
 
 impl TerminalTransaction {
-    pub fn start(terminal: Entity<Terminal>) -> Self {
+    pub fn start(terminal: Model<Terminal>) -> Self {
         Self { terminal }
     }
 
-    pub fn push(&mut self, hunk: String, cx: &mut App) {
+    pub fn push(&mut self, hunk: String, cx: &mut AppContext) {
         // Ensure that the assistant cannot accidentally execute commands that are streamed into the terminal
         let input = Self::sanitize_input(hunk);
         self.terminal
             .update(cx, |terminal, _| terminal.input(input));
     }
 
-    pub fn undo(&self, cx: &mut App) {
+    pub fn undo(&self, cx: &mut AppContext) {
         self.terminal
             .update(cx, |terminal, _| terminal.input(CLEAR_INPUT.to_string()));
     }
 
-    pub fn complete(&self, cx: &mut App) {
+    pub fn complete(&self, cx: &mut AppContext) {
         self.terminal.update(cx, |terminal, _| {
             terminal.input(CARRIAGE_RETURN.to_string())
         });

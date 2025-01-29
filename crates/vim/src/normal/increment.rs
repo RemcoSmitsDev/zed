@@ -1,5 +1,5 @@
 use editor::{scroll::Autoscroll, Editor, MultiBufferSnapshot, ToOffset, ToPoint};
-use gpui::{impl_actions, Context, Window};
+use gpui::{impl_actions, ViewContext};
 use language::{Bias, Point};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -23,31 +23,25 @@ struct Decrement {
 
 impl_actions!(vim, [Increment, Decrement]);
 
-pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
-    Vim::action(editor, cx, |vim, action: &Increment, window, cx| {
+pub fn register(editor: &mut Editor, cx: &mut ViewContext<Vim>) {
+    Vim::action(editor, cx, |vim, action: &Increment, cx| {
         vim.record_current_action(cx);
         let count = Vim::take_count(cx).unwrap_or(1);
         let step = if action.step { 1 } else { 0 };
-        vim.increment(count as i64, step, window, cx)
+        vim.increment(count as i64, step, cx)
     });
-    Vim::action(editor, cx, |vim, action: &Decrement, window, cx| {
+    Vim::action(editor, cx, |vim, action: &Decrement, cx| {
         vim.record_current_action(cx);
         let count = Vim::take_count(cx).unwrap_or(1);
         let step = if action.step { -1 } else { 0 };
-        vim.increment(-(count as i64), step, window, cx)
+        vim.increment(-(count as i64), step, cx)
     });
 }
 
 impl Vim {
-    fn increment(
-        &mut self,
-        mut delta: i64,
-        step: i32,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.store_visual_marks(window, cx);
-        self.update_editor(window, cx, |vim, editor, window, cx| {
+    fn increment(&mut self, mut delta: i64, step: i32, cx: &mut ViewContext<Self>) {
+        self.store_visual_marks(cx);
+        self.update_editor(cx, |vim, editor, cx| {
             let mut edits = Vec::new();
             let mut new_anchors = Vec::new();
 
@@ -82,11 +76,11 @@ impl Vim {
                     }
                 }
             }
-            editor.transact(window, cx, |editor, window, cx| {
+            editor.transact(cx, |editor, cx| {
                 editor.edit(edits, cx);
 
                 let snapshot = editor.buffer().read(cx).snapshot(cx);
-                editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+                editor.change_selections(Some(Autoscroll::fit()), cx, |s| {
                     let mut new_ranges = Vec::new();
                     for (visual, anchor) in new_anchors.iter() {
                         let mut point = anchor.to_point(&snapshot);
@@ -100,7 +94,7 @@ impl Vim {
                 })
             });
         });
-        self.switch_mode(Mode::Normal, true, window, cx)
+        self.switch_mode(Mode::Normal, true, cx)
     }
 }
 

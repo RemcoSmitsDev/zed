@@ -1,6 +1,6 @@
 use crate::db::{self, ChannelRole, NewUserParams};
 
-use anyhow::Context as _;
+use anyhow::Context;
 use chrono::{DateTime, Utc};
 use db::Database;
 use serde::{de::DeserializeOwned, Deserialize};

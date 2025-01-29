@@ -1,6 +1,6 @@
 use client::Client;
 use futures::channel::oneshot;
-use gpui::Application;
+use gpui::App;
 use http_client::HttpClientWithUrl;
 use language::language_settings::AllLanguageSettings;
 use project::Project;
@@ -16,7 +16,7 @@ fn main() {
 
     use clock::FakeSystemClock;
 
-    Application::new().run(|cx| {
+    App::new().run(|cx| {
         let store = SettingsStore::test(cx);
         cx.set_global(store);
         language::init(cx);

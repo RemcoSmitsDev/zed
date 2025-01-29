@@ -5,7 +5,7 @@ use assistant_slash_command::{
 };
 use feature_flags::FeatureFlag;
 use futures::StreamExt;
-use gpui::{App, AsyncApp, Task, WeakEntity, Window};
+use gpui::{AppContext, AsyncAppContext, AsyncWindowContext, Task, WeakView, WindowContext};
 use language::{CodeLabel, LspAdapterDelegate};
 use language_model::{
     LanguageModelCompletionEvent, LanguageModelRegistry, LanguageModelRequest,
@@ -45,7 +45,7 @@ impl SlashCommand for AutoCommand {
         self.description()
     }
 
-    fn label(&self, cx: &App) -> CodeLabel {
+    fn label(&self, cx: &AppContext) -> CodeLabel {
         create_label_for_command("auto", &["--prompt"], cx)
     }
 
@@ -53,9 +53,8 @@ impl SlashCommand for AutoCommand {
         self: Arc<Self>,
         _arguments: &[String],
         _cancel: Arc<AtomicBool>,
-        workspace: Option<WeakEntity<Workspace>>,
-        _window: &mut Window,
-        cx: &mut App,
+        workspace: Option<WeakView<Workspace>>,
+        cx: &mut WindowContext,
     ) -> Task<Result<Vec<ArgumentCompletion>>> {
         // There's no autocomplete for a prompt, since it's arbitrary text.
         // However, we can use this opportunity to kick off a drain of the backlog.
@@ -75,9 +74,9 @@ impl SlashCommand for AutoCommand {
             return Task::ready(Err(anyhow!("No project indexer, cannot use /auto")));
         };
 
-        let cx: &mut App = cx;
+        let cx: &mut AppContext = cx;
 
-        cx.spawn(|cx: gpui::AsyncApp| async move {
+        cx.spawn(|cx: gpui::AsyncAppContext| async move {
             let task = project_index.read_with(&cx, |project_index, cx| {
                 project_index.flush_summary_backlogs(cx)
             })?;
@@ -97,10 +96,9 @@ impl SlashCommand for AutoCommand {
         arguments: &[String],
         _context_slash_command_output_sections: &[SlashCommandOutputSection<language::Anchor>],
         _context_buffer: language::BufferSnapshot,
-        workspace: WeakEntity<Workspace>,
+        workspace: WeakView<Workspace>,
         _delegate: Option<Arc<dyn LspAdapterDelegate>>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Task<SlashCommandResult> {
         let Some(workspace) = workspace.upgrade() else {
             return Task::ready(Err(anyhow::anyhow!("workspace was dropped")));
@@ -117,7 +115,7 @@ impl SlashCommand for AutoCommand {
             return Task::ready(Err(anyhow!("no project indexer")));
         };
 
-        let task = window.spawn(cx, |cx| async move {
+        let task = cx.spawn(|cx: AsyncWindowContext| async move {
             let summaries = project_index
                 .read_with(&cx, |project_index, cx| project_index.all_summaries(cx))?
                 .await?;
@@ -189,7 +187,7 @@ struct CommandToRun {
 async fn commands_for_summaries(
     summaries: &[FileSummary],
     original_prompt: &str,
-    cx: &AsyncApp,
+    cx: &AsyncAppContext,
 ) -> Result<Vec<CommandToRun>> {
     if summaries.is_empty() {
         log::warn!("Inferring no context because there were no summaries available.");

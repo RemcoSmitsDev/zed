@@ -21,7 +21,6 @@ lmstudio = { workspace = true, features = ["schemars"] }
 log.workspace = true
 ollama = { workspace = true, features = ["schemars"] }
 open_ai = { workspace = true, features = ["schemars"] }
-deepseek = { workspace = true, features = ["schemars"] }
 schemars.workspace = true
 serde.workspace = true
 settings.workspace = true

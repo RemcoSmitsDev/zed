@@ -1,7 +1,7 @@
 use crate::{ItemHandle, Pane};
 use gpui::{
-    AnyView, App, Context, Decorations, Entity, IntoElement, ParentElement, Render, Styled,
-    Subscription, Window,
+    AnyView, Decorations, IntoElement, ParentElement, Render, Styled, Subscription, View,
+    ViewContext, WindowContext,
 };
 use std::any::TypeId;
 use theme::CLIENT_SIDE_DECORATION_ROUNDING;
@@ -12,8 +12,7 @@ pub trait StatusItemView: Render {
     fn set_active_pane_item(
         &mut self,
         active_pane_item: Option<&dyn crate::ItemHandle>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     );
 }
 
@@ -22,8 +21,7 @@ trait StatusItemViewHandle: Send {
     fn set_active_pane_item(
         &self,
         active_pane_item: Option<&dyn ItemHandle>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     );
     fn item_type(&self) -> TypeId;
 }
@@ -31,12 +29,12 @@ trait StatusItemViewHandle: Send {
 pub struct StatusBar {
     left_items: Vec<Box<dyn StatusItemViewHandle>>,
     right_items: Vec<Box<dyn StatusItemViewHandle>>,
-    active_pane: Entity<Pane>,
+    active_pane: View<Pane>,
     _observe_active_pane: Subscription,
 }
 
 impl Render for StatusBar {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         h_flex()
             .w_full()
             .justify_between()
@@ -44,7 +42,7 @@ impl Render for StatusBar {
             .py(DynamicSpacing::Base04.rems(cx))
             .px(DynamicSpacing::Base08.rems(cx))
             .bg(cx.theme().colors().status_bar_background)
-            .map(|el| match window.window_decorations() {
+            .map(|el| match cx.window_decorations() {
                 Decorations::Server => el,
                 Decorations::Client { tiling, .. } => el
                     .when(!(tiling.bottom || tiling.right), |el| {
@@ -64,14 +62,14 @@ impl Render for StatusBar {
 }
 
 impl StatusBar {
-    fn render_left_tools(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_left_tools(&self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         h_flex()
             .gap(DynamicSpacing::Base04.rems(cx))
             .overflow_x_hidden()
             .children(self.left_items.iter().map(|item| item.to_any()))
     }
 
-    fn render_right_tools(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_right_tools(&self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         h_flex()
             .gap(DynamicSpacing::Base04.rems(cx))
             .children(self.right_items.iter().rev().map(|item| item.to_any()))
@@ -79,31 +77,30 @@ impl StatusBar {
 }
 
 impl StatusBar {
-    pub fn new(active_pane: &Entity<Pane>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(active_pane: &View<Pane>, cx: &mut ViewContext<Self>) -> Self {
         let mut this = Self {
             left_items: Default::default(),
             right_items: Default::default(),
             active_pane: active_pane.clone(),
-            _observe_active_pane: cx.observe_in(active_pane, window, |this, _, window, cx| {
-                this.update_active_pane_item(window, cx)
-            }),
+            _observe_active_pane: cx
+                .observe(active_pane, |this, _, cx| this.update_active_pane_item(cx)),
         };
-        this.update_active_pane_item(window, cx);
+        this.update_active_pane_item(cx);
         this
     }
 
-    pub fn add_left_item<T>(&mut self, item: Entity<T>, window: &mut Window, cx: &mut Context<Self>)
+    pub fn add_left_item<T>(&mut self, item: View<T>, cx: &mut ViewContext<Self>)
     where
         T: 'static + StatusItemView,
     {
         let active_pane_item = self.active_pane.read(cx).active_item();
-        item.set_active_pane_item(active_pane_item.as_deref(), window, cx);
+        item.set_active_pane_item(active_pane_item.as_deref(), cx);
 
         self.left_items.push(Box::new(item));
         cx.notify();
     }
 
-    pub fn item_of_type<T: StatusItemView>(&self) -> Option<Entity<T>> {
+    pub fn item_of_type<T: StatusItemView>(&self) -> Option<View<T>> {
         self.left_items
             .iter()
             .chain(self.right_items.iter())
@@ -130,14 +127,13 @@ impl StatusBar {
     pub fn insert_item_after<T>(
         &mut self,
         position: usize,
-        item: Entity<T>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        item: View<T>,
+        cx: &mut ViewContext<Self>,
     ) where
         T: 'static + StatusItemView,
     {
         let active_pane_item = self.active_pane.read(cx).active_item();
-        item.set_active_pane_item(active_pane_item.as_deref(), window, cx);
+        item.set_active_pane_item(active_pane_item.as_deref(), cx);
 
         if position < self.left_items.len() {
             self.left_items.insert(position + 1, Box::new(item))
@@ -148,7 +144,7 @@ impl StatusBar {
         cx.notify()
     }
 
-    pub fn remove_item_at(&mut self, position: usize, cx: &mut Context<Self>) {
+    pub fn remove_item_at(&mut self, position: usize, cx: &mut ViewContext<Self>) {
         if position < self.left_items.len() {
             self.left_items.remove(position);
         } else {
@@ -157,43 +153,33 @@ impl StatusBar {
         cx.notify();
     }
 
-    pub fn add_right_item<T>(
-        &mut self,
-        item: Entity<T>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) where
+    pub fn add_right_item<T>(&mut self, item: View<T>, cx: &mut ViewContext<Self>)
+    where
         T: 'static + StatusItemView,
     {
         let active_pane_item = self.active_pane.read(cx).active_item();
-        item.set_active_pane_item(active_pane_item.as_deref(), window, cx);
+        item.set_active_pane_item(active_pane_item.as_deref(), cx);
 
         self.right_items.push(Box::new(item));
         cx.notify();
     }
 
-    pub fn set_active_pane(
-        &mut self,
-        active_pane: &Entity<Pane>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_active_pane(&mut self, active_pane: &View<Pane>, cx: &mut ViewContext<Self>) {
         self.active_pane = active_pane.clone();
-        self._observe_active_pane = cx.observe_in(active_pane, window, |this, _, window, cx| {
-            this.update_active_pane_item(window, cx)
-        });
-        self.update_active_pane_item(window, cx);
+        self._observe_active_pane =
+            cx.observe(active_pane, |this, _, cx| this.update_active_pane_item(cx));
+        self.update_active_pane_item(cx);
     }
 
-    fn update_active_pane_item(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn update_active_pane_item(&mut self, cx: &mut ViewContext<Self>) {
         let active_pane_item = self.active_pane.read(cx).active_item();
         for item in self.left_items.iter().chain(&self.right_items) {
-            item.set_active_pane_item(active_pane_item.as_deref(), window, cx);
+            item.set_active_pane_item(active_pane_item.as_deref(), cx);
         }
     }
 }
 
-impl<T: StatusItemView> StatusItemViewHandle for Entity<T> {
+impl<T: StatusItemView> StatusItemViewHandle for View<T> {
     fn to_any(&self) -> AnyView {
         self.clone().into()
     }
@@ -201,11 +187,10 @@ impl<T: StatusItemView> StatusItemViewHandle for Entity<T> {
     fn set_active_pane_item(
         &self,
         active_pane_item: Option<&dyn ItemHandle>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) {
         self.update(cx, |this, cx| {
-            this.set_active_pane_item(active_pane_item, window, cx)
+            this.set_active_pane_item(active_pane_item, cx)
         });
     }
 

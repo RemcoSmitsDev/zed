@@ -13,7 +13,7 @@ use std::{
     ops::{Add, Div, Mul, MulAssign, Neg, Sub},
 };
 
-use crate::{App, DisplayId};
+use crate::{AppContext, DisplayId};
 
 /// Axis in a 2D cartesian space.
 #[derive(Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Debug)]
@@ -725,7 +725,7 @@ pub fn bounds<T: Clone + Default + Debug>(origin: Point<T>, size: Size<T>) -> Bo
 
 impl Bounds<Pixels> {
     /// Generate a centered bounds for the given display or primary display if none is provided
-    pub fn centered(display_id: Option<DisplayId>, size: Size<Pixels>, cx: &App) -> Self {
+    pub fn centered(display_id: Option<DisplayId>, size: Size<Pixels>, cx: &AppContext) -> Self {
         let display = display_id
             .and_then(|id| cx.find_display(id))
             .or_else(|| cx.primary_display());
@@ -739,7 +739,7 @@ impl Bounds<Pixels> {
     }
 
     /// Generate maximized bounds for the given display or primary display if none is provided
-    pub fn maximized(display_id: Option<DisplayId>, cx: &App) -> Self {
+    pub fn maximized(display_id: Option<DisplayId>, cx: &AppContext) -> Self {
         let display = display_id
             .and_then(|id| cx.find_display(id))
             .or_else(|| cx.primary_display());
@@ -2500,8 +2500,6 @@ impl Pixels {
     pub const ZERO: Pixels = Pixels(0.0);
     /// The maximum value that can be represented by `Pixels`.
     pub const MAX: Pixels = Pixels(f32::MAX);
-    /// The minimum value that can be represented by `Pixels`.
-    pub const MIN: Pixels = Pixels(f32::MIN);
 
     /// Floors the `Pixels` value to the nearest whole number.
     ///

@@ -9,7 +9,7 @@ use assistant_slash_command::{
 };
 use feature_flags::FeatureFlag;
 use futures::channel::mpsc;
-use gpui::{Task, WeakEntity};
+use gpui::{Task, WeakView};
 use language::{BufferSnapshot, LspAdapterDelegate};
 use smol::stream::StreamExt;
 use smol::Timer;
@@ -45,9 +45,8 @@ impl SlashCommand for StreamingExampleSlashCommand {
         self: Arc<Self>,
         _arguments: &[String],
         _cancel: Arc<AtomicBool>,
-        _workspace: Option<WeakEntity<Workspace>>,
-        _window: &mut Window,
-        _cx: &mut App,
+        _workspace: Option<WeakView<Workspace>>,
+        _cx: &mut WindowContext,
     ) -> Task<Result<Vec<ArgumentCompletion>>> {
         Task::ready(Ok(Vec::new()))
     }
@@ -57,10 +56,9 @@ impl SlashCommand for StreamingExampleSlashCommand {
         _arguments: &[String],
         _context_slash_command_output_sections: &[SlashCommandOutputSection<language::Anchor>],
         _context_buffer: BufferSnapshot,
-        _workspace: WeakEntity<Workspace>,
+        _workspace: WeakView<Workspace>,
         _delegate: Option<Arc<dyn LspAdapterDelegate>>,
-        _: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Task<SlashCommandResult> {
         let (events_tx, events_rx) = mpsc::unbounded();
         cx.background_executor()

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use extension::{Extension, ExtensionContextServerProxy, ExtensionHostProxy, ProjectDelegate};
-use gpui::{App, Entity};
+use gpui::{AppContext, Model};
 
 use crate::{ContextServerFactoryRegistry, ServerCommand};
 
@@ -15,7 +15,7 @@ impl ProjectDelegate for ExtensionProject {
     }
 }
 
-pub fn init(cx: &mut App) {
+pub fn init(cx: &mut AppContext) {
     let proxy = ExtensionHostProxy::default_global(cx);
     proxy.register_context_server_proxy(ContextServerFactoryRegistryProxy {
         context_server_factory_registry: ContextServerFactoryRegistry::global(cx),
@@ -23,11 +23,16 @@ pub fn init(cx: &mut App) {
 }
 
 struct ContextServerFactoryRegistryProxy {
-    context_server_factory_registry: Entity<ContextServerFactoryRegistry>,
+    context_server_factory_registry: Model<ContextServerFactoryRegistry>,
 }
 
 impl ExtensionContextServerProxy for ContextServerFactoryRegistryProxy {
-    fn register_context_server(&self, extension: Arc<dyn Extension>, id: Arc<str>, cx: &mut App) {
+    fn register_context_server(
+        &self,
+        extension: Arc<dyn Extension>,
+        id: Arc<str>,
+        cx: &mut AppContext,
+    ) {
         self.context_server_factory_registry
             .update(cx, |registry, _| {
                 registry.register_server_factory(

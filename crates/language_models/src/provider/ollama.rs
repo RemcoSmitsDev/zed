@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Result};
 use futures::{future::BoxFuture, stream::BoxStream, FutureExt, StreamExt};
-use gpui::{AnyView, App, AsyncApp, Context, Subscription, Task};
+use gpui::{AnyView, AppContext, AsyncAppContext, ModelContext, Subscription, Task};
 use http_client::HttpClient;
 use language_model::LanguageModelCompletionEvent;
 use language_model::{
@@ -48,7 +48,7 @@ pub struct AvailableModel {
 
 pub struct OllamaLanguageModelProvider {
     http_client: Arc<dyn HttpClient>,
-    state: gpui::Entity<State>,
+    state: gpui::Model<State>,
 }
 
 pub struct State {
@@ -63,7 +63,7 @@ impl State {
         !self.available_models.is_empty()
     }
 
-    fn fetch_models(&mut self, cx: &mut Context<Self>) -> Task<Result<()>> {
+    fn fetch_models(&mut self, cx: &mut ModelContext<Self>) -> Task<Result<()>> {
         let settings = &AllLanguageModelSettings::get_global(cx).ollama;
         let http_client = self.http_client.clone();
         let api_url = settings.api_url.clone();
@@ -90,12 +90,12 @@ impl State {
         })
     }
 
-    fn restart_fetch_models_task(&mut self, cx: &mut Context<Self>) {
+    fn restart_fetch_models_task(&mut self, cx: &mut ModelContext<Self>) {
         let task = self.fetch_models(cx);
         self.fetch_model_task.replace(task);
     }
 
-    fn authenticate(&mut self, cx: &mut Context<Self>) -> Task<Result<()>> {
+    fn authenticate(&mut self, cx: &mut ModelContext<Self>) -> Task<Result<()>> {
         if self.is_authenticated() {
             Task::ready(Ok(()))
         } else {
@@ -105,10 +105,10 @@ impl State {
 }
 
 impl OllamaLanguageModelProvider {
-    pub fn new(http_client: Arc<dyn HttpClient>, cx: &mut App) -> Self {
+    pub fn new(http_client: Arc<dyn HttpClient>, cx: &mut AppContext) -> Self {
         let this = Self {
             http_client: http_client.clone(),
-            state: cx.new(|cx| {
+            state: cx.new_model(|cx| {
                 let subscription = cx.observe_global::<SettingsStore>({
                     let mut settings = AllLanguageModelSettings::get_global(cx).ollama.clone();
                     move |this: &mut State, cx| {
@@ -138,7 +138,7 @@ impl OllamaLanguageModelProvider {
 impl LanguageModelProviderState for OllamaLanguageModelProvider {
     type ObservableEntity = State;
 
-    fn observable_entity(&self) -> Option<gpui::Entity<Self::ObservableEntity>> {
+    fn observable_entity(&self) -> Option<gpui::Model<Self::ObservableEntity>> {
         Some(self.state.clone())
     }
 }
@@ -156,7 +156,7 @@ impl LanguageModelProvider for OllamaLanguageModelProvider {
         IconName::AiOllama
     }
 
-    fn provided_models(&self, cx: &App) -> Vec<Arc<dyn LanguageModel>> {
+    fn provided_models(&self, cx: &AppContext) -> Vec<Arc<dyn LanguageModel>> {
         let mut models: BTreeMap<String, ollama::Model> = BTreeMap::default();
 
         // Add models from the Ollama API
@@ -194,7 +194,7 @@ impl LanguageModelProvider for OllamaLanguageModelProvider {
             .collect()
     }
 
-    fn load_model(&self, model: Arc<dyn LanguageModel>, cx: &App) {
+    fn load_model(&self, model: Arc<dyn LanguageModel>, cx: &AppContext) {
         let settings = &AllLanguageModelSettings::get_global(cx).ollama;
         let http_client = self.http_client.clone();
         let api_url = settings.api_url.clone();
@@ -203,21 +203,20 @@ impl LanguageModelProvider for OllamaLanguageModelProvider {
             .detach_and_log_err(cx);
     }
 
-    fn is_authenticated(&self, cx: &App) -> bool {
+    fn is_authenticated(&self, cx: &AppContext) -> bool {
         self.state.read(cx).is_authenticated()
     }
 
-    fn authenticate(&self, cx: &mut App) -> Task<Result<()>> {
+    fn authenticate(&self, cx: &mut AppContext) -> Task<Result<()>> {
         self.state.update(cx, |state, cx| state.authenticate(cx))
     }
 
-    fn configuration_view(&self, window: &mut Window, cx: &mut App) -> AnyView {
+    fn configuration_view(&self, cx: &mut WindowContext) -> AnyView {
         let state = self.state.clone();
-        cx.new(|cx| ConfigurationView::new(state, window, cx))
-            .into()
+        cx.new_view(|cx| ConfigurationView::new(state, cx)).into()
     }
 
-    fn reset_credentials(&self, cx: &mut App) -> Task<Result<()>> {
+    fn reset_credentials(&self, cx: &mut AppContext) -> Task<Result<()>> {
         self.state.update(cx, |state, cx| state.fetch_models(cx))
     }
 }
@@ -263,7 +262,7 @@ impl OllamaLanguageModel {
     fn request_completion(
         &self,
         request: ChatRequest,
-        cx: &AsyncApp,
+        cx: &AsyncAppContext,
     ) -> BoxFuture<'static, Result<ChatResponseDelta>> {
         let http_client = self.http_client.clone();
 
@@ -306,7 +305,7 @@ impl LanguageModel for OllamaLanguageModel {
     fn count_tokens(
         &self,
         request: LanguageModelRequest,
-        _cx: &App,
+        _cx: &AppContext,
     ) -> BoxFuture<'static, Result<usize>> {
         // There is no endpoint for this _yet_ in Ollama
         // see: https://github.com/ollama/ollama/issues/1716 and https://github.com/ollama/ollama/issues/3582
@@ -323,7 +322,7 @@ impl LanguageModel for OllamaLanguageModel {
     fn stream_completion(
         &self,
         request: LanguageModelRequest,
-        cx: &AsyncApp,
+        cx: &AsyncAppContext,
     ) -> BoxFuture<'static, Result<BoxStream<'static, Result<LanguageModelCompletionEvent>>>> {
         let request = self.to_ollama_request(request);
 
@@ -370,7 +369,7 @@ impl LanguageModel for OllamaLanguageModel {
         tool_name: String,
         tool_description: String,
         schema: serde_json::Value,
-        cx: &AsyncApp,
+        cx: &AsyncAppContext,
     ) -> BoxFuture<'static, Result<BoxStream<'static, Result<String>>>> {
         use ollama::{OllamaFunctionTool, OllamaTool};
         let function = OllamaFunctionTool {
@@ -408,13 +407,13 @@ impl LanguageModel for OllamaLanguageModel {
 }
 
 struct ConfigurationView {
-    state: gpui::Entity<State>,
+    state: gpui::Model<State>,
     loading_models_task: Option<Task<()>>,
 }
 
 impl ConfigurationView {
-    pub fn new(state: gpui::Entity<State>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let loading_models_task = Some(cx.spawn_in(window, {
+    pub fn new(state: gpui::Model<State>, cx: &mut ViewContext<Self>) -> Self {
+        let loading_models_task = Some(cx.spawn({
             let state = state.clone();
             |this, mut cx| async move {
                 if let Some(task) = state
@@ -437,7 +436,7 @@ impl ConfigurationView {
         }
     }
 
-    fn retry_connection(&self, cx: &mut App) {
+    fn retry_connection(&self, cx: &mut WindowContext) {
         self.state
             .update(cx, |state, cx| state.fetch_models(cx))
             .detach_and_log_err(cx);
@@ -445,7 +444,7 @@ impl ConfigurationView {
 }
 
 impl Render for ConfigurationView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         let is_authenticated = self.state.read(cx).is_authenticated();
 
         let ollama_intro = "Get up and running with Llama 3.3, Mistral, Gemma 2, and other large language models with Ollama.";
@@ -499,7 +498,7 @@ impl Render for ConfigurationView {
                                                 .icon(IconName::ExternalLink)
                                                 .icon_size(IconSize::XSmall)
                                                 .icon_color(Color::Muted)
-                                                .on_click(move |_, _, cx| cx.open_url(OLLAMA_SITE))
+                                                .on_click(move |_, cx| cx.open_url(OLLAMA_SITE))
                                                 .into_any_element(),
                                         )
                                     } else {
@@ -512,9 +511,7 @@ impl Render for ConfigurationView {
                                             .icon(IconName::ExternalLink)
                                             .icon_size(IconSize::XSmall)
                                             .icon_color(Color::Muted)
-                                            .on_click(move |_, _, cx| {
-                                                cx.open_url(OLLAMA_DOWNLOAD_URL)
-                                            })
+                                            .on_click(move |_, cx| cx.open_url(OLLAMA_DOWNLOAD_URL))
                                             .into_any_element(),
                                         )
                                     }
@@ -525,7 +522,7 @@ impl Render for ConfigurationView {
                                         .icon(IconName::ExternalLink)
                                         .icon_size(IconSize::XSmall)
                                         .icon_color(Color::Muted)
-                                        .on_click(move |_, _, cx| cx.open_url(OLLAMA_LIBRARY_URL)),
+                                        .on_click(move |_, cx| cx.open_url(OLLAMA_LIBRARY_URL)),
                                 ),
                         )
                         .child(if is_authenticated {
@@ -547,9 +544,7 @@ impl Render for ConfigurationView {
                             Button::new("retry_ollama_models", "Connect")
                                 .icon_position(IconPosition::Start)
                                 .icon(IconName::ArrowCircle)
-                                .on_click(
-                                    cx.listener(move |this, _, _, cx| this.retry_connection(cx)),
-                                )
+                                .on_click(cx.listener(move |this, _, cx| this.retry_connection(cx)))
                                 .into_any_element()
                         }),
                 )

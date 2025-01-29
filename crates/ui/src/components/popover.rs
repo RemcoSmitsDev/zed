@@ -3,7 +3,7 @@
 use crate::prelude::*;
 use crate::v_flex;
 use gpui::{
-    div, AnyElement, App, Element, IntoElement, ParentElement, Pixels, RenderOnce, Styled, Window,
+    div, AnyElement, Element, IntoElement, ParentElement, Pixels, RenderOnce, Styled, WindowContext,
 };
 use smallvec::SmallVec;
 
@@ -44,7 +44,7 @@ pub struct Popover {
 }
 
 impl RenderOnce for Popover {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, cx: &mut WindowContext) -> impl IntoElement {
         div()
             .flex()
             .gap_1()

@@ -1,4 +1,4 @@
-use anyhow::{Context as _, Result};
+use anyhow::{Context, Result};
 use cargo_metadata::{Metadata, MetadataCommand};
 
 /// Returns the Cargo workspace.

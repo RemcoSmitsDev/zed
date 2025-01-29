@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use collections::HashMap;
 use editor::Editor;
-use gpui::{impl_actions, App, Context, Keystroke, KeystrokeEvent, Window};
+use gpui::{impl_actions, AppContext, Keystroke, KeystrokeEvent};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use settings::Settings;
 use std::sync::LazyLock;
+use ui::ViewContext;
 
 use crate::{state::Operator, Vim, VimSettings};
 
@@ -16,7 +17,7 @@ mod default;
 struct Literal(String, char);
 impl_actions!(vim, [Literal]);
 
-pub(crate) fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
+pub(crate) fn register(editor: &mut Editor, cx: &mut ViewContext<Vim>) {
     Vim::action(editor, cx, Vim::literal)
 }
 
@@ -30,7 +31,7 @@ static DEFAULT_DIGRAPHS_MAP: LazyLock<HashMap<String, Arc<str>>> = LazyLock::new
     map
 });
 
-fn lookup_digraph(a: char, b: char, cx: &App) -> Arc<str> {
+fn lookup_digraph(a: char, b: char, cx: &AppContext) -> Arc<str> {
     let custom_digraphs = &VimSettings::get_global(cx).custom_digraphs;
     let input = format!("{a}{b}");
     let reversed = format!("{b}{a}");
@@ -49,42 +50,38 @@ impl Vim {
         &mut self,
         first_char: char,
         second_char: char,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) {
         let text = lookup_digraph(first_char, second_char, cx);
 
-        self.pop_operator(window, cx);
+        self.pop_operator(cx);
         if self.editor_input_enabled() {
-            self.update_editor(window, cx, |_, editor, window, cx| {
-                editor.insert(&text, window, cx)
-            });
+            self.update_editor(cx, |_, editor, cx| editor.insert(&text, cx));
         } else {
-            self.input_ignored(text, window, cx);
+            self.input_ignored(text, cx);
         }
     }
 
-    fn literal(&mut self, action: &Literal, window: &mut Window, cx: &mut Context<Self>) {
+    fn literal(&mut self, action: &Literal, cx: &mut ViewContext<Self>) {
         if let Some(Operator::Literal { prefix }) = self.active_operator() {
             if let Some(prefix) = prefix {
                 if let Some(keystroke) = Keystroke::parse(&action.0).ok() {
-                    window.defer(cx, |window, cx| {
-                        window.dispatch_keystroke(keystroke, cx);
+                    cx.window_context().defer(|cx| {
+                        cx.dispatch_keystroke(keystroke);
                     });
                 }
-                return self.handle_literal_input(prefix, "", window, cx);
+                return self.handle_literal_input(prefix, "", cx);
             }
         }
 
-        self.insert_literal(Some(action.1), "", window, cx);
+        self.insert_literal(Some(action.1), "", cx);
     }
 
     pub fn handle_literal_keystroke(
         &mut self,
         keystroke_event: &KeystrokeEvent,
         prefix: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) {
         // handled by handle_literal_input
         if keystroke_event.keystroke.key_char.is_some() {
@@ -92,17 +89,17 @@ impl Vim {
         };
 
         if prefix.len() > 0 {
-            self.handle_literal_input(prefix, "", window, cx);
+            self.handle_literal_input(prefix, "", cx);
         } else {
-            self.pop_operator(window, cx);
+            self.pop_operator(cx);
         }
 
         // give another chance to handle the binding outside
         // of waiting mode.
         if keystroke_event.action.is_none() {
             let keystroke = keystroke_event.keystroke.clone();
-            window.defer(cx, |window, cx| {
-                window.dispatch_keystroke(keystroke, cx);
+            cx.window_context().defer(|cx| {
+                cx.dispatch_keystroke(keystroke);
             });
         }
         return;
@@ -112,8 +109,7 @@ impl Vim {
         &mut self,
         mut prefix: String,
         text: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) {
         let first = prefix.chars().next();
         let next = text.chars().next().unwrap_or(' ');
@@ -123,7 +119,7 @@ impl Vim {
                     prefix.push(next);
                     if prefix.len() == 4 {
                         let ch: char = u8::from_str_radix(&prefix[1..], 8).unwrap_or(255).into();
-                        return self.insert_literal(Some(ch), "", window, cx);
+                        return self.insert_literal(Some(ch), "", cx);
                     }
                 } else {
                     let ch = if prefix.len() > 1 {
@@ -131,7 +127,7 @@ impl Vim {
                     } else {
                         None
                     };
-                    return self.insert_literal(ch, text, window, cx);
+                    return self.insert_literal(ch, text, cx);
                 }
             }
             Some('x' | 'X' | 'u' | 'U') => {
@@ -149,7 +145,7 @@ impl Vim {
                             .ok()
                             .and_then(|n| n.try_into().ok())
                             .unwrap_or('\u{FFFD}');
-                        return self.insert_literal(Some(ch), "", window, cx);
+                        return self.insert_literal(Some(ch), "", cx);
                     }
                 } else {
                     let ch = if prefix.len() > 1 {
@@ -162,7 +158,7 @@ impl Vim {
                     } else {
                         None
                     };
-                    return self.insert_literal(ch, text, window, cx);
+                    return self.insert_literal(ch, text, cx);
                 }
             }
             Some('0'..='9') => {
@@ -170,39 +166,32 @@ impl Vim {
                     prefix.push(next);
                     if prefix.len() == 3 {
                         let ch: char = u8::from_str_radix(&prefix, 10).unwrap_or(255).into();
-                        return self.insert_literal(Some(ch), "", window, cx);
+                        return self.insert_literal(Some(ch), "", cx);
                     }
                 } else {
                     let ch: char = u8::from_str_radix(&prefix, 10).unwrap_or(255).into();
-                    return self.insert_literal(Some(ch), "", window, cx);
+                    return self.insert_literal(Some(ch), "", cx);
                 }
             }
             None if matches!(next, 'o' | 'O' | 'x' | 'X' | 'u' | 'U' | '0'..='9') => {
                 prefix.push(next)
             }
             _ => {
-                return self.insert_literal(None, text, window, cx);
+                return self.insert_literal(None, text, cx);
             }
         };
 
-        self.pop_operator(window, cx);
+        self.pop_operator(cx);
         self.push_operator(
             Operator::Literal {
                 prefix: Some(prefix),
             },
-            window,
             cx,
         );
     }
 
-    fn insert_literal(
-        &mut self,
-        ch: Option<char>,
-        suffix: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.pop_operator(window, cx);
+    fn insert_literal(&mut self, ch: Option<char>, suffix: &str, cx: &mut ViewContext<Self>) {
+        self.pop_operator(cx);
         let mut text = String::new();
         if let Some(c) = ch {
             if c == '\n' {
@@ -214,11 +203,9 @@ impl Vim {
         text.push_str(suffix);
 
         if self.editor_input_enabled() {
-            self.update_editor(window, cx, |_, editor, window, cx| {
-                editor.insert(&text, window, cx)
-            });
+            self.update_editor(cx, |_, editor, cx| editor.insert(&text, cx));
         } else {
-            self.input_ignored(text.into(), window, cx);
+            self.input_ignored(text.into(), cx);
         }
     }
 }

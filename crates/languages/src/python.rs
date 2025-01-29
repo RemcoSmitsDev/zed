@@ -2,8 +2,8 @@ use anyhow::ensure;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use collections::HashMap;
-use gpui::{App, Task};
-use gpui::{AsyncApp, SharedString};
+use gpui::{AppContext, Task};
+use gpui::{AsyncAppContext, SharedString};
 use language::language_settings::language_settings;
 use language::LanguageName;
 use language::LanguageToolchainStore;
@@ -18,7 +18,6 @@ use pet_core::os_environment::Environment;
 use pet_core::python_environment::PythonEnvironmentKind;
 use pet_core::Configuration;
 use project::lsp_store::language_server_settings;
-use project::Fs;
 use serde_json::{json, Value};
 use smol::lock::OnceCell;
 use std::cmp::Ordering;
@@ -81,7 +80,7 @@ impl LspAdapter for PythonLspAdapter {
         &self,
         delegate: &dyn LspAdapterDelegate,
         _: Arc<dyn LanguageToolchainStore>,
-        _: &AsyncApp,
+        _: &AsyncAppContext,
     ) -> Option<LanguageServerBinary> {
         let node = delegate.which("node".as_ref()).await?;
         let (node_modules_path, _) = delegate
@@ -251,10 +250,9 @@ impl LspAdapter for PythonLspAdapter {
 
     async fn workspace_configuration(
         self: Arc<Self>,
-        _: &dyn Fs,
         adapter: &Arc<dyn LspAdapterDelegate>,
         toolchains: Arc<dyn LanguageToolchainStore>,
-        cx: &mut AsyncApp,
+        cx: &mut AsyncAppContext,
     ) -> Result<Value> {
         let toolchain = toolchains
             .active_toolchain(adapter.worktree_id(), LanguageName::new("Python"), cx)
@@ -317,7 +315,7 @@ impl ContextProvider for PythonContextProvider {
         location: &project::Location,
         _: Option<HashMap<String, String>>,
         toolchains: Arc<dyn LanguageToolchainStore>,
-        cx: &mut gpui::App,
+        cx: &mut gpui::AppContext,
     ) -> Task<Result<task::TaskVariables>> {
         let test_target = {
             let test_runner = selected_test_runner(location.buffer.read(cx).file(), cx);
@@ -350,7 +348,7 @@ impl ContextProvider for PythonContextProvider {
     fn associated_tasks(
         &self,
         file: Option<Arc<dyn language::File>>,
-        cx: &App,
+        cx: &AppContext,
     ) -> Option<TaskTemplates> {
         let test_runner = selected_test_runner(file.as_ref(), cx);
 
@@ -441,7 +439,7 @@ impl ContextProvider for PythonContextProvider {
     }
 }
 
-fn selected_test_runner(location: Option<&Arc<dyn language::File>>, cx: &App) -> TestRunner {
+fn selected_test_runner(location: Option<&Arc<dyn language::File>>, cx: &AppContext) -> TestRunner {
     const TEST_RUNNER_VARIABLE: &str = "TEST_RUNNER";
     language_settings(Some(LanguageName::new("Python")), location, cx)
         .tasks
@@ -789,7 +787,7 @@ impl LspAdapter for PyLspAdapter {
         &self,
         delegate: &dyn LspAdapterDelegate,
         toolchains: Arc<dyn LanguageToolchainStore>,
-        cx: &AsyncApp,
+        cx: &AsyncAppContext,
     ) -> Option<LanguageServerBinary> {
         let venv = toolchains
             .active_toolchain(
@@ -933,10 +931,9 @@ impl LspAdapter for PyLspAdapter {
 
     async fn workspace_configuration(
         self: Arc<Self>,
-        _: &dyn Fs,
         adapter: &Arc<dyn LspAdapterDelegate>,
         toolchains: Arc<dyn LanguageToolchainStore>,
-        cx: &mut AsyncApp,
+        cx: &mut AsyncAppContext,
     ) -> Result<Value> {
         let toolchain = toolchains
             .active_toolchain(adapter.worktree_id(), LanguageName::new("Python"), cx)
@@ -1005,7 +1002,7 @@ impl LspAdapter for PyLspAdapter {
 
 #[cfg(test)]
 mod tests {
-    use gpui::{AppContext as _, BorrowAppContext, Context, TestAppContext};
+    use gpui::{BorrowAppContext, Context, ModelContext, TestAppContext};
     use language::{language_settings::AllLanguageSettings, AutoindentMode, Buffer};
     use settings::SettingsStore;
     use std::num::NonZeroU32;
@@ -1025,9 +1022,9 @@ mod tests {
             });
         });
 
-        cx.new(|cx| {
+        cx.new_model(|cx| {
             let mut buffer = Buffer::local("", cx).with_language(language, cx);
-            let append = |buffer: &mut Buffer, text: &str, cx: &mut Context<Buffer>| {
+            let append = |buffer: &mut Buffer, text: &str, cx: &mut ModelContext<Buffer>| {
                 let ix = buffer.len();
                 buffer.edit([(ix..ix, text)], Some(AutoindentMode::EachLine), cx);
             };

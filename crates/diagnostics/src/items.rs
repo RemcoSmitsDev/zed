@@ -1,11 +1,11 @@
 use std::time::Duration;
 
-use editor::Editor;
+use editor::{AnchorRangeExt, Editor};
 use gpui::{
-    Context, Entity, EventEmitter, IntoElement, ParentElement, Render, Styled, Subscription, Task,
-    WeakEntity, Window,
+    EventEmitter, IntoElement, ParentElement, Render, Styled, Subscription, Task, View,
+    ViewContext, WeakView,
 };
-use language::Diagnostic;
+use language::{Diagnostic, DiagnosticEntry};
 use ui::{h_flex, prelude::*, Button, ButtonLike, Color, Icon, IconName, Label, Tooltip};
 use workspace::{item::ItemHandle, StatusItemView, ToolbarItemEvent, Workspace};
 
@@ -13,15 +13,15 @@ use crate::{Deploy, ProjectDiagnosticsEditor};
 
 pub struct DiagnosticIndicator {
     summary: project::DiagnosticSummary,
-    active_editor: Option<WeakEntity<Editor>>,
-    workspace: WeakEntity<Workspace>,
+    active_editor: Option<WeakView<Editor>>,
+    workspace: WeakView<Workspace>,
     current_diagnostic: Option<Diagnostic>,
     _observe_active_editor: Option<Subscription>,
     diagnostics_update: Task<()>,
 }
 
 impl Render for DiagnosticIndicator {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         let diagnostic_indicator = match (self.summary.error_count, self.summary.warning_count) {
             (0, 0) => h_flex().map(|this| {
                 this.child(
@@ -67,16 +67,11 @@ impl Render for DiagnosticIndicator {
             Some(
                 Button::new("diagnostic_message", message)
                     .label_size(LabelSize::Small)
-                    .tooltip(|window, cx| {
-                        Tooltip::for_action(
-                            "Next Diagnostic",
-                            &editor::actions::GoToDiagnostic,
-                            window,
-                            cx,
-                        )
+                    .tooltip(|cx| {
+                        Tooltip::for_action("Next Diagnostic", &editor::actions::GoToDiagnostic, cx)
                     })
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.go_to_next_diagnostic(window, cx);
+                    .on_click(cx.listener(|this, _, cx| {
+                        this.go_to_next_diagnostic(cx);
                     }))
                     .into_any_element(),
             )
@@ -92,18 +87,11 @@ impl Render for DiagnosticIndicator {
             .child(
                 ButtonLike::new("diagnostic-indicator")
                     .child(diagnostic_indicator)
-                    .tooltip(|window, cx| {
-                        Tooltip::for_action("Project Diagnostics", &Deploy, window, cx)
-                    })
-                    .on_click(cx.listener(|this, _, window, cx| {
+                    .tooltip(|cx| Tooltip::for_action("Project Diagnostics", &Deploy, cx))
+                    .on_click(cx.listener(|this, _, cx| {
                         if let Some(workspace) = this.workspace.upgrade() {
                             workspace.update(cx, |workspace, cx| {
-                                ProjectDiagnosticsEditor::deploy(
-                                    workspace,
-                                    &Default::default(),
-                                    window,
-                                    cx,
-                                )
+                                ProjectDiagnosticsEditor::deploy(workspace, &Default::default(), cx)
                             })
                         }
                     })),
@@ -113,7 +101,7 @@ impl Render for DiagnosticIndicator {
 }
 
 impl DiagnosticIndicator {
-    pub fn new(workspace: &Workspace, cx: &mut Context<Self>) -> Self {
+    pub fn new(workspace: &Workspace, cx: &mut ViewContext<Self>) -> Self {
         let project = workspace.project();
         cx.subscribe(project, |this, project, event, cx| match event {
             project::Event::DiskBasedDiagnosticsStarted { .. } => {
@@ -145,38 +133,41 @@ impl DiagnosticIndicator {
         }
     }
 
-    fn go_to_next_diagnostic(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn go_to_next_diagnostic(&mut self, cx: &mut ViewContext<Self>) {
         if let Some(editor) = self.active_editor.as_ref().and_then(|e| e.upgrade()) {
             editor.update(cx, |editor, cx| {
-                editor.go_to_diagnostic_impl(editor::Direction::Next, window, cx);
+                editor.go_to_diagnostic_impl(editor::Direction::Next, cx);
             })
         }
     }
 
-    fn update(&mut self, editor: Entity<Editor>, window: &mut Window, cx: &mut Context<Self>) {
+    fn update(&mut self, editor: View<Editor>, cx: &mut ViewContext<Self>) {
         let (buffer, cursor_position) = editor.update(cx, |editor, cx| {
             let buffer = editor.buffer().read(cx).snapshot(cx);
             let cursor_position = editor.selections.newest::<usize>(cx).head();
             (buffer, cursor_position)
         });
         let new_diagnostic = buffer
-            .diagnostics_in_range::<_, usize>(cursor_position..cursor_position)
+            .diagnostics_in_range(cursor_position..cursor_position, false)
+            .map(|DiagnosticEntry { diagnostic, range }| DiagnosticEntry {
+                diagnostic,
+                range: range.to_offset(&buffer),
+            })
             .filter(|entry| !entry.range.is_empty())
             .min_by_key(|entry| (entry.diagnostic.severity, entry.range.len()))
             .map(|entry| entry.diagnostic);
         if new_diagnostic != self.current_diagnostic {
-            self.diagnostics_update =
-                cx.spawn_in(window, |diagnostics_indicator, mut cx| async move {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(50))
-                        .await;
-                    diagnostics_indicator
-                        .update(&mut cx, |diagnostics_indicator, cx| {
-                            diagnostics_indicator.current_diagnostic = new_diagnostic;
-                            cx.notify();
-                        })
-                        .ok();
-                });
+            self.diagnostics_update = cx.spawn(|diagnostics_indicator, mut cx| async move {
+                cx.background_executor()
+                    .timer(Duration::from_millis(50))
+                    .await;
+                diagnostics_indicator
+                    .update(&mut cx, |diagnostics_indicator, cx| {
+                        diagnostics_indicator.current_diagnostic = new_diagnostic;
+                        cx.notify();
+                    })
+                    .ok();
+            });
         }
     }
 }
@@ -187,13 +178,12 @@ impl StatusItemView for DiagnosticIndicator {
     fn set_active_pane_item(
         &mut self,
         active_pane_item: Option<&dyn ItemHandle>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) {
         if let Some(editor) = active_pane_item.and_then(|item| item.downcast::<Editor>()) {
             self.active_editor = Some(editor.downgrade());
-            self._observe_active_editor = Some(cx.observe_in(&editor, window, Self::update));
-            self.update(editor, window, cx);
+            self._observe_active_editor = Some(cx.observe(&editor, Self::update));
+            self.update(editor, cx);
         } else {
             self.active_editor = None;
             self.current_diagnostic = None;

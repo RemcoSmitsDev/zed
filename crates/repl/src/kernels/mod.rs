@@ -6,7 +6,7 @@ use futures::{
     future::Shared,
     stream,
 };
-use gpui::{App, Entity, Task, Window};
+use gpui::{AppContext, Model, Task, WindowContext};
 use language::LanguageName;
 pub use native_kernel::*;
 
@@ -61,7 +61,7 @@ impl KernelSpecification {
         })
     }
 
-    pub fn icon(&self, cx: &App) -> Icon {
+    pub fn icon(&self, cx: &AppContext) -> Icon {
         let lang_name = match self {
             Self::Jupyter(spec) => spec.kernelspec.language.clone(),
             Self::PythonEnv(spec) => spec.kernelspec.language.clone(),
@@ -76,9 +76,9 @@ impl KernelSpecification {
 }
 
 pub fn python_env_kernel_specifications(
-    project: &Entity<Project>,
+    project: &Model<Project>,
     worktree_id: WorktreeId,
-    cx: &mut App,
+    cx: &mut AppContext,
 ) -> impl Future<Output = Result<Vec<KernelSpecification>>> {
     let python_language = LanguageName::new("Python");
     let toolchains = project
@@ -148,7 +148,7 @@ pub trait RunningKernel: Send + Debug {
     fn set_execution_state(&mut self, state: ExecutionState);
     fn kernel_info(&self) -> Option<&KernelInfoReply>;
     fn set_kernel_info(&mut self, info: KernelInfoReply);
-    fn force_shutdown(&mut self, window: &mut Window, cx: &mut App) -> Task<anyhow::Result<()>>;
+    fn force_shutdown(&mut self, cx: &mut WindowContext) -> Task<anyhow::Result<()>>;
 }
 
 #[derive(Debug, Clone)]

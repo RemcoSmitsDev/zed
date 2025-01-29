@@ -1,8 +1,6 @@
 use super::*;
-#[cfg(not(all(target_os = "windows", target_env = "gnu")))]
 use webrtc::{audio_source::RtcAudioSource, video_source::RtcVideoSource};
 
-#[cfg(not(all(target_os = "windows", target_env = "gnu")))]
 pub use livekit::track::{TrackKind, TrackSource};
 
 #[derive(Clone, Debug)]
@@ -25,14 +23,12 @@ pub struct LocalAudioTrack {}
 
 #[derive(Clone, Debug)]
 pub struct RemoteVideoTrack {
-    #[cfg(not(all(target_os = "windows", target_env = "gnu")))]
     pub(super) server_track: Arc<TestServerVideoTrack>,
     pub(super) _room: WeakRoom,
 }
 
 #[derive(Clone, Debug)]
 pub struct RemoteAudioTrack {
-    #[cfg(not(all(target_os = "windows", target_env = "gnu")))]
     pub(super) server_track: Arc<TestServerAudioTrack>,
     pub(super) room: WeakRoom,
 }
@@ -43,17 +39,14 @@ pub enum RtcTrack {
 }
 
 pub struct RtcAudioTrack {
-    #[cfg(not(all(target_os = "windows", target_env = "gnu")))]
     pub(super) server_track: Arc<TestServerAudioTrack>,
     pub(super) room: WeakRoom,
 }
 
 pub struct RtcVideoTrack {
-    #[cfg(not(all(target_os = "windows", target_env = "gnu")))]
     pub(super) _server_track: Arc<TestServerVideoTrack>,
 }
 
-#[cfg(not(all(target_os = "windows", target_env = "gnu")))]
 impl RemoteTrack {
     pub fn sid(&self) -> TrackSid {
         match self {
@@ -84,21 +77,18 @@ impl RemoteTrack {
     }
 }
 
-#[cfg(not(all(target_os = "windows", target_env = "gnu")))]
 impl LocalVideoTrack {
     pub fn create_video_track(_name: &str, _source: RtcVideoSource) -> Self {
         Self {}
     }
 }
 
-#[cfg(not(all(target_os = "windows", target_env = "gnu")))]
 impl LocalAudioTrack {
     pub fn create_audio_track(_name: &str, _source: RtcAudioSource) -> Self {
         Self {}
     }
 }
 
-#[cfg(not(all(target_os = "windows", target_env = "gnu")))]
 impl RemoteAudioTrack {
     pub fn sid(&self) -> TrackSid {
         self.server_track.sid.clone()
@@ -134,7 +124,6 @@ impl RemoteAudioTrack {
     }
 }
 
-#[cfg(not(all(target_os = "windows", target_env = "gnu")))]
 impl RemoteVideoTrack {
     pub fn sid(&self) -> TrackSid {
         self.server_track.sid.clone()
@@ -151,7 +140,6 @@ impl RemoteVideoTrack {
     }
 }
 
-#[cfg(not(all(target_os = "windows", target_env = "gnu")))]
 impl RtcTrack {
     pub fn enabled(&self) -> bool {
         match self {
@@ -168,7 +156,6 @@ impl RtcTrack {
     }
 }
 
-#[cfg(not(all(target_os = "windows", target_env = "gnu")))]
 impl RtcAudioTrack {
     pub fn set_enabled(&self, enabled: bool) {
         if let Some(room) = self.room.upgrade() {

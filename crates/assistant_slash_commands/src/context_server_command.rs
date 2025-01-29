@@ -8,7 +8,7 @@ use context_server::{
     manager::{ContextServer, ContextServerManager},
     types::Prompt,
 };
-use gpui::{App, Entity, Task, WeakEntity, Window};
+use gpui::{AppContext, Model, Task, WeakView, WindowContext};
 use language::{BufferSnapshot, CodeLabel, LspAdapterDelegate};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -19,14 +19,14 @@ use workspace::Workspace;
 use crate::create_label_for_command;
 
 pub struct ContextServerSlashCommand {
-    server_manager: Entity<ContextServerManager>,
+    server_manager: Model<ContextServerManager>,
     server_id: Arc<str>,
     prompt: Prompt,
 }
 
 impl ContextServerSlashCommand {
     pub fn new(
-        server_manager: Entity<ContextServerManager>,
+        server_manager: Model<ContextServerManager>,
         server: &Arc<ContextServer>,
         prompt: Prompt,
     ) -> Self {
@@ -43,7 +43,7 @@ impl SlashCommand for ContextServerSlashCommand {
         self.prompt.name.clone()
     }
 
-    fn label(&self, cx: &App) -> language::CodeLabel {
+    fn label(&self, cx: &AppContext) -> language::CodeLabel {
         let mut parts = vec![self.prompt.name.as_str()];
         if let Some(args) = &self.prompt.arguments {
             if let Some(arg) = args.first() {
@@ -77,9 +77,8 @@ impl SlashCommand for ContextServerSlashCommand {
         self: Arc<Self>,
         arguments: &[String],
         _cancel: Arc<AtomicBool>,
-        _workspace: Option<WeakEntity<Workspace>>,
-        _window: &mut Window,
-        cx: &mut App,
+        _workspace: Option<WeakView<Workspace>>,
+        cx: &mut WindowContext,
     ) -> Task<Result<Vec<ArgumentCompletion>>> {
         let Ok((arg_name, arg_value)) = completion_argument(&self.prompt, arguments) else {
             return Task::ready(Err(anyhow!("Failed to complete argument")));
@@ -129,10 +128,9 @@ impl SlashCommand for ContextServerSlashCommand {
         arguments: &[String],
         _context_slash_command_output_sections: &[SlashCommandOutputSection<language::Anchor>],
         _context_buffer: BufferSnapshot,
-        _workspace: WeakEntity<Workspace>,
+        _workspace: WeakView<Workspace>,
         _delegate: Option<Arc<dyn LspAdapterDelegate>>,
-        _window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Task<SlashCommandResult> {
         let server_id = self.server_id.clone();
         let prompt_name = self.prompt.name.clone();

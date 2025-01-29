@@ -4,7 +4,7 @@ use crate::{
     LanguageModelProviderState, LanguageModelRequest,
 };
 use futures::{channel::mpsc, future::BoxFuture, stream::BoxStream, FutureExt, StreamExt};
-use gpui::{AnyView, App, AsyncApp, Entity, Task, Window};
+use gpui::{AnyView, AppContext, AsyncAppContext, Model, Task, WindowContext};
 use http_client::Result;
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -32,7 +32,7 @@ pub struct FakeLanguageModelProvider;
 impl LanguageModelProviderState for FakeLanguageModelProvider {
     type ObservableEntity = ();
 
-    fn observable_entity(&self) -> Option<Entity<Self::ObservableEntity>> {
+    fn observable_entity(&self) -> Option<Model<Self::ObservableEntity>> {
         None
     }
 }
@@ -46,23 +46,23 @@ impl LanguageModelProvider for FakeLanguageModelProvider {
         provider_name()
     }
 
-    fn provided_models(&self, _: &App) -> Vec<Arc<dyn LanguageModel>> {
+    fn provided_models(&self, _: &AppContext) -> Vec<Arc<dyn LanguageModel>> {
         vec![Arc::new(FakeLanguageModel::default())]
     }
 
-    fn is_authenticated(&self, _: &App) -> bool {
+    fn is_authenticated(&self, _: &AppContext) -> bool {
         true
     }
 
-    fn authenticate(&self, _: &mut App) -> Task<Result<()>> {
+    fn authenticate(&self, _: &mut AppContext) -> Task<Result<()>> {
         Task::ready(Ok(()))
     }
 
-    fn configuration_view(&self, _window: &mut Window, _: &mut App) -> AnyView {
+    fn configuration_view(&self, _: &mut WindowContext) -> AnyView {
         unimplemented!()
     }
 
-    fn reset_credentials(&self, _: &mut App) -> Task<Result<()>> {
+    fn reset_credentials(&self, _: &mut AppContext) -> Task<Result<()>> {
         Task::ready(Ok(()))
     }
 }
@@ -157,14 +157,18 @@ impl LanguageModel for FakeLanguageModel {
         1000000
     }
 
-    fn count_tokens(&self, _: LanguageModelRequest, _: &App) -> BoxFuture<'static, Result<usize>> {
+    fn count_tokens(
+        &self,
+        _: LanguageModelRequest,
+        _: &AppContext,
+    ) -> BoxFuture<'static, Result<usize>> {
         futures::future::ready(Ok(0)).boxed()
     }
 
     fn stream_completion(
         &self,
         request: LanguageModelRequest,
-        _: &AsyncApp,
+        _: &AsyncAppContext,
     ) -> BoxFuture<'static, Result<BoxStream<'static, Result<LanguageModelCompletionEvent>>>> {
         let (tx, rx) = mpsc::unbounded();
         self.current_completion_txs.lock().push((request, tx));
@@ -182,7 +186,7 @@ impl LanguageModel for FakeLanguageModel {
         name: String,
         description: String,
         schema: serde_json::Value,
-        _cx: &AsyncApp,
+        _cx: &AsyncAppContext,
     ) -> BoxFuture<'static, Result<BoxStream<'static, Result<String>>>> {
         let (tx, rx) = mpsc::unbounded();
         let tool_call = ToolUseRequest {

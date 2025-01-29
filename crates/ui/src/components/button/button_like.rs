@@ -33,7 +33,7 @@ pub trait ButtonCommon: Clickable + Disableable {
     ///
     /// Nearly all interactable elements should have a tooltip. Some example
     /// exceptions might a scroll bar, or a slider.
-    fn tooltip(self, tooltip: impl Fn(&mut Window, &mut App) -> AnyView + 'static) -> Self;
+    fn tooltip(self, tooltip: impl Fn(&mut WindowContext) -> AnyView + 'static) -> Self;
 
     fn layer(self, elevation: ElevationIndex) -> Self;
 }
@@ -55,7 +55,7 @@ pub enum TintColor {
 }
 
 impl TintColor {
-    fn button_like_style(self, cx: &mut App) -> ButtonLikeStyles {
+    fn button_like_style(self, cx: &mut WindowContext) -> ButtonLikeStyles {
         match self {
             TintColor::Accent => ButtonLikeStyles {
                 background: cx.theme().status().info_background,
@@ -146,7 +146,7 @@ pub(crate) struct ButtonLikeStyles {
     pub icon_color: Hsla,
 }
 
-fn element_bg_from_elevation(elevation: Option<ElevationIndex>, cx: &mut App) -> Hsla {
+fn element_bg_from_elevation(elevation: Option<ElevationIndex>, cx: &mut WindowContext) -> Hsla {
     match elevation {
         Some(ElevationIndex::Background) => cx.theme().colors().element_background,
         Some(ElevationIndex::ElevatedSurface) => cx.theme().colors().elevated_surface_background,
@@ -160,8 +160,7 @@ impl ButtonStyle {
     pub(crate) fn enabled(
         self,
         elevation: Option<ElevationIndex>,
-
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> ButtonLikeStyles {
         match self {
             ButtonStyle::Filled => ButtonLikeStyles {
@@ -189,8 +188,7 @@ impl ButtonStyle {
     pub(crate) fn hovered(
         self,
         elevation: Option<ElevationIndex>,
-
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> ButtonLikeStyles {
         match self {
             ButtonStyle::Filled => {
@@ -227,7 +225,7 @@ impl ButtonStyle {
         }
     }
 
-    pub(crate) fn active(self, cx: &mut App) -> ButtonLikeStyles {
+    pub(crate) fn active(self, cx: &mut WindowContext) -> ButtonLikeStyles {
         match self {
             ButtonStyle::Filled => ButtonLikeStyles {
                 background: cx.theme().colors().element_active,
@@ -254,7 +252,7 @@ impl ButtonStyle {
     }
 
     #[allow(unused)]
-    pub(crate) fn focused(self, window: &mut Window, cx: &mut App) -> ButtonLikeStyles {
+    pub(crate) fn focused(self, cx: &mut WindowContext) -> ButtonLikeStyles {
         match self {
             ButtonStyle::Filled => ButtonLikeStyles {
                 background: cx.theme().colors().element_background,
@@ -282,8 +280,7 @@ impl ButtonStyle {
     pub(crate) fn disabled(
         self,
         elevation: Option<ElevationIndex>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> ButtonLikeStyles {
         match self {
             ButtonStyle::Filled => ButtonLikeStyles {
@@ -350,10 +347,10 @@ pub struct ButtonLike {
     pub(super) layer: Option<ElevationIndex>,
     size: ButtonSize,
     rounding: Option<ButtonLikeRounding>,
-    tooltip: Option<Box<dyn Fn(&mut Window, &mut App) -> AnyView>>,
+    tooltip: Option<Box<dyn Fn(&mut WindowContext) -> AnyView>>,
     cursor_style: CursorStyle,
-    on_click: Option<Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
-    on_right_click: Option<Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
+    on_click: Option<Box<dyn Fn(&ClickEvent, &mut WindowContext) + 'static>>,
+    on_right_click: Option<Box<dyn Fn(&ClickEvent, &mut WindowContext) + 'static>>,
     children: SmallVec<[AnyElement; 2]>,
 }
 
@@ -399,7 +396,7 @@ impl ButtonLike {
 
     pub fn on_right_click(
         mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+        handler: impl Fn(&ClickEvent, &mut WindowContext) + 'static,
     ) -> Self {
         self.on_right_click = Some(Box::new(handler));
         self
@@ -428,7 +425,7 @@ impl SelectableButton for ButtonLike {
 }
 
 impl Clickable for ButtonLike {
-    fn on_click(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+    fn on_click(mut self, handler: impl Fn(&ClickEvent, &mut WindowContext) + 'static) -> Self {
         self.on_click = Some(Box::new(handler));
         self
     }
@@ -466,7 +463,7 @@ impl ButtonCommon for ButtonLike {
         self
     }
 
-    fn tooltip(mut self, tooltip: impl Fn(&mut Window, &mut App) -> AnyView + 'static) -> Self {
+    fn tooltip(mut self, tooltip: impl Fn(&mut WindowContext) -> AnyView + 'static) -> Self {
         self.tooltip = Some(Box::new(tooltip));
         self
     }
@@ -491,7 +488,7 @@ impl ParentElement for ButtonLike {
 }
 
 impl RenderOnce for ButtonLike {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, cx: &mut WindowContext) -> impl IntoElement {
         let style = self
             .selected_style
             .filter(|_| self.selected)
@@ -528,46 +525,43 @@ impl RenderOnce for ButtonLike {
             .when_some(
                 self.on_right_click.filter(|_| !self.disabled),
                 |this, on_right_click| {
-                    this.on_mouse_down(MouseButton::Right, |_event, window, cx| {
-                        window.prevent_default();
+                    this.on_mouse_down(MouseButton::Right, |_event, cx| {
+                        cx.prevent_default();
                         cx.stop_propagation();
                     })
-                    .on_mouse_up(
-                        MouseButton::Right,
-                        move |event, window, cx| {
-                            cx.stop_propagation();
-                            let click_event = ClickEvent {
-                                down: MouseDownEvent {
-                                    button: MouseButton::Right,
-                                    position: event.position,
-                                    modifiers: event.modifiers,
-                                    click_count: 1,
-                                    first_mouse: false,
-                                },
-                                up: MouseUpEvent {
-                                    button: MouseButton::Right,
-                                    position: event.position,
-                                    modifiers: event.modifiers,
-                                    click_count: 1,
-                                },
-                            };
-                            (on_right_click)(&click_event, window, cx)
-                        },
-                    )
+                    .on_mouse_up(MouseButton::Right, move |event, cx| {
+                        cx.stop_propagation();
+                        let click_event = ClickEvent {
+                            down: MouseDownEvent {
+                                button: MouseButton::Right,
+                                position: event.position,
+                                modifiers: event.modifiers,
+                                click_count: 1,
+                                first_mouse: false,
+                            },
+                            up: MouseUpEvent {
+                                button: MouseButton::Right,
+                                position: event.position,
+                                modifiers: event.modifiers,
+                                click_count: 1,
+                            },
+                        };
+                        (on_right_click)(&click_event, cx)
+                    })
                 },
             )
             .when_some(
                 self.on_click.filter(|_| !self.disabled),
                 |this, on_click| {
-                    this.on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
-                        .on_click(move |event, window, cx| {
+                    this.on_mouse_down(MouseButton::Left, |_, cx| cx.prevent_default())
+                        .on_click(move |event, cx| {
                             cx.stop_propagation();
-                            (on_click)(event, window, cx)
+                            (on_click)(event, cx)
                         })
                 },
             )
             .when_some(self.tooltip, |this, tooltip| {
-                this.tooltip(move |window, cx| tooltip(window, cx))
+                this.tooltip(move |cx| tooltip(cx))
             })
             .children(self.children)
     }

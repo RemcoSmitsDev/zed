@@ -447,8 +447,6 @@ async fn predict_edits(
         ));
     }
 
-    let sample_input_output = claims.is_staff && rand::random::<f32>() < 0.1;
-
     let api_url = state
         .config
         .prediction_api_url
@@ -491,7 +489,7 @@ async fn predict_edits(
             max_tokens: 2048,
             temperature: 0.,
             prediction: Some(fireworks::Prediction::Content {
-                content: params.input_excerpt.clone(),
+                content: params.input_excerpt,
             }),
             rewrite_speculation: Some(true),
         },
@@ -538,38 +536,18 @@ async fn predict_edits(
                 let kinesis_client = state.kinesis_client.clone();
                 let kinesis_stream = state.config.kinesis_stream.clone();
                 let model = model.clone();
-                let output = choice.text.clone();
-
                 async move {
-                    let properties = if sample_input_output {
-                        json!({
-                            "model": model.to_string(),
-                            "headers": response.headers,
-                            "usage": response.completion.usage,
-                            "duration": duration.as_secs_f64(),
-                            "prompt": prompt,
-                            "input_excerpt": params.input_excerpt,
-                            "input_events": params.input_events,
-                            "outline": params.outline,
-                            "output": output,
-                            "is_sampled": true,
-                        })
-                    } else {
-                        json!({
-                            "model": model.to_string(),
-                            "headers": response.headers,
-                            "usage": response.completion.usage,
-                            "duration": duration.as_secs_f64(),
-                            "is_sampled": false,
-                        })
-                    };
-
                     SnowflakeRow::new(
                         "Fireworks Completion Requested",
                         claims.metrics_id,
                         claims.is_staff,
                         claims.system_id.clone(),
-                        properties,
+                        json!({
+                            "model": model.to_string(),
+                            "headers": response.headers,
+                            "usage": response.completion.usage,
+                            "duration": duration.as_secs_f64(),
+                        }),
                     )
                     .write(&kinesis_client, &kinesis_stream)
                     .await

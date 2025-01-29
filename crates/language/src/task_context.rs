@@ -4,7 +4,7 @@ use crate::{LanguageToolchainStore, Location, Runnable};
 
 use anyhow::Result;
 use collections::HashMap;
-use gpui::{App, Task};
+use gpui::{AppContext, Task};
 use task::{TaskTemplates, TaskVariables};
 use text::BufferId;
 
@@ -27,7 +27,7 @@ pub trait ContextProvider: Send + Sync {
         _location: &Location,
         _project_env: Option<HashMap<String, String>>,
         _toolchains: Arc<dyn LanguageToolchainStore>,
-        _cx: &mut App,
+        _cx: &mut AppContext,
     ) -> Task<Result<TaskVariables>> {
         Task::ready(Ok(TaskVariables::default()))
     }
@@ -36,7 +36,7 @@ pub trait ContextProvider: Send + Sync {
     fn associated_tasks(
         &self,
         _: Option<Arc<dyn crate::File>>,
-        _cx: &App,
+        _cx: &AppContext,
     ) -> Option<TaskTemplates> {
         None
     }

@@ -3,7 +3,7 @@ use dap::{
     client::DebugAdapterClientId, proto_conversions::ProtoConversion, session::DebugSessionId,
     Module, ModuleEvent,
 };
-use gpui::{list, AnyElement, Entity, FocusHandle, Focusable, ListState, Task};
+use gpui::{list, AnyElement, FocusHandle, FocusableView, ListState, Model, Task};
 use project::dap_store::DapStore;
 use rpc::proto::{DebuggerModuleList, UpdateDebugAdapter};
 use ui::prelude::*;
@@ -13,32 +13,27 @@ pub struct ModuleList {
     list: ListState,
     modules: Vec<Module>,
     focus_handle: FocusHandle,
-    dap_store: Entity<DapStore>,
+    dap_store: Model<DapStore>,
     client_id: DebugAdapterClientId,
     session_id: DebugSessionId,
 }
 
 impl ModuleList {
     pub fn new(
-        dap_store: Entity<DapStore>,
+        dap_store: Model<DapStore>,
         client_id: &DebugAdapterClientId,
         session_id: &DebugSessionId,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) -> Self {
-        let weak_entity = cx.weak_entity();
+        let weakview = cx.view().downgrade();
         let focus_handle = cx.focus_handle();
 
-        let list = ListState::new(
-            0,
-            gpui::ListAlignment::Top,
-            px(1000.),
-            move |ix, _window, cx| {
-                weak_entity
-                    .upgrade()
-                    .map(|module_list| module_list.update(cx, |this, cx| this.render_entry(ix, cx)))
-                    .unwrap_or(div().into_any())
-            },
-        );
+        let list = ListState::new(0, gpui::ListAlignment::Top, px(1000.), move |ix, cx| {
+            weakview
+                .upgrade()
+                .map(|view| view.update(cx, |this, cx| this.render_entry(ix, cx)))
+                .unwrap_or(div().into_any())
+        });
 
         let this = Self {
             list,
@@ -58,7 +53,7 @@ impl ModuleList {
     pub(crate) fn set_from_proto(
         &mut self,
         module_list: &DebuggerModuleList,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) {
         self.modules = module_list
             .modules
@@ -83,7 +78,7 @@ impl ModuleList {
         }
     }
 
-    pub fn on_module_event(&mut self, event: &ModuleEvent, cx: &mut Context<Self>) {
+    pub fn on_module_event(&mut self, event: &ModuleEvent, cx: &mut ViewContext<Self>) {
         match event.reason {
             dap::ModuleEventReason::New => self.modules.push(event.module.clone()),
             dap::ModuleEventReason::Changed => {
@@ -107,7 +102,7 @@ impl ModuleList {
         cx.background_executor().spawn(task).detach();
     }
 
-    fn fetch_modules(&self, cx: &mut Context<Self>) -> Task<Result<()>> {
+    fn fetch_modules(&self, cx: &mut ViewContext<Self>) -> Task<Result<()>> {
         let task = self
             .dap_store
             .update(cx, |store, cx| store.modules(&self.client_id, cx));
@@ -125,7 +120,7 @@ impl ModuleList {
         })
     }
 
-    fn propagate_updates(&self, cx: &Context<Self>) {
+    fn propagate_updates(&self, cx: &ViewContext<Self>) {
         if let Some((client, id)) = self.dap_store.read(cx).downstream_client() {
             let request = UpdateDebugAdapter {
                 session_id: self.session_id.to_proto(),
@@ -141,7 +136,7 @@ impl ModuleList {
         }
     }
 
-    fn render_entry(&mut self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
+    fn render_entry(&mut self, ix: usize, cx: &mut ViewContext<Self>) -> AnyElement {
         let module = &self.modules[ix];
 
         v_flex()
@@ -161,14 +156,14 @@ impl ModuleList {
     }
 }
 
-impl Focusable for ModuleList {
-    fn focus_handle(&self, _: &gpui::App) -> gpui::FocusHandle {
+impl FocusableView for ModuleList {
+    fn focus_handle(&self, _: &gpui::AppContext) -> gpui::FocusHandle {
         self.focus_handle.clone()
     }
 }
 
 impl Render for ModuleList {
-    fn render(&mut self, _window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut ViewContext<Self>) -> impl IntoElement {
         div()
             .size_full()
             .p_1()

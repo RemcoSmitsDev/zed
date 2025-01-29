@@ -4,7 +4,7 @@ use assistant_slash_command::{
     SlashCommandResult,
 };
 use fuzzy::{PathMatch, StringMatchCandidate};
-use gpui::{App, Entity, Task, WeakEntity};
+use gpui::{AppContext, Model, Task, View, WeakView};
 use language::{
     Anchor, BufferSnapshot, DiagnosticEntry, DiagnosticSeverity, LspAdapterDelegate,
     OffsetRangeExt, ToOffset,
@@ -30,8 +30,8 @@ impl DiagnosticsSlashCommand {
         &self,
         query: String,
         cancellation_flag: Arc<AtomicBool>,
-        workspace: &Entity<Workspace>,
-        cx: &mut App,
+        workspace: &View<Workspace>,
+        cx: &mut AppContext,
     ) -> Task<Vec<PathMatch>> {
         if query.is_empty() {
             let workspace = workspace.read(cx);
@@ -90,7 +90,7 @@ impl SlashCommand for DiagnosticsSlashCommand {
         "diagnostics".into()
     }
 
-    fn label(&self, cx: &App) -> language::CodeLabel {
+    fn label(&self, cx: &AppContext) -> language::CodeLabel {
         create_label_for_command("diagnostics", &[INCLUDE_WARNINGS_ARGUMENT], cx)
     }
 
@@ -118,9 +118,8 @@ impl SlashCommand for DiagnosticsSlashCommand {
         self: Arc<Self>,
         arguments: &[String],
         cancellation_flag: Arc<AtomicBool>,
-        workspace: Option<WeakEntity<Workspace>>,
-        _: &mut Window,
-        cx: &mut App,
+        workspace: Option<WeakView<Workspace>>,
+        cx: &mut WindowContext,
     ) -> Task<Result<Vec<ArgumentCompletion>>> {
         let Some(workspace) = workspace.and_then(|workspace| workspace.upgrade()) else {
             return Task::ready(Err(anyhow!("workspace was dropped")));
@@ -173,10 +172,9 @@ impl SlashCommand for DiagnosticsSlashCommand {
         arguments: &[String],
         _context_slash_command_output_sections: &[SlashCommandOutputSection<language::Anchor>],
         _context_buffer: BufferSnapshot,
-        workspace: WeakEntity<Workspace>,
+        workspace: WeakView<Workspace>,
         _delegate: Option<Arc<dyn LspAdapterDelegate>>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Task<SlashCommandResult> {
         let Some(workspace) = workspace.upgrade() else {
             return Task::ready(Err(anyhow!("workspace was dropped")));
@@ -186,7 +184,7 @@ impl SlashCommand for DiagnosticsSlashCommand {
 
         let task = collect_diagnostics(workspace.read(cx).project().clone(), options, cx);
 
-        window.spawn(cx, move |_| async move {
+        cx.spawn(move |_| async move {
             task.await?
                 .map(|output| output.to_event_stream())
                 .ok_or_else(|| anyhow!("No diagnostics found"))
@@ -225,9 +223,9 @@ impl Options {
 }
 
 fn collect_diagnostics(
-    project: Entity<Project>,
+    project: Model<Project>,
     options: Options,
-    cx: &mut App,
+    cx: &mut AppContext,
 ) -> Task<Result<Option<SlashCommandOutput>>> {
     let error_source = if let Some(path_matcher) = &options.path_matcher {
         debug_assert_eq!(path_matcher.sources().len(), 1);
@@ -303,7 +301,7 @@ fn collect_diagnostics(
                 .await
                 .log_err()
             {
-                let snapshot = cx.read_entity(&buffer, |buffer, _| buffer.snapshot())?;
+                let snapshot = cx.read_model(&buffer, |buffer, _| buffer.snapshot())?;
                 collect_buffer_diagnostics(&mut output, &snapshot, options.include_warnings);
             }
 

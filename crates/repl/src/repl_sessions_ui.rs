@@ -1,7 +1,7 @@
 use editor::Editor;
 use gpui::{
-    actions, prelude::*, AnyElement, App, Entity, EventEmitter, FocusHandle, Focusable,
-    Subscription,
+    actions, prelude::*, AnyElement, AppContext, EventEmitter, FocusHandle, FocusableView,
+    Subscription, View,
 };
 use project::ProjectItem as _;
 use ui::{prelude::*, ButtonLike, ElevationIndex, KeyBinding};
@@ -27,10 +27,10 @@ actions!(
     ]
 );
 
-pub fn init(cx: &mut App) {
-    cx.observe_new(
-        |workspace: &mut Workspace, _window, _cx: &mut Context<Workspace>| {
-            workspace.register_action(|workspace, _: &Sessions, window, cx| {
+pub fn init(cx: &mut AppContext) {
+    cx.observe_new_views(
+        |workspace: &mut Workspace, _cx: &mut ViewContext<Workspace>| {
+            workspace.register_action(|workspace, _: &Sessions, cx| {
                 let existing = workspace
                     .active_pane()
                     .read(cx)
@@ -38,20 +38,14 @@ pub fn init(cx: &mut App) {
                     .find_map(|item| item.downcast::<ReplSessionsPage>());
 
                 if let Some(existing) = existing {
-                    workspace.activate_item(&existing, true, true, window, cx);
+                    workspace.activate_item(&existing, true, true, cx);
                 } else {
-                    let repl_sessions_page = ReplSessionsPage::new(window, cx);
-                    workspace.add_item_to_active_pane(
-                        Box::new(repl_sessions_page),
-                        None,
-                        true,
-                        window,
-                        cx,
-                    )
+                    let repl_sessions_page = ReplSessionsPage::new(cx);
+                    workspace.add_item_to_active_pane(Box::new(repl_sessions_page), None, true, cx)
                 }
             });
 
-            workspace.register_action(|_workspace, _: &RefreshKernelspecs, _, cx| {
+            workspace.register_action(|_workspace, _: &RefreshKernelspecs, cx| {
                 let store = ReplStore::global(cx);
                 store.update(cx, |store, cx| {
                     store.refresh_kernelspecs(cx).detach();
@@ -61,84 +55,74 @@ pub fn init(cx: &mut App) {
     )
     .detach();
 
-    cx.observe_new(
-        move |editor: &mut Editor, window, cx: &mut Context<Editor>| {
-            let Some(window) = window else {
-                return;
-            };
+    cx.observe_new_views(move |editor: &mut Editor, cx: &mut ViewContext<Editor>| {
+        if !editor.use_modal_editing() || !editor.buffer().read(cx).is_singleton() {
+            return;
+        }
 
-            if !editor.use_modal_editing() || !editor.buffer().read(cx).is_singleton() {
+        cx.defer(|editor, cx| {
+            let workspace = Workspace::for_window(cx);
+            let project = workspace.map(|workspace| workspace.read(cx).project().clone());
+
+            let is_local_project = project
+                .as_ref()
+                .map(|project| project.read(cx).is_local())
+                .unwrap_or(false);
+
+            if !is_local_project {
                 return;
             }
 
-            cx.defer_in(window, |editor, window, cx| {
-                let workspace = Workspace::for_window(window, cx);
-                let project = workspace.map(|workspace| workspace.read(cx).project().clone());
+            let buffer = editor.buffer().read(cx).as_singleton();
 
-                let is_local_project = project
-                    .as_ref()
-                    .map(|project| project.read(cx).is_local())
-                    .unwrap_or(false);
+            let language = buffer
+                .as_ref()
+                .and_then(|buffer| buffer.read(cx).language());
 
-                if !is_local_project {
-                    return;
-                }
+            let project_path = buffer.and_then(|buffer| buffer.read(cx).project_path(cx));
 
-                let buffer = editor.buffer().read(cx).as_singleton();
+            let editor_handle = cx.view().downgrade();
 
-                let language = buffer
-                    .as_ref()
-                    .and_then(|buffer| buffer.read(cx).language());
-
-                let project_path = buffer.and_then(|buffer| buffer.read(cx).project_path(cx));
-
-                let editor_handle = cx.entity().downgrade();
-
-                if let Some(language) = language {
-                    if language.name() == "Python".into() {
-                        if let (Some(project_path), Some(project)) = (project_path, project) {
-                            let store = ReplStore::global(cx);
-                            store.update(cx, |store, cx| {
-                                store
-                                    .refresh_python_kernelspecs(
-                                        project_path.worktree_id,
-                                        &project,
-                                        cx,
-                                    )
-                                    .detach_and_log_err(cx);
-                            });
-                        }
+            if let Some(language) = language {
+                if language.name() == "Python".into() {
+                    if let (Some(project_path), Some(project)) = (project_path, project) {
+                        let store = ReplStore::global(cx);
+                        store.update(cx, |store, cx| {
+                            store
+                                .refresh_python_kernelspecs(project_path.worktree_id, &project, cx)
+                                .detach_and_log_err(cx);
+                        });
                     }
                 }
+            }
 
-                editor
-                    .register_action({
-                        let editor_handle = editor_handle.clone();
-                        move |_: &Run, window, cx| {
-                            if !JupyterSettings::enabled(cx) {
-                                return;
-                            }
-
-                            crate::run(editor_handle.clone(), true, window, cx).log_err();
+            editor
+                .register_action({
+                    let editor_handle = editor_handle.clone();
+                    move |_: &Run, cx| {
+                        if !JupyterSettings::enabled(cx) {
+                            return;
                         }
-                    })
-                    .detach();
 
-                editor
-                    .register_action({
-                        let editor_handle = editor_handle.clone();
-                        move |_: &RunInPlace, window, cx| {
-                            if !JupyterSettings::enabled(cx) {
-                                return;
-                            }
+                        crate::run(editor_handle.clone(), true, cx).log_err();
+                    }
+                })
+                .detach();
 
-                            crate::run(editor_handle.clone(), false, window, cx).log_err();
+            editor
+                .register_action({
+                    let editor_handle = editor_handle.clone();
+                    move |_: &RunInPlace, cx| {
+                        if !JupyterSettings::enabled(cx) {
+                            return;
                         }
-                    })
-                    .detach();
-            });
-        },
-    )
+
+                        crate::run(editor_handle.clone(), false, cx).log_err();
+                    }
+                })
+                .detach();
+        });
+    })
     .detach();
 }
 
@@ -148,15 +132,13 @@ pub struct ReplSessionsPage {
 }
 
 impl ReplSessionsPage {
-    pub fn new(window: &mut Window, cx: &mut Context<Workspace>) -> Entity<Self> {
-        cx.new(|cx| {
+    pub fn new(cx: &mut ViewContext<Workspace>) -> View<Self> {
+        cx.new_view(|cx: &mut ViewContext<Self>| {
             let focus_handle = cx.focus_handle();
 
             let subscriptions = vec![
-                cx.on_focus_in(&focus_handle, window, |_this, _window, cx| cx.notify()),
-                cx.on_focus_out(&focus_handle, window, |_this, _event, _window, cx| {
-                    cx.notify()
-                }),
+                cx.on_focus_in(&focus_handle, |_this, cx| cx.notify()),
+                cx.on_focus_out(&focus_handle, |_this, _event, cx| cx.notify()),
             ];
 
             Self {
@@ -169,8 +151,8 @@ impl ReplSessionsPage {
 
 impl EventEmitter<ItemEvent> for ReplSessionsPage {}
 
-impl Focusable for ReplSessionsPage {
-    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+impl FocusableView for ReplSessionsPage {
+    fn focus_handle(&self, _cx: &AppContext) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
@@ -178,7 +160,7 @@ impl Focusable for ReplSessionsPage {
 impl Item for ReplSessionsPage {
     type Event = ItemEvent;
 
-    fn tab_content_text(&self, _window: &Window, _cx: &App) -> Option<SharedString> {
+    fn tab_content_text(&self, _cx: &WindowContext) -> Option<SharedString> {
         Some("REPL Sessions".into())
     }
 
@@ -193,9 +175,8 @@ impl Item for ReplSessionsPage {
     fn clone_on_split(
         &self,
         _workspace_id: Option<WorkspaceId>,
-        _window: &mut Window,
-        _: &mut Context<Self>,
-    ) -> Option<Entity<Self>> {
+        _: &mut ViewContext<Self>,
+    ) -> Option<View<Self>> {
         None
     }
 
@@ -205,7 +186,7 @@ impl Item for ReplSessionsPage {
 }
 
 impl Render for ReplSessionsPage {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         let store = ReplStore::global(cx);
 
         let (kernel_specifications, sessions) = store.update(cx, |store, _cx| {
@@ -233,7 +214,7 @@ impl Render for ReplSessionsPage {
                             .size(ButtonSize::Large)
                             .layer(ElevationIndex::ModalSurface)
                             .child(Label::new("Install Kernels"))
-                            .on_click(move |_, _, cx| {
+                            .on_click(move |_, cx| {
                                 cx.open_url(
                                     "https://zed.dev/docs/repl#language-specific-instructions",
                                 )
@@ -249,7 +230,7 @@ impl Render for ReplSessionsPage {
             return ReplSessionsContainer::new("No Jupyter Kernel Sessions").child(
                 v_flex()
                     .child(Label::new(instructions))
-                    .children(KeyBinding::for_action(&Run, window)),
+                    .children(KeyBinding::for_action(&Run, cx)),
             );
         }
 
@@ -279,7 +260,7 @@ impl ParentElement for ReplSessionsContainer {
 }
 
 impl RenderOnce for ReplSessionsContainer {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(self, _cx: &mut WindowContext) -> impl IntoElement {
         v_flex()
             .p_4()
             .gap_2()

@@ -1,15 +1,15 @@
 use refineable::Refineable as _;
 
 use crate::{
-    App, Bounds, Element, ElementId, GlobalElementId, IntoElement, Pixels, Style, StyleRefinement,
-    Styled, Window,
+    Bounds, Element, ElementId, GlobalElementId, IntoElement, Pixels, Style, StyleRefinement,
+    Styled, WindowContext,
 };
 
 /// Construct a canvas element with the given paint callback.
 /// Useful for adding short term custom drawing to a view.
 pub fn canvas<T>(
-    prepaint: impl 'static + FnOnce(Bounds<Pixels>, &mut Window, &mut App) -> T,
-    paint: impl 'static + FnOnce(Bounds<Pixels>, T, &mut Window, &mut App),
+    prepaint: impl 'static + FnOnce(Bounds<Pixels>, &mut WindowContext) -> T,
+    paint: impl 'static + FnOnce(Bounds<Pixels>, T, &mut WindowContext),
 ) -> Canvas<T> {
     Canvas {
         prepaint: Some(Box::new(prepaint)),
@@ -21,8 +21,8 @@ pub fn canvas<T>(
 /// A canvas element, meant for accessing the low level paint API without defining a whole
 /// custom element
 pub struct Canvas<T> {
-    prepaint: Option<Box<dyn FnOnce(Bounds<Pixels>, &mut Window, &mut App) -> T>>,
-    paint: Option<Box<dyn FnOnce(Bounds<Pixels>, T, &mut Window, &mut App)>>,
+    prepaint: Option<Box<dyn FnOnce(Bounds<Pixels>, &mut WindowContext) -> T>>,
+    paint: Option<Box<dyn FnOnce(Bounds<Pixels>, T, &mut WindowContext)>>,
     style: StyleRefinement,
 }
 
@@ -45,12 +45,11 @@ impl<T: 'static> Element for Canvas<T> {
     fn request_layout(
         &mut self,
         _id: Option<&GlobalElementId>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> (crate::LayoutId, Self::RequestLayoutState) {
         let mut style = Style::default();
         style.refine(&self.style);
-        let layout_id = window.request_layout(style.clone(), [], cx);
+        let layout_id = cx.request_layout(style.clone(), []);
         (layout_id, style)
     }
 
@@ -59,10 +58,9 @@ impl<T: 'static> Element for Canvas<T> {
         _id: Option<&GlobalElementId>,
         bounds: Bounds<Pixels>,
         _request_layout: &mut Style,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Option<T> {
-        Some(self.prepaint.take().unwrap()(bounds, window, cx))
+        Some(self.prepaint.take().unwrap()(bounds, cx))
     }
 
     fn paint(
@@ -71,12 +69,11 @@ impl<T: 'static> Element for Canvas<T> {
         bounds: Bounds<Pixels>,
         style: &mut Style,
         prepaint: &mut Self::PrepaintState,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) {
         let prepaint = prepaint.take().unwrap();
-        style.paint(bounds, window, cx, |window, cx| {
-            (self.paint.take().unwrap())(bounds, prepaint, window, cx)
+        style.paint(bounds, cx, |cx| {
+            (self.paint.take().unwrap())(bounds, prepaint, cx)
         });
     }
 }

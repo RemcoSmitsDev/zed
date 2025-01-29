@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 
 /// Markdown text.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct MarkdownString(pub String);
 
 impl Display for MarkdownString {

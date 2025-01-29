@@ -3,10 +3,10 @@ use std::{any::Any, cell::Cell, fmt::Debug, ops::Range, rc::Rc, sync::Arc};
 
 use crate::{prelude::*, px, relative, IntoElement};
 use gpui::{
-    point, quad, Along, App, Axis as ScrollbarAxis, Bounds, ContentMask, Corners, Edges, Element,
+    point, quad, Along, Axis as ScrollbarAxis, Bounds, ContentMask, Corners, Edges, Element,
     ElementId, Entity, EntityId, GlobalElementId, Hitbox, Hsla, LayoutId, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollHandle, ScrollWheelEvent, Size, Style,
-    UniformListScrollHandle, Window,
+    UniformListScrollHandle, View, WindowContext,
 };
 
 pub struct Scrollbar {
@@ -113,8 +113,8 @@ impl ScrollbarState {
         }
     }
 
-    /// Set a parent model which should be notified whenever this Scrollbar gets a scroll event.
-    pub fn parent_model<V: 'static>(mut self, v: &Entity<V>) -> Self {
+    /// Set a parent view which should be notified whenever this Scrollbar gets a scroll event.
+    pub fn parent_view<V: 'static>(mut self, v: &View<V>) -> Self {
         self.parent_id = Some(v.entity_id());
         self
     }
@@ -194,8 +194,7 @@ impl Element for Scrollbar {
     fn request_layout(
         &mut self,
         _id: Option<&GlobalElementId>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> (LayoutId, Self::RequestLayoutState) {
         let mut style = Style::default();
         style.flex_grow = 1.;
@@ -209,7 +208,7 @@ impl Element for Scrollbar {
             style.size.height = px(12.).into();
         }
 
-        (window.request_layout(style, None, cx), ())
+        (cx.request_layout(style, None), ())
     }
 
     fn prepaint(
@@ -217,11 +216,10 @@ impl Element for Scrollbar {
         _id: Option<&GlobalElementId>,
         bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
-        window: &mut Window,
-        _: &mut App,
+        cx: &mut WindowContext,
     ) -> Self::PrepaintState {
-        window.with_content_mask(Some(ContentMask { bounds }), |window| {
-            window.insert_hitbox(bounds, false)
+        cx.with_content_mask(Some(ContentMask { bounds }), |cx| {
+            cx.insert_hitbox(bounds, false)
         })
     }
 
@@ -231,10 +229,9 @@ impl Element for Scrollbar {
         bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
         _prepaint: &mut Self::PrepaintState,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) {
-        window.with_content_mask(Some(ContentMask { bounds }), |window| {
+        cx.with_content_mask(Some(ContentMask { bounds }), |cx| {
             let colors = cx.theme().colors();
             let thumb_background = colors
                 .surface_background
@@ -285,7 +282,7 @@ impl Element for Scrollbar {
                 thumb_bounds.size.height /= 1.5;
                 Corners::all(thumb_bounds.size.height / 2.0)
             };
-            window.paint_quad(quad(
+            cx.paint_quad(quad(
                 thumb_bounds,
                 corners,
                 thumb_background,
@@ -297,11 +294,11 @@ impl Element for Scrollbar {
             let kind = self.kind;
             let thumb_percentage_size = self.thumb.end - self.thumb.start;
 
-            window.on_mouse_event({
+            cx.on_mouse_event({
                 let scroll = scroll.clone();
                 let state = self.state.clone();
                 let axis = self.kind;
-                move |event: &MouseDownEvent, phase, _, _| {
+                move |event: &MouseDownEvent, phase, _cx| {
                     if !(phase.bubble() && bounds.contains(&event.position)) {
                         return;
                     }
@@ -336,20 +333,19 @@ impl Element for Scrollbar {
                     }
                 }
             });
-            window.on_mouse_event({
+            cx.on_mouse_event({
                 let scroll = scroll.clone();
-                move |event: &ScrollWheelEvent, phase, window, _| {
+                move |event: &ScrollWheelEvent, phase, cx| {
                     if phase.bubble() && bounds.contains(&event.position) {
                         let current_offset = scroll.offset();
-                        scroll.set_offset(
-                            current_offset + event.delta.pixel_delta(window.line_height()),
-                        );
+                        scroll
+                            .set_offset(current_offset + event.delta.pixel_delta(cx.line_height()));
                     }
                 }
             });
             let state = self.state.clone();
             let kind = self.kind;
-            window.on_mouse_event(move |event: &MouseMoveEvent, _, _, cx| {
+            cx.on_mouse_event(move |event: &MouseMoveEvent, _, cx| {
                 if let Some(drag_state) = state.drag.get().filter(|_| event.dragging()) {
                     if let Some(ContentSize {
                         size: item_size, ..
@@ -379,7 +375,7 @@ impl Element for Scrollbar {
                         };
 
                         if let Some(id) = state.parent_id {
-                            cx.notify(id);
+                            cx.notify(Some(id));
                         }
                     }
                 } else {
@@ -387,11 +383,11 @@ impl Element for Scrollbar {
                 }
             });
             let state = self.state.clone();
-            window.on_mouse_event(move |_event: &MouseUpEvent, phase, _, cx| {
+            cx.on_mouse_event(move |_event: &MouseUpEvent, phase, cx| {
                 if phase.bubble() {
                     state.drag.take();
                     if let Some(id) = state.parent_id {
-                        cx.notify(id);
+                        cx.notify(Some(id));
                     }
                 }
             });

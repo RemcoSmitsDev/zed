@@ -1,4 +1,4 @@
-use gpui::{div, Context, Element, Entity, Render, Subscription, WeakEntity, Window};
+use gpui::{div, Element, Render, Subscription, View, ViewContext, WeakView};
 use itertools::Itertools;
 use workspace::{item::ItemHandle, ui::prelude::*, StatusItemView};
 
@@ -6,30 +6,27 @@ use crate::{Vim, VimEvent, VimGlobals};
 
 /// The ModeIndicator displays the current mode in the status bar.
 pub struct ModeIndicator {
-    vim: Option<WeakEntity<Vim>>,
+    vim: Option<WeakView<Vim>>,
     pending_keys: Option<String>,
     vim_subscription: Option<Subscription>,
 }
 
 impl ModeIndicator {
     /// Construct a new mode indicator in this window.
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        cx.observe_pending_input(window, |this: &mut Self, window, cx| {
-            this.update_pending_keys(window);
+    pub fn new(cx: &mut ViewContext<Self>) -> Self {
+        cx.observe_pending_input(|this, cx| {
+            this.update_pending_keys(cx);
             cx.notify();
         })
         .detach();
 
-        let handle = cx.entity().clone();
-        let window_handle = window.window_handle();
-        cx.observe_new::<Vim>(move |_, window, cx| {
-            let Some(window) = window else {
-                return;
-            };
-            if window.window_handle() != window_handle {
+        let handle = cx.view().clone();
+        let window = cx.window_handle();
+        cx.observe_new_views::<Vim>(move |_, cx| {
+            if cx.window_handle() != window {
                 return;
             }
-            let vim = cx.entity().clone();
+            let vim = cx.view().clone();
             handle.update(cx, |_, cx| {
                 cx.subscribe(&vim, |mode_indicator, vim, event, cx| match event {
                     VimEvent::Focused => {
@@ -50,8 +47,8 @@ impl ModeIndicator {
         }
     }
 
-    fn update_pending_keys(&mut self, window: &mut Window) {
-        self.pending_keys = window.pending_input_keystrokes().map(|keystrokes| {
+    fn update_pending_keys(&mut self, cx: &mut ViewContext<Self>) {
+        self.pending_keys = cx.pending_input_keystrokes().map(|keystrokes| {
             keystrokes
                 .iter()
                 .map(|keystroke| format!("{}", keystroke))
@@ -59,11 +56,11 @@ impl ModeIndicator {
         });
     }
 
-    fn vim(&self) -> Option<Entity<Vim>> {
+    fn vim(&self) -> Option<View<Vim>> {
         self.vim.as_ref().and_then(|vim| vim.upgrade())
     }
 
-    fn current_operators_description(&self, vim: Entity<Vim>, cx: &mut Context<Self>) -> String {
+    fn current_operators_description(&self, vim: View<Vim>, cx: &mut ViewContext<Self>) -> String {
         let recording = Vim::globals(cx)
             .recording_register
             .map(|reg| format!("recording @{reg} "))
@@ -93,31 +90,25 @@ impl ModeIndicator {
 }
 
 impl Render for ModeIndicator {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         let vim = self.vim();
         let Some(vim) = vim else {
             return div().into_any();
         };
 
         let vim_readable = vim.read(cx);
-        let label = if let Some(label) = vim_readable.status_label.clone() {
-            label
+        let mode = if vim_readable.temp_mode {
+            format!("(insert) {}", vim_readable.mode)
         } else {
-            let mode = if vim_readable.temp_mode {
-                format!("(insert) {}", vim_readable.mode)
-            } else {
-                vim_readable.mode.to_string()
-            };
-
-            let current_operators_description = self.current_operators_description(vim.clone(), cx);
-            let pending = self
-                .pending_keys
-                .as_ref()
-                .unwrap_or(&current_operators_description);
-            format!("{} -- {} --", pending, mode).into()
+            vim_readable.mode.to_string()
         };
 
-        Label::new(label)
+        let current_operators_description = self.current_operators_description(vim.clone(), cx);
+        let pending = self
+            .pending_keys
+            .as_ref()
+            .unwrap_or(&current_operators_description);
+        Label::new(format!("{} -- {} --", pending, mode))
             .size(LabelSize::Small)
             .line_height_style(LineHeightStyle::UiLabel)
             .into_any_element()
@@ -128,8 +119,7 @@ impl StatusItemView for ModeIndicator {
     fn set_active_pane_item(
         &mut self,
         _active_pane_item: Option<&dyn ItemHandle>,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
+        _cx: &mut ViewContext<Self>,
     ) {
     }
 }

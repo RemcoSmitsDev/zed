@@ -1,9 +1,9 @@
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{anyhow, Context, Result};
 use assistant_slash_command::{
     ArgumentCompletion, SlashCommand, SlashCommandOutput, SlashCommandOutputSection,
     SlashCommandResult,
 };
-use gpui::{Task, WeakEntity};
+use gpui::{Task, WeakView};
 use language::{BufferSnapshot, LspAdapterDelegate};
 use prompt_library::PromptStore;
 use std::sync::{atomic::AtomicBool, Arc};
@@ -37,9 +37,8 @@ impl SlashCommand for PromptSlashCommand {
         self: Arc<Self>,
         arguments: &[String],
         _cancellation_flag: Arc<AtomicBool>,
-        _workspace: Option<WeakEntity<Workspace>>,
-        _: &mut Window,
-        cx: &mut App,
+        _workspace: Option<WeakView<Workspace>>,
+        cx: &mut WindowContext,
     ) -> Task<Result<Vec<ArgumentCompletion>>> {
         let store = PromptStore::global(cx);
         let query = arguments.to_owned().join(" ");
@@ -65,10 +64,9 @@ impl SlashCommand for PromptSlashCommand {
         arguments: &[String],
         _context_slash_command_output_sections: &[SlashCommandOutputSection<language::Anchor>],
         _context_buffer: BufferSnapshot,
-        _workspace: WeakEntity<Workspace>,
+        _workspace: WeakView<Workspace>,
         _delegate: Option<Arc<dyn LspAdapterDelegate>>,
-        _: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Task<SlashCommandResult> {
         let title = arguments.to_owned().join(" ");
         if title.trim().is_empty() {

@@ -5,10 +5,13 @@ use std::sync::{Arc, OnceLock};
 use db::kvp::KEY_VALUE_STORE;
 use editor::Editor;
 use extension_host::ExtensionStore;
-use gpui::{AppContext as _, Context, Entity, SharedString, Window};
+use gpui::{Model, VisualContext};
 use language::Buffer;
-use workspace::notifications::simple_message_notification::MessageNotification;
-use workspace::{notifications::NotificationId, Workspace};
+use ui::{SharedString, ViewContext};
+use workspace::{
+    notifications::{simple_message_notification, NotificationId},
+    Workspace,
+};
 
 const SUGGESTIONS_BY_EXTENSION_ID: &[(&str, &[&str])] = &[
     ("astro", &["astro"]),
@@ -133,7 +136,7 @@ fn language_extension_key(extension_id: &str) -> String {
     format!("{}_extension_suggest", extension_id)
 }
 
-pub(crate) fn suggest(buffer: Entity<Buffer>, window: &mut Window, cx: &mut Context<Workspace>) {
+pub(crate) fn suggest(buffer: Model<Buffer>, cx: &mut ViewContext<Workspace>) {
     let Some(file) = buffer.read(cx).file().cloned() else {
         return;
     };
@@ -151,7 +154,7 @@ pub(crate) fn suggest(buffer: Entity<Buffer>, window: &mut Window, cx: &mut Cont
         return;
     };
 
-    cx.on_next_frame(window, move |workspace, _, cx| {
+    cx.on_next_frame(move |workspace, cx| {
         let Some(editor) = workspace.active_item_as::<Editor>(cx) else {
             return;
         };
@@ -167,15 +170,15 @@ pub(crate) fn suggest(buffer: Entity<Buffer>, window: &mut Window, cx: &mut Cont
         );
 
         workspace.show_notification(notification_id, cx, |cx| {
-            cx.new(move |_cx| {
-                MessageNotification::new(format!(
+            cx.new_view(move |_cx| {
+                simple_message_notification::MessageNotification::new(format!(
                     "Do you want to install the recommended '{}' extension for '{}' files?",
                     extension_id, file_name_or_extension
                 ))
                 .with_click_message("Yes, install extension")
                 .on_click({
                     let extension_id = extension_id.clone();
-                    move |_window, cx| {
+                    move |cx| {
                         let extension_id = extension_id.clone();
                         let extension_store = ExtensionStore::global(cx);
                         extension_store.update(cx, move |store, cx| {
@@ -184,7 +187,7 @@ pub(crate) fn suggest(buffer: Entity<Buffer>, window: &mut Window, cx: &mut Cont
                     }
                 })
                 .with_secondary_click_message("No, don't install it")
-                .on_secondary_click(move |_window, cx| {
+                .on_secondary_click(move |cx| {
                     let key = language_extension_key(&extension_id);
                     db::write_and_log(cx, move || {
                         KEY_VALUE_STORE.write_kvp(key, "dismissed".to_string())

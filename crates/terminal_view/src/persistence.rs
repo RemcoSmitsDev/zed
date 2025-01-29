@@ -2,11 +2,11 @@ use anyhow::Result;
 use async_recursion::async_recursion;
 use collections::HashSet;
 use futures::{stream::FuturesUnordered, StreamExt as _};
-use gpui::{AppContext as _, AsyncWindowContext, Axis, Entity, Task, WeakEntity};
+use gpui::{AsyncWindowContext, Axis, Model, Task, View, WeakView};
 use project::{terminals::TerminalKind, Project};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use ui::{App, Context, Pixels, Window};
+use ui::{Pixels, ViewContext, VisualContext as _, WindowContext};
 use util::ResultExt as _;
 
 use db::{define_connection, query, sqlez::statement::Statement, sqlez_macros::sql};
@@ -23,16 +23,16 @@ use crate::{
 
 pub(crate) fn serialize_pane_group(
     pane_group: &PaneGroup,
-    active_pane: &Entity<Pane>,
-    cx: &mut App,
+    active_pane: &View<Pane>,
+    cx: &WindowContext,
 ) -> SerializedPaneGroup {
     build_serialized_pane_group(&pane_group.root, active_pane, cx)
 }
 
 fn build_serialized_pane_group(
     pane_group: &Member,
-    active_pane: &Entity<Pane>,
-    cx: &mut App,
+    active_pane: &View<Pane>,
+    cx: &WindowContext,
 ) -> SerializedPaneGroup {
     match pane_group {
         Member::Axis(PaneAxis {
@@ -54,7 +54,7 @@ fn build_serialized_pane_group(
     }
 }
 
-fn serialize_pane(pane: &Entity<Pane>, active: bool, cx: &mut App) -> SerializedPane {
+fn serialize_pane(pane: &View<Pane>, active: bool, cx: &WindowContext) -> SerializedPane {
     let mut items_to_serialize = HashSet::default();
     let pane = pane.read(cx);
     let children = pane
@@ -83,17 +83,16 @@ fn serialize_pane(pane: &Entity<Pane>, active: bool, cx: &mut App) -> Serialized
 }
 
 pub(crate) fn deserialize_terminal_panel(
-    workspace: WeakEntity<Workspace>,
-    project: Entity<Project>,
+    workspace: WeakView<Workspace>,
+    project: Model<Project>,
     database_id: WorkspaceId,
     serialized_panel: SerializedTerminalPanel,
-    window: &mut Window,
-    cx: &mut App,
-) -> Task<anyhow::Result<Entity<TerminalPanel>>> {
-    window.spawn(cx, move |mut cx| async move {
-        let terminal_panel = workspace.update_in(&mut cx, |workspace, window, cx| {
-            cx.new(|cx| {
-                let mut panel = TerminalPanel::new(workspace, window, cx);
+    cx: &mut WindowContext,
+) -> Task<anyhow::Result<View<TerminalPanel>>> {
+    cx.spawn(move |mut cx| async move {
+        let terminal_panel = workspace.update(&mut cx, |workspace, cx| {
+            cx.new_view(|cx| {
+                let mut panel = TerminalPanel::new(workspace, cx);
                 panel.height = serialized_panel.height.map(|h| h.round());
                 panel.width = serialized_panel.width.map(|w| w.round());
                 panel
@@ -110,9 +109,9 @@ pub(crate) fn deserialize_terminal_panel(
                 )
                 .await;
                 let active_item = serialized_panel.active_item_id;
-                terminal_panel.update_in(&mut cx, |terminal_panel, window, cx| {
+                terminal_panel.update(&mut cx, |terminal_panel, cx| {
                     terminal_panel.active_pane.update(cx, |pane, cx| {
-                        populate_pane_items(pane, items, active_item, window, cx);
+                        populate_pane_items(pane, items, active_item, cx);
                     });
                 })?;
             }
@@ -142,10 +141,9 @@ pub(crate) fn deserialize_terminal_panel(
 
 fn populate_pane_items(
     pane: &mut Pane,
-    items: Vec<Entity<TerminalView>>,
+    items: Vec<View<TerminalView>>,
     active_item: Option<u64>,
-    window: &mut Window,
-    cx: &mut Context<Pane>,
+    cx: &mut ViewContext<Pane>,
 ) {
     let mut item_index = pane.items_len();
     let mut active_item_index = None;
@@ -153,23 +151,23 @@ fn populate_pane_items(
         if Some(item.item_id().as_u64()) == active_item {
             active_item_index = Some(item_index);
         }
-        pane.add_item(Box::new(item), false, false, None, window, cx);
+        pane.add_item(Box::new(item), false, false, None, cx);
         item_index += 1;
     }
     if let Some(index) = active_item_index {
-        pane.activate_item(index, false, false, window, cx);
+        pane.activate_item(index, false, false, cx);
     }
 }
 
 #[async_recursion(?Send)]
 async fn deserialize_pane_group(
-    workspace: WeakEntity<Workspace>,
-    project: Entity<Project>,
-    panel: Entity<TerminalPanel>,
+    workspace: WeakView<Workspace>,
+    project: Model<Project>,
+    panel: View<TerminalPanel>,
     workspace_id: WorkspaceId,
     serialized: &SerializedPaneGroup,
     cx: &mut AsyncWindowContext,
-) -> Option<(Member, Option<Entity<Pane>>)> {
+) -> Option<(Member, Option<View<Pane>>)> {
     match serialized {
         SerializedPaneGroup::Group {
             axis,
@@ -219,12 +217,11 @@ async fn deserialize_pane_group(
             .await;
 
             let pane = panel
-                .update_in(cx, |terminal_panel, window, cx| {
+                .update(cx, |terminal_panel, cx| {
                     new_terminal_pane(
                         workspace.clone(),
                         project.clone(),
                         terminal_panel.active_pane.read(cx).is_zoomed(),
-                        window,
                         cx,
                     )
                 })
@@ -232,8 +229,8 @@ async fn deserialize_pane_group(
             let active_item = serialized_pane.active_item;
 
             let terminal = pane
-                .update_in(cx, |pane, window, cx| {
-                    populate_pane_items(pane, new_items, active_item, window, cx);
+                .update(cx, |pane, cx| {
+                    populate_pane_items(pane, new_items, active_item, cx);
                     // Avoid blank panes in splits
                     if pane.items_len() == 0 {
                         let working_directory = workspace
@@ -243,7 +240,7 @@ async fn deserialize_pane_group(
                         let kind = TerminalKind::Shell(
                             working_directory.as_deref().map(Path::to_path_buf),
                         );
-                        let window = window.window_handle();
+                        let window = cx.window_handle();
                         let terminal = project
                             .update(cx, |project, cx| project.create_terminal(kind, window, cx));
                         Some(Some(terminal))
@@ -255,18 +252,17 @@ async fn deserialize_pane_group(
                 .flatten()?;
             if let Some(terminal) = terminal {
                 let terminal = terminal.await.ok()?;
-                pane.update_in(cx, |pane, window, cx| {
-                    let terminal_view = Box::new(cx.new(|cx| {
+                pane.update(cx, |pane, cx| {
+                    let terminal_view = Box::new(cx.new_view(|cx| {
                         TerminalView::new(
                             terminal,
                             workspace.clone(),
                             Some(workspace_id),
                             project.downgrade(),
-                            window,
                             cx,
                         )
                     }));
-                    pane.add_item(terminal_view, true, false, None, window, cx);
+                    pane.add_item(terminal_view, true, false, None, cx);
                 })
                 .ok()?;
             }
@@ -277,22 +273,21 @@ async fn deserialize_pane_group(
 
 async fn deserialize_terminal_views(
     workspace_id: WorkspaceId,
-    project: Entity<Project>,
-    workspace: WeakEntity<Workspace>,
+    project: Model<Project>,
+    workspace: WeakView<Workspace>,
     item_ids: &[u64],
     cx: &mut AsyncWindowContext,
-) -> Vec<Entity<TerminalView>> {
+) -> Vec<View<TerminalView>> {
     let mut items = Vec::with_capacity(item_ids.len());
     let mut deserialized_items = item_ids
         .iter()
         .map(|item_id| {
-            cx.update(|window, cx| {
+            cx.update(|cx| {
                 TerminalView::deserialize(
                     project.clone(),
                     workspace.clone(),
                     workspace_id,
                     *item_id,
-                    window,
                     cx,
                 )
             })

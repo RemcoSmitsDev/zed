@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use fuzzy::StringMatchCandidate;
-use gpui::{App, DismissEvent, Entity, FocusHandle, Focusable, Task, WeakEntity};
+use gpui::{AppContext, DismissEvent, FocusHandle, FocusableView, Task, View, WeakModel, WeakView};
 use picker::{Picker, PickerDelegate};
 use ui::{prelude::*, ListItem};
 
@@ -11,17 +11,16 @@ use crate::thread::ThreadId;
 use crate::thread_store::ThreadStore;
 
 pub struct ThreadContextPicker {
-    picker: Entity<Picker<ThreadContextPickerDelegate>>,
+    picker: View<Picker<ThreadContextPickerDelegate>>,
 }
 
 impl ThreadContextPicker {
     pub fn new(
-        thread_store: WeakEntity<ThreadStore>,
-        context_picker: WeakEntity<ContextPicker>,
-        context_store: WeakEntity<context_store::ContextStore>,
+        thread_store: WeakModel<ThreadStore>,
+        context_picker: WeakView<ContextPicker>,
+        context_store: WeakModel<context_store::ContextStore>,
         confirm_behavior: ConfirmBehavior,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) -> Self {
         let delegate = ThreadContextPickerDelegate::new(
             thread_store,
@@ -29,20 +28,20 @@ impl ThreadContextPicker {
             context_store,
             confirm_behavior,
         );
-        let picker = cx.new(|cx| Picker::uniform_list(delegate, window, cx));
+        let picker = cx.new_view(|cx| Picker::uniform_list(delegate, cx));
 
         ThreadContextPicker { picker }
     }
 }
 
-impl Focusable for ThreadContextPicker {
-    fn focus_handle(&self, cx: &App) -> FocusHandle {
+impl FocusableView for ThreadContextPicker {
+    fn focus_handle(&self, cx: &AppContext) -> FocusHandle {
         self.picker.focus_handle(cx)
     }
 }
 
 impl Render for ThreadContextPicker {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _cx: &mut ViewContext<Self>) -> impl IntoElement {
         self.picker.clone()
     }
 }
@@ -54,9 +53,9 @@ pub struct ThreadContextEntry {
 }
 
 pub struct ThreadContextPickerDelegate {
-    thread_store: WeakEntity<ThreadStore>,
-    context_picker: WeakEntity<ContextPicker>,
-    context_store: WeakEntity<context_store::ContextStore>,
+    thread_store: WeakModel<ThreadStore>,
+    context_picker: WeakView<ContextPicker>,
+    context_store: WeakModel<context_store::ContextStore>,
     confirm_behavior: ConfirmBehavior,
     matches: Vec<ThreadContextEntry>,
     selected_index: usize,
@@ -64,9 +63,9 @@ pub struct ThreadContextPickerDelegate {
 
 impl ThreadContextPickerDelegate {
     pub fn new(
-        thread_store: WeakEntity<ThreadStore>,
-        context_picker: WeakEntity<ContextPicker>,
-        context_store: WeakEntity<context_store::ContextStore>,
+        thread_store: WeakModel<ThreadStore>,
+        context_picker: WeakView<ContextPicker>,
+        context_store: WeakModel<context_store::ContextStore>,
         confirm_behavior: ConfirmBehavior,
     ) -> Self {
         ThreadContextPickerDelegate {
@@ -91,31 +90,22 @@ impl PickerDelegate for ThreadContextPickerDelegate {
         self.selected_index
     }
 
-    fn set_selected_index(
-        &mut self,
-        ix: usize,
-        _window: &mut Window,
-        _cx: &mut Context<Picker<Self>>,
-    ) {
+    fn set_selected_index(&mut self, ix: usize, _cx: &mut ViewContext<Picker<Self>>) {
         self.selected_index = ix;
     }
 
-    fn placeholder_text(&self, _window: &mut Window, _cx: &mut App) -> Arc<str> {
+    fn placeholder_text(&self, _cx: &mut WindowContext) -> Arc<str> {
         "Search threads…".into()
     }
 
-    fn update_matches(
-        &mut self,
-        query: String,
-        window: &mut Window,
-        cx: &mut Context<Picker<Self>>,
-    ) -> Task<()> {
-        let Ok(threads) = self.thread_store.update(cx, |this, _cx| {
-            this.threads()
+    fn update_matches(&mut self, query: String, cx: &mut ViewContext<Picker<Self>>) -> Task<()> {
+        let Ok(threads) = self.thread_store.update(cx, |this, cx| {
+            this.threads(cx)
                 .into_iter()
-                .map(|thread| ThreadContextEntry {
-                    id: thread.id,
-                    summary: thread.summary,
+                .map(|thread| {
+                    let id = thread.read(cx).id().clone();
+                    let summary = thread.read(cx).summary_or_default();
+                    ThreadContextEntry { id, summary }
                 })
                 .collect::<Vec<_>>()
         }) else {
@@ -149,7 +139,7 @@ impl PickerDelegate for ThreadContextPickerDelegate {
             }
         });
 
-        cx.spawn_in(window, |this, mut cx| async move {
+        cx.spawn(|this, mut cx| async move {
             let matches = search_task.await;
             this.update(&mut cx, |this, cx| {
                 this.delegate.matches = matches;
@@ -160,7 +150,7 @@ impl PickerDelegate for ThreadContextPickerDelegate {
         })
     }
 
-    fn confirm(&mut self, _secondary: bool, window: &mut Window, cx: &mut Context<Picker<Self>>) {
+    fn confirm(&mut self, _secondary: bool, cx: &mut ViewContext<Picker<Self>>) {
         let Some(entry) = self.matches.get(self.selected_index) else {
             return;
         };
@@ -169,26 +159,22 @@ impl PickerDelegate for ThreadContextPickerDelegate {
             return;
         };
 
-        let open_thread_task = thread_store.update(cx, |this, cx| this.open_thread(&entry.id, cx));
+        let Some(thread) = thread_store.update(cx, |this, cx| this.open_thread(&entry.id, cx))
+        else {
+            return;
+        };
 
-        cx.spawn_in(window, |this, mut cx| async move {
-            let thread = open_thread_task.await?;
-            this.update_in(&mut cx, |this, window, cx| {
-                this.delegate
-                    .context_store
-                    .update(cx, |context_store, cx| context_store.add_thread(thread, cx))
-                    .ok();
+        self.context_store
+            .update(cx, |context_store, cx| context_store.add_thread(thread, cx))
+            .ok();
 
-                match this.delegate.confirm_behavior {
-                    ConfirmBehavior::KeepOpen => {}
-                    ConfirmBehavior::Close => this.delegate.dismissed(window, cx),
-                }
-            })
-        })
-        .detach_and_log_err(cx);
+        match self.confirm_behavior {
+            ConfirmBehavior::KeepOpen => {}
+            ConfirmBehavior::Close => self.dismissed(cx),
+        }
     }
 
-    fn dismissed(&mut self, _window: &mut Window, cx: &mut Context<Picker<Self>>) {
+    fn dismissed(&mut self, cx: &mut ViewContext<Picker<Self>>) {
         self.context_picker
             .update(cx, |_, cx| {
                 cx.emit(DismissEvent);
@@ -200,8 +186,7 @@ impl PickerDelegate for ThreadContextPickerDelegate {
         &self,
         ix: usize,
         selected: bool,
-        _window: &mut Window,
-        cx: &mut Context<Picker<Self>>,
+        cx: &mut ViewContext<Picker<Self>>,
     ) -> Option<Self::ListItem> {
         let thread = &self.matches[ix];
 
@@ -213,21 +198,17 @@ impl PickerDelegate for ThreadContextPickerDelegate {
 
 pub fn render_thread_context_entry(
     thread: &ThreadContextEntry,
-    context_store: WeakEntity<ContextStore>,
-    cx: &mut App,
+    context_store: WeakModel<ContextStore>,
+    cx: &mut WindowContext,
 ) -> Div {
     let added = context_store.upgrade().map_or(false, |ctx_store| {
         ctx_store.read(cx).includes_thread(&thread.id).is_some()
     });
 
     h_flex()
-        .gap_1p5()
+        .gap_1()
         .w_full()
-        .child(
-            Icon::new(IconName::MessageCircle)
-                .size(IconSize::XSmall)
-                .color(Color::Muted),
-        )
+        .child(Icon::new(IconName::MessageCircle).size(IconSize::Small))
         .child(Label::new(thread.summary.clone()))
         .child(div().w_full())
         .when(added, |el| {

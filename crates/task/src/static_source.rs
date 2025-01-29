@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use futures::{channel::mpsc::UnboundedSender, StreamExt};
-use gpui::App;
+use gpui::AppContext;
 use parking_lot::RwLock;
 use serde::Deserialize;
 use util::ResultExt;
@@ -27,7 +27,7 @@ impl<T: PartialEq + 'static + Sync> TrackedFile<T> {
     pub fn new(
         mut tracker: UnboundedReceiver<String>,
         notification_outlet: UnboundedSender<()>,
-        cx: &App,
+        cx: &AppContext,
     ) -> Self
     where
         T: for<'a> Deserialize<'a> + Default + Send,
@@ -69,7 +69,7 @@ impl<T: PartialEq + 'static + Sync> TrackedFile<T> {
     pub fn new_convertible<U: for<'a> Deserialize<'a> + TryInto<T, Error = anyhow::Error>>(
         mut tracker: UnboundedReceiver<String>,
         notification_outlet: UnboundedSender<()>,
-        cx: &App,
+        cx: &AppContext,
     ) -> Self
     where
         T: Default + Send,

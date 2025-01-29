@@ -22,12 +22,11 @@ pub mod buffer_tests;
 pub mod markdown;
 
 use crate::language_settings::SoftWrap;
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use collections::{HashMap, HashSet};
-use fs::Fs;
 use futures::Future;
-use gpui::{App, AsyncApp, Entity, SharedString, Task};
+use gpui::{AppContext, AsyncAppContext, Model, SharedString, Task};
 pub use highlight_map::HighlightMap;
 use http_client::HttpClient;
 pub use language_registry::{LanguageName, LoadedLanguage};
@@ -86,7 +85,7 @@ pub use tree_sitter::{Node, Parser, Tree, TreeCursor};
 /// Initializes the `language` crate.
 ///
 /// This should be called before making use of items from the create.
-pub fn init(cx: &mut App) {
+pub fn init(cx: &mut AppContext) {
     language_settings::init(cx);
 }
 
@@ -149,7 +148,7 @@ pub trait ToLspPosition {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Location {
-    pub buffer: Entity<Buffer>,
+    pub buffer: Model<Buffer>,
     pub range: Range<Anchor>,
 }
 
@@ -211,7 +210,7 @@ impl CachedLspAdapter {
         delegate: Arc<dyn LspAdapterDelegate>,
         toolchains: Arc<dyn LanguageToolchainStore>,
         binary_options: LanguageServerBinaryOptions,
-        cx: &mut AsyncApp,
+        cx: &mut AsyncAppContext,
     ) -> Result<LanguageServerBinary> {
         let cached_binary = self.cached_binary.lock().await;
         self.adapter
@@ -266,7 +265,7 @@ impl CachedLspAdapter {
 // e.g. to display a notification or fetch data from the web.
 #[async_trait]
 pub trait LspAdapterDelegate: Send + Sync {
-    fn show_notification(&self, message: &str, cx: &mut App);
+    fn show_notification(&self, message: &str, cx: &mut AppContext);
     fn http_client(&self) -> Arc<dyn HttpClient>;
     fn worktree_id(&self) -> WorktreeId;
     fn worktree_root_path(&self) -> &Path;
@@ -293,7 +292,7 @@ pub trait LspAdapter: 'static + Send + Sync {
         toolchains: Arc<dyn LanguageToolchainStore>,
         binary_options: LanguageServerBinaryOptions,
         mut cached_binary: futures::lock::MutexGuard<'a, Option<LanguageServerBinary>>,
-        cx: &'a mut AsyncApp,
+        cx: &'a mut AsyncAppContext,
     ) -> Pin<Box<dyn 'a + Future<Output = Result<LanguageServerBinary>>>> {
         async move {
             // First we check whether the adapter can give us a user-installed binary.
@@ -368,7 +367,7 @@ pub trait LspAdapter: 'static + Send + Sync {
         &self,
         _: &dyn LspAdapterDelegate,
         _: Arc<dyn LanguageToolchainStore>,
-        _: &AsyncApp,
+        _: &AsyncAppContext,
     ) -> Option<LanguageServerBinary> {
         None
     }
@@ -381,7 +380,7 @@ pub trait LspAdapter: 'static + Send + Sync {
     fn will_fetch_server(
         &self,
         _: &Arc<dyn LspAdapterDelegate>,
-        _: &mut AsyncApp,
+        _: &mut AsyncAppContext,
     ) -> Option<Task<Result<()>>> {
         None
     }
@@ -465,7 +464,6 @@ pub trait LspAdapter: 'static + Send + Sync {
     /// Returns initialization options that are going to be sent to a LSP server as a part of [`lsp::InitializeParams`]
     async fn initialization_options(
         self: Arc<Self>,
-        _: &dyn Fs,
         _: &Arc<dyn LspAdapterDelegate>,
     ) -> Result<Option<Value>> {
         Ok(None)
@@ -473,10 +471,9 @@ pub trait LspAdapter: 'static + Send + Sync {
 
     async fn workspace_configuration(
         self: Arc<Self>,
-        _: &dyn Fs,
         _: &Arc<dyn LspAdapterDelegate>,
         _: Arc<dyn LanguageToolchainStore>,
-        _cx: &mut AsyncApp,
+        _cx: &mut AsyncAppContext,
     ) -> Result<Value> {
         Ok(serde_json::json!({}))
     }
@@ -514,7 +511,7 @@ async fn try_fetch_server_binary<L: LspAdapter + 'static + Send + Sync + ?Sized>
     adapter: &L,
     delegate: &Arc<dyn LspAdapterDelegate>,
     container_dir: PathBuf,
-    cx: &mut AsyncApp,
+    cx: &mut AsyncAppContext,
 ) -> Result<LanguageServerBinary> {
     if let Some(task) = adapter.will_fetch_server(delegate, cx) {
         task.await?;
@@ -766,14 +763,6 @@ pub struct FakeLspAdapter {
 
     pub capabilities: lsp::ServerCapabilities,
     pub initializer: Option<Box<dyn 'static + Send + Sync + Fn(&mut lsp::FakeLanguageServer)>>,
-    pub label_for_completion: Option<
-        Box<
-            dyn 'static
-                + Send
-                + Sync
-                + Fn(&lsp::CompletionItem, &Arc<Language>) -> Option<CodeLabel>,
-        >,
-    >,
 }
 
 /// Configuration of handling bracket pairs for a given language.
@@ -1563,7 +1552,7 @@ impl LanguageScope {
             self.config_override().map(|o| &o.line_comments),
             Some(&self.language.config.line_comments),
         )
-        .map_or([].as_slice(), |e| e.as_slice())
+        .map_or(&[] as &[_], |e| e.as_slice())
     }
 
     pub fn block_comment_delimiters(&self) -> Option<(&Arc<str>, &Arc<str>)> {
@@ -1789,7 +1778,6 @@ impl Default for FakeLspAdapter {
                 arguments: vec![],
                 env: Default::default(),
             },
-            label_for_completion: None,
         }
     }
 }
@@ -1805,7 +1793,7 @@ impl LspAdapter for FakeLspAdapter {
         &self,
         _: &dyn LspAdapterDelegate,
         _: Arc<dyn LanguageToolchainStore>,
-        _: &AsyncApp,
+        _: &AsyncAppContext,
     ) -> Option<LanguageServerBinary> {
         Some(self.language_server_binary.clone())
     }
@@ -1816,7 +1804,7 @@ impl LspAdapter for FakeLspAdapter {
         _: Arc<dyn LanguageToolchainStore>,
         _: LanguageServerBinaryOptions,
         _: futures::lock::MutexGuard<'a, Option<LanguageServerBinary>>,
-        _: &'a mut AsyncApp,
+        _: &'a mut AsyncAppContext,
     ) -> Pin<Box<dyn 'a + Future<Output = Result<LanguageServerBinary>>>> {
         async move { Ok(self.language_server_binary.clone()) }.boxed_local()
     }
@@ -1857,19 +1845,9 @@ impl LspAdapter for FakeLspAdapter {
 
     async fn initialization_options(
         self: Arc<Self>,
-        _: &dyn Fs,
         _: &Arc<dyn LspAdapterDelegate>,
     ) -> Result<Option<Value>> {
         Ok(self.initialization_options.clone())
-    }
-
-    async fn label_for_completion(
-        &self,
-        item: &lsp::CompletionItem,
-        language: &Arc<Language>,
-    ) -> Option<CodeLabel> {
-        let label_for_completion = self.label_for_completion.as_ref()?;
-        label_for_completion(item, language)
     }
 }
 

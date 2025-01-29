@@ -4,8 +4,7 @@ mod mac_watcher;
 #[cfg(not(target_os = "macos"))]
 pub mod fs_watcher;
 
-use anyhow::{anyhow, Context as _, Result};
-
+use anyhow::{anyhow, Result};
 #[cfg(any(test, feature = "test-support"))]
 use git::status::FileStatus;
 use git::GitHostingProviderRegistry;
@@ -26,7 +25,7 @@ use std::os::unix::fs::FileTypeExt;
 use async_tar::Archive;
 use futures::{future::BoxFuture, AsyncRead, Stream, StreamExt};
 use git::repository::{GitRepository, RealGitRepository};
-use gpui::{App, Global, ReadGlobal};
+use gpui::{AppContext, Global, ReadGlobal};
 use rope::Rope;
 use serde::{Deserialize, Serialize};
 use smol::io::AsyncWriteExt;
@@ -102,7 +101,7 @@ pub trait Fs: Send + Sync {
         self.remove_file(path, options).await
     }
     async fn open_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>>;
-    async fn open_sync(&self, path: &Path) -> Result<Box<dyn io::Read + Send + Sync>>;
+    async fn open_sync(&self, path: &Path) -> Result<Box<dyn io::Read>>;
     async fn load(&self, path: &Path) -> Result<String> {
         Ok(String::from_utf8(self.load_bytes(path).await?)?)
     }
@@ -144,12 +143,12 @@ impl Global for GlobalFs {}
 
 impl dyn Fs {
     /// Returns the global [`Fs`].
-    pub fn global(cx: &App) -> Arc<Self> {
+    pub fn global(cx: &AppContext) -> Arc<Self> {
         GlobalFs::global(cx).0.clone()
     }
 
     /// Sets the global [`Fs`].
-    pub fn set_global(fs: Arc<Self>, cx: &mut App) {
+    pub fn set_global(fs: Arc<Self>, cx: &mut AppContext) {
         cx.set_global(GlobalFs(fs));
     }
 }
@@ -500,7 +499,7 @@ impl Fs for RealFs {
         Ok(())
     }
 
-    async fn open_sync(&self, path: &Path) -> Result<Box<dyn io::Read + Send + Sync>> {
+    async fn open_sync(&self, path: &Path) -> Result<Box<dyn io::Read>> {
         Ok(Box::new(std::fs::File::open(path)?))
     }
 
@@ -590,19 +589,11 @@ impl Fs for RealFs {
             }
         };
 
-        let path_buf = path.to_path_buf();
-        let path_exists = smol::unblock(move || {
-            path_buf
-                .try_exists()
-                .with_context(|| format!("checking existence for path {path_buf:?}"))
-        })
-        .await?;
         let is_symlink = symlink_metadata.file_type().is_symlink();
-        let metadata = match (is_symlink, path_exists) {
-            (true, true) => smol::fs::metadata(path)
-                .await
-                .with_context(|| "accessing symlink for path {path}")?,
-            _ => symlink_metadata,
+        let metadata = if is_symlink {
+            smol::fs::metadata(path).await?
+        } else {
+            symlink_metadata
         };
 
         #[cfg(unix)]
@@ -1747,7 +1738,7 @@ impl Fs for FakeFs {
         Ok(())
     }
 
-    async fn open_sync(&self, path: &Path) -> Result<Box<dyn io::Read + Send + Sync>> {
+    async fn open_sync(&self, path: &Path) -> Result<Box<dyn io::Read>> {
         let bytes = self.load_internal(path).await?;
         Ok(Box::new(io::Cursor::new(bytes)))
     }

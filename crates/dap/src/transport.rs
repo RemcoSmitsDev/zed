@@ -5,7 +5,7 @@ use dap_types::{
     ErrorResponse,
 };
 use futures::{channel::oneshot, select, AsyncRead, AsyncReadExt as _, AsyncWrite, FutureExt as _};
-use gpui::AsyncApp;
+use gpui::AsyncAppContext;
 use settings::Settings as _;
 use smallvec::SmallVec;
 use smol::{
@@ -89,7 +89,7 @@ impl TransportDelegate {
 
     pub(crate) async fn reconnect(
         &mut self,
-        cx: &mut AsyncApp,
+        cx: &mut AsyncAppContext,
     ) -> Result<(Receiver<Message>, Sender<Message>)> {
         self.start_handlers(self.transport.reconnect(cx).await?, cx)
             .await
@@ -98,7 +98,7 @@ impl TransportDelegate {
     pub(crate) async fn start(
         &mut self,
         binary: &DebugAdapterBinary,
-        cx: &mut AsyncApp,
+        cx: &mut AsyncAppContext,
     ) -> Result<(Receiver<Message>, Sender<Message>)> {
         self.start_handlers(self.transport.start(binary, cx).await?, cx)
             .await
@@ -107,7 +107,7 @@ impl TransportDelegate {
     async fn start_handlers(
         &mut self,
         mut params: TransportPipe,
-        cx: &mut AsyncApp,
+        cx: &mut AsyncAppContext,
     ) -> Result<(Receiver<Message>, Sender<Message>)> {
         let (client_tx, server_rx) = unbounded::<Message>();
         let (server_tx, client_rx) = unbounded::<Message>();
@@ -477,13 +477,17 @@ impl TransportDelegate {
 
 #[async_trait(?Send)]
 pub trait Transport: 'static + Send + Sync + Any {
-    async fn start(&self, binary: &DebugAdapterBinary, cx: &mut AsyncApp) -> Result<TransportPipe>;
+    async fn start(
+        &self,
+        binary: &DebugAdapterBinary,
+        cx: &mut AsyncAppContext,
+    ) -> Result<TransportPipe>;
 
     fn has_adapter_logs(&self) -> bool;
 
     async fn kill(&self) -> Result<()>;
 
-    async fn reconnect(&self, _: &mut AsyncApp) -> Result<TransportPipe> {
+    async fn reconnect(&self, _: &mut AsyncAppContext) -> Result<TransportPipe> {
         bail!("Cannot reconnect to adapter")
     }
 
@@ -525,7 +529,7 @@ impl TcpTransport {
 
 #[async_trait(?Send)]
 impl Transport for TcpTransport {
-    async fn reconnect(&self, cx: &mut AsyncApp) -> Result<TransportPipe> {
+    async fn reconnect(&self, cx: &mut AsyncAppContext) -> Result<TransportPipe> {
         let address = SocketAddrV4::new(self.host, self.port);
 
         let timeout = self.timeout.unwrap_or_else(|| {
@@ -563,7 +567,11 @@ impl Transport for TcpTransport {
         ))
     }
 
-    async fn start(&self, binary: &DebugAdapterBinary, cx: &mut AsyncApp) -> Result<TransportPipe> {
+    async fn start(
+        &self,
+        binary: &DebugAdapterBinary,
+        cx: &mut AsyncAppContext,
+    ) -> Result<TransportPipe> {
         let mut command = util::command::new_smol_command(&binary.command);
 
         if let Some(cwd) = &binary.cwd {
@@ -658,7 +666,11 @@ impl StdioTransport {
 
 #[async_trait(?Send)]
 impl Transport for StdioTransport {
-    async fn start(&self, binary: &DebugAdapterBinary, _: &mut AsyncApp) -> Result<TransportPipe> {
+    async fn start(
+        &self,
+        binary: &DebugAdapterBinary,
+        _: &mut AsyncAppContext,
+    ) -> Result<TransportPipe> {
         let mut command = util::command::new_smol_command(&binary.command);
 
         if let Some(cwd) = &binary.cwd {
@@ -808,7 +820,7 @@ impl FakeTransport {
 #[cfg(any(test, feature = "test-support"))]
 #[async_trait(?Send)]
 impl Transport for FakeTransport {
-    async fn reconnect(&self, cx: &mut AsyncApp) -> Result<TransportPipe> {
+    async fn reconnect(&self, cx: &mut AsyncAppContext) -> Result<TransportPipe> {
         self.start(
             &DebugAdapterBinary {
                 command: "command".into(),
@@ -824,7 +836,7 @@ impl Transport for FakeTransport {
     async fn start(
         &self,
         _binary: &DebugAdapterBinary,
-        cx: &mut AsyncApp,
+        cx: &mut AsyncAppContext,
     ) -> Result<TransportPipe> {
         use dap_types::requests::{Request, RunInTerminal, StartDebugging};
         use serde_json::json;

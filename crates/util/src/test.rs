@@ -11,26 +11,10 @@ use tempfile::TempDir;
 pub use assertions::*;
 pub use marked_text::*;
 
-pub struct TempTree {
-    _temp_dir: TempDir,
-    path: PathBuf,
-}
-
-impl TempTree {
-    pub fn new(tree: serde_json::Value) -> Self {
-        let dir = TempDir::new().unwrap();
-        let path = std::fs::canonicalize(dir.path()).unwrap();
-        write_tree(path.as_path(), tree);
-
-        Self {
-            _temp_dir: dir,
-            path,
-        }
-    }
-
-    pub fn path(&self) -> &Path {
-        self.path.as_path()
-    }
+pub fn temp_tree(tree: serde_json::Value) -> TempDir {
+    let dir = TempDir::new().unwrap();
+    write_tree(dir.path(), tree);
+    dir
 }
 
 fn write_tree(path: &Path, tree: serde_json::Value) {

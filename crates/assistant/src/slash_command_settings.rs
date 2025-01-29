@@ -1,5 +1,5 @@
 use anyhow::Result;
-use gpui::App;
+use gpui::AppContext;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use settings::{Settings, SettingsSources};
@@ -36,7 +36,7 @@ impl Settings for SlashCommandSettings {
 
     type FileContent = Self;
 
-    fn load(sources: SettingsSources<Self::FileContent>, _cx: &mut App) -> Result<Self> {
+    fn load(sources: SettingsSources<Self::FileContent>, _cx: &mut AppContext) -> Result<Self> {
         SettingsSources::<Self::FileContent>::json_merge_with(
             [sources.default]
                 .into_iter()

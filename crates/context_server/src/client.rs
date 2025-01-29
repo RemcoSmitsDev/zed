@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{anyhow, Context, Result};
 use collections::HashMap;
 use futures::{channel::oneshot, io::BufWriter, select, AsyncRead, AsyncWrite, FutureExt};
-use gpui::{AsyncApp, BackgroundExecutor, Task};
+use gpui::{AsyncAppContext, BackgroundExecutor, Task};
 use parking_lot::Mutex;
 use postage::barrier;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -33,7 +33,7 @@ pub const INVALID_PARAMS: i32 = -32602;
 pub const INTERNAL_ERROR: i32 = -32603;
 
 type ResponseHandler = Box<dyn Send + FnOnce(Result<String, Error>)>;
-type NotificationHandler = Box<dyn Send + FnMut(Value, AsyncApp)>;
+type NotificationHandler = Box<dyn Send + FnMut(Value, AsyncAppContext)>;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -144,7 +144,7 @@ impl Client {
     pub fn new(
         server_id: ContextServerId,
         binary: ModelContextServerBinary,
-        cx: AsyncApp,
+        cx: AsyncAppContext,
     ) -> Result<Self> {
         log::info!(
             "starting context server (executable={:?}, args={:?})",
@@ -232,7 +232,7 @@ impl Client {
         stdout: Stdout,
         notification_handlers: Arc<Mutex<HashMap<&'static str, NotificationHandler>>>,
         response_handlers: Arc<Mutex<Option<HashMap<RequestId, ResponseHandler>>>>,
-        cx: AsyncApp,
+        cx: AsyncAppContext,
     ) -> anyhow::Result<()>
     where
         Stdout: AsyncRead + Unpin + Send + 'static,
@@ -400,7 +400,7 @@ impl Client {
 
     pub fn on_notification<F>(&self, method: &'static str, f: F)
     where
-        F: 'static + Send + FnMut(Value, AsyncApp),
+        F: 'static + Send + FnMut(Value, AsyncAppContext),
     {
         self.notification_handlers
             .lock()

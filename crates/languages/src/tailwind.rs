@@ -2,11 +2,11 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use collections::HashMap;
 use futures::StreamExt;
-use gpui::AsyncApp;
+use gpui::AsyncAppContext;
 use language::{LanguageToolchainStore, LspAdapter, LspAdapterDelegate};
 use lsp::{LanguageServerBinary, LanguageServerName};
 use node_runtime::NodeRuntime;
-use project::{lsp_store::language_server_settings, Fs};
+use project::lsp_store::language_server_settings;
 use serde_json::{json, Value};
 use smol::fs;
 use std::{
@@ -116,7 +116,6 @@ impl LspAdapter for TailwindLspAdapter {
 
     async fn initialization_options(
         self: Arc<Self>,
-        _: &dyn Fs,
         _: &Arc<dyn LspAdapterDelegate>,
     ) -> Result<Option<serde_json::Value>> {
         Ok(Some(json!({
@@ -132,10 +131,9 @@ impl LspAdapter for TailwindLspAdapter {
 
     async fn workspace_configuration(
         self: Arc<Self>,
-        _: &dyn Fs,
         delegate: &Arc<dyn LspAdapterDelegate>,
         _: Arc<dyn LanguageToolchainStore>,
-        cx: &mut AsyncApp,
+        cx: &mut AsyncAppContext,
     ) -> Result<Value> {
         let mut tailwind_user_settings = cx.update(|cx| {
             language_server_settings(delegate.as_ref(), &Self::SERVER_NAME, cx)

@@ -4,7 +4,7 @@
 
 use std::{env, str::FromStr, sync::LazyLock};
 
-use gpui::{App, Global, SemanticVersion};
+use gpui::{AppContext, Global, SemanticVersion};
 
 /// stable | dev | nightly | preview
 pub static RELEASE_CHANNEL_NAME: LazyLock<String> = LazyLock::new(|| {
@@ -33,13 +33,13 @@ impl Global for GlobalAppCommitSha {}
 
 impl AppCommitSha {
     /// Returns the global [`AppCommitSha`], if one is set.
-    pub fn try_global(cx: &App) -> Option<AppCommitSha> {
+    pub fn try_global(cx: &AppContext) -> Option<AppCommitSha> {
         cx.try_global::<GlobalAppCommitSha>()
             .map(|sha| sha.0.clone())
     }
 
     /// Sets the global [`AppCommitSha`].
-    pub fn set_global(sha: AppCommitSha, cx: &mut App) {
+    pub fn set_global(sha: AppCommitSha, cx: &mut AppContext) {
         cx.set_global(GlobalAppCommitSha(sha))
     }
 }
@@ -67,7 +67,7 @@ impl AppVersion {
     }
 
     /// Returns the global version number.
-    pub fn global(cx: &App) -> SemanticVersion {
+    pub fn global(cx: &AppContext) -> SemanticVersion {
         if cx.has_global::<GlobalAppVersion>() {
             cx.global::<GlobalAppVersion>().0
         } else {
@@ -100,19 +100,19 @@ struct GlobalReleaseChannel(ReleaseChannel);
 impl Global for GlobalReleaseChannel {}
 
 /// Initializes the release channel.
-pub fn init(app_version: SemanticVersion, cx: &mut App) {
+pub fn init(app_version: SemanticVersion, cx: &mut AppContext) {
     cx.set_global(GlobalAppVersion(app_version));
     cx.set_global(GlobalReleaseChannel(*RELEASE_CHANNEL))
 }
 
 impl ReleaseChannel {
     /// Returns the global [`ReleaseChannel`].
-    pub fn global(cx: &App) -> Self {
+    pub fn global(cx: &AppContext) -> Self {
         cx.global::<GlobalReleaseChannel>().0
     }
 
     /// Returns the global [`ReleaseChannel`], if one is set.
-    pub fn try_global(cx: &App) -> Option<Self> {
+    pub fn try_global(cx: &AppContext) -> Option<Self> {
         cx.try_global::<GlobalReleaseChannel>()
             .map(|channel| channel.0)
     }

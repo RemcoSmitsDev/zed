@@ -1,8 +1,8 @@
 use fs::Fs;
 use fuzzy::{match_strings, StringMatch, StringMatchCandidate};
 use gpui::{
-    actions, App, Context, DismissEvent, Entity, EventEmitter, Focusable, Render, UpdateGlobal,
-    WeakEntity, Window,
+    actions, AppContext, DismissEvent, EventEmitter, FocusableView, Render, UpdateGlobal, View,
+    ViewContext, VisualContext, WeakView,
 };
 use picker::{Picker, PickerDelegate};
 use settings::{update_settings_file, SettingsStore};
@@ -15,60 +15,51 @@ use zed_actions::theme_selector::Toggle;
 
 actions!(theme_selector, [Reload]);
 
-pub fn init(cx: &mut App) {
-    cx.observe_new(
-        |workspace: &mut Workspace, _window, _cx: &mut Context<Workspace>| {
+pub fn init(cx: &mut AppContext) {
+    cx.observe_new_views(
+        |workspace: &mut Workspace, _cx: &mut ViewContext<Workspace>| {
             workspace.register_action(toggle);
         },
     )
     .detach();
 }
 
-pub fn toggle(
-    workspace: &mut Workspace,
-    toggle: &Toggle,
-    window: &mut Window,
-    cx: &mut Context<Workspace>,
-) {
+pub fn toggle(workspace: &mut Workspace, toggle: &Toggle, cx: &mut ViewContext<Workspace>) {
     let fs = workspace.app_state().fs.clone();
-    workspace.toggle_modal(window, cx, |window, cx| {
+    workspace.toggle_modal(cx, |cx| {
         let delegate = ThemeSelectorDelegate::new(
-            cx.entity().downgrade(),
+            cx.view().downgrade(),
             fs,
             toggle.themes_filter.as_ref(),
             cx,
         );
-        ThemeSelector::new(delegate, window, cx)
+        ThemeSelector::new(delegate, cx)
     });
 }
 
 impl ModalView for ThemeSelector {}
 
 pub struct ThemeSelector {
-    picker: Entity<Picker<ThemeSelectorDelegate>>,
+    picker: View<Picker<ThemeSelectorDelegate>>,
 }
 
 impl EventEmitter<DismissEvent> for ThemeSelector {}
 
-impl Focusable for ThemeSelector {
-    fn focus_handle(&self, cx: &App) -> gpui::FocusHandle {
+impl FocusableView for ThemeSelector {
+    fn focus_handle(&self, cx: &AppContext) -> gpui::FocusHandle {
         self.picker.focus_handle(cx)
     }
 }
 
 impl Render for ThemeSelector {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _cx: &mut ViewContext<Self>) -> impl IntoElement {
         v_flex().w(rems(34.)).child(self.picker.clone())
     }
 }
 
 impl ThemeSelector {
-    pub fn new(
-        delegate: ThemeSelectorDelegate,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        let picker = cx.new(|cx| Picker::uniform_list(delegate, window, cx));
+    pub fn new(delegate: ThemeSelectorDelegate, cx: &mut ViewContext<Self>) -> Self {
+        let picker = cx.new_view(|cx| Picker::uniform_list(delegate, cx));
         Self { picker }
     }
 }
@@ -80,15 +71,15 @@ pub struct ThemeSelectorDelegate {
     original_theme: Arc<Theme>,
     selection_completed: bool,
     selected_index: usize,
-    selector: WeakEntity<ThemeSelector>,
+    view: WeakView<ThemeSelector>,
 }
 
 impl ThemeSelectorDelegate {
     fn new(
-        selector: WeakEntity<ThemeSelector>,
+        weak_view: WeakView<ThemeSelector>,
         fs: Arc<dyn Fs>,
         themes_filter: Option<&Vec<String>>,
-        cx: &mut Context<ThemeSelector>,
+        cx: &mut ViewContext<ThemeSelector>,
     ) -> Self {
         let original_theme = cx.theme().clone();
 
@@ -127,14 +118,14 @@ impl ThemeSelectorDelegate {
             original_theme: original_theme.clone(),
             selected_index: 0,
             selection_completed: false,
-            selector,
+            view: weak_view,
         };
 
         this.select_if_matching(&original_theme.name);
         this
     }
 
-    fn show_selected_theme(&mut self, cx: &mut Context<Picker<ThemeSelectorDelegate>>) {
+    fn show_selected_theme(&mut self, cx: &mut ViewContext<Picker<ThemeSelectorDelegate>>) {
         if let Some(mat) = self.matches.get(self.selected_index) {
             let registry = ThemeRegistry::global(cx);
             match registry.get(&mat.string) {
@@ -156,13 +147,13 @@ impl ThemeSelectorDelegate {
             .unwrap_or(self.selected_index);
     }
 
-    fn set_theme(theme: Arc<Theme>, cx: &mut App) {
+    fn set_theme(theme: Arc<Theme>, cx: &mut AppContext) {
         SettingsStore::update_global(cx, |store, cx| {
             let mut theme_settings = store.get::<ThemeSettings>(None).clone();
             theme_settings.active_theme = theme;
             theme_settings.apply_theme_overrides();
             store.override_global(theme_settings);
-            cx.refresh_windows();
+            cx.refresh();
         });
     }
 }
@@ -170,7 +161,7 @@ impl ThemeSelectorDelegate {
 impl PickerDelegate for ThemeSelectorDelegate {
     type ListItem = ui::ListItem;
 
-    fn placeholder_text(&self, _window: &mut Window, _cx: &mut App) -> Arc<str> {
+    fn placeholder_text(&self, _cx: &mut WindowContext) -> Arc<str> {
         "Select Theme...".into()
     }
 
@@ -178,38 +169,33 @@ impl PickerDelegate for ThemeSelectorDelegate {
         self.matches.len()
     }
 
-    fn confirm(
-        &mut self,
-        _: bool,
-        window: &mut Window,
-        cx: &mut Context<Picker<ThemeSelectorDelegate>>,
-    ) {
+    fn confirm(&mut self, _: bool, cx: &mut ViewContext<Picker<ThemeSelectorDelegate>>) {
         self.selection_completed = true;
 
         let theme_name = cx.theme().name.clone();
 
         telemetry::event!("Settings Changed", setting = "theme", value = theme_name);
 
-        let appearance = Appearance::from(window.appearance());
+        let appearance = Appearance::from(cx.appearance());
 
         update_settings_file::<ThemeSettings>(self.fs.clone(), cx, move |settings, _| {
             settings.set_theme(theme_name.to_string(), appearance);
         });
 
-        self.selector
+        self.view
             .update(cx, |_, cx| {
                 cx.emit(DismissEvent);
             })
             .ok();
     }
 
-    fn dismissed(&mut self, _: &mut Window, cx: &mut Context<Picker<ThemeSelectorDelegate>>) {
+    fn dismissed(&mut self, cx: &mut ViewContext<Picker<ThemeSelectorDelegate>>) {
         if !self.selection_completed {
             Self::set_theme(self.original_theme.clone(), cx);
             self.selection_completed = true;
         }
 
-        self.selector
+        self.view
             .update(cx, |_, cx| cx.emit(DismissEvent))
             .log_err();
     }
@@ -221,8 +207,7 @@ impl PickerDelegate for ThemeSelectorDelegate {
     fn set_selected_index(
         &mut self,
         ix: usize,
-        _: &mut Window,
-        cx: &mut Context<Picker<ThemeSelectorDelegate>>,
+        cx: &mut ViewContext<Picker<ThemeSelectorDelegate>>,
     ) {
         self.selected_index = ix;
         self.show_selected_theme(cx);
@@ -231,8 +216,7 @@ impl PickerDelegate for ThemeSelectorDelegate {
     fn update_matches(
         &mut self,
         query: String,
-        window: &mut Window,
-        cx: &mut Context<Picker<ThemeSelectorDelegate>>,
+        cx: &mut ViewContext<Picker<ThemeSelectorDelegate>>,
     ) -> gpui::Task<()> {
         let background = cx.background_executor().clone();
         let candidates = self
@@ -242,7 +226,7 @@ impl PickerDelegate for ThemeSelectorDelegate {
             .map(|(id, meta)| StringMatchCandidate::new(id, &meta.name))
             .collect::<Vec<_>>();
 
-        cx.spawn_in(window, |this, mut cx| async move {
+        cx.spawn(|this, mut cx| async move {
             let matches = if query.is_empty() {
                 candidates
                     .into_iter()
@@ -282,8 +266,7 @@ impl PickerDelegate for ThemeSelectorDelegate {
         &self,
         ix: usize,
         selected: bool,
-        _window: &mut Window,
-        _cx: &mut Context<Picker<Self>>,
+        _cx: &mut ViewContext<Picker<Self>>,
     ) -> Option<Self::ListItem> {
         let theme_match = &self.matches[ix];
 

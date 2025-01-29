@@ -1,7 +1,7 @@
 use bitflags::bitflags;
 pub use buffer_search::BufferSearchBar;
 use editor::SearchSettings;
-use gpui::{actions, Action, App, FocusHandle, IntoElement};
+use gpui::{actions, Action, AppContext, FocusHandle, IntoElement};
 use project::search::SearchQuery;
 pub use project_search::ProjectSearchView;
 use ui::{prelude::*, Tooltip};
@@ -13,7 +13,7 @@ pub mod buffer_search;
 pub mod project_search;
 pub(crate) mod search_bar;
 
-pub fn init(cx: &mut App) {
+pub fn init(cx: &mut AppContext) {
     menu::init();
     buffer_search::init(cx);
     project_search::init(cx);
@@ -107,7 +107,7 @@ impl SearchOptions {
         &self,
         active: bool,
         focus_handle: FocusHandle,
-        action: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+        action: impl Fn(&gpui::ClickEvent, &mut WindowContext) + 'static,
     ) -> impl IntoElement {
         IconButton::new(self.label(), self.icon())
             .on_click(action)
@@ -117,24 +117,25 @@ impl SearchOptions {
             .tooltip({
                 let action = self.to_toggle_action();
                 let label = self.label();
-                move |window, cx| Tooltip::for_action_in(label, &*action, &focus_handle, window, cx)
+                move |cx| Tooltip::for_action_in(label, &*action, &focus_handle, cx)
             })
     }
 }
 
-pub(crate) fn show_no_more_matches(window: &mut Window, cx: &mut App) {
-    window.defer(cx, |window, cx| {
+pub(crate) fn show_no_more_matches(cx: &mut WindowContext) {
+    cx.defer(|cx| {
         struct NotifType();
         let notification_id = NotificationId::unique::<NotifType>();
-
-        let Some(workspace) = window.root::<Workspace>().flatten() else {
+        let Some(workspace) = cx.window_handle().downcast::<Workspace>() else {
             return;
         };
-        workspace.update(cx, |workspace, cx| {
-            workspace.show_toast(
-                Toast::new(notification_id.clone(), "No more matches").autohide(),
-                cx,
-            );
-        })
+        workspace
+            .update(cx, |workspace, cx| {
+                workspace.show_toast(
+                    Toast::new(notification_id.clone(), "No more matches").autohide(),
+                    cx,
+                );
+            })
+            .ok();
     });
 }

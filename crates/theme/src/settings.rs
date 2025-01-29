@@ -6,7 +6,8 @@ use crate::{
 use anyhow::Result;
 use derive_more::{Deref, DerefMut};
 use gpui::{
-    px, App, Font, FontFallbacks, FontFeatures, FontStyle, FontWeight, Global, Pixels, Window,
+    px, AppContext, Font, FontFallbacks, FontFeatures, FontStyle, FontWeight, Global, Pixels,
+    WindowContext,
 };
 use refineable::Refineable;
 use schemars::{
@@ -145,7 +146,7 @@ impl ThemeSettings {
     ///
     /// Reads the [`ThemeSettings`] to know which theme should be loaded,
     /// taking into account the current [`SystemAppearance`].
-    pub fn reload_current_theme(cx: &mut App) {
+    pub fn reload_current_theme(cx: &mut AppContext) {
         let mut theme_settings = ThemeSettings::get_global(cx).clone();
         let system_appearance = SystemAppearance::global(cx);
 
@@ -183,7 +184,7 @@ impl Global for GlobalSystemAppearance {}
 
 impl SystemAppearance {
     /// Initializes the [`SystemAppearance`] for the application.
-    pub fn init(cx: &mut App) {
+    pub fn init(cx: &mut AppContext) {
         *cx.default_global::<GlobalSystemAppearance>() =
             GlobalSystemAppearance(SystemAppearance(cx.window_appearance().into()));
     }
@@ -191,17 +192,17 @@ impl SystemAppearance {
     /// Returns the global [`SystemAppearance`].
     ///
     /// Inserts a default [`SystemAppearance`] if one does not yet exist.
-    pub(crate) fn default_global(cx: &mut App) -> Self {
+    pub(crate) fn default_global(cx: &mut AppContext) -> Self {
         cx.default_global::<GlobalSystemAppearance>().0
     }
 
     /// Returns the global [`SystemAppearance`].
-    pub fn global(cx: &App) -> Self {
+    pub fn global(cx: &AppContext) -> Self {
         cx.global::<GlobalSystemAppearance>().0
     }
 
     /// Returns a mutable reference to the global [`SystemAppearance`].
-    pub fn global_mut(cx: &mut App) -> &mut Self {
+    pub fn global_mut(cx: &mut AppContext) -> &mut Self {
         cx.global_mut::<GlobalSystemAppearance>()
     }
 }
@@ -448,7 +449,7 @@ impl ThemeSettings {
     ///
     /// Returns a `Some` containing the new theme if it was successful.
     /// Returns `None` otherwise.
-    pub fn switch_theme(&mut self, theme: &str, cx: &mut App) -> Option<Arc<Theme>> {
+    pub fn switch_theme(&mut self, theme: &str, cx: &mut AppContext) -> Option<Arc<Theme>> {
         let themes = ThemeRegistry::default_global(cx);
 
         let mut new_theme = None;
@@ -494,14 +495,14 @@ impl ThemeSettings {
 
 // TODO: Make private, change usages to use `get_ui_font_size` instead.
 #[allow(missing_docs)]
-pub fn setup_ui_font(window: &mut Window, cx: &mut App) -> gpui::Font {
+pub fn setup_ui_font(cx: &mut WindowContext) -> gpui::Font {
     let (ui_font, ui_font_size) = {
         let theme_settings = ThemeSettings::get_global(cx);
         let font = theme_settings.ui_font.clone();
         (font, theme_settings.ui_font_size)
     };
 
-    window.set_rem_size(ui_font_size);
+    cx.set_rem_size(ui_font_size);
     ui_font
 }
 
@@ -514,7 +515,7 @@ impl settings::Settings for ThemeSettings {
 
     type FileContent = ThemeSettingsContent;
 
-    fn load(sources: SettingsSources<Self::FileContent>, cx: &mut App) -> Result<Self> {
+    fn load(sources: SettingsSources<Self::FileContent>, cx: &mut AppContext) -> Result<Self> {
         let themes = ThemeRegistry::default_global(cx);
         let system_appearance = SystemAppearance::default_global(cx);
 
@@ -635,7 +636,7 @@ impl settings::Settings for ThemeSettings {
     fn json_schema(
         generator: &mut SchemaGenerator,
         params: &SettingsJsonSchemaParams,
-        cx: &App,
+        cx: &AppContext,
     ) -> schemars::schema::RootSchema {
         let mut root_schema = generator.root_schema_for::<ThemeSettingsContent>();
         let theme_names = ThemeRegistry::global(cx)

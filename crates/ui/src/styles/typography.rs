@@ -1,5 +1,6 @@
 use gpui::{
-    div, rems, App, IntoElement, ParentElement, Rems, RenderOnce, SharedString, Styled, Window,
+    div, rems, AppContext, IntoElement, ParentElement, Rems, RenderOnce, SharedString, Styled,
+    WindowContext,
 };
 use settings::Settings;
 use theme::{ActiveTheme, ThemeSettings};
@@ -9,7 +10,7 @@ use crate::{rems_from_px, Color};
 /// Extends [`gpui::Styled`] with typography-related styling methods.
 pub trait StyledTypography: Styled + Sized {
     /// Sets the font family to the buffer font.
-    fn font_buffer(self, cx: &App) -> Self {
+    fn font_buffer(self, cx: &WindowContext) -> Self {
         let settings = ThemeSettings::get_global(cx);
         let buffer_font_family = settings.buffer_font.family.clone();
 
@@ -17,7 +18,7 @@ pub trait StyledTypography: Styled + Sized {
     }
 
     /// Sets the font family to the UI font.
-    fn font_ui(self, cx: &App) -> Self {
+    fn font_ui(self, cx: &WindowContext) -> Self {
         let settings = ThemeSettings::get_global(cx);
         let ui_font_family = settings.ui_font.family.clone();
 
@@ -25,7 +26,7 @@ pub trait StyledTypography: Styled + Sized {
     }
 
     /// Sets the text size using a [`UiTextSize`].
-    fn text_ui_size(self, size: TextSize, cx: &App) -> Self {
+    fn text_ui_size(self, size: TextSize, cx: &WindowContext) -> Self {
         self.text_size(size.rems(cx))
     }
 
@@ -36,7 +37,7 @@ pub trait StyledTypography: Styled + Sized {
     /// Note: The absolute size of this text will change based on a user's `ui_scale` setting.
     ///
     /// Use `text_ui` for regular-sized text.
-    fn text_ui_lg(self, cx: &App) -> Self {
+    fn text_ui_lg(self, cx: &WindowContext) -> Self {
         self.text_size(TextSize::Large.rems(cx))
     }
 
@@ -47,7 +48,7 @@ pub trait StyledTypography: Styled + Sized {
     /// Note: The absolute size of this text will change based on a user's `ui_scale` setting.
     ///
     /// Use `text_ui_sm` for smaller text.
-    fn text_ui(self, cx: &App) -> Self {
+    fn text_ui(self, cx: &WindowContext) -> Self {
         self.text_size(TextSize::default().rems(cx))
     }
 
@@ -58,7 +59,7 @@ pub trait StyledTypography: Styled + Sized {
     /// Note: The absolute size of this text will change based on a user's `ui_scale` setting.
     ///
     /// Use `text_ui` for regular-sized text.
-    fn text_ui_sm(self, cx: &App) -> Self {
+    fn text_ui_sm(self, cx: &WindowContext) -> Self {
         self.text_size(TextSize::Small.rems(cx))
     }
 
@@ -69,7 +70,7 @@ pub trait StyledTypography: Styled + Sized {
     /// Note: The absolute size of this text will change based on a user's `ui_scale` setting.
     ///
     /// Use `text_ui` for regular-sized text.
-    fn text_ui_xs(self, cx: &App) -> Self {
+    fn text_ui_xs(self, cx: &WindowContext) -> Self {
         self.text_size(TextSize::XSmall.rems(cx))
     }
 
@@ -79,7 +80,7 @@ pub trait StyledTypography: Styled + Sized {
     ///
     /// This should only be used for text that is displayed in a buffer,
     /// or other places that text needs to match the user's buffer font size.
-    fn text_buffer(self, cx: &App) -> Self {
+    fn text_buffer(self, cx: &WindowContext) -> Self {
         let settings = ThemeSettings::get_global(cx);
         self.text_size(settings.buffer_font_size())
     }
@@ -130,7 +131,7 @@ pub enum TextSize {
 
 impl TextSize {
     /// Returns the text size in rems.
-    pub fn rems(self, cx: &App) -> Rems {
+    pub fn rems(self, cx: &AppContext) -> Rems {
         let theme_settings = ThemeSettings::get_global(cx);
 
         match self {
@@ -196,7 +197,7 @@ pub struct Headline {
 }
 
 impl RenderOnce for Headline {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, cx: &mut WindowContext) -> impl IntoElement {
         let ui_font = ThemeSettings::get_global(cx).ui_font.clone();
 
         div()

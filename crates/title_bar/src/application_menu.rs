@@ -1,4 +1,4 @@
-use gpui::{impl_actions, Entity, OwnedMenu, OwnedMenuItem};
+use gpui::{impl_actions, OwnedMenu, OwnedMenuItem, View};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use smallvec::SmallVec;
@@ -27,7 +27,7 @@ pub struct ApplicationMenu {
 }
 
 impl ApplicationMenu {
-    pub fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(cx: &mut ViewContext<Self>) -> Self {
         let menus = cx.get_menus().unwrap_or_default();
         Self {
             entries: menus
@@ -75,14 +75,10 @@ impl ApplicationMenu {
         cleaned
     }
 
-    fn build_menu_from_items(
-        entry: MenuEntry,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> Entity<ContextMenu> {
-        ContextMenu::build(window, cx, |menu, window, cx| {
+    fn build_menu_from_items(entry: MenuEntry, cx: &mut WindowContext) -> View<ContextMenu> {
+        ContextMenu::build(cx, |menu, cx| {
             // Grab current focus handle so menu can shown items in context with the focused element
-            let menu = menu.when_some(window.focused(cx), |menu, focused| menu.context(focused));
+            let menu = menu.when_some(cx.focused(), |menu, focused| menu.context(focused));
             let sanitized_items = Self::sanitize_menu_items(entry.menu.items);
 
             sanitized_items
@@ -118,9 +114,7 @@ impl ApplicationMenu {
             .occlude()
             .child(
                 PopoverMenu::new(SharedString::from(format!("{}-menu-popover", menu_name)))
-                    .menu(move |window, cx| {
-                        Self::build_menu_from_items(entry.clone(), window, cx).into()
-                    })
+                    .menu(move |cx| Self::build_menu_from_items(entry.clone(), cx).into())
                     .trigger(
                         IconButton::new(
                             SharedString::from(format!("{}-menu-trigger", menu_name)),
@@ -129,7 +123,7 @@ impl ApplicationMenu {
                         .style(ButtonStyle::Subtle)
                         .icon_size(IconSize::Small)
                         .when(!handle.is_deployed(), |this| {
-                            this.tooltip(Tooltip::text("Open Application Menu"))
+                            this.tooltip(|cx| Tooltip::text("Open Application Menu", cx))
                         }),
                     )
                     .with_handle(handle),
@@ -153,9 +147,7 @@ impl ApplicationMenu {
             .occlude()
             .child(
                 PopoverMenu::new(SharedString::from(format!("{}-menu-popover", menu_name)))
-                    .menu(move |window, cx| {
-                        Self::build_menu_from_items(entry.clone(), window, cx).into()
-                    })
+                    .menu(move |cx| Self::build_menu_from_items(entry.clone(), cx).into())
                     .trigger(
                         Button::new(
                             SharedString::from(format!("{}-menu-trigger", menu_name)),
@@ -166,24 +158,19 @@ impl ApplicationMenu {
                     )
                     .with_handle(current_handle.clone()),
             )
-            .on_hover(move |hover_enter, window, cx| {
+            .on_hover(move |hover_enter, cx| {
                 if *hover_enter && !current_handle.is_deployed() {
                     all_handles.iter().for_each(|h| h.hide(cx));
 
                     // We need to defer this so that this menu handle can take focus from the previous menu
                     let handle = current_handle.clone();
-                    window.defer(cx, move |window, cx| handle.show(window, cx));
+                    cx.defer(move |cx| handle.show(cx));
                 }
             })
     }
 
     #[cfg(not(target_os = "macos"))]
-    pub fn open_menu(
-        &mut self,
-        action: &OpenApplicationMenu,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) {
+    pub fn open_menu(&mut self, action: &OpenApplicationMenu, _cx: &mut ViewContext<Self>) {
         self.pending_menu_open = Some(action.0.clone());
     }
 
@@ -191,8 +178,7 @@ impl ApplicationMenu {
     pub fn navigate_menus_in_direction(
         &mut self,
         action: &NavigateApplicationMenuInDirection,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) {
         let current_index = self
             .entries
@@ -224,7 +210,7 @@ impl ApplicationMenu {
 
         // We need to defer this so that this menu handle can take focus from the previous menu
         let next_handle = self.entries[next_index].handle.clone();
-        cx.defer_in(window, move |_, window, cx| next_handle.show(window, cx));
+        cx.defer(move |_, cx| next_handle.show(cx));
     }
 
     pub fn all_menus_shown(&self) -> bool {
@@ -234,7 +220,7 @@ impl ApplicationMenu {
 }
 
 impl Render for ApplicationMenu {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         let all_menus_shown = self.all_menus_shown();
 
         if let Some(pending_menu_open) = self.pending_menu_open.take() {
@@ -254,14 +240,14 @@ impl Render for ApplicationMenu {
                 if handles_to_hide.is_empty() {
                     // We need to wait for the next frame to show all menus first,
                     // before we can handle show/hide operations
-                    window.on_next_frame(move |window, cx| {
+                    cx.window_context().on_next_frame(move |cx| {
                         handles_to_hide.iter().for_each(|handle| handle.hide(cx));
-                        window.defer(cx, move |window, cx| handle_to_show.show(window, cx));
+                        cx.defer(move |cx| handle_to_show.show(cx));
                     });
                 } else {
                     // Since menus are already shown, we can directly handle show/hide operations
                     handles_to_hide.iter().for_each(|handle| handle.hide(cx));
-                    cx.defer_in(window, move |_, window, cx| handle_to_show.show(window, cx));
+                    cx.defer(move |_, cx| handle_to_show.show(cx));
                 }
             }
         }

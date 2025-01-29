@@ -9,7 +9,7 @@ use std::{rc::Rc, sync::Arc};
 
 pub use collab_panel::CollabPanel;
 use gpui::{
-    point, App, Pixels, PlatformDisplay, Size, WindowBackgroundAppearance, WindowBounds,
+    point, AppContext, Pixels, PlatformDisplay, Size, WindowBackgroundAppearance, WindowBounds,
     WindowDecorations, WindowKind, WindowOptions,
 };
 use panel_settings::MessageEditorSettings;
@@ -21,7 +21,7 @@ use settings::Settings;
 use ui::px;
 use workspace::AppState;
 
-pub fn init(app_state: &Arc<AppState>, cx: &mut App) {
+pub fn init(app_state: &Arc<AppState>, cx: &mut AppContext) {
     CollaborationPanelSettings::register(cx);
     ChatPanelSettings::register(cx);
     NotificationPanelSettings::register(cx);
@@ -38,7 +38,7 @@ pub fn init(app_state: &Arc<AppState>, cx: &mut App) {
 fn notification_window_options(
     screen: Rc<dyn PlatformDisplay>,
     size: Size<Pixels>,
-    cx: &App,
+    cx: &AppContext,
 ) -> WindowOptions {
     let notification_margin_width = px(16.);
     let notification_margin_height = px(-48.);

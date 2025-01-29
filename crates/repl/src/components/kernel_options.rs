@@ -16,7 +16,7 @@ use gpui::SharedString;
 use gpui::Task;
 use ui::{prelude::*, ListItem, PopoverMenu, PopoverMenuHandle, PopoverTrigger};
 
-type OnSelect = Box<dyn Fn(KernelSpecification, &mut Window, &mut App)>;
+type OnSelect = Box<dyn Fn(KernelSpecification, &mut WindowContext)>;
 
 #[derive(IntoElement)]
 pub struct KernelSelector<T: PopoverTrigger> {
@@ -84,21 +84,16 @@ impl PickerDelegate for KernelPickerDelegate {
         }
     }
 
-    fn set_selected_index(&mut self, ix: usize, _: &mut Window, cx: &mut Context<Picker<Self>>) {
+    fn set_selected_index(&mut self, ix: usize, cx: &mut ViewContext<Picker<Self>>) {
         self.selected_kernelspec = self.filtered_kernels.get(ix).cloned();
         cx.notify();
     }
 
-    fn placeholder_text(&self, _window: &mut Window, _cx: &mut App) -> Arc<str> {
+    fn placeholder_text(&self, _cx: &mut WindowContext) -> Arc<str> {
         "Select a kernel...".into()
     }
 
-    fn update_matches(
-        &mut self,
-        query: String,
-        _window: &mut Window,
-        _cx: &mut Context<Picker<Self>>,
-    ) -> Task<()> {
+    fn update_matches(&mut self, query: String, _cx: &mut ViewContext<Picker<Self>>) -> Task<()> {
         let all_kernels = self.all_kernels.clone();
 
         if query.is_empty() {
@@ -118,21 +113,20 @@ impl PickerDelegate for KernelPickerDelegate {
         return Task::ready(());
     }
 
-    fn confirm(&mut self, _secondary: bool, window: &mut Window, cx: &mut Context<Picker<Self>>) {
+    fn confirm(&mut self, _secondary: bool, cx: &mut ViewContext<Picker<Self>>) {
         if let Some(kernelspec) = &self.selected_kernelspec {
-            (self.on_select)(kernelspec.clone(), window, cx);
+            (self.on_select)(kernelspec.clone(), cx.window_context());
             cx.emit(DismissEvent);
         }
     }
 
-    fn dismissed(&mut self, _window: &mut Window, _cx: &mut Context<Picker<Self>>) {}
+    fn dismissed(&mut self, _cx: &mut ViewContext<Picker<Self>>) {}
 
     fn render_match(
         &self,
         ix: usize,
         selected: bool,
-        _: &mut Window,
-        cx: &mut Context<Picker<Self>>,
+        cx: &mut ViewContext<Picker<Self>>,
     ) -> Option<Self::ListItem> {
         let kernelspec = self.filtered_kernels.get(ix)?;
         let is_selected = self.selected_kernelspec.as_ref() == Some(kernelspec);
@@ -210,11 +204,7 @@ impl PickerDelegate for KernelPickerDelegate {
         )
     }
 
-    fn render_footer(
-        &self,
-        _: &mut Window,
-        cx: &mut Context<Picker<Self>>,
-    ) -> Option<gpui::AnyElement> {
+    fn render_footer(&self, cx: &mut ViewContext<Picker<Self>>) -> Option<gpui::AnyElement> {
         Some(
             h_flex()
                 .w_full()
@@ -228,7 +218,7 @@ impl PickerDelegate for KernelPickerDelegate {
                         .icon_size(IconSize::XSmall)
                         .icon_color(Color::Muted)
                         .icon_position(IconPosition::End)
-                        .on_click(move |_, _, cx| cx.open_url(KERNEL_DOCS_URL)),
+                        .on_click(move |_, cx| cx.open_url(KERNEL_DOCS_URL)),
                 )
                 .into_any(),
         )
@@ -236,7 +226,7 @@ impl PickerDelegate for KernelPickerDelegate {
 }
 
 impl<T: PopoverTrigger> RenderOnce for KernelSelector<T> {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, cx: &mut WindowContext) -> impl IntoElement {
         let store = ReplStore::global(cx).read(cx);
 
         let all_kernels: Vec<KernelSpecification> = store
@@ -253,15 +243,15 @@ impl<T: PopoverTrigger> RenderOnce for KernelSelector<T> {
             selected_kernelspec,
         };
 
-        let picker_view = cx.new(|cx| {
-            let picker = Picker::uniform_list(delegate, window, cx)
+        let picker_view = cx.new_view(|cx| {
+            let picker = Picker::uniform_list(delegate, cx)
                 .width(rems(30.))
                 .max_height(Some(rems(20.).into()));
             picker
         });
 
         PopoverMenu::new("kernel-switcher")
-            .menu(move |_window, _cx| Some(picker_view.clone()))
+            .menu(move |_cx| Some(picker_view.clone()))
             .trigger(self.trigger)
             .attach(gpui::Corner::BottomLeft)
             .when_some(self.handle, |menu, handle| menu.with_handle(handle))

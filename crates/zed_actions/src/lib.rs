@@ -77,20 +77,12 @@ pub mod theme_selector {
     impl_actions!(theme_selector, [Toggle]);
 }
 
-pub mod assistant {
-    use gpui::{actions, impl_actions};
-    use schemars::JsonSchema;
-    use serde::Deserialize;
-
-    actions!(assistant, [ToggleFocus, DeployPromptLibrary]);
-
-    #[derive(Clone, Default, Deserialize, PartialEq, JsonSchema)]
-    pub struct InlineAssist {
-        pub prompt: Option<String>,
-    }
-
-    impl_actions!(assistant, [InlineAssist]);
+#[derive(Clone, Default, Deserialize, PartialEq, JsonSchema)]
+pub struct InlineAssist {
+    pub prompt: Option<String>,
 }
+
+impl_actions!(assistant, [InlineAssist]);
 
 #[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
 pub struct OpenRecent {
@@ -166,9 +158,9 @@ impl_actions!(task, [Spawn, Rerun]);
 pub mod outline {
     use std::sync::OnceLock;
 
-    use gpui::{action_as, AnyView, App, Window};
+    use gpui::{action_as, AnyView, WindowContext};
 
     action_as!(outline, ToggleOutline as Toggle);
     /// A pointer to outline::toggle function, exposed here to sewer the breadcrumbs <-> outline dependency.
-    pub static TOGGLE_OUTLINE: OnceLock<fn(AnyView, &mut Window, &mut App)> = OnceLock::new();
+    pub static TOGGLE_OUTLINE: OnceLock<fn(AnyView, &mut WindowContext<'_>)> = OnceLock::new();
 }

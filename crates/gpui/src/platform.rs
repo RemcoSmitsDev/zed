@@ -27,11 +27,11 @@ mod test;
 mod windows;
 
 use crate::{
-    point, Action, AnyWindowHandle, App, AsyncWindowContext, BackgroundExecutor, Bounds,
-    DevicePixels, DispatchEventResult, Font, FontId, FontMetrics, FontRun, ForegroundExecutor,
-    GlyphId, GpuSpecs, ImageSource, Keymap, LineLayout, Pixels, PlatformInput, Point,
-    RenderGlyphParams, RenderImage, RenderImageParams, RenderSvgParams, ScaledPixels, Scene,
-    SharedString, Size, SvgRenderer, SvgSize, Task, TaskLabel, Window, DEFAULT_WINDOW_SIZE,
+    point, Action, AnyWindowHandle, AsyncWindowContext, BackgroundExecutor, Bounds, DevicePixels,
+    DispatchEventResult, Font, FontId, FontMetrics, FontRun, ForegroundExecutor, GlyphId, GpuSpecs,
+    ImageSource, Keymap, LineLayout, Pixels, PlatformInput, Point, RenderGlyphParams, RenderImage,
+    RenderImageParams, RenderSvgParams, ScaledPixels, Scene, SharedString, Size, SvgRenderer,
+    SvgSize, Task, TaskLabel, WindowContext, DEFAULT_WINDOW_SIZE,
 };
 use anyhow::{anyhow, Result};
 use async_task::Runnable;
@@ -697,17 +697,14 @@ impl PlatformInputHandler {
 
     fn selected_text_range(&mut self, ignore_disabled_input: bool) -> Option<UTF16Selection> {
         self.cx
-            .update(|window, cx| {
-                self.handler
-                    .selected_text_range(ignore_disabled_input, window, cx)
-            })
+            .update(|cx| self.handler.selected_text_range(ignore_disabled_input, cx))
             .ok()
             .flatten()
     }
 
     fn marked_text_range(&mut self) -> Option<Range<usize>> {
         self.cx
-            .update(|window, cx| self.handler.marked_text_range(window, cx))
+            .update(|cx| self.handler.marked_text_range(cx))
             .ok()
             .flatten()
     }
@@ -719,19 +716,16 @@ impl PlatformInputHandler {
         adjusted: &mut Option<Range<usize>>,
     ) -> Option<String> {
         self.cx
-            .update(|window, cx| {
-                self.handler
-                    .text_for_range(range_utf16, adjusted, window, cx)
-            })
+            .update(|cx| self.handler.text_for_range(range_utf16, adjusted, cx))
             .ok()
             .flatten()
     }
 
     fn replace_text_in_range(&mut self, replacement_range: Option<Range<usize>>, text: &str) {
         self.cx
-            .update(|window, cx| {
+            .update(|cx| {
                 self.handler
-                    .replace_text_in_range(replacement_range, text, window, cx);
+                    .replace_text_in_range(replacement_range, text, cx);
             })
             .ok();
     }
@@ -743,12 +737,11 @@ impl PlatformInputHandler {
         new_selected_range: Option<Range<usize>>,
     ) {
         self.cx
-            .update(|window, cx| {
+            .update(|cx| {
                 self.handler.replace_and_mark_text_in_range(
                     range_utf16,
                     new_text,
                     new_selected_range,
-                    window,
                     cx,
                 )
             })
@@ -756,14 +749,12 @@ impl PlatformInputHandler {
     }
 
     fn unmark_text(&mut self) {
-        self.cx
-            .update(|window, cx| self.handler.unmark_text(window, cx))
-            .ok();
+        self.cx.update(|cx| self.handler.unmark_text(cx)).ok();
     }
 
     fn bounds_for_range(&mut self, range_utf16: Range<usize>) -> Option<Bounds<Pixels>> {
         self.cx
-            .update(|window, cx| self.handler.bounds_for_range(range_utf16, window, cx))
+            .update(|cx| self.handler.bounds_for_range(range_utf16, cx))
             .ok()
             .flatten()
     }
@@ -773,19 +764,18 @@ impl PlatformInputHandler {
         self.handler.apple_press_and_hold_enabled()
     }
 
-    pub(crate) fn dispatch_input(&mut self, input: &str, window: &mut Window, cx: &mut App) {
-        self.handler.replace_text_in_range(None, input, window, cx);
+    pub(crate) fn dispatch_input(&mut self, input: &str, cx: &mut WindowContext) {
+        self.handler.replace_text_in_range(None, input, cx);
     }
 
-    pub fn selected_bounds(&mut self, window: &mut Window, cx: &mut App) -> Option<Bounds<Pixels>> {
-        let selection = self.handler.selected_text_range(true, window, cx)?;
+    pub fn selected_bounds(&mut self, cx: &mut WindowContext) -> Option<Bounds<Pixels>> {
+        let selection = self.handler.selected_text_range(true, cx)?;
         self.handler.bounds_for_range(
             if selection.reversed {
                 selection.range.start..selection.range.start
             } else {
                 selection.range.end..selection.range.end
             },
-            window,
             cx,
         )
     }
@@ -815,15 +805,14 @@ pub trait InputHandler: 'static {
     fn selected_text_range(
         &mut self,
         ignore_disabled_input: bool,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Option<UTF16Selection>;
 
     /// Get the range of the currently marked text, if any
     /// Corresponds to [markedRange()](https://developer.apple.com/documentation/appkit/nstextinputclient/1438250-markedrange)
     ///
     /// Return value is in terms of UTF-16 characters, from 0 to the length of the document
-    fn marked_text_range(&mut self, window: &mut Window, cx: &mut App) -> Option<Range<usize>>;
+    fn marked_text_range(&mut self, cx: &mut WindowContext) -> Option<Range<usize>>;
 
     /// Get the text for the given document range in UTF-16 characters
     /// Corresponds to [attributedSubstring(forProposedRange: actualRange:)](https://developer.apple.com/documentation/appkit/nstextinputclient/1438238-attributedsubstring)
@@ -833,8 +822,7 @@ pub trait InputHandler: 'static {
         &mut self,
         range_utf16: Range<usize>,
         adjusted_range: &mut Option<Range<usize>>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Option<String>;
 
     /// Replace the text in the given document range with the given text
@@ -845,8 +833,7 @@ pub trait InputHandler: 'static {
         &mut self,
         replacement_range: Option<Range<usize>>,
         text: &str,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     );
 
     /// Replace the text in the given document range with the given text,
@@ -860,13 +847,12 @@ pub trait InputHandler: 'static {
         range_utf16: Option<Range<usize>>,
         new_text: &str,
         new_selected_range: Option<Range<usize>>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     );
 
     /// Remove the IME 'composing' state from the document
     /// Corresponds to [unmarkText()](https://developer.apple.com/documentation/appkit/nstextinputclient/1438239-unmarktext)
-    fn unmark_text(&mut self, window: &mut Window, cx: &mut App);
+    fn unmark_text(&mut self, cx: &mut WindowContext);
 
     /// Get the bounds of the given document range in screen coordinates
     /// Corresponds to [firstRect(forCharacterRange:actualRange:)](https://developer.apple.com/documentation/appkit/nstextinputclient/1438240-firstrect)
@@ -875,8 +861,7 @@ pub trait InputHandler: 'static {
     fn bounds_for_range(
         &mut self,
         range_utf16: Range<usize>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Option<Bounds<Pixels>>;
 
     /// Allows a given input context to opt into getting raw key repeats instead of
@@ -1271,7 +1256,7 @@ impl ClipboardItem {
 
         for entry in self.entries.iter() {
             if let ClipboardEntry::String(ClipboardString { text, metadata: _ }) = entry {
-                answer.push_str(&text);
+                answer.push_str(text);
                 any_entries = true;
             }
         }
@@ -1351,13 +1336,9 @@ impl Image {
     }
 
     /// Use the GPUI `use_asset` API to make this image renderable
-    pub fn use_render_image(
-        self: Arc<Self>,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> Option<Arc<RenderImage>> {
+    pub fn use_render_image(self: Arc<Self>, cx: &mut WindowContext) -> Option<Arc<RenderImage>> {
         ImageSource::Image(self)
-            .use_data(window, cx)
+            .use_data(cx)
             .and_then(|result| result.ok())
     }
 

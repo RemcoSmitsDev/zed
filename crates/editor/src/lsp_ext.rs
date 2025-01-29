@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::Editor;
 use collections::HashMap;
-use gpui::{App, Entity};
+use gpui::{Model, WindowContext};
 use language::Buffer;
 use language::Language;
 use lsp::LanguageServerId;
@@ -11,10 +11,10 @@ use multi_buffer::Anchor;
 
 pub(crate) fn find_specific_language_server_in_selection<F>(
     editor: &Editor,
-    cx: &mut App,
+    cx: &WindowContext,
     filter_language: F,
     language_server_name: &str,
-) -> Option<(Anchor, Arc<Language>, LanguageServerId, Entity<Buffer>)>
+) -> Option<(Anchor, Arc<Language>, LanguageServerId, Model<Buffer>)>
 where
     F: Fn(&Language) -> bool,
 {

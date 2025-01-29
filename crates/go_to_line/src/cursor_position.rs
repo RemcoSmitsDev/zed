@@ -1,13 +1,13 @@
-use editor::{Editor, MultiBufferSnapshot};
-use gpui::{App, Entity, FocusHandle, Focusable, Subscription, Task, WeakEntity};
+use editor::{Editor, ToPoint};
+use gpui::{AppContext, FocusHandle, FocusableView, Subscription, Task, View, WeakView};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use settings::{Settings, SettingsSources};
-use std::{fmt::Write, num::NonZeroU32, time::Duration};
+use std::{fmt::Write, time::Duration};
 use text::{Point, Selection};
 use ui::{
-    div, Button, ButtonCommon, Clickable, Context, FluentBuilder, IntoElement, LabelSize,
-    ParentElement, Render, Tooltip, Window,
+    div, Button, ButtonCommon, Clickable, FluentBuilder, IntoElement, LabelSize, ParentElement,
+    Render, Tooltip, ViewContext,
 };
 use util::paths::FILE_ROW_COLUMN_DELIMITER;
 use workspace::{item::ItemHandle, StatusItemView, Workspace};
@@ -20,36 +20,12 @@ pub(crate) struct SelectionStats {
 }
 
 pub struct CursorPosition {
-    position: Option<UserCaretPosition>,
+    position: Option<Point>,
     selected_count: SelectionStats,
     context: Option<FocusHandle>,
-    workspace: WeakEntity<Workspace>,
+    workspace: WeakView<Workspace>,
     update_position: Task<()>,
     _observe_active_editor: Option<Subscription>,
-}
-
-/// A position in the editor, where user's caret is located at.
-/// Lines are never zero as there is always at least one line in the editor.
-/// Characters may start with zero as the caret may be at the beginning of a line, but all editors start counting characters from 1,
-/// where "1" will mean "before the first character".
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct UserCaretPosition {
-    pub line: NonZeroU32,
-    pub character: NonZeroU32,
-}
-
-impl UserCaretPosition {
-    pub fn at_selection_end(selection: &Selection<Point>, snapshot: &MultiBufferSnapshot) -> Self {
-        let selection_end = selection.head();
-        let line_start = Point::new(selection_end.row, 0);
-        let chars_to_last_position = snapshot
-            .text_summary_for_range::<text::TextSummary, _>(line_start..selection_end)
-            .chars as u32;
-        Self {
-            line: NonZeroU32::new(selection_end.row + 1).expect("added 1"),
-            character: NonZeroU32::new(chars_to_last_position + 1).expect("added 1"),
-        }
-    }
 }
 
 impl CursorPosition {
@@ -66,13 +42,12 @@ impl CursorPosition {
 
     fn update_position(
         &mut self,
-        editor: Entity<Editor>,
+        editor: View<Editor>,
         debounce: Option<Duration>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) {
         let editor = editor.downgrade();
-        self.update_position = cx.spawn_in(window, |cursor_position, mut cx| async move {
+        self.update_position = cx.spawn(|cursor_position, mut cx| async move {
             let is_singleton = editor
                 .update(&mut cx, |editor, cx| {
                     editor.buffer().read(cx).is_singleton()
@@ -98,16 +73,21 @@ impl CursorPosition {
                                 cursor_position.context = None;
                             }
                             editor::EditorMode::Full => {
-                                let mut last_selection = None::<Selection<Point>>;
-                                let snapshot = editor.buffer().read(cx).snapshot(cx);
-                                if snapshot.excerpts().count() > 0 {
+                                let mut last_selection = None::<Selection<usize>>;
+                                let buffer = editor.buffer().read(cx).snapshot(cx);
+                                if buffer.excerpts().count() > 0 {
+                                    for selection in editor.selections.all::<usize>(cx) {
+                                        cursor_position.selected_count.characters += buffer
+                                            .text_for_range(selection.start..selection.end)
+                                            .map(|t| t.chars().count())
+                                            .sum::<usize>();
+                                        if last_selection.as_ref().map_or(true, |last_selection| {
+                                            selection.id > last_selection.id
+                                        }) {
+                                            last_selection = Some(selection);
+                                        }
+                                    }
                                     for selection in editor.selections.all::<Point>(cx) {
-                                        let selection_summary = snapshot
-                                            .text_summary_for_range::<text::TextSummary, _>(
-                                                selection.start..selection.end,
-                                            );
-                                        cursor_position.selected_count.characters +=
-                                            selection_summary.chars;
                                         if selection.end != selection.start {
                                             cursor_position.selected_count.lines +=
                                                 (selection.end.row - selection.start.row) as usize;
@@ -115,15 +95,10 @@ impl CursorPosition {
                                                 cursor_position.selected_count.lines += 1;
                                             }
                                         }
-                                        if last_selection.as_ref().map_or(true, |last_selection| {
-                                            selection.id > last_selection.id
-                                        }) {
-                                            last_selection = Some(selection);
-                                        }
                                     }
                                 }
-                                cursor_position.position = last_selection
-                                    .map(|s| UserCaretPosition::at_selection_end(&s, &snapshot));
+                                cursor_position.position =
+                                    last_selection.map(|s| s.head().to_point(&buffer));
                                 cursor_position.context = Some(editor.focus_handle(cx));
                             }
                         }
@@ -138,7 +113,7 @@ impl CursorPosition {
         });
     }
 
-    fn write_position(&self, text: &mut String, cx: &App) {
+    fn write_position(&self, text: &mut String, cx: &AppContext) {
         if self.selected_count
             <= (SelectionStats {
                 selections: 1,
@@ -184,19 +159,15 @@ impl CursorPosition {
     pub(crate) fn selection_stats(&self) -> &SelectionStats {
         &self.selected_count
     }
-
-    #[cfg(test)]
-    pub(crate) fn position(&self) -> Option<UserCaretPosition> {
-        self.position
-    }
 }
 
 impl Render for CursorPosition {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         div().when_some(self.position, |el, position| {
             let mut text = format!(
                 "{}{FILE_ROW_COLUMN_DELIMITER}{}",
-                position.line, position.character,
+                position.row + 1,
+                position.column + 1
             );
             self.write_position(&mut text, cx);
 
@@ -205,35 +176,29 @@ impl Render for CursorPosition {
             el.child(
                 Button::new("go-to-line-column", text)
                     .label_size(LabelSize::Small)
-                    .on_click(cx.listener(|this, _, window, cx| {
+                    .on_click(cx.listener(|this, _, cx| {
                         if let Some(workspace) = this.workspace.upgrade() {
                             workspace.update(cx, |workspace, cx| {
                                 if let Some(editor) = workspace
                                     .active_item(cx)
                                     .and_then(|item| item.act_as::<Editor>(cx))
                                 {
-                                    if let Some((_, buffer, _)) = editor.read(cx).active_excerpt(cx)
-                                    {
-                                        workspace.toggle_modal(window, cx, |window, cx| {
-                                            crate::GoToLine::new(editor, buffer, window, cx)
-                                        })
-                                    }
+                                    workspace
+                                        .toggle_modal(cx, |cx| crate::GoToLine::new(editor, cx))
                                 }
                             });
                         }
                     }))
-                    .tooltip(move |window, cx| match context.as_ref() {
+                    .tooltip(move |cx| match context.as_ref() {
                         Some(context) => Tooltip::for_action_in(
                             "Go to Line/Column",
                             &editor::actions::ToggleGoToLine,
                             context,
-                            window,
                             cx,
                         ),
                         None => Tooltip::for_action(
                             "Go to Line/Column",
                             &editor::actions::ToggleGoToLine,
-                            window,
                             cx,
                         ),
                     }),
@@ -248,23 +213,14 @@ impl StatusItemView for CursorPosition {
     fn set_active_pane_item(
         &mut self,
         active_pane_item: Option<&dyn ItemHandle>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) {
         if let Some(editor) = active_pane_item.and_then(|item| item.act_as::<Editor>(cx)) {
             self._observe_active_editor =
-                Some(
-                    cx.observe_in(&editor, window, |cursor_position, editor, window, cx| {
-                        Self::update_position(
-                            cursor_position,
-                            editor,
-                            Some(UPDATE_DEBOUNCE),
-                            window,
-                            cx,
-                        )
-                    }),
-                );
-            self.update_position(editor, None, window, cx);
+                Some(cx.observe(&editor, |cursor_position, editor, cx| {
+                    Self::update_position(cursor_position, editor, Some(UPDATE_DEBOUNCE), cx)
+                }));
+            self.update_position(editor, None, cx);
         } else {
             self.position = None;
             self._observe_active_editor = None;
@@ -295,7 +251,10 @@ impl Settings for LineIndicatorFormat {
 
     type FileContent = Option<LineIndicatorFormatContent>;
 
-    fn load(sources: SettingsSources<Self::FileContent>, _: &mut App) -> anyhow::Result<Self> {
+    fn load(
+        sources: SettingsSources<Self::FileContent>,
+        _: &mut AppContext,
+    ) -> anyhow::Result<Self> {
         let format = [sources.release_channel, sources.user]
             .into_iter()
             .find_map(|value| value.copied().flatten())

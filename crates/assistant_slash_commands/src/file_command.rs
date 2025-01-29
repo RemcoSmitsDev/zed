@@ -6,7 +6,7 @@ use assistant_slash_command::{
 use futures::channel::mpsc;
 use futures::Stream;
 use fuzzy::PathMatch;
-use gpui::{App, Entity, Task, WeakEntity};
+use gpui::{AppContext, Model, Task, View, WeakView};
 use language::{BufferSnapshot, CodeLabel, HighlightId, LineEnding, LspAdapterDelegate};
 use project::{PathMatchCandidateSet, Project};
 use serde::{Deserialize, Serialize};
@@ -28,8 +28,8 @@ impl FileSlashCommand {
         &self,
         query: String,
         cancellation_flag: Arc<AtomicBool>,
-        workspace: &Entity<Workspace>,
-        cx: &mut App,
+        workspace: &View<Workspace>,
+        cx: &mut AppContext,
     ) -> Task<Vec<PathMatch>> {
         if query.is_empty() {
             let workspace = workspace.read(cx);
@@ -134,9 +134,8 @@ impl SlashCommand for FileSlashCommand {
         self: Arc<Self>,
         arguments: &[String],
         cancellation_flag: Arc<AtomicBool>,
-        workspace: Option<WeakEntity<Workspace>>,
-        _: &mut Window,
-        cx: &mut App,
+        workspace: Option<WeakView<Workspace>>,
+        cx: &mut WindowContext,
     ) -> Task<Result<Vec<ArgumentCompletion>>> {
         let Some(workspace) = workspace.and_then(|workspace| workspace.upgrade()) else {
             return Task::ready(Err(anyhow!("workspace was dropped")));
@@ -188,10 +187,9 @@ impl SlashCommand for FileSlashCommand {
         arguments: &[String],
         _context_slash_command_output_sections: &[SlashCommandOutputSection<language::Anchor>],
         _context_buffer: BufferSnapshot,
-        workspace: WeakEntity<Workspace>,
+        workspace: WeakView<Workspace>,
         _delegate: Option<Arc<dyn LspAdapterDelegate>>,
-        _: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Task<SlashCommandResult> {
         let Some(workspace) = workspace.upgrade() else {
             return Task::ready(Err(anyhow!("workspace was dropped")));
@@ -211,9 +209,9 @@ impl SlashCommand for FileSlashCommand {
 }
 
 fn collect_files(
-    project: Entity<Project>,
+    project: Model<Project>,
     glob_inputs: &[String],
-    cx: &mut App,
+    cx: &mut AppContext,
 ) -> impl Stream<Item = Result<SlashCommandEvent>> {
     let Ok(matchers) = glob_inputs
         .into_iter()

@@ -2,8 +2,8 @@ use smallvec::SmallVec;
 use taffy::style::{Display, Position};
 
 use crate::{
-    point, AnyElement, App, Axis, Bounds, Corner, Edges, Element, GlobalElementId, IntoElement,
-    LayoutId, ParentElement, Pixels, Point, Size, Style, Window,
+    point, AnyElement, Axis, Bounds, Corner, Edges, Element, GlobalElementId, IntoElement,
+    LayoutId, ParentElement, Pixels, Point, Size, Style, WindowContext,
 };
 
 /// The state that the anchored element element uses to track its children.
@@ -94,13 +94,12 @@ impl Element for Anchored {
     fn request_layout(
         &mut self,
         _id: Option<&GlobalElementId>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> (crate::LayoutId, Self::RequestLayoutState) {
         let child_layout_ids = self
             .children
             .iter_mut()
-            .map(|child| child.request_layout(window, cx))
+            .map(|child| child.request_layout(cx))
             .collect::<SmallVec<_>>();
 
         let anchored_style = Style {
@@ -109,7 +108,7 @@ impl Element for Anchored {
             ..Style::default()
         };
 
-        let layout_id = window.request_layout(anchored_style, child_layout_ids.iter().copied(), cx);
+        let layout_id = cx.request_layout(anchored_style, child_layout_ids.iter().copied());
 
         (layout_id, AnchoredState { child_layout_ids })
     }
@@ -119,8 +118,7 @@ impl Element for Anchored {
         _id: Option<&GlobalElementId>,
         bounds: Bounds<Pixels>,
         request_layout: &mut Self::RequestLayoutState,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) {
         if request_layout.child_layout_ids.is_empty() {
             return;
@@ -129,7 +127,7 @@ impl Element for Anchored {
         let mut child_min = point(Pixels::MAX, Pixels::MAX);
         let mut child_max = Point::default();
         for child_layout_id in &request_layout.child_layout_ids {
-            let child_bounds = window.layout_bounds(*child_layout_id);
+            let child_bounds = cx.layout_bounds(*child_layout_id);
             child_min = child_min.min(&child_bounds.origin);
             child_max = child_max.max(&child_bounds.bottom_right());
         }
@@ -145,7 +143,7 @@ impl Element for Anchored {
 
         let limits = Bounds {
             origin: Point::default(),
-            size: window.viewport_size(),
+            size: cx.viewport_size(),
         };
 
         if self.fit_mode == AnchoredFitMode::SwitchAnchor {
@@ -201,9 +199,9 @@ impl Element for Anchored {
         let offset = desired.origin - bounds.origin;
         let offset = point(offset.x.round(), offset.y.round());
 
-        window.with_element_offset(offset, |window| {
+        cx.with_element_offset(offset, |cx| {
             for child in &mut self.children {
-                child.prepaint(window, cx);
+                child.prepaint(cx);
             }
         })
     }
@@ -214,11 +212,10 @@ impl Element for Anchored {
         _bounds: crate::Bounds<crate::Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
         _prepaint: &mut Self::PrepaintState,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) {
         for child in &mut self.children {
-            child.paint(window, cx);
+            child.paint(cx);
         }
     }
 }

@@ -4,7 +4,7 @@ use assistant_slash_command::{
     SlashCommandResult,
 };
 use feature_flags::FeatureFlag;
-use gpui::{App, Task, WeakEntity};
+use gpui::{AppContext, Task, WeakView};
 use language::{CodeLabel, LspAdapterDelegate};
 use semantic_index::{LoadedSearchResult, SemanticDb};
 use std::{
@@ -34,7 +34,7 @@ impl SlashCommand for SearchSlashCommand {
         "search".into()
     }
 
-    fn label(&self, cx: &App) -> CodeLabel {
+    fn label(&self, cx: &AppContext) -> CodeLabel {
         create_label_for_command("search", &["--n"], cx)
     }
 
@@ -58,9 +58,8 @@ impl SlashCommand for SearchSlashCommand {
         self: Arc<Self>,
         _arguments: &[String],
         _cancel: Arc<AtomicBool>,
-        _workspace: Option<WeakEntity<Workspace>>,
-        _window: &mut Window,
-        _cx: &mut App,
+        _workspace: Option<WeakView<Workspace>>,
+        _cx: &mut WindowContext,
     ) -> Task<Result<Vec<ArgumentCompletion>>> {
         Task::ready(Ok(Vec::new()))
     }
@@ -70,10 +69,9 @@ impl SlashCommand for SearchSlashCommand {
         arguments: &[String],
         _context_slash_command_output_sections: &[SlashCommandOutputSection<language::Anchor>],
         _context_buffer: language::BufferSnapshot,
-        workspace: WeakEntity<Workspace>,
+        workspace: WeakView<Workspace>,
         _delegate: Option<Arc<dyn LspAdapterDelegate>>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Task<SlashCommandResult> {
         let Some(workspace) = workspace.upgrade() else {
             return Task::ready(Err(anyhow::anyhow!("workspace was dropped")));
@@ -109,7 +107,7 @@ impl SlashCommand for SearchSlashCommand {
             return Task::ready(Err(anyhow::anyhow!("no project indexer")));
         };
 
-        window.spawn(cx, |cx| async move {
+        cx.spawn(|cx| async move {
             let results = project_index
                 .read_with(&cx, |project_index, cx| {
                     project_index.search(vec![query.clone()], limit.unwrap_or(5), cx)

@@ -5,10 +5,10 @@
 //! elements with uniform height.
 
 use crate::{
-    point, size, AnyElement, App, AvailableSpace, Bounds, ContentMask, Context, Element, ElementId,
-    Entity, GlobalElementId, Hitbox, InteractiveElement, Interactivity, IntoElement, IsZero,
-    LayoutId, ListSizingBehavior, Pixels, Render, ScrollHandle, Size, StyleRefinement, Styled,
-    Window,
+    point, size, AnyElement, AvailableSpace, Bounds, ContentMask, Element, ElementId,
+    GlobalElementId, Hitbox, InteractiveElement, Interactivity, IntoElement, IsZero, LayoutId,
+    ListSizingBehavior, Pixels, Render, ScrollHandle, Size, StyleRefinement, Styled, View,
+    ViewContext, WindowContext,
 };
 use smallvec::SmallVec;
 use std::{cell::RefCell, cmp, ops::Range, rc::Rc};
@@ -21,10 +21,10 @@ use super::ListHorizontalSizingBehavior;
 /// uniform_list will only render the visible subset of items.
 #[track_caller]
 pub fn uniform_list<I, R, V>(
-    view: Entity<V>,
+    view: View<V>,
     id: I,
     item_count: usize,
-    f: impl 'static + Fn(&mut V, Range<usize>, &mut Window, &mut Context<V>) -> Vec<R>,
+    f: impl 'static + Fn(&mut V, Range<usize>, &mut ViewContext<V>) -> Vec<R>,
 ) -> UniformList
 where
     I: Into<ElementId>,
@@ -35,9 +35,9 @@ where
     let mut base_style = StyleRefinement::default();
     base_style.overflow.y = Some(Overflow::Scroll);
 
-    let render_range = move |range, window: &mut Window, cx: &mut App| {
+    let render_range = move |range, cx: &mut WindowContext| {
         view.update(cx, |this, cx| {
-            f(this, range, window, cx)
+            f(this, range, cx)
                 .into_iter()
                 .map(|component| component.into_any_element())
                 .collect()
@@ -68,9 +68,8 @@ where
 pub struct UniformList {
     item_count: usize,
     item_to_measure_index: usize,
-    render_items: Box<
-        dyn for<'a> Fn(Range<usize>, &'a mut Window, &'a mut App) -> SmallVec<[AnyElement; 64]>,
-    >,
+    render_items:
+        Box<dyn for<'a> Fn(Range<usize>, &'a mut WindowContext) -> SmallVec<[AnyElement; 64]>>,
     decorations: Vec<Box<dyn UniformListDecoration>>,
     interactivity: Interactivity,
     scroll_handle: Option<UniformListScrollHandle>,
@@ -107,8 +106,6 @@ pub struct UniformListScrollState {
     pub deferred_scroll_to_item: Option<(usize, ScrollStrategy)>,
     /// Size of the item, captured during last layout.
     pub last_item_size: Option<ItemSize>,
-    /// Whether the list was vertically flipped during last layout.
-    pub y_flipped: bool,
 }
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -128,18 +125,12 @@ impl UniformListScrollHandle {
             base_handle: ScrollHandle::new(),
             deferred_scroll_to_item: None,
             last_item_size: None,
-            y_flipped: false,
         })))
     }
 
     /// Scroll the list to the given item index.
     pub fn scroll_to_item(&self, ix: usize, strategy: ScrollStrategy) {
         self.0.borrow_mut().deferred_scroll_to_item = Some((ix, strategy));
-    }
-
-    /// Check if the list is flipped vertically.
-    pub fn y_flipped(&self) -> bool {
-        self.0.borrow().y_flipped
     }
 
     /// Get the index of the topmost visible child.
@@ -169,21 +160,18 @@ impl Element for UniformList {
     fn request_layout(
         &mut self,
         global_id: Option<&GlobalElementId>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> (LayoutId, Self::RequestLayoutState) {
         let max_items = self.item_count;
-        let item_size = self.measure_item(None, window, cx);
-        let layout_id = self.interactivity.request_layout(
-            global_id,
-            window,
-            cx,
-            |style, window, cx| match self.sizing_behavior {
+        let item_size = self.measure_item(None, cx);
+        let layout_id = self
+            .interactivity
+            .request_layout(global_id, cx, |style, cx| match self.sizing_behavior {
                 ListSizingBehavior::Infer => {
-                    window.with_text_style(style.text_style().cloned(), |window| {
-                        window.request_measured_layout(
+                    cx.with_text_style(style.text_style().cloned(), |cx| {
+                        cx.request_measured_layout(
                             style,
-                            move |known_dimensions, available_space, _window, _cx| {
+                            move |known_dimensions, available_space, _cx| {
                                 let desired_height = item_size.height * max_items;
                                 let width = known_dimensions.width.unwrap_or(match available_space
                                     .width
@@ -204,12 +192,10 @@ impl Element for UniformList {
                         )
                     })
                 }
-                ListSizingBehavior::Auto => window
-                    .with_text_style(style.text_style().cloned(), |window| {
-                        window.request_layout(style, None, cx)
-                    }),
-            },
-        );
+                ListSizingBehavior::Auto => cx.with_text_style(style.text_style().cloned(), |cx| {
+                    cx.request_layout(style, None)
+                }),
+            });
 
         (
             layout_id,
@@ -225,16 +211,11 @@ impl Element for UniformList {
         global_id: Option<&GlobalElementId>,
         bounds: Bounds<Pixels>,
         frame_state: &mut Self::RequestLayoutState,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Option<Hitbox> {
-        let style = self
-            .interactivity
-            .compute_style(global_id, None, window, cx);
-        let border = style.border_widths.to_pixels(window.rem_size());
-        let padding = style
-            .padding
-            .to_pixels(bounds.size.into(), window.rem_size());
+        let style = self.interactivity.compute_style(global_id, None, cx);
+        let border = style.border_widths.to_pixels(cx.rem_size());
+        let padding = style.padding.to_pixels(bounds.size.into(), cx.rem_size());
 
         let padded_bounds = Bounds::from_corners(
             bounds.origin + point(border.left + padding.left, border.top + padding.top),
@@ -247,7 +228,7 @@ impl Element for UniformList {
             ListHorizontalSizingBehavior::Unconstrained
         );
 
-        let longest_item_size = self.measure_item(None, window, cx);
+        let longest_item_size = self.measure_item(None, cx);
         let content_width = if can_scroll_horizontally {
             padded_bounds.size.width.max(longest_item_size.width)
         } else {
@@ -273,26 +254,19 @@ impl Element for UniformList {
             global_id,
             bounds,
             content_size,
-            window,
             cx,
-            |style, mut scroll_offset, hitbox, window, cx| {
-                let border = style.border_widths.to_pixels(window.rem_size());
-                let padding = style
-                    .padding
-                    .to_pixels(bounds.size.into(), window.rem_size());
+            |style, mut scroll_offset, hitbox, cx| {
+                let border = style.border_widths.to_pixels(cx.rem_size());
+                let padding = style.padding.to_pixels(bounds.size.into(), cx.rem_size());
 
                 let padded_bounds = Bounds::from_corners(
                     bounds.origin + point(border.left + padding.left, border.top),
                     bounds.bottom_right() - point(border.right + padding.right, border.bottom),
                 );
 
-                let y_flipped = if let Some(scroll_handle) = self.scroll_handle.as_mut() {
-                    let mut scroll_state = scroll_handle.0.borrow_mut();
-                    scroll_state.base_handle.set_bounds(bounds);
-                    scroll_state.y_flipped
-                } else {
-                    false
-                };
+                if let Some(handle) = self.scroll_handle.as_mut() {
+                    handle.0.borrow_mut().base_handle.set_bounds(bounds);
+                }
 
                 if self.item_count > 0 {
                     let content_height =
@@ -312,10 +286,7 @@ impl Element for UniformList {
                         scroll_offset.x = Pixels::ZERO;
                     }
 
-                    if let Some((mut ix, scroll_strategy)) = shared_scroll_to_item {
-                        if y_flipped {
-                            ix = self.item_count.saturating_sub(ix + 1);
-                        }
+                    if let Some((ix, scroll_strategy)) = shared_scroll_to_item {
                         let list_height = padded_bounds.size.height;
                         let mut updated_scroll_offset = shared_scroll_offset.borrow_mut();
                         let item_top = item_height * ix + padding.top;
@@ -359,18 +330,10 @@ impl Element for UniformList {
                     let visible_range = first_visible_element_ix
                         ..cmp::min(last_visible_element_ix, self.item_count);
 
-                    let items = if y_flipped {
-                        let flipped_range = self.item_count.saturating_sub(visible_range.end)
-                            ..self.item_count.saturating_sub(visible_range.start);
-                        let mut items = (self.render_items)(flipped_range, window, cx);
-                        items.reverse();
-                        items
-                    } else {
-                        (self.render_items)(visible_range.clone(), window, cx)
-                    };
+                    let mut items = (self.render_items)(visible_range.clone(), cx);
 
                     let content_mask = ContentMask { bounds };
-                    window.with_content_mask(Some(content_mask), |window| {
+                    cx.with_content_mask(Some(content_mask), |cx| {
                         for (mut item, ix) in items.into_iter().zip(visible_range.clone()) {
                             let item_origin = padded_bounds.origin
                                 + point(
@@ -390,8 +353,8 @@ impl Element for UniformList {
                                 AvailableSpace::Definite(available_width),
                                 AvailableSpace::Definite(item_height),
                             );
-                            item.layout_as_root(available_space, window, cx);
-                            item.prepaint_at(item_origin, window, cx);
+                            item.layout_as_root(available_space, cx);
+                            item.prepaint_at(item_origin, cx);
                             frame_state.items.push(item);
                         }
 
@@ -413,15 +376,14 @@ impl Element for UniformList {
                                 bounds,
                                 item_height,
                                 self.item_count,
-                                window,
                                 cx,
                             );
                             let available_space = size(
                                 AvailableSpace::Definite(bounds.size.width),
                                 AvailableSpace::Definite(bounds.size.height),
                             );
-                            decoration.layout_as_root(available_space, window, cx);
-                            decoration.prepaint_at(bounds.origin, window, cx);
+                            decoration.layout_as_root(available_space, cx);
+                            decoration.prepaint_at(bounds.origin, cx);
                             frame_state.decorations.push(decoration);
                         }
                     });
@@ -438,24 +400,17 @@ impl Element for UniformList {
         bounds: Bounds<crate::Pixels>,
         request_layout: &mut Self::RequestLayoutState,
         hitbox: &mut Option<Hitbox>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) {
-        self.interactivity.paint(
-            global_id,
-            bounds,
-            hitbox.as_ref(),
-            window,
-            cx,
-            |_, window, cx| {
+        self.interactivity
+            .paint(global_id, bounds, hitbox.as_ref(), cx, |_, cx| {
                 for item in &mut request_layout.items {
-                    item.paint(window, cx);
+                    item.paint(cx);
                 }
                 for decoration in &mut request_layout.decorations {
-                    decoration.paint(window, cx);
+                    decoration.paint(cx);
                 }
-            },
-        )
+            })
     }
 }
 
@@ -478,8 +433,7 @@ pub trait UniformListDecoration {
         bounds: Bounds<Pixels>,
         item_height: Pixels,
         item_count: usize,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> AnyElement;
 }
 
@@ -521,18 +475,13 @@ impl UniformList {
         self
     }
 
-    fn measure_item(
-        &self,
-        list_width: Option<Pixels>,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> Size<Pixels> {
+    fn measure_item(&self, list_width: Option<Pixels>, cx: &mut WindowContext) -> Size<Pixels> {
         if self.item_count == 0 {
             return Size::default();
         }
 
         let item_ix = cmp::min(self.item_to_measure_index, self.item_count - 1);
-        let mut items = (self.render_items)(item_ix..item_ix + 1, window, cx);
+        let mut items = (self.render_items)(item_ix..item_ix + 1, cx);
         let Some(mut item_to_measure) = items.pop() else {
             return Size::default();
         };
@@ -542,37 +491,13 @@ impl UniformList {
             }),
             AvailableSpace::MinContent,
         );
-        item_to_measure.layout_as_root(available_space, window, cx)
+        item_to_measure.layout_as_root(available_space, cx)
     }
 
     /// Track and render scroll state of this list with reference to the given scroll handle.
     pub fn track_scroll(mut self, handle: UniformListScrollHandle) -> Self {
         self.interactivity.tracked_scroll_handle = Some(handle.0.borrow().base_handle.clone());
         self.scroll_handle = Some(handle);
-        self
-    }
-
-    /// Sets whether the list is flipped vertically, such that item 0 appears at the bottom.
-    pub fn y_flipped(mut self, y_flipped: bool) -> Self {
-        if let Some(ref scroll_handle) = self.scroll_handle {
-            let mut scroll_state = scroll_handle.0.borrow_mut();
-            let mut base_handle = &scroll_state.base_handle;
-            let offset = base_handle.offset();
-            match scroll_state.last_item_size {
-                Some(last_size) if scroll_state.y_flipped != y_flipped => {
-                    let new_y_offset =
-                        -(offset.y + last_size.contents.height - last_size.item.height);
-                    base_handle.set_offset(point(offset.x, new_y_offset));
-                    scroll_state.y_flipped = y_flipped;
-                }
-                // Handle case where list is initially flipped.
-                None if y_flipped => {
-                    base_handle.set_offset(point(offset.x, Pixels::MIN));
-                    scroll_state.y_flipped = y_flipped;
-                }
-                _ => {}
-            }
-        }
         self
     }
 }

@@ -7,7 +7,7 @@ use std::{
 };
 
 use ::util::{paths::SanitizedPath, ResultExt};
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{anyhow, Context, Result};
 use async_task::Runnable;
 use futures::channel::oneshot::{self, Receiver};
 use itertools::Itertools;
@@ -167,7 +167,7 @@ impl WindowsPlatform {
 
     #[inline]
     fn run_foreground_task(&self) {
-        for runnable in self.main_receiver.drain() {
+        if let Ok(runnable) = self.main_receiver.try_recv() {
             runnable.run();
         }
     }

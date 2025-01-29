@@ -3,11 +3,11 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use extension::{ExtensionHostProxy, ExtensionSnippetProxy};
-use gpui::App;
+use gpui::AppContext;
 
 use crate::SnippetRegistry;
 
-pub fn init(cx: &mut App) {
+pub fn init(cx: &mut AppContext) {
     let proxy = ExtensionHostProxy::default_global(cx);
     proxy.register_snippet_proxy(SnippetRegistryProxy {
         snippet_registry: SnippetRegistry::global(cx),

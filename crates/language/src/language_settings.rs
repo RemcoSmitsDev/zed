@@ -9,7 +9,7 @@ use ec4rs::{
     Properties as EditorconfigProperties,
 };
 use globset::{Glob, GlobMatcher, GlobSet, GlobSetBuilder};
-use gpui::App;
+use gpui::AppContext;
 use itertools::{Either, Itertools};
 use schemars::{
     schema::{InstanceType, ObjectValidation, Schema, SchemaObject, SingleOrVec},
@@ -27,7 +27,7 @@ use std::{borrow::Cow, num::NonZeroU32, path::Path, sync::Arc};
 use util::serde::default_true;
 
 /// Initializes the language settings.
-pub fn init(cx: &mut App) {
+pub fn init(cx: &mut AppContext) {
     AllLanguageSettings::register(cx);
 }
 
@@ -35,7 +35,7 @@ pub fn init(cx: &mut App) {
 pub fn language_settings<'a>(
     language: Option<LanguageName>,
     file: Option<&'a Arc<dyn File>>,
-    cx: &'a App,
+    cx: &'a AppContext,
 ) -> Cow<'a, LanguageSettings> {
     let location = file.map(|f| SettingsLocation {
         worktree_id: f.worktree_id(cx),
@@ -47,7 +47,7 @@ pub fn language_settings<'a>(
 /// Returns the settings for all languages from the provided file.
 pub fn all_language_settings<'a>(
     file: Option<&'a Arc<dyn File>>,
-    cx: &'a App,
+    cx: &'a AppContext,
 ) -> &'a AllLanguageSettings {
     let location = file.map(|f| SettingsLocation {
         worktree_id: f.worktree_id(cx),
@@ -857,7 +857,7 @@ impl AllLanguageSettings {
         &'a self,
         location: Option<SettingsLocation<'a>>,
         language_name: Option<&LanguageName>,
-        cx: &'a App,
+        cx: &'a AppContext,
     ) -> Cow<'a, LanguageSettings> {
         let settings = language_name
             .and_then(|name| self.languages.get(name))
@@ -890,7 +890,7 @@ impl AllLanguageSettings {
         &self,
         language: Option<&Arc<Language>>,
         path: Option<&Path>,
-        cx: &App,
+        cx: &AppContext,
     ) -> bool {
         if let Some(path) = path {
             if !self.inline_completions_enabled_for_path(path) {
@@ -979,7 +979,7 @@ impl settings::Settings for AllLanguageSettings {
 
     type FileContent = AllLanguageSettingsContent;
 
-    fn load(sources: SettingsSources<Self::FileContent>, _: &mut App) -> Result<Self> {
+    fn load(sources: SettingsSources<Self::FileContent>, _: &mut AppContext) -> Result<Self> {
         let default_value = sources.default;
 
         // A default is provided for all settings.
@@ -1095,7 +1095,7 @@ impl settings::Settings for AllLanguageSettings {
     fn json_schema(
         generator: &mut schemars::gen::SchemaGenerator,
         params: &settings::SettingsJsonSchemaParams,
-        _: &App,
+        _: &AppContext,
     ) -> schemars::schema::RootSchema {
         let mut root_schema = generator.root_schema_for::<Self::FileContent>();
 

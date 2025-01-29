@@ -5,14 +5,14 @@ pub mod project_shared_notification;
 #[cfg(feature = "stories")]
 mod stories;
 
-use gpui::App;
+use gpui::AppContext;
 use std::sync::Arc;
 use workspace::AppState;
 
 #[cfg(feature = "stories")]
 pub use stories::*;
 
-pub fn init(app_state: &Arc<AppState>, cx: &mut App) {
+pub fn init(app_state: &Arc<AppState>, cx: &mut AppContext) {
     incoming_call_notification::init(app_state, cx);
     project_shared_notification::init(app_state, cx);
 }

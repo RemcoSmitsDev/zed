@@ -1,6 +1,6 @@
 use gpui::{
-    canvas, div, point, prelude::*, px, size, App, Application, Bounds, Context, MouseDownEvent,
-    Path, Pixels, Point, Render, Window, WindowOptions,
+    canvas, div, point, prelude::*, px, size, App, AppContext, Bounds, MouseDownEvent, Path,
+    Pixels, Point, Render, ViewContext, WindowOptions,
 };
 struct PaintingViewer {
     default_lines: Vec<Path<Pixels>>,
@@ -70,13 +70,13 @@ impl PaintingViewer {
         }
     }
 
-    fn clear(&mut self, cx: &mut Context<Self>) {
+    fn clear(&mut self, cx: &mut ViewContext<Self>) {
         self.lines.clear();
         cx.notify();
     }
 }
 impl Render for PaintingViewer {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         let default_lines = self.default_lines.clone();
         let lines = self.lines.clone();
         div()
@@ -103,7 +103,7 @@ impl Render for PaintingViewer {
                             .flex()
                             .px_3()
                             .py_1()
-                            .on_click(cx.listener(|this, _, _, cx| {
+                            .on_click(cx.listener(|this, _, cx| {
                                 this.clear(cx);
                             })),
                     ),
@@ -113,11 +113,11 @@ impl Render for PaintingViewer {
                     .size_full()
                     .child(
                         canvas(
-                            move |_, _, _| {},
-                            move |_, _, window, _| {
+                            move |_, _| {},
+                            move |_, _, cx| {
                                 const STROKE_WIDTH: Pixels = px(2.0);
                                 for path in default_lines {
-                                    window.paint_path(path, gpui::black());
+                                    cx.paint_path(path, gpui::black());
                                 }
                                 for points in lines {
                                     let mut path = Path::new(points[0]);
@@ -135,7 +135,7 @@ impl Render for PaintingViewer {
                                         last = p;
                                     }
 
-                                    window.paint_path(path, gpui::black());
+                                    cx.paint_path(path, gpui::black());
                                 }
                             },
                         )
@@ -143,14 +143,14 @@ impl Render for PaintingViewer {
                     )
                     .on_mouse_down(
                         gpui::MouseButton::Left,
-                        cx.listener(|this, ev: &MouseDownEvent, _, _| {
+                        cx.listener(|this, ev: &MouseDownEvent, _| {
                             this._painting = true;
                             this.start = ev.position;
                             let path = vec![ev.position];
                             this.lines.push(path);
                         }),
                     )
-                    .on_mouse_move(cx.listener(|this, ev: &gpui::MouseMoveEvent, _, cx| {
+                    .on_mouse_move(cx.listener(|this, ev: &gpui::MouseMoveEvent, cx| {
                         if !this._painting {
                             return;
                         }
@@ -176,7 +176,7 @@ impl Render for PaintingViewer {
                     }))
                     .on_mouse_up(
                         gpui::MouseButton::Left,
-                        cx.listener(|this, _, _, _| {
+                        cx.listener(|this, _, _| {
                             this._painting = false;
                         }),
                     ),
@@ -185,13 +185,13 @@ impl Render for PaintingViewer {
 }
 
 fn main() {
-    Application::new().run(|cx: &mut App| {
+    App::new().run(|cx: &mut AppContext| {
         cx.open_window(
             WindowOptions {
                 focus: true,
                 ..Default::default()
             },
-            |_, cx| cx.new(|_| PaintingViewer::new()),
+            |cx| cx.new_view(|_| PaintingViewer::new()),
         )
         .unwrap();
         cx.activate(true);

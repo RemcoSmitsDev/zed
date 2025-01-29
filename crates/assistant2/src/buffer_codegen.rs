@@ -6,7 +6,7 @@ use client::telemetry::Telemetry;
 use collections::HashSet;
 use editor::{Anchor, AnchorRangeExt, MultiBuffer, MultiBufferSnapshot, ToOffset as _, ToPoint};
 use futures::{channel::mpsc, future::LocalBoxFuture, join, SinkExt, Stream, StreamExt};
-use gpui::{App, AppContext as _, Context, Entity, EventEmitter, Subscription, Task};
+use gpui::{AppContext, Context as _, EventEmitter, Model, ModelContext, Subscription, Task};
 use language::{Buffer, IndentKind, Point, TransactionId};
 use language_model::{
     LanguageModel, LanguageModelRegistry, LanguageModelRequest, LanguageModelRequestMessage,
@@ -32,14 +32,14 @@ use streaming_diff::{CharOperation, LineDiff, LineOperation, StreamingDiff};
 use telemetry_events::{AssistantEvent, AssistantKind, AssistantPhase};
 
 pub struct BufferCodegen {
-    alternatives: Vec<Entity<CodegenAlternative>>,
+    alternatives: Vec<Model<CodegenAlternative>>,
     pub active_alternative: usize,
     seen_alternatives: HashSet<usize>,
     subscriptions: Vec<Subscription>,
-    buffer: Entity<MultiBuffer>,
+    buffer: Model<MultiBuffer>,
     range: Range<Anchor>,
     initial_transaction_id: Option<TransactionId>,
-    context_store: Entity<ContextStore>,
+    context_store: Model<ContextStore>,
     telemetry: Arc<Telemetry>,
     builder: Arc<PromptBuilder>,
     pub is_insertion: bool,
@@ -47,15 +47,15 @@ pub struct BufferCodegen {
 
 impl BufferCodegen {
     pub fn new(
-        buffer: Entity<MultiBuffer>,
+        buffer: Model<MultiBuffer>,
         range: Range<Anchor>,
         initial_transaction_id: Option<TransactionId>,
-        context_store: Entity<ContextStore>,
+        context_store: Model<ContextStore>,
         telemetry: Arc<Telemetry>,
         builder: Arc<PromptBuilder>,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) -> Self {
-        let codegen = cx.new(|cx| {
+        let codegen = cx.new_model(|cx| {
             CodegenAlternative::new(
                 buffer.clone(),
                 range.clone(),
@@ -83,7 +83,7 @@ impl BufferCodegen {
         this
     }
 
-    fn subscribe_to_alternative(&mut self, cx: &mut Context<Self>) {
+    fn subscribe_to_alternative(&mut self, cx: &mut ModelContext<Self>) {
         let codegen = self.active_alternative().clone();
         self.subscriptions.clear();
         self.subscriptions
@@ -92,22 +92,22 @@ impl BufferCodegen {
             .push(cx.subscribe(&codegen, |_, _, event, cx| cx.emit(*event)));
     }
 
-    pub fn active_alternative(&self) -> &Entity<CodegenAlternative> {
+    pub fn active_alternative(&self) -> &Model<CodegenAlternative> {
         &self.alternatives[self.active_alternative]
     }
 
-    pub fn status<'a>(&self, cx: &'a App) -> &'a CodegenStatus {
+    pub fn status<'a>(&self, cx: &'a AppContext) -> &'a CodegenStatus {
         &self.active_alternative().read(cx).status
     }
 
-    pub fn alternative_count(&self, cx: &App) -> usize {
+    pub fn alternative_count(&self, cx: &AppContext) -> usize {
         LanguageModelRegistry::read_global(cx)
             .inline_alternative_models()
             .len()
             + 1
     }
 
-    pub fn cycle_prev(&mut self, cx: &mut Context<Self>) {
+    pub fn cycle_prev(&mut self, cx: &mut ModelContext<Self>) {
         let next_active_ix = if self.active_alternative == 0 {
             self.alternatives.len() - 1
         } else {
@@ -116,12 +116,12 @@ impl BufferCodegen {
         self.activate(next_active_ix, cx);
     }
 
-    pub fn cycle_next(&mut self, cx: &mut Context<Self>) {
+    pub fn cycle_next(&mut self, cx: &mut ModelContext<Self>) {
         let next_active_ix = (self.active_alternative + 1) % self.alternatives.len();
         self.activate(next_active_ix, cx);
     }
 
-    fn activate(&mut self, index: usize, cx: &mut Context<Self>) {
+    fn activate(&mut self, index: usize, cx: &mut ModelContext<Self>) {
         self.active_alternative()
             .update(cx, |codegen, cx| codegen.set_active(false, cx));
         self.seen_alternatives.insert(index);
@@ -132,7 +132,7 @@ impl BufferCodegen {
         cx.notify();
     }
 
-    pub fn start(&mut self, user_prompt: String, cx: &mut Context<Self>) -> Result<()> {
+    pub fn start(&mut self, user_prompt: String, cx: &mut ModelContext<Self>) -> Result<()> {
         let alternative_models = LanguageModelRegistry::read_global(cx)
             .inline_alternative_models()
             .to_vec();
@@ -143,7 +143,7 @@ impl BufferCodegen {
         self.alternatives.truncate(1);
 
         for _ in 0..alternative_models.len() {
-            self.alternatives.push(cx.new(|cx| {
+            self.alternatives.push(cx.new_model(|cx| {
                 CodegenAlternative::new(
                     self.buffer.clone(),
                     self.range.clone(),
@@ -172,13 +172,13 @@ impl BufferCodegen {
         Ok(())
     }
 
-    pub fn stop(&mut self, cx: &mut Context<Self>) {
+    pub fn stop(&mut self, cx: &mut ModelContext<Self>) {
         for codegen in &self.alternatives {
             codegen.update(cx, |codegen, cx| codegen.stop(cx));
         }
     }
 
-    pub fn undo(&mut self, cx: &mut Context<Self>) {
+    pub fn undo(&mut self, cx: &mut ModelContext<Self>) {
         self.active_alternative()
             .update(cx, |codegen, cx| codegen.undo(cx));
 
@@ -190,27 +190,27 @@ impl BufferCodegen {
         });
     }
 
-    pub fn buffer(&self, cx: &App) -> Entity<MultiBuffer> {
+    pub fn buffer(&self, cx: &AppContext) -> Model<MultiBuffer> {
         self.active_alternative().read(cx).buffer.clone()
     }
 
-    pub fn old_buffer(&self, cx: &App) -> Entity<Buffer> {
+    pub fn old_buffer(&self, cx: &AppContext) -> Model<Buffer> {
         self.active_alternative().read(cx).old_buffer.clone()
     }
 
-    pub fn snapshot(&self, cx: &App) -> MultiBufferSnapshot {
+    pub fn snapshot(&self, cx: &AppContext) -> MultiBufferSnapshot {
         self.active_alternative().read(cx).snapshot.clone()
     }
 
-    pub fn edit_position(&self, cx: &App) -> Option<Anchor> {
+    pub fn edit_position(&self, cx: &AppContext) -> Option<Anchor> {
         self.active_alternative().read(cx).edit_position
     }
 
-    pub fn diff<'a>(&self, cx: &'a App) -> &'a Diff {
+    pub fn diff<'a>(&self, cx: &'a AppContext) -> &'a Diff {
         &self.active_alternative().read(cx).diff
     }
 
-    pub fn last_equal_ranges<'a>(&self, cx: &'a App) -> &'a [Range<Anchor>] {
+    pub fn last_equal_ranges<'a>(&self, cx: &'a AppContext) -> &'a [Range<Anchor>] {
         self.active_alternative().read(cx).last_equal_ranges()
     }
 }
@@ -218,8 +218,8 @@ impl BufferCodegen {
 impl EventEmitter<CodegenEvent> for BufferCodegen {}
 
 pub struct CodegenAlternative {
-    buffer: Entity<MultiBuffer>,
-    old_buffer: Entity<Buffer>,
+    buffer: Model<MultiBuffer>,
+    old_buffer: Model<Buffer>,
     snapshot: MultiBufferSnapshot,
     edit_position: Option<Anchor>,
     range: Range<Anchor>,
@@ -228,7 +228,7 @@ pub struct CodegenAlternative {
     status: CodegenStatus,
     generation: Task<()>,
     diff: Diff,
-    context_store: Option<Entity<ContextStore>>,
+    context_store: Option<Model<ContextStore>>,
     telemetry: Option<Arc<Telemetry>>,
     _subscription: gpui::Subscription,
     builder: Arc<PromptBuilder>,
@@ -245,28 +245,27 @@ impl EventEmitter<CodegenEvent> for CodegenAlternative {}
 
 impl CodegenAlternative {
     pub fn new(
-        buffer: Entity<MultiBuffer>,
+        buffer: Model<MultiBuffer>,
         range: Range<Anchor>,
         active: bool,
-        context_store: Option<Entity<ContextStore>>,
+        context_store: Option<Model<ContextStore>>,
         telemetry: Option<Arc<Telemetry>>,
         builder: Arc<PromptBuilder>,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) -> Self {
         let snapshot = buffer.read(cx).snapshot(cx);
 
-        let (old_buffer, _, _) = snapshot
+        let (old_excerpt, _) = snapshot
             .range_to_buffer_ranges(range.clone())
             .pop()
             .unwrap();
-
-        let old_buffer = cx.new(|cx| {
-            let text = old_buffer.as_rope().clone();
-            let line_ending = old_buffer.line_ending();
-            let language = old_buffer.language().cloned();
+        let old_buffer = cx.new_model(|cx| {
+            let text = old_excerpt.buffer().as_rope().clone();
+            let line_ending = old_excerpt.buffer().line_ending();
+            let language = old_excerpt.buffer().language().cloned();
             let language_registry = buffer
                 .read(cx)
-                .buffer(old_buffer.remote_id())
+                .buffer(old_excerpt.buffer_id())
                 .unwrap()
                 .read(cx)
                 .language_registry();
@@ -304,7 +303,7 @@ impl CodegenAlternative {
         }
     }
 
-    pub fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
+    pub fn set_active(&mut self, active: bool, cx: &mut ModelContext<Self>) {
         if active != self.active {
             self.active = active;
 
@@ -328,9 +327,9 @@ impl CodegenAlternative {
 
     fn handle_buffer_event(
         &mut self,
-        _buffer: Entity<MultiBuffer>,
+        _buffer: Model<MultiBuffer>,
         event: &multi_buffer::Event,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) {
         if let multi_buffer::Event::TransactionUndone { transaction_id } = event {
             if self.transformation_transaction_id == Some(*transaction_id) {
@@ -349,7 +348,7 @@ impl CodegenAlternative {
         &mut self,
         user_prompt: String,
         model: Arc<dyn LanguageModel>,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) -> Result<()> {
         if let Some(transformation_transaction_id) = self.transformation_transaction_id.take() {
             self.buffer.update(cx, |buffer, cx| {
@@ -376,7 +375,11 @@ impl CodegenAlternative {
         Ok(())
     }
 
-    fn build_request(&self, user_prompt: String, cx: &mut App) -> Result<LanguageModelRequest> {
+    fn build_request(
+        &self,
+        user_prompt: String,
+        cx: &mut AppContext,
+    ) -> Result<LanguageModelRequest> {
         let buffer = self.buffer.read(cx).snapshot(cx);
         let language = buffer.language_at(self.range.start);
         let language_name = if let Some(language) = language.as_ref() {
@@ -435,7 +438,7 @@ impl CodegenAlternative {
         model_provider_id: String,
         model_api_key: Option<String>,
         stream: impl 'static + Future<Output = Result<LanguageModelTextStream>>,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) {
         let start_time = Instant::now();
         let snapshot = self.snapshot.clone();
@@ -472,7 +475,7 @@ impl CodegenAlternative {
             let ranges = snapshot.range_to_buffer_ranges(self.range.clone());
             ranges
                 .first()
-                .and_then(|(buffer, _, _)| buffer.language())
+                .and_then(|(excerpt, _)| excerpt.buffer().language())
                 .map(|language| language.name())
         };
 
@@ -693,7 +696,7 @@ impl CodegenAlternative {
         cx.notify();
     }
 
-    pub fn stop(&mut self, cx: &mut Context<Self>) {
+    pub fn stop(&mut self, cx: &mut ModelContext<Self>) {
         self.last_equal_ranges.clear();
         if self.diff.is_empty() {
             self.status = CodegenStatus::Idle;
@@ -705,7 +708,7 @@ impl CodegenAlternative {
         cx.notify();
     }
 
-    pub fn undo(&mut self, cx: &mut Context<Self>) {
+    pub fn undo(&mut self, cx: &mut ModelContext<Self>) {
         self.buffer.update(cx, |buffer, cx| {
             if let Some(transaction_id) = self.transformation_transaction_id.take() {
                 buffer.undo_transaction(transaction_id, cx);
@@ -717,7 +720,7 @@ impl CodegenAlternative {
     fn apply_edits(
         &mut self,
         edits: impl IntoIterator<Item = (Range<Anchor>, String)>,
-        cx: &mut Context<CodegenAlternative>,
+        cx: &mut ModelContext<CodegenAlternative>,
     ) {
         let transaction = self.buffer.update(cx, |buffer, cx| {
             // Avoid grouping assistant edits with user edits.
@@ -744,7 +747,7 @@ impl CodegenAlternative {
     fn reapply_line_based_diff(
         &mut self,
         line_operations: impl IntoIterator<Item = LineOperation>,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) {
         let old_snapshot = self.snapshot.clone();
         let old_range = self.range.to_point(&old_snapshot);
@@ -800,7 +803,7 @@ impl CodegenAlternative {
         }
     }
 
-    fn reapply_batch_diff(&mut self, cx: &mut Context<Self>) -> Task<()> {
+    fn reapply_batch_diff(&mut self, cx: &mut ModelContext<Self>) -> Task<()> {
         let old_snapshot = self.snapshot.clone();
         let old_range = self.range.to_point(&old_snapshot);
         let new_snapshot = self.buffer.read(cx).snapshot(cx);
@@ -1078,14 +1081,15 @@ mod tests {
                 }
             }
         "};
-        let buffer = cx.new(|cx| Buffer::local(text, cx).with_language(Arc::new(rust_lang()), cx));
-        let buffer = cx.new(|cx| MultiBuffer::singleton(buffer, cx));
+        let buffer =
+            cx.new_model(|cx| Buffer::local(text, cx).with_language(Arc::new(rust_lang()), cx));
+        let buffer = cx.new_model(|cx| MultiBuffer::singleton(buffer, cx));
         let range = buffer.read_with(cx, |buffer, cx| {
             let snapshot = buffer.snapshot(cx);
             snapshot.anchor_before(Point::new(1, 0))..snapshot.anchor_after(Point::new(4, 5))
         });
         let prompt_builder = Arc::new(PromptBuilder::new(None).unwrap());
-        let codegen = cx.new(|cx| {
+        let codegen = cx.new_model(|cx| {
             CodegenAlternative::new(
                 buffer.clone(),
                 range.clone(),
@@ -1142,14 +1146,15 @@ mod tests {
                 le
             }
         "};
-        let buffer = cx.new(|cx| Buffer::local(text, cx).with_language(Arc::new(rust_lang()), cx));
-        let buffer = cx.new(|cx| MultiBuffer::singleton(buffer, cx));
+        let buffer =
+            cx.new_model(|cx| Buffer::local(text, cx).with_language(Arc::new(rust_lang()), cx));
+        let buffer = cx.new_model(|cx| MultiBuffer::singleton(buffer, cx));
         let range = buffer.read_with(cx, |buffer, cx| {
             let snapshot = buffer.snapshot(cx);
             snapshot.anchor_before(Point::new(1, 6))..snapshot.anchor_after(Point::new(1, 6))
         });
         let prompt_builder = Arc::new(PromptBuilder::new(None).unwrap());
-        let codegen = cx.new(|cx| {
+        let codegen = cx.new_model(|cx| {
             CodegenAlternative::new(
                 buffer.clone(),
                 range.clone(),
@@ -1209,14 +1214,15 @@ mod tests {
             "  \n",
             "}\n" //
         );
-        let buffer = cx.new(|cx| Buffer::local(text, cx).with_language(Arc::new(rust_lang()), cx));
-        let buffer = cx.new(|cx| MultiBuffer::singleton(buffer, cx));
+        let buffer =
+            cx.new_model(|cx| Buffer::local(text, cx).with_language(Arc::new(rust_lang()), cx));
+        let buffer = cx.new_model(|cx| MultiBuffer::singleton(buffer, cx));
         let range = buffer.read_with(cx, |buffer, cx| {
             let snapshot = buffer.snapshot(cx);
             snapshot.anchor_before(Point::new(1, 2))..snapshot.anchor_after(Point::new(1, 2))
         });
         let prompt_builder = Arc::new(PromptBuilder::new(None).unwrap());
-        let codegen = cx.new(|cx| {
+        let codegen = cx.new_model(|cx| {
             CodegenAlternative::new(
                 buffer.clone(),
                 range.clone(),
@@ -1276,14 +1282,14 @@ mod tests {
             \t}
             }
         "};
-        let buffer = cx.new(|cx| Buffer::local(text, cx));
-        let buffer = cx.new(|cx| MultiBuffer::singleton(buffer, cx));
+        let buffer = cx.new_model(|cx| Buffer::local(text, cx));
+        let buffer = cx.new_model(|cx| MultiBuffer::singleton(buffer, cx));
         let range = buffer.read_with(cx, |buffer, cx| {
             let snapshot = buffer.snapshot(cx);
             snapshot.anchor_before(Point::new(0, 0))..snapshot.anchor_after(Point::new(4, 2))
         });
         let prompt_builder = Arc::new(PromptBuilder::new(None).unwrap());
-        let codegen = cx.new(|cx| {
+        let codegen = cx.new_model(|cx| {
             CodegenAlternative::new(
                 buffer.clone(),
                 range.clone(),
@@ -1331,14 +1337,15 @@ mod tests {
                 let x = 0;
             }
         "};
-        let buffer = cx.new(|cx| Buffer::local(text, cx).with_language(Arc::new(rust_lang()), cx));
-        let buffer = cx.new(|cx| MultiBuffer::singleton(buffer, cx));
+        let buffer =
+            cx.new_model(|cx| Buffer::local(text, cx).with_language(Arc::new(rust_lang()), cx));
+        let buffer = cx.new_model(|cx| MultiBuffer::singleton(buffer, cx));
         let range = buffer.read_with(cx, |buffer, cx| {
             let snapshot = buffer.snapshot(cx);
             snapshot.anchor_before(Point::new(1, 0))..snapshot.anchor_after(Point::new(1, 14))
         });
         let prompt_builder = Arc::new(PromptBuilder::new(None).unwrap());
-        let codegen = cx.new(|cx| {
+        let codegen = cx.new_model(|cx| {
             CodegenAlternative::new(
                 buffer.clone(),
                 range.clone(),
@@ -1425,7 +1432,7 @@ mod tests {
     }
 
     fn simulate_response_stream(
-        codegen: Entity<CodegenAlternative>,
+        codegen: Model<CodegenAlternative>,
         cx: &mut TestAppContext,
     ) -> mpsc::UnboundedSender<String> {
         let (chunks_tx, chunks_rx) = mpsc::unbounded();

@@ -5,11 +5,11 @@
 //! entirety.
 
 use anyhow::Result;
-use gpui::App;
+use gpui::AppContext;
 use settings::{Settings, SettingsSources};
 
 /// Initializes the `vim_mode_setting` crate.
-pub fn init(cx: &mut App) {
+pub fn init(cx: &mut AppContext) {
     VimModeSetting::register(cx);
 }
 
@@ -23,7 +23,7 @@ impl Settings for VimModeSetting {
 
     type FileContent = Option<bool>;
 
-    fn load(sources: SettingsSources<Self::FileContent>, _: &mut App) -> Result<Self> {
+    fn load(sources: SettingsSources<Self::FileContent>, _: &mut AppContext) -> Result<Self> {
         Ok(Self(
             sources
                 .user

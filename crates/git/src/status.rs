@@ -62,13 +62,6 @@ impl FileStatus {
         })
     }
 
-    pub const fn index(index_status: StatusCode) -> Self {
-        FileStatus::Tracked(TrackedStatus {
-            worktree_status: StatusCode::Unmodified,
-            index_status,
-        })
-    }
-
     /// Generate a FileStatus Code from a byte pair, as described in
     /// https://git-scm.com/docs/git-status#_output
     ///
@@ -428,15 +421,15 @@ impl GitStatus {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| anyhow!("Failed to start git status process: {e}"))?;
+            .map_err(|e| anyhow!("Failed to start git status process: {}", e))?;
 
         let output = child
             .wait_with_output()
-            .map_err(|e| anyhow!("Failed to read git status output: {e}"))?;
+            .map_err(|e| anyhow!("Failed to read git blame output: {}", e))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow!("git status process failed: {stderr}"));
+            return Err(anyhow!("git status process failed: {}", stderr));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut entries = stdout
@@ -447,13 +440,6 @@ impl GitStatus {
                     return None;
                 };
                 let path = &entry[3..];
-                // The git status output includes untracked directories as well as untracked files.
-                // We do our own processing to compute the "summary" status of each directory,
-                // so just skip any directories in the output, since they'll otherwise interfere
-                // with our handling of nested repositories.
-                if path.ends_with('/') {
-                    return None;
-                }
                 let status = entry[0..2].as_bytes().try_into().unwrap();
                 let status = FileStatus::from_bytes(status).log_err()?;
                 let path = RepoPath(Path::new(path).into());
@@ -461,26 +447,6 @@ impl GitStatus {
             })
             .collect::<Vec<_>>();
         entries.sort_unstable_by(|(a, _), (b, _)| a.cmp(&b));
-        // When a file exists in HEAD, is deleted in the index, and exists again in the working copy,
-        // git produces two lines for it, one reading `D ` (deleted in index, unmodified in working copy)
-        // and the other reading `??` (untracked). Merge these two into the equivalent of `DA`.
-        entries.dedup_by(|(a, a_status), (b, b_status)| {
-            const INDEX_DELETED: FileStatus = FileStatus::index(StatusCode::Deleted);
-            if a.ne(&b) {
-                return false;
-            }
-            match (*a_status, *b_status) {
-                (INDEX_DELETED, FileStatus::Untracked) | (FileStatus::Untracked, INDEX_DELETED) => {
-                    *b_status = TrackedStatus {
-                        index_status: StatusCode::Deleted,
-                        worktree_status: StatusCode::Added,
-                    }
-                    .into();
-                }
-                _ => panic!("Unexpected duplicated status entries: {a_status:?} and {b_status:?}"),
-            }
-            true
-        });
         Ok(Self {
             entries: entries.into(),
         })

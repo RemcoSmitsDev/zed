@@ -1,11 +1,14 @@
 #[cfg(test)]
 mod context_tests;
 
-use crate::patch::{AssistantEdit, AssistantPatch, AssistantPatchStatus};
+use crate::{
+    slash_command::SlashCommandLine, AssistantEdit, AssistantPatch, AssistantPatchStatus,
+    MessageId, MessageStatus,
+};
 use anyhow::{anyhow, Context as _, Result};
 use assistant_slash_command::{
-    SlashCommandContent, SlashCommandEvent, SlashCommandLine, SlashCommandOutputSection,
-    SlashCommandResult, SlashCommandWorkingSet,
+    SlashCommandContent, SlashCommandEvent, SlashCommandOutputSection, SlashCommandResult,
+    SlashCommandWorkingSet,
 };
 use assistant_slash_commands::FileCommandMetadata;
 use assistant_tool::ToolWorkingSet;
@@ -16,9 +19,11 @@ use feature_flags::{FeatureFlagAppExt, ToolUseFeatureFlag};
 use fs::{Fs, RemoveOptions};
 use futures::{future::Shared, FutureExt, StreamExt};
 use gpui::{
-    App, AppContext as _, Context, Entity, EventEmitter, RenderImage, SharedString, Subscription,
-    Task,
+    AppContext, Context as _, EventEmitter, Model, ModelContext, RenderImage, SharedString,
+    Subscription, Task,
 };
+use prompt_library::PromptBuilder;
+
 use language::{AnchorRangeExt, Bias, Buffer, LanguageRegistry, OffsetRangeExt, Point, ToOffset};
 use language_model::{
     LanguageModel, LanguageModelCacheConfiguration, LanguageModelCompletionEvent,
@@ -33,7 +38,6 @@ use language_models::{
 use open_ai::Model as OpenAiModel;
 use paths::contexts_dir;
 use project::Project;
-use prompt_library::PromptBuilder;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::{
@@ -48,9 +52,9 @@ use std::{
 };
 use telemetry_events::{AssistantEvent, AssistantKind, AssistantPhase};
 use text::{BufferSnapshot, ToPoint};
-use ui::IconName;
 use util::{post_inc, ResultExt, TryFutureExt};
 use uuid::Uuid;
+use workspace::ui::IconName;
 
 #[derive(Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ContextId(String);
@@ -66,64 +70,6 @@ impl ContextId {
 
     pub fn to_proto(&self) -> String {
         self.0.clone()
-    }
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct MessageId(pub clock::Lamport);
-
-impl MessageId {
-    pub fn as_u64(self) -> u64 {
-        self.0.as_u64()
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub enum MessageStatus {
-    Pending,
-    Done,
-    Error(SharedString),
-    Canceled,
-}
-
-impl MessageStatus {
-    pub fn from_proto(status: proto::ContextMessageStatus) -> MessageStatus {
-        match status.variant {
-            Some(proto::context_message_status::Variant::Pending(_)) => MessageStatus::Pending,
-            Some(proto::context_message_status::Variant::Done(_)) => MessageStatus::Done,
-            Some(proto::context_message_status::Variant::Error(error)) => {
-                MessageStatus::Error(error.message.into())
-            }
-            Some(proto::context_message_status::Variant::Canceled(_)) => MessageStatus::Canceled,
-            None => MessageStatus::Pending,
-        }
-    }
-
-    pub fn to_proto(&self) -> proto::ContextMessageStatus {
-        match self {
-            MessageStatus::Pending => proto::ContextMessageStatus {
-                variant: Some(proto::context_message_status::Variant::Pending(
-                    proto::context_message_status::Pending {},
-                )),
-            },
-            MessageStatus::Done => proto::ContextMessageStatus {
-                variant: Some(proto::context_message_status::Variant::Done(
-                    proto::context_message_status::Done {},
-                )),
-            },
-            MessageStatus::Error(message) => proto::ContextMessageStatus {
-                variant: Some(proto::context_message_status::Variant::Error(
-                    proto::context_message_status::Error {
-                        message: message.to_string(),
-                    },
-                )),
-            },
-            MessageStatus::Canceled => proto::ContextMessageStatus {
-                variant: Some(proto::context_message_status::Variant::Canceled(
-                    proto::context_message_status::Canceled {},
-                )),
-            },
-        }
     }
 }
 
@@ -477,7 +423,7 @@ pub struct MessageCacheMetadata {
 pub struct MessageMetadata {
     pub role: Role,
     pub status: MessageStatus,
-    pub timestamp: clock::Lamport,
+    pub(crate) timestamp: clock::Lamport,
     #[serde(skip)]
     pub cache: Option<MessageCacheMetadata>,
 }
@@ -588,18 +534,18 @@ pub enum XmlTagKind {
     Operation,
 }
 
-pub struct AssistantContext {
+pub struct Context {
     id: ContextId,
     timestamp: clock::Lamport,
     version: clock::Global,
     pending_ops: Vec<ContextOperation>,
     operations: Vec<ContextOperation>,
-    buffer: Entity<Buffer>,
+    buffer: Model<Buffer>,
     parsed_slash_commands: Vec<ParsedSlashCommand>,
     invoked_slash_commands: HashMap<InvokedSlashCommandId, InvokedSlashCommand>,
     edits_since_last_parse: language::Subscription,
-    slash_commands: Arc<SlashCommandWorkingSet>,
-    tools: Arc<ToolWorkingSet>,
+    pub(crate) slash_commands: Arc<SlashCommandWorkingSet>,
+    pub(crate) tools: Arc<ToolWorkingSet>,
     slash_command_output_sections: Vec<SlashCommandOutputSection<language::Anchor>>,
     pending_tool_uses_by_id: HashMap<LanguageModelToolUseId, PendingToolUse>,
     message_anchors: Vec<MessageAnchor>,
@@ -619,7 +565,7 @@ pub struct AssistantContext {
     language_registry: Arc<LanguageRegistry>,
     patches: Vec<AssistantPatch>,
     xml_tags: Vec<XmlTag>,
-    project: Option<Entity<Project>>,
+    project: Option<Model<Project>>,
     prompt_builder: Arc<PromptBuilder>,
 }
 
@@ -645,17 +591,17 @@ impl ContextAnnotation for XmlTag {
     }
 }
 
-impl EventEmitter<ContextEvent> for AssistantContext {}
+impl EventEmitter<ContextEvent> for Context {}
 
-impl AssistantContext {
+impl Context {
     pub fn local(
         language_registry: Arc<LanguageRegistry>,
-        project: Option<Entity<Project>>,
+        project: Option<Model<Project>>,
         telemetry: Option<Arc<Telemetry>>,
         prompt_builder: Arc<PromptBuilder>,
         slash_commands: Arc<SlashCommandWorkingSet>,
         tools: Arc<ToolWorkingSet>,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) -> Self {
         Self::new(
             ContextId::new(),
@@ -680,11 +626,11 @@ impl AssistantContext {
         prompt_builder: Arc<PromptBuilder>,
         slash_commands: Arc<SlashCommandWorkingSet>,
         tools: Arc<ToolWorkingSet>,
-        project: Option<Entity<Project>>,
+        project: Option<Model<Project>>,
         telemetry: Option<Arc<Telemetry>>,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) -> Self {
-        let buffer = cx.new(|_cx| {
+        let buffer = cx.new_model(|_cx| {
             let buffer = Buffer::remote(
                 language::BufferId::new(1).unwrap(),
                 replica_id,
@@ -755,7 +701,7 @@ impl AssistantContext {
         this
     }
 
-    pub(crate) fn serialize(&self, cx: &App) -> SavedContext {
+    pub(crate) fn serialize(&self, cx: &AppContext) -> SavedContext {
         let buffer = self.buffer.read(cx);
         SavedContext {
             id: Some(self.id.clone()),
@@ -803,9 +749,9 @@ impl AssistantContext {
         prompt_builder: Arc<PromptBuilder>,
         slash_commands: Arc<SlashCommandWorkingSet>,
         tools: Arc<ToolWorkingSet>,
-        project: Option<Entity<Project>>,
+        project: Option<Model<Project>>,
         telemetry: Option<Arc<Telemetry>>,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) -> Self {
         let id = saved_context.id.clone().unwrap_or_else(ContextId::new);
         let mut this = Self::new(
@@ -837,22 +783,18 @@ impl AssistantContext {
         self.timestamp.replica_id
     }
 
-    pub fn version(&self, cx: &App) -> ContextVersion {
+    pub fn version(&self, cx: &AppContext) -> ContextVersion {
         ContextVersion {
             context: self.version.clone(),
             buffer: self.buffer.read(cx).version(),
         }
     }
 
-    pub fn slash_commands(&self) -> &Arc<SlashCommandWorkingSet> {
-        &self.slash_commands
-    }
-
-    pub fn tools(&self) -> &Arc<ToolWorkingSet> {
-        &self.tools
-    }
-
-    pub fn set_capability(&mut self, capability: language::Capability, cx: &mut Context<Self>) {
+    pub fn set_capability(
+        &mut self,
+        capability: language::Capability,
+        cx: &mut ModelContext<Self>,
+    ) {
         self.buffer
             .update(cx, |buffer, cx| buffer.set_capability(capability, cx));
     }
@@ -866,7 +808,7 @@ impl AssistantContext {
     pub fn serialize_ops(
         &self,
         since: &ContextVersion,
-        cx: &App,
+        cx: &AppContext,
     ) -> Task<Vec<proto::ContextOperation>> {
         let buffer_ops = self
             .buffer
@@ -901,7 +843,7 @@ impl AssistantContext {
     pub fn apply_ops(
         &mut self,
         ops: impl IntoIterator<Item = ContextOperation>,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) {
         let mut buffer_ops = Vec::new();
         for op in ops {
@@ -915,7 +857,7 @@ impl AssistantContext {
         self.flush_ops(cx);
     }
 
-    fn flush_ops(&mut self, cx: &mut Context<AssistantContext>) {
+    fn flush_ops(&mut self, cx: &mut ModelContext<Context>) {
         let mut changed_messages = HashSet::default();
         let mut summary_changed = false;
 
@@ -1034,7 +976,7 @@ impl AssistantContext {
         }
     }
 
-    fn can_apply_op(&self, op: &ContextOperation, cx: &App) -> bool {
+    fn can_apply_op(&self, op: &ContextOperation, cx: &AppContext) -> bool {
         if !self.version.observed_all(op.version()) {
             return false;
         }
@@ -1065,7 +1007,7 @@ impl AssistantContext {
     fn has_received_operations_for_anchor_range(
         &self,
         range: Range<text::Anchor>,
-        cx: &App,
+        cx: &AppContext,
     ) -> bool {
         let version = &self.buffer.read(cx).version;
         let observed_start = range.start == language::Anchor::MIN
@@ -1077,12 +1019,12 @@ impl AssistantContext {
         observed_start && observed_end
     }
 
-    fn push_op(&mut self, op: ContextOperation, cx: &mut Context<Self>) {
+    fn push_op(&mut self, op: ContextOperation, cx: &mut ModelContext<Self>) {
         self.operations.push(op.clone());
         cx.emit(ContextEvent::Operation(op));
     }
 
-    pub fn buffer(&self) -> &Entity<Buffer> {
+    pub fn buffer(&self) -> &Model<Buffer> {
         &self.buffer
     }
 
@@ -1090,7 +1032,7 @@ impl AssistantContext {
         self.language_registry.clone()
     }
 
-    pub fn project(&self) -> Option<Entity<Project>> {
+    pub fn project(&self) -> Option<Model<Project>> {
         self.project.clone()
     }
 
@@ -1106,7 +1048,11 @@ impl AssistantContext {
         self.summary.as_ref()
     }
 
-    pub fn patch_containing(&self, position: Point, cx: &App) -> Option<&AssistantPatch> {
+    pub(crate) fn patch_containing(
+        &self,
+        position: Point,
+        cx: &AppContext,
+    ) -> Option<&AssistantPatch> {
         let buffer = self.buffer.read(cx);
         let index = self.patches.binary_search_by(|patch| {
             let patch_range = patch.range.to_point(&buffer);
@@ -1129,10 +1075,10 @@ impl AssistantContext {
         self.patches.iter().map(|patch| patch.range.clone())
     }
 
-    pub fn patch_for_range(
+    pub(crate) fn patch_for_range(
         &self,
         range: &Range<language::Anchor>,
-        cx: &App,
+        cx: &AppContext,
     ) -> Option<&AssistantPatch> {
         let buffer = self.buffer.read(cx);
         let index = self.patch_index_for_range(range, buffer).ok()?;
@@ -1163,7 +1109,7 @@ impl AssistantContext {
         &self.slash_command_output_sections
     }
 
-    pub fn contains_files(&self, cx: &App) -> bool {
+    pub fn contains_files(&self, cx: &AppContext) -> bool {
         let buffer = self.buffer.read(cx);
         self.slash_command_output_sections.iter().any(|section| {
             section.is_valid(buffer)
@@ -1185,7 +1131,7 @@ impl AssistantContext {
         self.pending_tool_uses_by_id.get(id)
     }
 
-    fn set_language(&mut self, cx: &mut Context<Self>) {
+    fn set_language(&mut self, cx: &mut ModelContext<Self>) {
         let markdown = self.language_registry.language_for_name("Markdown");
         cx.spawn(|this, mut cx| async move {
             let markdown = markdown.await?;
@@ -1199,9 +1145,9 @@ impl AssistantContext {
 
     fn handle_buffer_event(
         &mut self,
-        _: Entity<Buffer>,
+        _: Model<Buffer>,
         event: &language::BufferEvent,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) {
         match event {
             language::BufferEvent::Operation {
@@ -1219,11 +1165,11 @@ impl AssistantContext {
         }
     }
 
-    pub fn token_count(&self) -> Option<usize> {
+    pub(crate) fn token_count(&self) -> Option<usize> {
         self.token_count
     }
 
-    pub(crate) fn count_remaining_tokens(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn count_remaining_tokens(&mut self, cx: &mut ModelContext<Self>) {
         // Assume it will be a Chat request, even though that takes fewer tokens (and risks going over the limit),
         // because otherwise you see in the UI that your empty message has a bunch of tokens already used.
         let request = self.to_completion_request(RequestType::Chat, cx);
@@ -1251,7 +1197,7 @@ impl AssistantContext {
         &mut self,
         cache_configuration: &Option<LanguageModelCacheConfiguration>,
         speculative: bool,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) -> bool {
         let cache_configuration =
             cache_configuration
@@ -1353,7 +1299,7 @@ impl AssistantContext {
         new_anchor_needs_caching
     }
 
-    fn start_cache_warming(&mut self, model: &Arc<dyn LanguageModel>, cx: &mut Context<Self>) {
+    fn start_cache_warming(&mut self, model: &Arc<dyn LanguageModel>, cx: &mut ModelContext<Self>) {
         let cache_configuration = model.cache_configuration();
 
         if !self.mark_cache_anchors(&cache_configuration, true, cx) {
@@ -1403,7 +1349,7 @@ impl AssistantContext {
         });
     }
 
-    pub fn update_cache_status_for_completion(&mut self, cx: &mut Context<Self>) {
+    pub fn update_cache_status_for_completion(&mut self, cx: &mut ModelContext<Self>) {
         let cached_message_ids: Vec<MessageId> = self
             .messages_metadata
             .iter()
@@ -1428,7 +1374,7 @@ impl AssistantContext {
         cx.notify();
     }
 
-    pub fn reparse(&mut self, cx: &mut Context<Self>) {
+    pub fn reparse(&mut self, cx: &mut ModelContext<Self>) {
         let buffer = self.buffer.read(cx).text_snapshot();
         let mut row_ranges = self
             .edits_since_last_parse
@@ -1501,7 +1447,7 @@ impl AssistantContext {
         buffer: &BufferSnapshot,
         updated: &mut Vec<ParsedSlashCommand>,
         removed: &mut Vec<Range<text::Anchor>>,
-        cx: &App,
+        cx: &AppContext,
     ) {
         let old_range = self.pending_command_indices_for_range(range.clone(), cx);
 
@@ -1555,7 +1501,7 @@ impl AssistantContext {
     fn invalidate_pending_slash_commands(
         &mut self,
         buffer: &BufferSnapshot,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) {
         let mut invalidated_command_ids = Vec::new();
         for (&command_id, command) in self.invoked_slash_commands.iter_mut() {
@@ -1589,7 +1535,7 @@ impl AssistantContext {
         buffer: &BufferSnapshot,
         updated: &mut Vec<Range<text::Anchor>>,
         removed: &mut Vec<Range<text::Anchor>>,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) {
         // Rebuild the XML tags in the edited range.
         let intersecting_tags_range =
@@ -1632,7 +1578,7 @@ impl AssistantContext {
         &self,
         buffer: &BufferSnapshot,
         range: Range<text::Anchor>,
-        cx: &App,
+        cx: &AppContext,
     ) -> Vec<XmlTag> {
         let mut messages = self.messages(cx).peekable();
 
@@ -1689,7 +1635,7 @@ impl AssistantContext {
         tags_start_ix: usize,
         buffer_end: text::Anchor,
         buffer: &BufferSnapshot,
-        cx: &App,
+        cx: &AppContext,
     ) -> Vec<AssistantPatch> {
         let mut new_patches = Vec::new();
         let mut pending_patch = None;
@@ -1847,7 +1793,7 @@ impl AssistantContext {
     pub fn pending_command_for_position(
         &mut self,
         position: language::Anchor,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) -> Option<&mut ParsedSlashCommand> {
         let buffer = self.buffer.read(cx);
         match self
@@ -1871,7 +1817,7 @@ impl AssistantContext {
     pub fn pending_commands_for_range(
         &self,
         range: Range<language::Anchor>,
-        cx: &App,
+        cx: &AppContext,
     ) -> &[ParsedSlashCommand] {
         let range = self.pending_command_indices_for_range(range, cx);
         &self.parsed_slash_commands[range]
@@ -1880,7 +1826,7 @@ impl AssistantContext {
     fn pending_command_indices_for_range(
         &self,
         range: Range<language::Anchor>,
-        cx: &App,
+        cx: &AppContext,
     ) -> Range<usize> {
         self.indices_intersecting_buffer_range(&self.parsed_slash_commands, range, cx)
     }
@@ -1889,7 +1835,7 @@ impl AssistantContext {
         &self,
         all_annotations: &[T],
         range: Range<language::Anchor>,
-        cx: &App,
+        cx: &AppContext,
     ) -> Range<usize> {
         let buffer = self.buffer.read(cx);
         let start_ix = match all_annotations
@@ -1912,7 +1858,7 @@ impl AssistantContext {
         name: &str,
         output: Task<SlashCommandResult>,
         ensure_trailing_newline: bool,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) {
         let version = self.version.clone();
         let command_id = InvokedSlashCommandId(self.next_timestamp());
@@ -2180,7 +2126,7 @@ impl AssistantContext {
     fn insert_slash_command_output_section(
         &mut self,
         section: SlashCommandOutputSection<language::Anchor>,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) {
         let buffer = self.buffer.read(cx);
         let insertion_ix = match self
@@ -2210,7 +2156,7 @@ impl AssistantContext {
         &mut self,
         tool_use_id: LanguageModelToolUseId,
         output: Task<Result<String>>,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) {
         let insert_output_task = cx.spawn(|this, mut cx| {
             let tool_use_id = tool_use_id.clone();
@@ -2268,11 +2214,11 @@ impl AssistantContext {
         }
     }
 
-    pub fn completion_provider_changed(&mut self, cx: &mut Context<Self>) {
+    pub fn completion_provider_changed(&mut self, cx: &mut ModelContext<Self>) {
         self.count_remaining_tokens(cx);
     }
 
-    fn get_last_valid_message_id(&self, cx: &Context<Self>) -> Option<MessageId> {
+    fn get_last_valid_message_id(&self, cx: &ModelContext<Self>) -> Option<MessageId> {
         self.message_anchors.iter().rev().find_map(|message| {
             message
                 .start
@@ -2284,7 +2230,7 @@ impl AssistantContext {
     pub fn assist(
         &mut self,
         request_type: RequestType,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) -> Option<MessageAnchor> {
         let model_registry = LanguageModelRegistry::read_global(cx);
         let provider = model_registry.active_provider()?;
@@ -2300,10 +2246,7 @@ impl AssistantContext {
 
         let mut request = self.to_completion_request(request_type, cx);
 
-        // Don't attach tools for now; we'll be removing tool use from
-        // Assistant1 shortly.
-        #[allow(clippy::overly_complex_bool_expr)]
-        if false && cx.has_flag::<ToolUseFeatureFlag>() {
+        if cx.has_flag::<ToolUseFeatureFlag>() {
             request.tools = self
                 .tools
                 .tools(cx)
@@ -2515,7 +2458,7 @@ impl AssistantContext {
     pub fn to_completion_request(
         &self,
         request_type: RequestType,
-        cx: &App,
+        cx: &AppContext,
     ) -> LanguageModelRequest {
         let buffer = self.buffer.read(cx);
 
@@ -2627,7 +2570,7 @@ impl AssistantContext {
         completion_request
     }
 
-    pub fn cancel_last_assist(&mut self, cx: &mut Context<Self>) -> bool {
+    pub fn cancel_last_assist(&mut self, cx: &mut ModelContext<Self>) -> bool {
         if let Some(pending_completion) = self.pending_completions.pop() {
             self.update_metadata(pending_completion.assistant_message_id, cx, |metadata| {
                 if metadata.status == MessageStatus::Pending {
@@ -2640,7 +2583,7 @@ impl AssistantContext {
         }
     }
 
-    pub fn cycle_message_roles(&mut self, ids: HashSet<MessageId>, cx: &mut Context<Self>) {
+    pub fn cycle_message_roles(&mut self, ids: HashSet<MessageId>, cx: &mut ModelContext<Self>) {
         for id in &ids {
             if let Some(metadata) = self.messages_metadata.get(id) {
                 let role = metadata.role.cycle();
@@ -2651,7 +2594,7 @@ impl AssistantContext {
         self.message_roles_updated(ids, cx);
     }
 
-    fn message_roles_updated(&mut self, ids: HashSet<MessageId>, cx: &mut Context<Self>) {
+    fn message_roles_updated(&mut self, ids: HashSet<MessageId>, cx: &mut ModelContext<Self>) {
         let mut ranges = Vec::new();
         for message in self.messages(cx) {
             if ids.contains(&message.id) {
@@ -2674,7 +2617,7 @@ impl AssistantContext {
     pub fn update_metadata(
         &mut self,
         id: MessageId,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
         f: impl FnOnce(&mut MessageMetadata),
     ) {
         let version = self.version.clone();
@@ -2698,7 +2641,7 @@ impl AssistantContext {
         message_id: MessageId,
         role: Role,
         status: MessageStatus,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) -> Option<MessageAnchor> {
         if let Some(prev_message_ix) = self
             .message_anchors
@@ -2732,7 +2675,7 @@ impl AssistantContext {
         offset: usize,
         role: Role,
         status: MessageStatus,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) -> MessageAnchor {
         let start = self.buffer.update(cx, |buffer, cx| {
             buffer.edit([(offset..offset, "\n")], None, cx);
@@ -2762,7 +2705,7 @@ impl AssistantContext {
         anchor
     }
 
-    pub fn insert_content(&mut self, content: Content, cx: &mut Context<Self>) {
+    pub fn insert_content(&mut self, content: Content, cx: &mut ModelContext<Self>) {
         let buffer = self.buffer.read(cx);
         let insertion_ix = match self
             .contents
@@ -2778,7 +2721,7 @@ impl AssistantContext {
         cx.emit(ContextEvent::MessagesEdited);
     }
 
-    pub fn contents<'a>(&'a self, cx: &'a App) -> impl 'a + Iterator<Item = Content> {
+    pub fn contents<'a>(&'a self, cx: &'a AppContext) -> impl 'a + Iterator<Item = Content> {
         let buffer = self.buffer.read(cx);
         self.contents
             .iter()
@@ -2792,7 +2735,7 @@ impl AssistantContext {
     pub fn split_message(
         &mut self,
         range: Range<usize>,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) -> (Option<MessageAnchor>, Option<MessageAnchor>) {
         let start_message = self.message_for_offset(range.start, cx);
         let end_message = self.message_for_offset(range.end, cx);
@@ -2918,7 +2861,7 @@ impl AssistantContext {
         &mut self,
         new_anchor: MessageAnchor,
         new_metadata: MessageMetadata,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) {
         cx.emit(ContextEvent::MessagesEdited);
 
@@ -2936,7 +2879,7 @@ impl AssistantContext {
         self.message_anchors.insert(insertion_ix, new_anchor);
     }
 
-    pub fn summarize(&mut self, replace_old: bool, cx: &mut Context<Self>) {
+    pub(super) fn summarize(&mut self, replace_old: bool, cx: &mut ModelContext<Self>) {
         let Some(provider) = LanguageModelRegistry::read_global(cx).active_provider() else {
             return;
         };
@@ -3014,14 +2957,14 @@ impl AssistantContext {
         }
     }
 
-    fn message_for_offset(&self, offset: usize, cx: &App) -> Option<Message> {
+    fn message_for_offset(&self, offset: usize, cx: &AppContext) -> Option<Message> {
         self.messages_for_offsets([offset], cx).pop()
     }
 
     pub fn messages_for_offsets(
         &self,
         offsets: impl IntoIterator<Item = usize>,
-        cx: &App,
+        cx: &AppContext,
     ) -> Vec<Message> {
         let mut result = Vec::new();
 
@@ -3054,14 +2997,14 @@ impl AssistantContext {
     fn messages_from_anchors<'a>(
         &'a self,
         message_anchors: impl Iterator<Item = &'a MessageAnchor> + 'a,
-        cx: &'a App,
+        cx: &'a AppContext,
     ) -> impl 'a + Iterator<Item = Message> {
         let buffer = self.buffer.read(cx);
 
         Self::messages_from_iters(buffer, &self.messages_metadata, message_anchors.enumerate())
     }
 
-    pub fn messages<'a>(&'a self, cx: &'a App) -> impl 'a + Iterator<Item = Message> {
+    pub fn messages<'a>(&'a self, cx: &'a AppContext) -> impl 'a + Iterator<Item = Message> {
         self.messages_from_anchors(self.message_anchors.iter(), cx)
     }
 
@@ -3109,7 +3052,7 @@ impl AssistantContext {
         &mut self,
         debounce: Option<Duration>,
         fs: Arc<dyn Fs>,
-        cx: &mut Context<AssistantContext>,
+        cx: &mut ModelContext<Context>,
     ) {
         if self.replica_id() != ReplicaId::default() {
             // Prevent saving a remote context for now.
@@ -3175,7 +3118,7 @@ impl AssistantContext {
         });
     }
 
-    pub fn custom_summary(&mut self, custom_summary: String, cx: &mut Context<Self>) {
+    pub(crate) fn custom_summary(&mut self, custom_summary: String, cx: &mut ModelContext<Self>) {
         let timestamp = self.next_timestamp();
         let summary = self.summary.get_or_insert(ContextSummary::default());
         summary.timestamp = timestamp;
@@ -3335,8 +3278,8 @@ impl SavedContext {
 
     fn into_ops(
         self,
-        buffer: &Entity<Buffer>,
-        cx: &mut Context<AssistantContext>,
+        buffer: &Model<Buffer>,
+        cx: &mut ModelContext<Context>,
     ) -> Vec<ContextOperation> {
         let mut operations = Vec::new();
         let mut version = clock::Global::new();

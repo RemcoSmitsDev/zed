@@ -3,10 +3,10 @@ mod input_handler;
 pub use lsp_types::request::*;
 pub use lsp_types::*;
 
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{anyhow, Context, Result};
 use collections::HashMap;
 use futures::{channel::oneshot, io::BufWriter, select, AsyncRead, AsyncWrite, Future, FutureExt};
-use gpui::{App, AsyncApp, BackgroundExecutor, SharedString, Task};
+use gpui::{AppContext, AsyncAppContext, BackgroundExecutor, SharedString, Task};
 use parking_lot::{Mutex, RwLock};
 use postage::{barrier, prelude::Stream};
 use schemars::{
@@ -45,7 +45,7 @@ const CONTENT_LEN_HEADER: &str = "Content-Length: ";
 const LSP_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 2);
 const SERVER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 
-type NotificationHandler = Box<dyn Send + FnMut(Option<RequestId>, Value, AsyncApp)>;
+type NotificationHandler = Box<dyn Send + FnMut(Option<RequestId>, Value, AsyncAppContext)>;
 type ResponseHandler = Box<dyn Send + FnOnce(Result<String, Error>)>;
 type IoHandler = Box<dyn Send + FnMut(IoKind, &str)>;
 
@@ -334,7 +334,7 @@ impl LanguageServer {
         binary: LanguageServerBinary,
         root_path: &Path,
         code_action_kinds: Option<Vec<CodeActionKind>>,
-        cx: AsyncApp,
+        cx: AsyncAppContext,
     ) -> Result<Self> {
         let working_dir = if root_path.is_dir() {
             root_path
@@ -407,7 +407,7 @@ impl LanguageServer {
         working_dir: &Path,
         code_action_kinds: Option<Vec<CodeActionKind>>,
         binary: LanguageServerBinary,
-        cx: AsyncApp,
+        cx: AsyncAppContext,
         on_unhandled_notification: F,
     ) -> Self
     where
@@ -505,7 +505,7 @@ impl LanguageServer {
         notification_handlers: Arc<Mutex<HashMap<&'static str, NotificationHandler>>>,
         response_handlers: Arc<Mutex<Option<HashMap<RequestId, ResponseHandler>>>>,
         io_handlers: Arc<Mutex<HashMap<i32, IoHandler>>>,
-        cx: AsyncApp,
+        cx: AsyncAppContext,
     ) -> anyhow::Result<()>
     where
         Stdout: AsyncRead + Unpin + Send + 'static,
@@ -614,7 +614,7 @@ impl LanguageServer {
         Ok(())
     }
 
-    pub fn default_initialize_params(&self, cx: &App) -> InitializeParams {
+    pub fn default_initialize_params(&self, cx: &AppContext) -> InitializeParams {
         let root_uri = Url::from_file_path(&self.working_dir).unwrap();
         #[allow(deprecated)]
         InitializeParams {
@@ -811,7 +811,7 @@ impl LanguageServer {
         mut self,
         initialize_params: Option<InitializeParams>,
         configuration: Arc<DidChangeConfigurationParams>,
-        cx: &App,
+        cx: &AppContext,
     ) -> Task<Result<Arc<Self>>> {
         let params = if let Some(params) = initialize_params {
             params
@@ -890,7 +890,7 @@ impl LanguageServer {
     pub fn on_notification<T, F>(&self, f: F) -> Subscription
     where
         T: notification::Notification,
-        F: 'static + Send + FnMut(T::Params, AsyncApp),
+        F: 'static + Send + FnMut(T::Params, AsyncAppContext),
     {
         self.on_custom_notification(T::METHOD, f)
     }
@@ -903,7 +903,7 @@ impl LanguageServer {
     where
         T: request::Request,
         T::Params: 'static + Send,
-        F: 'static + FnMut(T::Params, AsyncApp) -> Fut + Send,
+        F: 'static + FnMut(T::Params, AsyncAppContext) -> Fut + Send,
         Fut: 'static + Future<Output = Result<T::Result>>,
     {
         self.on_custom_request(T::METHOD, f)
@@ -941,7 +941,7 @@ impl LanguageServer {
     #[must_use]
     fn on_custom_notification<Params, F>(&self, method: &'static str, mut f: F) -> Subscription
     where
-        F: 'static + FnMut(Params, AsyncApp) + Send,
+        F: 'static + FnMut(Params, AsyncAppContext) + Send,
         Params: DeserializeOwned,
     {
         let prev_handler = self.notification_handlers.lock().insert(
@@ -965,7 +965,7 @@ impl LanguageServer {
     #[must_use]
     fn on_custom_request<Params, Res, Fut, F>(&self, method: &'static str, mut f: F) -> Subscription
     where
-        F: 'static + FnMut(Params, AsyncApp) -> Fut + Send,
+        F: 'static + FnMut(Params, AsyncAppContext) -> Fut + Send,
         Fut: 'static + Future<Output = Result<Res>>,
         Params: DeserializeOwned + Send + 'static,
         Res: Serialize,
@@ -1282,7 +1282,7 @@ impl FakeLanguageServer {
         binary: LanguageServerBinary,
         name: String,
         capabilities: ServerCapabilities,
-        cx: AsyncApp,
+        cx: AsyncAppContext,
     ) -> (LanguageServer, FakeLanguageServer) {
         let (stdin_writer, stdin_reader) = async_pipe::pipe();
         let (stdout_writer, stdout_reader) = async_pipe::pipe();
@@ -1430,7 +1430,7 @@ impl FakeLanguageServer {
     where
         T: 'static + request::Request,
         T::Params: 'static + Send,
-        F: 'static + Send + FnMut(T::Params, gpui::AsyncApp) -> Fut,
+        F: 'static + Send + FnMut(T::Params, gpui::AsyncAppContext) -> Fut,
         Fut: 'static + Send + Future<Output = Result<T::Result>>,
     {
         let (responded_tx, responded_rx) = futures::channel::mpsc::unbounded();
@@ -1459,7 +1459,7 @@ impl FakeLanguageServer {
     where
         T: 'static + notification::Notification,
         T::Params: 'static + Send,
-        F: 'static + Send + FnMut(T::Params, gpui::AsyncApp),
+        F: 'static + Send + FnMut(T::Params, gpui::AsyncAppContext),
     {
         let (handled_tx, handled_rx) = futures::channel::mpsc::unbounded();
         self.server.remove_notification_handler::<T>();

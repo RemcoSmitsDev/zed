@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::{AnyElement, App, Element, ElementId, GlobalElementId, IntoElement, Window};
+use crate::{AnyElement, Element, ElementId, GlobalElementId, IntoElement, WindowContext};
 
 pub use easing::*;
 
@@ -104,10 +104,9 @@ impl<E: IntoElement + 'static> Element for AnimationElement<E> {
     fn request_layout(
         &mut self,
         global_id: Option<&GlobalElementId>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> (crate::LayoutId, Self::RequestLayoutState) {
-        window.with_element_state(global_id.unwrap(), |state, window| {
+        cx.with_element_state(global_id.unwrap(), |state, cx| {
             let state = state.unwrap_or_else(|| AnimationState {
                 start: Instant::now(),
             });
@@ -134,10 +133,10 @@ impl<E: IntoElement + 'static> Element for AnimationElement<E> {
             let mut element = (self.animator)(element, delta).into_any_element();
 
             if !done {
-                window.request_animation_frame();
+                cx.request_animation_frame();
             }
 
-            ((element.request_layout(window, cx), element), state)
+            ((element.request_layout(cx), element), state)
         })
     }
 
@@ -146,10 +145,9 @@ impl<E: IntoElement + 'static> Element for AnimationElement<E> {
         _id: Option<&GlobalElementId>,
         _bounds: crate::Bounds<crate::Pixels>,
         element: &mut Self::RequestLayoutState,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> Self::PrepaintState {
-        element.prepaint(window, cx);
+        element.prepaint(cx);
     }
 
     fn paint(
@@ -158,10 +156,9 @@ impl<E: IntoElement + 'static> Element for AnimationElement<E> {
         _bounds: crate::Bounds<crate::Pixels>,
         element: &mut Self::RequestLayoutState,
         _: &mut Self::PrepaintState,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) {
-        element.paint(window, cx);
+        element.paint(cx);
     }
 }
 

@@ -8,19 +8,16 @@ pub enum Participant {
 
 #[derive(Clone, Debug)]
 pub struct LocalParticipant {
-    #[cfg(not(all(target_os = "windows", target_env = "gnu")))]
     pub(super) identity: ParticipantIdentity,
     pub(super) room: Room,
 }
 
 #[derive(Clone, Debug)]
 pub struct RemoteParticipant {
-    #[cfg(not(all(target_os = "windows", target_env = "gnu")))]
     pub(super) identity: ParticipantIdentity,
     pub(super) room: WeakRoom,
 }
 
-#[cfg(not(all(target_os = "windows", target_env = "gnu")))]
 impl Participant {
     pub fn identity(&self) -> ParticipantIdentity {
         match self {
@@ -30,7 +27,6 @@ impl Participant {
     }
 }
 
-#[cfg(not(all(target_os = "windows", target_env = "gnu")))]
 impl LocalParticipant {
     pub async fn unpublish_track(&self, track: &TrackSid) -> Result<()> {
         self.room
@@ -64,7 +60,6 @@ impl LocalParticipant {
     }
 }
 
-#[cfg(not(all(target_os = "windows", target_env = "gnu")))]
 impl RemoteParticipant {
     pub fn track_publications(&self) -> HashMap<TrackSid, RemoteTrackPublication> {
         if let Some(room) = self.room.upgrade() {

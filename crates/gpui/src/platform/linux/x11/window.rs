@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context as _};
+use anyhow::{anyhow, Context};
 
 use crate::platform::blade::{BladeContext, BladeRenderer, BladeSurfaceConfig};
 use crate::{

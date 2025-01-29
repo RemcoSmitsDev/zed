@@ -1,6 +1,6 @@
 use gpui::{
-    colors, div, prelude::*, App, Context, DefaultColor, DefaultThemeAppearance, Entity, Hsla,
-    Render, Window,
+    colors, div, prelude::*, DefaultColor, DefaultThemeAppearance, Hsla, Render, View, ViewContext,
+    WindowContext,
 };
 use story::Story;
 use strum::IntoEnumIterator;
@@ -9,13 +9,13 @@ use ui::{h_flex, ActiveTheme};
 pub struct DefaultColorsStory;
 
 impl DefaultColorsStory {
-    pub fn model(cx: &mut App) -> Entity<Self> {
-        cx.new(|_| Self)
+    pub fn view(cx: &mut WindowContext) -> View<Self> {
+        cx.new_view(|_cx| Self)
     }
 }
 
 impl Render for DefaultColorsStory {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         let appearances = [DefaultThemeAppearance::Light, DefaultThemeAppearance::Dark];
 
         Story::container()

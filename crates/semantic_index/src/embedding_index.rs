@@ -10,7 +10,7 @@ use fs::Fs;
 use fs::MTime;
 use futures::{stream::StreamExt, FutureExt as _};
 use futures_batch::ChunksTimeoutStreamExt;
-use gpui::{App, Entity, Task};
+use gpui::{AppContext, Model, Task};
 use heed::types::{SerdeBincode, Str};
 use language::LanguageRegistry;
 use log;
@@ -22,7 +22,7 @@ use util::ResultExt;
 use worktree::Snapshot;
 
 pub struct EmbeddingIndex {
-    worktree: Entity<Worktree>,
+    worktree: Model<Worktree>,
     db_connection: heed::Env,
     db: heed::Database<Str, SerdeBincode<EmbeddedFile>>,
     fs: Arc<dyn Fs>,
@@ -33,7 +33,7 @@ pub struct EmbeddingIndex {
 
 impl EmbeddingIndex {
     pub fn new(
-        worktree: Entity<Worktree>,
+        worktree: Model<Worktree>,
         fs: Arc<dyn Fs>,
         db_connection: heed::Env,
         embedding_db: heed::Database<Str, SerdeBincode<EmbeddedFile>>,
@@ -56,7 +56,10 @@ impl EmbeddingIndex {
         &self.db
     }
 
-    pub fn index_entries_changed_on_disk(&self, cx: &App) -> impl Future<Output = Result<()>> {
+    pub fn index_entries_changed_on_disk(
+        &self,
+        cx: &AppContext,
+    ) -> impl Future<Output = Result<()>> {
         if !cx.is_staff() {
             return async move { Ok(()) }.boxed();
         }
@@ -77,7 +80,7 @@ impl EmbeddingIndex {
     pub fn index_updated_entries(
         &self,
         updated_entries: UpdatedEntriesSet,
-        cx: &App,
+        cx: &AppContext,
     ) -> impl Future<Output = Result<()>> {
         if !cx.is_staff() {
             return async move { Ok(()) }.boxed();
@@ -96,7 +99,7 @@ impl EmbeddingIndex {
         .boxed()
     }
 
-    fn scan_entries(&self, worktree: Snapshot, cx: &App) -> ScanEntries {
+    fn scan_entries(&self, worktree: Snapshot, cx: &AppContext) -> ScanEntries {
         let (updated_entries_tx, updated_entries_rx) = channel::bounded(512);
         let (deleted_entry_ranges_tx, deleted_entry_ranges_rx) = channel::bounded(128);
         let db_connection = self.db_connection.clone();
@@ -180,7 +183,7 @@ impl EmbeddingIndex {
         &self,
         worktree: Snapshot,
         updated_entries: UpdatedEntriesSet,
-        cx: &App,
+        cx: &AppContext,
     ) -> ScanEntries {
         let (updated_entries_tx, updated_entries_rx) = channel::bounded(512);
         let (deleted_entry_ranges_tx, deleted_entry_ranges_rx) = channel::bounded(128);
@@ -224,7 +227,7 @@ impl EmbeddingIndex {
         &self,
         worktree_abs_path: Arc<Path>,
         entries: channel::Receiver<(Entry, IndexingEntryHandle)>,
-        cx: &App,
+        cx: &AppContext,
     ) -> ChunkFiles {
         let language_registry = self.language_registry.clone();
         let fs = self.fs.clone();
@@ -274,7 +277,7 @@ impl EmbeddingIndex {
     pub fn embed_files(
         embedding_provider: Arc<dyn EmbeddingProvider>,
         chunked_files: channel::Receiver<ChunkedFile>,
-        cx: &App,
+        cx: &AppContext,
     ) -> EmbedFiles {
         let embedding_provider = embedding_provider.clone();
         let (embedded_files_tx, embedded_files_rx) = channel::bounded(512);
@@ -356,7 +359,7 @@ impl EmbeddingIndex {
         &self,
         deleted_entry_ranges: channel::Receiver<(Bound<String>, Bound<String>)>,
         embedded_files: channel::Receiver<(EmbeddedFile, IndexingEntryHandle)>,
-        cx: &App,
+        cx: &AppContext,
     ) -> Task<Result<()>> {
         let db_connection = self.db_connection.clone();
         let db = self.db;
@@ -394,7 +397,7 @@ impl EmbeddingIndex {
         })
     }
 
-    pub fn paths(&self, cx: &App) -> Task<Result<Vec<Arc<Path>>>> {
+    pub fn paths(&self, cx: &AppContext) -> Task<Result<Vec<Arc<Path>>>> {
         let connection = self.db_connection.clone();
         let db = self.db;
         cx.background_executor().spawn(async move {
@@ -410,7 +413,11 @@ impl EmbeddingIndex {
         })
     }
 
-    pub fn chunks_for_path(&self, path: Arc<Path>, cx: &App) -> Task<Result<Vec<EmbeddedChunk>>> {
+    pub fn chunks_for_path(
+        &self,
+        path: Arc<Path>,
+        cx: &AppContext,
+    ) -> Task<Result<Vec<EmbeddedChunk>>> {
         let connection = self.db_connection.clone();
         let db = self.db;
         cx.background_executor().spawn(async move {

@@ -1,11 +1,11 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use collections::HashMap;
-use gpui::AsyncApp;
+use gpui::AsyncAppContext;
 use language::{LanguageToolchainStore, LspAdapter, LspAdapterDelegate};
 use lsp::{CodeActionKind, LanguageServerBinary, LanguageServerName};
 use node_runtime::NodeRuntime;
-use project::{lsp_store::language_server_settings, Fs};
+use project::lsp_store::language_server_settings;
 use serde_json::Value;
 use std::{
     any::Any,
@@ -34,25 +34,16 @@ impl VtslsLspAdapter {
         VtslsLspAdapter { node }
     }
 
-    async fn tsdk_path(fs: &dyn Fs, adapter: &Arc<dyn LspAdapterDelegate>) -> Option<&'static str> {
+    async fn tsdk_path(adapter: &Arc<dyn LspAdapterDelegate>) -> &'static str {
         let is_yarn = adapter
             .read_text_file(PathBuf::from(".yarn/sdks/typescript/lib/typescript.js"))
             .await
             .is_ok();
 
-        let tsdk_path = if is_yarn {
+        if is_yarn {
             ".yarn/sdks/typescript/lib"
         } else {
             Self::TYPESCRIPT_TSDK_PATH
-        };
-
-        if fs
-            .is_dir(&adapter.worktree_root_path().join(tsdk_path))
-            .await
-        {
-            Some(tsdk_path)
-        } else {
-            None
         }
     }
 }
@@ -87,7 +78,7 @@ impl LspAdapter for VtslsLspAdapter {
         &self,
         delegate: &dyn LspAdapterDelegate,
         _: Arc<dyn LanguageToolchainStore>,
-        _: &AsyncApp,
+        _: &AsyncAppContext,
     ) -> Option<LanguageServerBinary> {
         let env = delegate.shell_env().await;
         let path = delegate.which(SERVER_NAME.as_ref()).await?;
@@ -184,14 +175,16 @@ impl LspAdapter for VtslsLspAdapter {
             _ => None,
         }?;
 
+        let one_line = |s: &str| s.replace("    ", "").replace('\n', " ");
+
         let text = if let Some(description) = item
             .label_details
             .as_ref()
             .and_then(|label_details| label_details.description.as_ref())
         {
-            format!("{} {}", item.label, description)
+            format!("{} {}", item.label, one_line(description))
         } else if let Some(detail) = &item.detail {
-            format!("{} {}", item.label, detail)
+            format!("{} {}", item.label, one_line(detail))
         } else {
             item.label.clone()
         };
@@ -205,12 +198,11 @@ impl LspAdapter for VtslsLspAdapter {
 
     async fn workspace_configuration(
         self: Arc<Self>,
-        fs: &dyn Fs,
         delegate: &Arc<dyn LspAdapterDelegate>,
         _: Arc<dyn LanguageToolchainStore>,
-        cx: &mut AsyncApp,
+        cx: &mut AsyncAppContext,
     ) -> Result<Value> {
-        let tsdk_path = Self::tsdk_path(fs, delegate).await;
+        let tsdk_path = Self::tsdk_path(delegate).await;
         let config = serde_json::json!({
             "tsdk": tsdk_path,
             "suggest": {

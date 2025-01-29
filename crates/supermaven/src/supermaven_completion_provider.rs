@@ -1,7 +1,7 @@
 use crate::{Supermaven, SupermavenCompletionStateId};
 use anyhow::Result;
 use futures::StreamExt as _;
-use gpui::{App, Context, Entity, EntityId, Task};
+use gpui::{AppContext, EntityId, Model, ModelContext, Task};
 use inline_completion::{Direction, InlineCompletion, InlineCompletionProvider};
 use language::{language_settings::all_language_settings, Anchor, Buffer, BufferSnapshot};
 use std::{
@@ -15,7 +15,7 @@ use unicode_segmentation::UnicodeSegmentation;
 pub const DEBOUNCE_TIMEOUT: Duration = Duration::from_millis(75);
 
 pub struct SupermavenCompletionProvider {
-    supermaven: Entity<Supermaven>,
+    supermaven: Model<Supermaven>,
     buffer_id: Option<EntityId>,
     completion_id: Option<SupermavenCompletionStateId>,
     file_extension: Option<String>,
@@ -23,7 +23,7 @@ pub struct SupermavenCompletionProvider {
 }
 
 impl SupermavenCompletionProvider {
-    pub fn new(supermaven: Entity<Supermaven>) -> Self {
+    pub fn new(supermaven: Model<Supermaven>) -> Self {
         Self {
             supermaven,
             buffer_id: None,
@@ -90,10 +90,7 @@ fn completion_from_diff(
         edits.push((edit_range, edit_text));
     }
 
-    InlineCompletion {
-        edits,
-        edit_preview: None,
-    }
+    InlineCompletion { edits }
 }
 
 impl InlineCompletionProvider for SupermavenCompletionProvider {
@@ -113,7 +110,7 @@ impl InlineCompletionProvider for SupermavenCompletionProvider {
         false
     }
 
-    fn is_enabled(&self, buffer: &Entity<Buffer>, cursor_position: Anchor, cx: &App) -> bool {
+    fn is_enabled(&self, buffer: &Model<Buffer>, cursor_position: Anchor, cx: &AppContext) -> bool {
         if !self.supermaven.read(cx).is_enabled() {
             return false;
         }
@@ -131,10 +128,10 @@ impl InlineCompletionProvider for SupermavenCompletionProvider {
 
     fn refresh(
         &mut self,
-        buffer_handle: Entity<Buffer>,
+        buffer_handle: Model<Buffer>,
         cursor_position: Anchor,
         debounce: bool,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) {
         let Some(mut completion) = self.supermaven.update(cx, |supermaven, cx| {
             supermaven.complete(&buffer_handle, cursor_position, cx)
@@ -169,28 +166,28 @@ impl InlineCompletionProvider for SupermavenCompletionProvider {
 
     fn cycle(
         &mut self,
-        _buffer: Entity<Buffer>,
+        _buffer: Model<Buffer>,
         _cursor_position: Anchor,
         _direction: Direction,
-        _cx: &mut Context<Self>,
+        _cx: &mut ModelContext<Self>,
     ) {
     }
 
-    fn accept(&mut self, _cx: &mut Context<Self>) {
+    fn accept(&mut self, _cx: &mut ModelContext<Self>) {
         self.pending_refresh = None;
         self.completion_id = None;
     }
 
-    fn discard(&mut self, _cx: &mut Context<Self>) {
+    fn discard(&mut self, _cx: &mut ModelContext<Self>) {
         self.pending_refresh = None;
         self.completion_id = None;
     }
 
     fn suggest(
         &mut self,
-        buffer: &Entity<Buffer>,
+        buffer: &Model<Buffer>,
         cursor_position: Anchor,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) -> Option<InlineCompletion> {
         let completion_text = self
             .supermaven

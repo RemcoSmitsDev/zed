@@ -37,12 +37,12 @@ use std::time::Duration;
 
 use editor::{Editor, MultiBuffer};
 use gpui::{
-    percentage, Animation, AnimationExt, AnyElement, ClipboardItem, Entity, Render, Transformation,
-    WeakEntity,
+    percentage, Animation, AnimationExt, AnyElement, ClipboardItem, Model, Render, Transformation,
+    View, WeakView,
 };
 use language::Buffer;
 use runtimelib::{ExecutionState, JupyterMessageContent, MimeBundle, MimeType};
-use ui::{div, prelude::*, v_flex, Context, IntoElement, Styled, Tooltip, Window};
+use ui::{div, prelude::*, v_flex, IntoElement, Styled, Tooltip, ViewContext};
 
 mod image;
 use image::ImageView;
@@ -74,56 +74,56 @@ fn rank_mime_type(mimetype: &MimeType) -> usize {
 }
 
 pub(crate) trait OutputContent {
-    fn clipboard_content(&self, window: &Window, cx: &App) -> Option<ClipboardItem>;
-    fn has_clipboard_content(&self, _window: &Window, _cx: &App) -> bool {
+    fn clipboard_content(&self, cx: &WindowContext) -> Option<ClipboardItem>;
+    fn has_clipboard_content(&self, _cx: &WindowContext) -> bool {
         false
     }
-    fn has_buffer_content(&self, _window: &Window, _cx: &App) -> bool {
+    fn has_buffer_content(&self, _cx: &WindowContext) -> bool {
         false
     }
-    fn buffer_content(&mut self, _window: &mut Window, _cx: &mut App) -> Option<Entity<Buffer>> {
+    fn buffer_content(&mut self, _cx: &mut WindowContext) -> Option<Model<Buffer>> {
         None
     }
 }
 
-impl<V: OutputContent + 'static> OutputContent for Entity<V> {
-    fn clipboard_content(&self, window: &Window, cx: &App) -> Option<ClipboardItem> {
-        self.read(cx).clipboard_content(window, cx)
+impl<V: OutputContent + 'static> OutputContent for View<V> {
+    fn clipboard_content(&self, cx: &WindowContext) -> Option<ClipboardItem> {
+        self.read(cx).clipboard_content(cx)
     }
 
-    fn has_clipboard_content(&self, window: &Window, cx: &App) -> bool {
-        self.read(cx).has_clipboard_content(window, cx)
+    fn has_clipboard_content(&self, cx: &WindowContext) -> bool {
+        self.read(cx).has_clipboard_content(cx)
     }
 
-    fn has_buffer_content(&self, window: &Window, cx: &App) -> bool {
-        self.read(cx).has_buffer_content(window, cx)
+    fn has_buffer_content(&self, cx: &WindowContext) -> bool {
+        self.read(cx).has_buffer_content(cx)
     }
 
-    fn buffer_content(&mut self, window: &mut Window, cx: &mut App) -> Option<Entity<Buffer>> {
-        self.update(cx, |item, cx| item.buffer_content(window, cx))
+    fn buffer_content(&mut self, cx: &mut WindowContext) -> Option<Model<Buffer>> {
+        self.update(cx, |item, cx| item.buffer_content(cx))
     }
 }
 
 pub enum Output {
     Plain {
-        content: Entity<TerminalOutput>,
+        content: View<TerminalOutput>,
         display_id: Option<String>,
     },
     Stream {
-        content: Entity<TerminalOutput>,
+        content: View<TerminalOutput>,
     },
     Image {
-        content: Entity<ImageView>,
+        content: View<ImageView>,
         display_id: Option<String>,
     },
     ErrorOutput(ErrorView),
     Message(String),
     Table {
-        content: Entity<TableView>,
+        content: View<TableView>,
         display_id: Option<String>,
     },
     Markdown {
-        content: Entity<MarkdownView>,
+        content: View<MarkdownView>,
         display_id: Option<String>,
     },
     ClearOutputWaitMarker,
@@ -131,26 +131,25 @@ pub enum Output {
 
 impl Output {
     fn render_output_controls<V: OutputContent + 'static>(
-        v: Entity<V>,
-        workspace: WeakEntity<Workspace>,
-        window: &mut Window,
-        cx: &mut Context<ExecutionView>,
+        v: View<V>,
+        workspace: WeakView<Workspace>,
+        cx: &mut ViewContext<ExecutionView>,
     ) -> Option<AnyElement> {
-        if !v.has_clipboard_content(window, cx) && !v.has_buffer_content(window, cx) {
+        if !v.has_clipboard_content(cx) && !v.has_buffer_content(cx) {
             return None;
         }
 
         Some(
             h_flex()
                 .pl_1()
-                .when(v.has_clipboard_content(window, cx), |el| {
+                .when(v.has_clipboard_content(cx), |el| {
                     let v = v.clone();
                     el.child(
                         IconButton::new(ElementId::Name("copy-output".into()), IconName::Copy)
                             .style(ButtonStyle::Transparent)
-                            .tooltip(Tooltip::text("Copy Output"))
-                            .on_click(cx.listener(move |_, _, window, cx| {
-                                let clipboard_content = v.clipboard_content(window, cx);
+                            .tooltip(move |cx| Tooltip::text("Copy Output", cx))
+                            .on_click(cx.listener(move |_, _, cx| {
+                                let clipboard_content = v.clipboard_content(cx);
 
                                 if let Some(clipboard_content) = clipboard_content.as_ref() {
                                     cx.write_to_clipboard(clipboard_content.clone());
@@ -158,7 +157,7 @@ impl Output {
                             })),
                     )
                 })
-                .when(v.has_buffer_content(window, cx), |el| {
+                .when(v.has_buffer_content(cx), |el| {
                     let v = v.clone();
                     el.child(
                         IconButton::new(
@@ -166,18 +165,18 @@ impl Output {
                             IconName::FileText,
                         )
                         .style(ButtonStyle::Transparent)
-                        .tooltip(Tooltip::text("Open in Buffer"))
+                        .tooltip(move |cx| Tooltip::text("Open in Buffer", cx))
                         .on_click(cx.listener({
                             let workspace = workspace.clone();
 
-                            move |_, _, window, cx| {
+                            move |_, _, cx| {
                                 let buffer_content =
-                                    v.update(cx, |item, cx| item.buffer_content(window, cx));
+                                    v.update(cx, |item, cx| item.buffer_content(cx));
 
                                 if let Some(buffer_content) = buffer_content.as_ref() {
                                     let buffer = buffer_content.clone();
-                                    let editor = Box::new(cx.new(|cx| {
-                                        let multibuffer = cx.new(|cx| {
+                                    let editor = Box::new(cx.new_view(|cx| {
+                                        let multibuffer = cx.new_model(|cx| {
                                             let mut multi_buffer =
                                                 MultiBuffer::singleton(buffer.clone(), cx);
 
@@ -185,19 +184,12 @@ impl Output {
                                             multi_buffer
                                         });
 
-                                        Editor::for_multibuffer(
-                                            multibuffer,
-                                            None,
-                                            false,
-                                            window,
-                                            cx,
-                                        )
+                                        Editor::for_multibuffer(multibuffer, None, false, cx)
                                     }));
                                     workspace
                                         .update(cx, |workspace, cx| {
-                                            workspace.add_item_to_active_pane(
-                                                editor, None, true, window, cx,
-                                            );
+                                            workspace
+                                                .add_item_to_active_pane(editor, None, true, cx);
                                         })
                                         .ok();
                                 }
@@ -212,9 +204,8 @@ impl Output {
     pub fn render(
         &self,
 
-        workspace: WeakEntity<Workspace>,
-        window: &mut Window,
-        cx: &mut Context<ExecutionView>,
+        workspace: WeakView<Workspace>,
+        cx: &mut ViewContext<ExecutionView>,
     ) -> impl IntoElement {
         let content = match self {
             Self::Plain { content, .. } => Some(content.clone().into_any_element()),
@@ -223,7 +214,7 @@ impl Output {
             Self::Image { content, .. } => Some(content.clone().into_any_element()),
             Self::Message(message) => Some(div().child(message.clone()).into_any_element()),
             Self::Table { content, .. } => Some(content.clone().into_any_element()),
-            Self::ErrorOutput(error_view) => error_view.render(window, cx),
+            Self::ErrorOutput(error_view) => error_view.render(cx),
             Self::ClearOutputWaitMarker => None,
         };
 
@@ -233,26 +224,23 @@ impl Output {
             .child(div().flex_1().children(content))
             .children(match self {
                 Self::Plain { content, .. } => {
-                    Self::render_output_controls(content.clone(), workspace.clone(), window, cx)
+                    Self::render_output_controls(content.clone(), workspace.clone(), cx)
                 }
                 Self::Markdown { content, .. } => {
-                    Self::render_output_controls(content.clone(), workspace.clone(), window, cx)
+                    Self::render_output_controls(content.clone(), workspace.clone(), cx)
                 }
                 Self::Stream { content, .. } => {
-                    Self::render_output_controls(content.clone(), workspace.clone(), window, cx)
+                    Self::render_output_controls(content.clone(), workspace.clone(), cx)
                 }
                 Self::Image { content, .. } => {
-                    Self::render_output_controls(content.clone(), workspace.clone(), window, cx)
+                    Self::render_output_controls(content.clone(), workspace.clone(), cx)
                 }
-                Self::ErrorOutput(err) => Self::render_output_controls(
-                    err.traceback.clone(),
-                    workspace.clone(),
-                    window,
-                    cx,
-                ),
+                Self::ErrorOutput(err) => {
+                    Self::render_output_controls(err.traceback.clone(), workspace.clone(), cx)
+                }
                 Self::Message(_) => None,
                 Self::Table { content, .. } => {
-                    Self::render_output_controls(content.clone(), workspace.clone(), window, cx)
+                    Self::render_output_controls(content.clone(), workspace.clone(), cx)
                 }
                 Self::ClearOutputWaitMarker => None,
             })
@@ -271,33 +259,28 @@ impl Output {
         }
     }
 
-    pub fn new(
-        data: &MimeBundle,
-        display_id: Option<String>,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> Self {
+    pub fn new(data: &MimeBundle, display_id: Option<String>, cx: &mut WindowContext) -> Self {
         match data.richest(rank_mime_type) {
             Some(MimeType::Plain(text)) => Output::Plain {
-                content: cx.new(|cx| TerminalOutput::from(text, window, cx)),
+                content: cx.new_view(|cx| TerminalOutput::from(text, cx)),
                 display_id,
             },
             Some(MimeType::Markdown(text)) => {
-                let content = cx.new(|cx| MarkdownView::from(text.clone(), cx));
+                let view = cx.new_view(|cx| MarkdownView::from(text.clone(), cx));
                 Output::Markdown {
-                    content,
+                    content: view,
                     display_id,
                 }
             }
             Some(MimeType::Png(data)) | Some(MimeType::Jpeg(data)) => match ImageView::from(data) {
                 Ok(view) => Output::Image {
-                    content: cx.new(|_| view),
+                    content: cx.new_view(|_| view),
                     display_id,
                 },
                 Err(error) => Output::Message(format!("Failed to load image: {}", error)),
             },
             Some(MimeType::DataTable(data)) => Output::Table {
-                content: cx.new(|cx| TableView::new(data, window, cx)),
+                content: cx.new_view(|cx| TableView::new(data, cx)),
                 display_id,
             },
             // Any other media types are not supported
@@ -325,7 +308,7 @@ pub enum ExecutionStatus {
 /// sees as "the output" for a single execution.
 pub struct ExecutionView {
     #[allow(unused)]
-    workspace: WeakEntity<Workspace>,
+    workspace: WeakView<Workspace>,
     pub outputs: Vec<Output>,
     pub status: ExecutionStatus,
 }
@@ -333,8 +316,8 @@ pub struct ExecutionView {
 impl ExecutionView {
     pub fn new(
         status: ExecutionStatus,
-        workspace: WeakEntity<Workspace>,
-        _cx: &mut Context<Self>,
+        workspace: WeakView<Workspace>,
+        _cx: &mut ViewContext<Self>,
     ) -> Self {
         Self {
             workspace,
@@ -344,28 +327,21 @@ impl ExecutionView {
     }
 
     /// Accept a Jupyter message belonging to this execution
-    pub fn push_message(
-        &mut self,
-        message: &JupyterMessageContent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn push_message(&mut self, message: &JupyterMessageContent, cx: &mut ViewContext<Self>) {
         let output: Output = match message {
             JupyterMessageContent::ExecuteResult(result) => Output::new(
                 &result.data,
                 result.transient.as_ref().and_then(|t| t.display_id.clone()),
-                window,
                 cx,
             ),
             JupyterMessageContent::DisplayData(result) => Output::new(
                 &result.data,
                 result.transient.as_ref().and_then(|t| t.display_id.clone()),
-                window,
                 cx,
             ),
             JupyterMessageContent::StreamContent(result) => {
                 // Previous stream data will combine together, handling colors, carriage returns, etc
-                if let Some(new_terminal) = self.apply_terminal_text(&result.text, window, cx) {
+                if let Some(new_terminal) = self.apply_terminal_text(&result.text, cx) {
                     new_terminal
                 } else {
                     return;
@@ -373,7 +349,7 @@ impl ExecutionView {
             }
             JupyterMessageContent::ErrorOutput(result) => {
                 let terminal =
-                    cx.new(|cx| TerminalOutput::from(&result.traceback.join("\n"), window, cx));
+                    cx.new_view(|cx| TerminalOutput::from(&result.traceback.join("\n"), cx));
 
                 Output::ErrorOutput(ErrorView {
                     ename: result.ename.clone(),
@@ -384,7 +360,7 @@ impl ExecutionView {
             JupyterMessageContent::ExecuteReply(reply) => {
                 for payload in reply.payload.iter() {
                     if let runtimelib::Payload::Page { data, .. } = payload {
-                        let output = Output::new(data, None, window, cx);
+                        let output = Output::new(data, None, cx);
                         self.outputs.push(output);
                     }
                 }
@@ -432,15 +408,14 @@ impl ExecutionView {
         &mut self,
         data: &MimeBundle,
         display_id: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) {
         let mut any = false;
 
         self.outputs.iter_mut().for_each(|output| {
             if let Some(other_display_id) = output.display_id().as_ref() {
                 if other_display_id == display_id {
-                    *output = Output::new(data, Some(display_id.to_owned()), window, cx);
+                    *output = Output::new(data, Some(display_id.to_owned()), cx);
                     any = true;
                 }
             }
@@ -451,12 +426,7 @@ impl ExecutionView {
         }
     }
 
-    fn apply_terminal_text(
-        &mut self,
-        text: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<Output> {
+    fn apply_terminal_text(&mut self, text: &str, cx: &mut ViewContext<Self>) -> Option<Output> {
         if let Some(last_output) = self.outputs.last_mut() {
             if let Output::Stream {
                 content: last_stream,
@@ -473,13 +443,13 @@ impl ExecutionView {
         }
 
         Some(Output::Stream {
-            content: cx.new(|cx| TerminalOutput::from(text, window, cx)),
+            content: cx.new_view(|cx| TerminalOutput::from(text, cx)),
         })
     }
 }
 
 impl Render for ExecutionView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         let status = match &self.status {
             ExecutionStatus::ConnectingToKernel => Label::new("Connecting to kernel...")
                 .color(Color::Muted)
@@ -523,7 +493,7 @@ impl Render for ExecutionView {
 
         if self.outputs.is_empty() {
             return v_flex()
-                .min_h(window.line_height())
+                .min_h(cx.line_height())
                 .justify_center()
                 .child(status)
                 .into_any_element();
@@ -534,7 +504,7 @@ impl Render for ExecutionView {
             .children(
                 self.outputs
                     .iter()
-                    .map(|output| output.render(self.workspace.clone(), window, cx)),
+                    .map(|output| output.render(self.workspace.clone(), cx)),
             )
             .children(match self.status {
                 ExecutionStatus::Executing => vec![status],

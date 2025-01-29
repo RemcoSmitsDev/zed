@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Context as _;
+use anyhow::Context;
 use async_task::Runnable;
 use flume::Sender;
 use parking::Parker;

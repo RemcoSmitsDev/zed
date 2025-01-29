@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, fmt::Debug, ops::Range, sync::Arc};
 use sum_tree::{Bias, SeekTarget, SumTree};
 use text::Point;
-use ui::{App, IconName, SharedString, Window};
+use ui::{IconName, SharedString, WindowContext};
 
 use crate::{BlockStyle, FoldPlaceholder, RenderBlock};
 
@@ -117,13 +117,12 @@ type RenderToggleFn = Arc<
         + Fn(
             MultiBufferRow,
             bool,
-            Arc<dyn Send + Sync + Fn(bool, &mut Window, &mut App)>,
-            &mut Window,
-            &mut App,
+            Arc<dyn Send + Sync + Fn(bool, &mut WindowContext)>,
+            &mut WindowContext,
         ) -> AnyElement,
 >;
 type RenderTrailerFn =
-    Arc<dyn Send + Sync + Fn(MultiBufferRow, bool, &mut Window, &mut App) -> AnyElement>;
+    Arc<dyn Send + Sync + Fn(MultiBufferRow, bool, &mut WindowContext) -> AnyElement>;
 
 #[derive(Clone)]
 pub enum Crease<T> {
@@ -186,27 +185,26 @@ impl<T> Crease<T> {
             + Fn(
                 MultiBufferRow,
                 bool,
-                Arc<dyn Send + Sync + Fn(bool, &mut Window, &mut App)>,
-                &mut Window,
-                &mut App,
+                Arc<dyn Send + Sync + Fn(bool, &mut WindowContext)>,
+                &mut WindowContext,
             ) -> ToggleElement
             + 'static,
         ToggleElement: IntoElement,
         RenderTrailer: 'static
             + Send
             + Sync
-            + Fn(MultiBufferRow, bool, &mut Window, &mut App) -> TrailerElement
+            + Fn(MultiBufferRow, bool, &mut WindowContext) -> TrailerElement
             + 'static,
         TrailerElement: IntoElement,
     {
         Crease::Inline {
             range,
             placeholder,
-            render_toggle: Some(Arc::new(move |row, folded, toggle, window, cx| {
-                render_toggle(row, folded, toggle, window, cx).into_any_element()
+            render_toggle: Some(Arc::new(move |row, folded, toggle, cx| {
+                render_toggle(row, folded, toggle, cx).into_any_element()
             })),
-            render_trailer: Some(Arc::new(move |row, folded, window, cx| {
-                render_trailer(row, folded, window, cx).into_any_element()
+            render_trailer: Some(Arc::new(move |row, folded, cx| {
+                render_trailer(row, folded, cx).into_any_element()
             })),
             metadata: None,
         }
@@ -389,11 +387,11 @@ impl SeekTarget<'_, ItemSummary, ItemSummary> for Anchor {
 #[cfg(test)]
 mod test {
     use super::*;
-    use gpui::{div, App};
+    use gpui::{div, AppContext};
     use multi_buffer::MultiBuffer;
 
     #[gpui::test]
-    fn test_insert_and_remove_creases(cx: &mut App) {
+    fn test_insert_and_remove_creases(cx: &mut AppContext) {
         let text = "line1\nline2\nline3\nline4\nline5";
         let buffer = MultiBuffer::build_simple(text, cx);
         let snapshot = buffer.read_with(cx, |buffer, cx| buffer.snapshot(cx));
@@ -404,14 +402,14 @@ mod test {
             Crease::inline(
                 snapshot.anchor_before(Point::new(1, 0))..snapshot.anchor_after(Point::new(1, 5)),
                 FoldPlaceholder::test(),
-                |_row, _folded, _toggle, _window, _cx| div(),
-                |_row, _folded, _window, _cx| div(),
+                |_row, _folded, _toggle, _cx| div(),
+                |_row, _folded, _cx| div(),
             ),
             Crease::inline(
                 snapshot.anchor_before(Point::new(3, 0))..snapshot.anchor_after(Point::new(3, 5)),
                 FoldPlaceholder::test(),
-                |_row, _folded, _toggle, _window, _cx| div(),
-                |_row, _folded, _window, _cx| div(),
+                |_row, _folded, _toggle, _cx| div(),
+                |_row, _folded, _cx| div(),
             ),
         ];
         let crease_ids = crease_map.insert(creases, &snapshot);
@@ -440,7 +438,7 @@ mod test {
     }
 
     #[gpui::test]
-    fn test_creases_in_range(cx: &mut App) {
+    fn test_creases_in_range(cx: &mut AppContext) {
         let text = "line1\nline2\nline3\nline4\nline5\nline6\nline7";
         let buffer = MultiBuffer::build_simple(text, cx);
         let snapshot = buffer.read_with(cx, |buffer, cx| buffer.snapshot(cx));
@@ -450,20 +448,20 @@ mod test {
             Crease::inline(
                 snapshot.anchor_before(Point::new(1, 0))..snapshot.anchor_after(Point::new(1, 5)),
                 FoldPlaceholder::test(),
-                |_row, _folded, _toggle, _window, _cx| div(),
-                |_row, _folded, _window, _cx| div(),
+                |_row, _folded, _toggle, _cx| div(),
+                |_row, _folded, _cx| div(),
             ),
             Crease::inline(
                 snapshot.anchor_before(Point::new(3, 0))..snapshot.anchor_after(Point::new(3, 5)),
                 FoldPlaceholder::test(),
-                |_row, _folded, _toggle, _window, _cx| div(),
-                |_row, _folded, _window, _cx| div(),
+                |_row, _folded, _toggle, _cx| div(),
+                |_row, _folded, _cx| div(),
             ),
             Crease::inline(
                 snapshot.anchor_before(Point::new(5, 0))..snapshot.anchor_after(Point::new(5, 5)),
                 FoldPlaceholder::test(),
-                |_row, _folded, _toggle, _window, _cx| div(),
-                |_row, _folded, _window, _cx| div(),
+                |_row, _folded, _toggle, _cx| div(),
+                |_row, _folded, _cx| div(),
             ),
         ];
         crease_map.insert(creases, &snapshot);

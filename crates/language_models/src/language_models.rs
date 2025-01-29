@@ -2,9 +2,8 @@ use std::sync::Arc;
 
 use client::{Client, UserStore};
 use fs::Fs;
-use gpui::{App, Context, Entity};
+use gpui::{AppContext, Model, ModelContext};
 use language_model::{LanguageModelProviderId, LanguageModelRegistry, ZED_CLOUD_PROVIDER_ID};
-use provider::deepseek::DeepSeekLanguageModelProvider;
 
 mod logging;
 pub mod provider;
@@ -22,7 +21,12 @@ use crate::provider::open_ai::OpenAiLanguageModelProvider;
 pub use crate::settings::*;
 pub use logging::report_assistant_event;
 
-pub fn init(user_store: Entity<UserStore>, client: Arc<Client>, fs: Arc<dyn Fs>, cx: &mut App) {
+pub fn init(
+    user_store: Model<UserStore>,
+    client: Arc<Client>,
+    fs: Arc<dyn Fs>,
+    cx: &mut AppContext,
+) {
     crate::settings::init(fs, cx);
     let registry = LanguageModelRegistry::global(cx);
     registry.update(cx, |registry, cx| {
@@ -32,9 +36,9 @@ pub fn init(user_store: Entity<UserStore>, client: Arc<Client>, fs: Arc<dyn Fs>,
 
 fn register_language_model_providers(
     registry: &mut LanguageModelRegistry,
-    user_store: Entity<UserStore>,
+    user_store: Model<UserStore>,
     client: Arc<Client>,
-    cx: &mut Context<LanguageModelRegistry>,
+    cx: &mut ModelContext<LanguageModelRegistry>,
 ) {
     use feature_flags::FeatureFlagAppExt;
 
@@ -54,10 +58,6 @@ fn register_language_model_providers(
     );
     registry.register_provider(
         LmStudioLanguageModelProvider::new(client.http_client(), cx),
-        cx,
-    );
-    registry.register_provider(
-        DeepSeekLanguageModelProvider::new(client.http_client(), cx),
         cx,
     );
     registry.register_provider(

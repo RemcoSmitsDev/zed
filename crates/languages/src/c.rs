@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use futures::StreamExt;
-use gpui::AsyncApp;
+use gpui::AsyncAppContext;
 use http_client::github::{latest_github_release, GitHubLspBinaryVersion};
 pub use language::*;
 use lsp::{InitializeParams, LanguageServerBinary, LanguageServerName};
@@ -26,7 +26,7 @@ impl super::LspAdapter for CLspAdapter {
         &self,
         delegate: &dyn LspAdapterDelegate,
         _: Arc<dyn LanguageToolchainStore>,
-        _: &AsyncApp,
+        _: &AsyncAppContext,
     ) -> Option<LanguageServerBinary> {
         let path = delegate.which(Self::SERVER_NAME.as_ref()).await?;
         Some(LanguageServerBinary {
@@ -311,7 +311,7 @@ async fn get_cached_server_binary(container_dir: PathBuf) -> Option<LanguageServ
 
 #[cfg(test)]
 mod tests {
-    use gpui::{AppContext as _, BorrowAppContext, TestAppContext};
+    use gpui::{BorrowAppContext, Context, TestAppContext};
     use language::{language_settings::AllLanguageSettings, AutoindentMode, Buffer};
     use settings::SettingsStore;
     use std::num::NonZeroU32;
@@ -331,7 +331,7 @@ mod tests {
         });
         let language = crate::language("c", tree_sitter_c::LANGUAGE.into());
 
-        cx.new(|cx| {
+        cx.new_model(|cx| {
             let mut buffer = Buffer::local("", cx).with_language(language, cx);
 
             // empty function

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, bail, Result};
 use collections::{BTreeMap, HashMap, HashSet};
 use futures::{self, future, Future, FutureExt};
-use gpui::{App, AsyncApp, Context, Entity, SharedString, Task, WeakEntity};
+use gpui::{AppContext, AsyncAppContext, Model, ModelContext, SharedString, Task, WeakView};
 use language::Buffer;
 use project::{ProjectPath, Worktree};
 use rope::Rope;
@@ -12,15 +12,15 @@ use text::BufferId;
 use workspace::Workspace;
 
 use crate::context::{
-    AssistantContext, ContextBuffer, ContextId, ContextSnapshot, DirectoryContext,
-    FetchedUrlContext, FileContext, ThreadContext,
+    Context, ContextBuffer, ContextId, ContextSnapshot, DirectoryContext, FetchedUrlContext,
+    FileContext, ThreadContext,
 };
 use crate::context_strip::SuggestedContext;
 use crate::thread::{Thread, ThreadId};
 
 pub struct ContextStore {
-    workspace: WeakEntity<Workspace>,
-    context: Vec<AssistantContext>,
+    workspace: WeakView<Workspace>,
+    context: Vec<Context>,
     // TODO: If an EntityId is used for all context types (like BufferId), can remove ContextId.
     next_context_id: ContextId,
     files: BTreeMap<BufferId, ContextId>,
@@ -30,7 +30,7 @@ pub struct ContextStore {
 }
 
 impl ContextStore {
-    pub fn new(workspace: WeakEntity<Workspace>) -> Self {
+    pub fn new(workspace: WeakView<Workspace>) -> Self {
         Self {
             workspace,
             context: Vec::new(),
@@ -42,13 +42,16 @@ impl ContextStore {
         }
     }
 
-    pub fn snapshot<'a>(&'a self, cx: &'a App) -> impl Iterator<Item = ContextSnapshot> + 'a {
+    pub fn snapshot<'a>(
+        &'a self,
+        cx: &'a AppContext,
+    ) -> impl Iterator<Item = ContextSnapshot> + 'a {
         self.context()
             .iter()
             .flat_map(|context| context.snapshot(cx))
     }
 
-    pub fn context(&self) -> &Vec<AssistantContext> {
+    pub fn context(&self) -> &Vec<Context> {
         &self.context
     }
 
@@ -63,7 +66,7 @@ impl ContextStore {
     pub fn add_file_from_path(
         &mut self,
         project_path: ProjectPath,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let workspace = self.workspace.clone();
 
@@ -119,8 +122,8 @@ impl ContextStore {
 
     pub fn add_file_from_buffer(
         &mut self,
-        buffer_model: Entity<Buffer>,
-        cx: &mut Context<Self>,
+        buffer_model: Model<Buffer>,
+        cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         cx.spawn(|this, mut cx| async move {
             let (buffer_info, text_task) = this.update(&mut cx, |_, cx| {
@@ -150,13 +153,13 @@ impl ContextStore {
         let id = self.next_context_id.post_inc();
         self.files.insert(context_buffer.id, id);
         self.context
-            .push(AssistantContext::File(FileContext { id, context_buffer }));
+            .push(Context::File(FileContext { id, context_buffer }));
     }
 
     pub fn add_directory(
         &mut self,
         project_path: ProjectPath,
-        cx: &mut Context<Self>,
+        cx: &mut ModelContext<Self>,
     ) -> Task<Result<()>> {
         let workspace = self.workspace.clone();
         let Some(project) = workspace
@@ -241,15 +244,14 @@ impl ContextStore {
         let id = self.next_context_id.post_inc();
         self.directories.insert(path.to_path_buf(), id);
 
-        self.context
-            .push(AssistantContext::Directory(DirectoryContext::new(
-                id,
-                path,
-                context_buffers,
-            )));
+        self.context.push(Context::Directory(DirectoryContext::new(
+            id,
+            path,
+            context_buffers,
+        )));
     }
 
-    pub fn add_thread(&mut self, thread: Entity<Thread>, cx: &mut Context<Self>) {
+    pub fn add_thread(&mut self, thread: Model<Thread>, cx: &mut ModelContext<Self>) {
         if let Some(context_id) = self.includes_thread(&thread.read(cx).id()) {
             self.remove_context(context_id);
         } else {
@@ -257,13 +259,13 @@ impl ContextStore {
         }
     }
 
-    fn insert_thread(&mut self, thread: Entity<Thread>, cx: &App) {
+    fn insert_thread(&mut self, thread: Model<Thread>, cx: &AppContext) {
         let id = self.next_context_id.post_inc();
         let text = thread.read(cx).text().into();
 
         self.threads.insert(thread.read(cx).id().clone(), id);
         self.context
-            .push(AssistantContext::Thread(ThreadContext { id, thread, text }));
+            .push(Context::Thread(ThreadContext { id, thread, text }));
     }
 
     pub fn add_fetched_url(&mut self, url: String, text: impl Into<SharedString>) {
@@ -276,18 +278,17 @@ impl ContextStore {
         let id = self.next_context_id.post_inc();
 
         self.fetched_urls.insert(url.clone(), id);
-        self.context
-            .push(AssistantContext::FetchedUrl(FetchedUrlContext {
-                id,
-                url: url.into(),
-                text: text.into(),
-            }));
+        self.context.push(Context::FetchedUrl(FetchedUrlContext {
+            id,
+            url: url.into(),
+            text: text.into(),
+        }));
     }
 
     pub fn accept_suggested_context(
         &mut self,
         suggested: &SuggestedContext,
-        cx: &mut Context<ContextStore>,
+        cx: &mut ModelContext<ContextStore>,
     ) -> Task<Result<()>> {
         match suggested {
             SuggestedContext::File {
@@ -314,16 +315,16 @@ impl ContextStore {
         };
 
         match self.context.remove(ix) {
-            AssistantContext::File(_) => {
+            Context::File(_) => {
                 self.files.retain(|_, context_id| *context_id != id);
             }
-            AssistantContext::Directory(_) => {
+            Context::Directory(_) => {
                 self.directories.retain(|_, context_id| *context_id != id);
             }
-            AssistantContext::FetchedUrl(_) => {
+            Context::FetchedUrl(_) => {
                 self.fetched_urls.retain(|_, context_id| *context_id != id);
             }
-            AssistantContext::Thread(_) => {
+            Context::Thread(_) => {
                 self.threads.retain(|_, context_id| *context_id != id);
             }
         }
@@ -342,10 +343,10 @@ impl ContextStore {
 
     /// Returns whether this file path is already included directly in the context, or if it will be
     /// included in the context via a directory.
-    pub fn will_include_file_path(&self, path: &Path, cx: &App) -> Option<FileInclusion> {
+    pub fn will_include_file_path(&self, path: &Path, cx: &AppContext) -> Option<FileInclusion> {
         if !self.files.is_empty() {
             let found_file_context = self.context.iter().find(|context| match &context {
-                AssistantContext::File(file_context) => {
+                Context::File(file_context) => {
                     let buffer = file_context.context_buffer.buffer.read(cx);
                     if let Some(file_path) = buffer_path_log_err(buffer) {
                         *file_path == *path
@@ -392,7 +393,7 @@ impl ContextStore {
     }
 
     /// Replaces the context that matches the ID of the new context, if any match.
-    fn replace_context(&mut self, new_context: AssistantContext) {
+    fn replace_context(&mut self, new_context: Context) {
         let id = new_context.id();
         for context in self.context.iter_mut() {
             if context.id() == id {
@@ -402,17 +403,15 @@ impl ContextStore {
         }
     }
 
-    pub fn file_paths(&self, cx: &App) -> HashSet<PathBuf> {
+    pub fn file_paths(&self, cx: &AppContext) -> HashSet<PathBuf> {
         self.context
             .iter()
             .filter_map(|context| match context {
-                AssistantContext::File(file) => {
+                Context::File(file) => {
                     let buffer = file.context_buffer.buffer.read(cx);
                     buffer_path_log_err(buffer).map(|p| p.to_path_buf())
                 }
-                AssistantContext::Directory(_)
-                | AssistantContext::FetchedUrl(_)
-                | AssistantContext::Thread(_) => None,
+                Context::Directory(_) | Context::FetchedUrl(_) | Context::Thread(_) => None,
             })
             .collect()
     }
@@ -429,7 +428,7 @@ pub enum FileInclusion {
 
 // ContextBuffer without text.
 struct BufferInfo {
-    buffer_model: Entity<Buffer>,
+    buffer_model: Model<Buffer>,
     id: BufferId,
     version: clock::Global,
 }
@@ -445,9 +444,9 @@ fn make_context_buffer(info: BufferInfo, text: SharedString) -> ContextBuffer {
 
 fn collect_buffer_info_and_text(
     path: Arc<Path>,
-    buffer_model: Entity<Buffer>,
+    buffer_model: Model<Buffer>,
     buffer: &Buffer,
-    cx: AsyncApp,
+    cx: AsyncAppContext,
 ) -> (BufferInfo, Task<SharedString>) {
     let buffer_info = BufferInfo {
         id: buffer.remote_id(),
@@ -526,32 +525,32 @@ fn collect_files_in_path(worktree: &Worktree, path: &Path) -> Vec<Arc<Path>> {
 }
 
 pub fn refresh_context_store_text(
-    context_store: Entity<ContextStore>,
-    cx: &App,
+    context_store: Model<ContextStore>,
+    cx: &AppContext,
 ) -> impl Future<Output = ()> {
     let mut tasks = Vec::new();
     for context in &context_store.read(cx).context {
         match context {
-            AssistantContext::File(file_context) => {
+            Context::File(file_context) => {
                 let context_store = context_store.clone();
                 if let Some(task) = refresh_file_text(context_store, file_context, cx) {
                     tasks.push(task);
                 }
             }
-            AssistantContext::Directory(directory_context) => {
+            Context::Directory(directory_context) => {
                 let context_store = context_store.clone();
                 if let Some(task) = refresh_directory_text(context_store, directory_context, cx) {
                     tasks.push(task);
                 }
             }
-            AssistantContext::Thread(thread_context) => {
+            Context::Thread(thread_context) => {
                 let context_store = context_store.clone();
                 tasks.push(refresh_thread_text(context_store, thread_context, cx));
             }
             // Intentionally omit refreshing fetched URLs as it doesn't seem all that useful,
             // and doing the caching properly could be tricky (unless it's already handled by
             // the HttpClient?).
-            AssistantContext::FetchedUrl(_) => {}
+            Context::FetchedUrl(_) => {}
         }
     }
 
@@ -559,9 +558,9 @@ pub fn refresh_context_store_text(
 }
 
 fn refresh_file_text(
-    context_store: Entity<ContextStore>,
+    context_store: Model<ContextStore>,
     file_context: &FileContext,
-    cx: &App,
+    cx: &AppContext,
 ) -> Option<Task<()>> {
     let id = file_context.id;
     let task = refresh_context_buffer(&file_context.context_buffer, cx);
@@ -571,7 +570,7 @@ fn refresh_file_text(
             context_store
                 .update(&mut cx, |context_store, _| {
                     let new_file_context = FileContext { id, context_buffer };
-                    context_store.replace_context(AssistantContext::File(new_file_context));
+                    context_store.replace_context(Context::File(new_file_context));
                 })
                 .ok();
         }))
@@ -581,9 +580,9 @@ fn refresh_file_text(
 }
 
 fn refresh_directory_text(
-    context_store: Entity<ContextStore>,
+    context_store: Model<ContextStore>,
     directory_context: &DirectoryContext,
-    cx: &App,
+    cx: &AppContext,
 ) -> Option<Task<()>> {
     let mut stale = false;
     let futures = directory_context
@@ -612,16 +611,16 @@ fn refresh_directory_text(
         context_store
             .update(&mut cx, |context_store, _| {
                 let new_directory_context = DirectoryContext::new(id, &path, context_buffers);
-                context_store.replace_context(AssistantContext::Directory(new_directory_context));
+                context_store.replace_context(Context::Directory(new_directory_context));
             })
             .ok();
     }))
 }
 
 fn refresh_thread_text(
-    context_store: Entity<ContextStore>,
+    context_store: Model<ContextStore>,
     thread_context: &ThreadContext,
-    cx: &App,
+    cx: &AppContext,
 ) -> Task<()> {
     let id = thread_context.id;
     let thread = thread_context.thread.clone();
@@ -629,11 +628,7 @@ fn refresh_thread_text(
         context_store
             .update(&mut cx, |context_store, cx| {
                 let text = thread.read(cx).text().into();
-                context_store.replace_context(AssistantContext::Thread(ThreadContext {
-                    id,
-                    thread,
-                    text,
-                }));
+                context_store.replace_context(Context::Thread(ThreadContext { id, thread, text }));
             })
             .ok();
     })
@@ -641,7 +636,7 @@ fn refresh_thread_text(
 
 fn refresh_context_buffer(
     context_buffer: &ContextBuffer,
-    cx: &App,
+    cx: &AppContext,
 ) -> Option<impl Future<Output = ContextBuffer>> {
     let buffer = context_buffer.buffer.read(cx);
     let path = buffer_path_log_err(buffer)?;
