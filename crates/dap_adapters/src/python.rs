@@ -1,13 +1,12 @@
+use crate::*;
 use dap::{
     transport::{TcpTransport, Transport},
     DebugRequestType,
 };
-use gpui::AsyncAppContext;
+use gpui::AsyncApp;
 use regex::Regex;
-use std::{collections::HashMap, net::Ipv4Addr, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, ffi::OsStr, net::Ipv4Addr, path::PathBuf, sync::Arc};
 use sysinfo::{Pid, Process};
-
-use crate::*;
 
 pub(crate) struct PythonDebugAdapter {
     port: u16,
@@ -85,8 +84,10 @@ impl DebugAdapter for PythonDebugAdapter {
         delegate: &dyn DapDelegate,
         config: &DebugAdapterConfig,
         user_installed_path: Option<PathBuf>,
-        cx: &mut AsyncAppContext,
+        cx: &mut AsyncApp,
     ) -> Result<DebugAdapterBinary> {
+        const BINARY_NAMES: [&str; 3] = ["python3", "python", "py"];
+
         let debugpy_dir = if let Some(user_installed_path) = user_installed_path {
             user_installed_path
         } else {
@@ -107,11 +108,23 @@ impl DebugAdapter for PythonDebugAdapter {
                 language::LanguageName::new(Self::LANGUAGE_NAME),
                 cx,
             )
-            .await
-            .ok_or(anyhow!("failed to find active toolchain for Python"))?;
+            .await;
+
+        let python_path = if let Some(toolchain) = toolchain {
+            Some(toolchain.path.to_string())
+        } else {
+            BINARY_NAMES
+                .iter()
+                .filter_map(|cmd| {
+                    delegate
+                        .which(OsStr::new(cmd))
+                        .map(|path| path.to_string_lossy().to_string())
+                })
+                .find(|_| true)
+        };
 
         Ok(DebugAdapterBinary {
-            command: toolchain.path.to_string(),
+            command: python_path.ok_or(anyhow!("failed to find binary path for python"))?,
             arguments: Some(vec![
                 debugpy_dir.join(Self::ADAPTER_PATH).into(),
                 format!("--port={}", self.port).into(),
