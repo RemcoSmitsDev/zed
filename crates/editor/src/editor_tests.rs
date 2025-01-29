@@ -15489,20 +15489,22 @@ fn add_log_breakpoint_at_cursor(
     window: &mut Window,
     cx: &mut Context<Editor>,
 ) {
-    let (anchor, kind) = editor.breakpoint_at_cursor_head(cx).unwrap_or_else(|| {
-        let cursor_position: Point = editor.selections.newest(cx).head();
+    let (anchor, kind) = editor
+        .breakpoint_at_cursor_head(window, cx)
+        .unwrap_or_else(|| {
+            let cursor_position: Point = editor.selections.newest(cx).head();
 
-        let breakpoint_position = editor
-            .snapshot(window, cx)
-            .display_snapshot
-            .buffer_snapshot
-            .breakpoint_anchor(Point::new(cursor_position.row, 0))
-            .text_anchor;
+            let breakpoint_position = editor
+                .snapshot(window, cx)
+                .display_snapshot
+                .buffer_snapshot
+                .breakpoint_anchor(Point::new(cursor_position.row, 0))
+                .text_anchor;
 
-        let kind = BreakpointKind::Standard;
+            let kind = BreakpointKind::Standard;
 
-        (breakpoint_position, kind)
-    });
+            (breakpoint_position, kind)
+        });
 
     editor.edit_breakpoint_at_anchor(
         anchor,
@@ -15528,13 +15530,6 @@ async fn test_breakpoint_toggling(cx: &mut TestAppContext) {
     let project = Project::test(fs, ["/a".as_ref()], cx).await;
     let workspace = cx.add_window(|window, cx| Workspace::test_new(project.clone(), window, cx));
     let cx = &mut VisualTestContext::from_window(*workspace.deref(), cx);
-    let worktree_id = workspace
-        .update(cx, |workspace, _window, cx| {
-            workspace.project().update(cx, |project, cx| {
-                project.worktrees(cx).next().unwrap().read(cx).id()
-            })
-        })
-        .unwrap();
 
     let fs = FakeFs::new(cx.executor());
     fs.insert_tree(
@@ -15545,10 +15540,10 @@ async fn test_breakpoint_toggling(cx: &mut TestAppContext) {
     )
     .await;
     let project = Project::test(fs, ["/a".as_ref()], cx).await;
-    let workspace = cx.add_window(|cx| Workspace::test_new(project.clone(), cx));
+    let workspace = cx.add_window(|window, cx| Workspace::test_new(project.clone(), window, cx));
     let cx = &mut VisualTestContext::from_window(*workspace.deref(), cx);
     let worktree_id = workspace
-        .update(cx, |workspace, cx| {
+        .update(cx, |workspace, _window, cx| {
             workspace.project().update(cx, |project, cx| {
                 project.worktrees(cx).next().unwrap().read(cx).id()
             })
@@ -15568,6 +15563,7 @@ async fn test_breakpoint_toggling(cx: &mut TestAppContext) {
             MultiBuffer::build_from_buffer(buffer, cx),
             Some(project),
             true,
+            window,
             cx,
         )
     });
@@ -15682,6 +15678,7 @@ async fn test_log_breakpoint_editing(cx: &mut TestAppContext) {
             MultiBuffer::build_from_buffer(buffer, cx),
             Some(project),
             true,
+            window,
             cx,
         )
     });

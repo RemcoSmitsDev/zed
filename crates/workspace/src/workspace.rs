@@ -968,7 +968,7 @@ impl Workspace {
                 project.clone(),
                 pane_history_timestamp.clone(),
                 None,
-                NewFile.boxed_clone(),
+                Some(NewFile.boxed_clone()),
                 window,
                 cx,
             );
@@ -2645,7 +2645,7 @@ impl Workspace {
                 self.project.clone(),
                 self.pane_history_timestamp.clone(),
                 None,
-                NewFile.boxed_clone(),
+                Some(NewFile.boxed_clone()),
                 window,
                 cx,
             );
@@ -3370,7 +3370,7 @@ impl Workspace {
             pane::Event::RemovedItem { item } => {
                 cx.emit(Event::ActiveItemChanged);
                 self.update_window_edited(window, cx);
-                if let hash_map::Entry::Occupied(entry) = self.panes_by_item.entry(*item_id) {
+                if let hash_map::Entry::Occupied(entry) = self.panes_by_item.entry(item.item_id()) {
                     if entry.get().entity_id() == pane.entity_id() {
                         entry.remove();
                     }

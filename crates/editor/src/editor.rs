@@ -78,7 +78,7 @@ use code_context_menus::{
 use git::blame::GitBlame;
 use gpui::{
     div, impl_actions, point, prelude::*, px, relative, size, Action, AnyElement, App,
-    AsyncWindowContext, AvailableSpace, Bounds, ClipboardEntry, ClipboardItem, Context,
+    AsyncWindowContext, AvailableSpace, Bounds, ClickEvent, ClipboardEntry, ClipboardItem, Context,
     DispatchPhase, ElementId, Entity, EntityInputHandler, EventEmitter, FocusHandle, FocusOutEvent,
     Focusable, FontId, FontWeight, Global, HighlightStyle, Hsla, InteractiveText, KeyContext,
     MouseButton, PaintQuad, ParentElement, Pixels, Render, SharedString, Size, Styled, StyledText,
@@ -132,7 +132,6 @@ use multi_buffer::{
 };
 use parking_lot::Mutex;
 use project::{
-    buffer_store::BufferChangeSet,
     dap_store::{Breakpoint, BreakpointKind, DapStore},
     lsp_store::{FormatTrigger, LspFormatTarget, OpenLspBufferHandle},
     project_settings::{GitGutterSetting, ProjectSettings},
@@ -278,7 +277,6 @@ impl InlayId {
 }
 
 pub enum DebugCurrentRowHighlight {}
-enum DiffRowHighlight {}
 enum DocumentHighlightRead {}
 enum DocumentHighlightWrite {}
 enum InputComposition {}
@@ -737,7 +735,7 @@ pub struct Editor {
     expect_bounds_change: Option<Bounds<Pixels>>,
     tasks: BTreeMap<(BufferId, BufferRow), RunnableTasks>,
     tasks_update_task: Option<Task<()>>,
-    pub dap_store: Option<Model<DapStore>>,
+    pub dap_store: Option<Entity<DapStore>>,
     /// Allow's a user to create a breakpoint by selecting this indicator
     /// It should be None while a user is not hovering over the gutter
     /// Otherwise it represents the point that the breakpoint will be shown
@@ -5286,12 +5284,13 @@ impl Editor {
                             cx,
                         );
                     }))
-                    .on_right_click(cx.listener(move |editor, event: &ClickEvent, cx| {
+                    .on_right_click(cx.listener(move |editor, event: &ClickEvent, window, cx| {
                         editor.set_breakpoint_context_menu(
                             row,
                             position,
                             bp_kind.clone(),
                             event.down.position,
+                            window,
                             cx,
                         );
                     })),
@@ -5360,9 +5359,7 @@ impl Editor {
             let info = excerpt_boundary.next.as_ref();
 
             if let Some(info) = info {
-                let Some(excerpt_ranges) =
-                    multi_buffer_snapshot.range_for_excerpt::<Point>(info.id)
-                else {
+                let Some(excerpt_ranges) = multi_buffer_snapshot.range_for_excerpt(info.id) else {
                     continue;
                 };
 
@@ -5415,7 +5412,7 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<ui::ContextMenu> {
-        let weak_editor = cx.weak_model();
+        let weak_editor = cx.weak_entity();
         let weak_editor2 = weak_editor.clone();
         let focus_handle = self.focus_handle(cx);
 
@@ -6658,6 +6655,7 @@ impl Editor {
         position: Option<text::Anchor>,
         kind: Arc<BreakpointKind>,
         clicked_point: gpui::Point<Pixels>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let source = self
@@ -6689,15 +6687,16 @@ impl Editor {
         row: DisplayRow,
         anchor: text::Anchor,
         kind: &BreakpointKind,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let position = self
             .snapshot(window, cx)
             .display_point_to_anchor(DisplayPoint::new(row, 0), Bias::Right);
 
-        let weak_editor = cx.weak_model();
+        let weak_editor = cx.weak_entity();
         let bp_prompt =
-            cx.new(|cx| BreakpointPromptEditor::new(weak_editor, anchor, kind.clone(), cx));
+            cx.new(|cx| BreakpointPromptEditor::new(weak_editor, anchor, kind.clone(), window, cx));
 
         let height = bp_prompt.update(cx, |this, cx| {
             this.prompt
@@ -6796,7 +6795,7 @@ impl Editor {
                 .to_display_point(&self.snapshot(window, cx))
                 .row();
 
-            self.add_edit_breakpoint_block(row, anchor, &kind, cx);
+            self.add_edit_breakpoint_block(row, anchor, &kind, window, cx);
         }
     }
 
@@ -16654,8 +16653,8 @@ impl Global for KillRing {}
 const UPDATE_DEBOUNCE: Duration = Duration::from_millis(50);
 
 struct BreakpointPromptEditor {
-    pub(crate) prompt: View<Editor>,
-    editor: WeakView<Editor>,
+    pub(crate) prompt: Entity<Editor>,
+    editor: WeakEntity<Editor>,
     breakpoint_anchor: text::Anchor,
     kind: BreakpointKind,
     block_ids: HashSet<CustomBlockId>,
@@ -16667,9 +16666,10 @@ impl BreakpointPromptEditor {
     const MAX_LINES: u8 = 4;
 
     fn new(
-        editor: WeakView<Editor>,
+        editor: WeakEntity<Editor>,
         breakpoint_anchor: text::Anchor,
         kind: BreakpointKind,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let buffer = cx.new(|cx| {
@@ -16718,7 +16718,7 @@ impl BreakpointPromptEditor {
         self.block_ids.extend(block_ids)
     }
 
-    fn confirm(&mut self, _: &menu::Confirm, cx: &mut Context<Self>) {
+    fn confirm(&mut self, _: &menu::Confirm, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(editor) = self.editor.upgrade() {
             let log_message = self
                 .prompt
@@ -16782,7 +16782,7 @@ impl BreakpointPromptEditor {
 }
 
 impl Render for BreakpointPromptEditor {
-    fn render(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let gutter_dimensions = *self.gutter_dimensions.lock();
         h_flex()
             .key_context("Editor")
@@ -16790,7 +16790,7 @@ impl Render for BreakpointPromptEditor {
             .border_y_1()
             .border_color(cx.theme().status().info_border)
             .size_full()
-            .py(cx.line_height() / 2.5)
+            .py(window.line_height() / 2.5)
             .on_action(cx.listener(Self::confirm))
             .on_action(cx.listener(Self::cancel))
             .child(h_flex().w(gutter_dimensions.full_width() + (gutter_dimensions.margin / 2.0)))
@@ -16798,10 +16798,11 @@ impl Render for BreakpointPromptEditor {
     }
 }
 
-impl FocusableView for BreakpointPromptEditor {
-    fn focus_handle(&self, cx: &AppContext) -> FocusHandle {
+impl Focusable for BreakpointPromptEditor {
+    fn focus_handle(&self, cx: &App) -> FocusHandle {
         self.prompt.focus_handle(cx)
     }
+}
 
 fn all_edits_insertions_or_deletions(
     edits: &Vec<(Range<Anchor>, String)>,

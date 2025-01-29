@@ -1894,7 +1894,8 @@ impl EditorElement {
         rows_with_hunk_bounds: &HashMap<DisplayRow, Bounds<Pixels>>,
         snapshot: &EditorSnapshot,
         breakpoints: HashMap<DisplayRow, Breakpoint>,
-        cx: &mut WindowContext,
+        window: &mut Window,
+        cx: &mut App,
     ) -> Vec<AnyElement> {
         self.editor.update(cx, |editor, cx| {
             if editor.dap_store.is_none() {
@@ -4383,12 +4384,6 @@ impl EditorElement {
                 }
             }
         }
-    }
-
-    /// Returns the width of the diff strip that will be displayed in the gutter.
-    pub(super) fn diff_hunk_strip_width(line_height: Pixels) -> Pixels {
-        // We floor the value to prevent pixel rounding.
-        (0.275 * line_height).floor()
     }
 
     fn paint_gutter_indicators(

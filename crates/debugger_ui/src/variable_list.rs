@@ -355,7 +355,7 @@ impl VariableList {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let weak_variable_list = cx.weak_model();
+        let weak_variable_list = cx.weak_entity();
         let focus_handle = cx.focus_handle();
 
         let list = ListState::new(
@@ -1011,7 +1011,7 @@ impl VariableList {
             .supports_set_variable
             .unwrap_or_default();
 
-        let this = cx.model();
+        let this = cx.entity();
 
         let context_menu = ContextMenu::build(window, cx, |menu, window, _cx| {
             menu.entry("Copy name", None, {

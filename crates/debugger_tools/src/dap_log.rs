@@ -571,7 +571,7 @@ impl DapLogView {
         (editor, vec![editor_subscription, search_subscription])
     }
 
-    fn menu_items(&self, cx: &AppContext) -> Option<Vec<DapMenuItem>> {
+    fn menu_items(&self, cx: &App) -> Option<Vec<DapMenuItem>> {
         let mut menu_items = self
             .project
             .read(cx)
@@ -629,7 +629,7 @@ impl DapLogView {
                 .expect("log buffer should be a singleton")
                 .update(cx, |_, cx| {
                     cx.spawn({
-                        let buffer = cx.model();
+                        let buffer = cx.entity();
                         |_, mut cx| async move {
                             let language = language.await.ok();
                             buffer.update(&mut cx, |buffer, cx| {

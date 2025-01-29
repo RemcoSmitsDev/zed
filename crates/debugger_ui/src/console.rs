@@ -63,7 +63,7 @@ impl Console {
             editor
         });
 
-        let this = cx.weak_model();
+        let this = cx.weak_entity();
         let query_bar = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
             editor.set_placeholder_text("Evaluate an expression", cx);
@@ -236,7 +236,7 @@ impl Console {
             )
         });
 
-        let weak_console = cx.weak_model();
+        let weak_console = cx.weak_entity();
 
         window
             .spawn(cx, |mut cx| async move {

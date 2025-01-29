@@ -675,8 +675,8 @@ impl Project {
             });
             cx.subscribe(&dap_store, Self::on_dap_store_event).detach();
 
-            let buffer_store = cx
-                .new_model(|cx| BufferStore::local(worktree_store.clone(), dap_store.clone(), cx));
+            let buffer_store =
+                cx.new(|cx| BufferStore::local(worktree_store.clone(), dap_store.clone(), cx));
             cx.subscribe(&buffer_store, Self::on_buffer_store_event)
                 .detach();
 
@@ -694,7 +694,7 @@ impl Project {
                 )
             });
 
-            let toolchain_store = cx.new_model(|cx| {
+            let toolchain_store = cx.new(|cx| {
                 ToolchainStore::local(
                     languages.clone(),
                     worktree_store.clone(),
@@ -1590,7 +1590,7 @@ impl Project {
         project
     }
 
-    pub fn dap_store(&self) -> Model<DapStore> {
+    pub fn dap_store(&self) -> Entity<DapStore> {
         self.dap_store.clone()
     }
 
@@ -2558,9 +2558,9 @@ impl Project {
 
     fn on_dap_store_event(
         &mut self,
-        _: Model<DapStore>,
+        _: Entity<DapStore>,
         event: &DapStoreEvent,
-        cx: &mut ModelContext<Self>,
+        cx: &mut Context<Self>,
     ) {
         match event {
             DapStoreEvent::DebugClientStarted(client_id) => {
@@ -3942,11 +3942,7 @@ impl Project {
         None
     }
 
-    pub fn project_path_for_absolute_path(
-        &self,
-        abs_path: &Path,
-        cx: &AppContext,
-    ) -> Option<ProjectPath> {
+    pub fn project_path_for_absolute_path(&self, abs_path: &Path, cx: &App) -> Option<ProjectPath> {
         self.find_local_worktree(abs_path, cx)
             .map(|(worktree, relative_path)| ProjectPath {
                 worktree_id: worktree.read(cx).id(),
@@ -3957,7 +3953,7 @@ impl Project {
     pub fn find_local_worktree(
         &self,
         abs_path: &Path,
-        cx: &AppContext,
+        cx: &App,
     ) -> Option<(Entity<Worktree>, PathBuf)> {
         let trees = self.worktrees(cx);
 
