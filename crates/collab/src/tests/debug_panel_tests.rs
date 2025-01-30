@@ -48,15 +48,15 @@ async fn add_debugger_panel(workspace: &Entity<Workspace>, cx: &mut VisualTestCo
     });
 }
 
-struct ZedClient<'a> {
+struct ZedInstance<'a> {
     client: TestClient,
     project: Entity<Project>,
     cx: &'a mut TestAppContext,
 }
 
-impl<'a> ZedClient<'a> {
+impl<'a> ZedInstance<'a> {
     fn new(client: TestClient, project: Entity<Project>, cx: &'a mut TestAppContext) -> Self {
-        ZedClient {
+        ZedInstance {
             project,
             client,
             cx,
@@ -80,7 +80,7 @@ impl<'a> ZedClient<'a> {
 async fn setup_test<'a, 'b>(
     host_cx: &'a mut TestAppContext,
     remote_cx: &'b mut TestAppContext,
-) -> (TestServer, ZedClient<'a>, ZedClient<'b>) {
+) -> (TestServer, ZedInstance<'a>, ZedInstance<'b>) {
     let executor = host_cx.executor();
     let mut server = TestServer::start(executor.clone()).await;
     let host_client = server.create_client(host_cx, "user_host").await;
@@ -119,18 +119,18 @@ async fn setup_test<'a, 'b>(
         .await
         .unwrap();
 
-    let host_zed = ZedClient::new(host_client, host_project, host_cx);
-    let remote_zed = ZedClient::new(remote_client, remote_project, remote_cx);
+    let host_zed = ZedInstance::new(host_client, host_project, host_cx);
+    let remote_zed = ZedInstance::new(remote_client, remote_project, remote_cx);
 
     (server, host_zed, remote_zed)
 }
 
 #[gpui::test]
 async fn test_debug_panel_item_opens_on_remote(
-    local_cx: &mut TestAppContext,
     host_cx: &mut TestAppContext,
+    remote_cx: &mut TestAppContext,
 ) {
-    let (_server, mut host_zed, mut remote_zed) = setup_test(local_cx, host_cx).await;
+    let (_server, mut host_zed, mut remote_zed) = setup_test(host_cx, remote_cx).await;
     let (_client_host, _host_workspace, host_project, host_cx) = host_zed.expand().await;
     let (_client_remote, remote_workspace, _remote_project, remote_cx) = remote_zed.expand().await;
 
@@ -214,41 +214,45 @@ async fn test_debug_panel_item_opens_on_remote(
 
 #[gpui::test]
 async fn test_active_debug_panel_item_set_on_join_project(
-    cx_a: &mut TestAppContext,
-    cx_b: &mut TestAppContext,
+    host_cx: &mut TestAppContext,
+    remote_cx: &mut TestAppContext,
 ) {
-    let executor = cx_a.executor();
+    let executor = host_cx.executor();
     let mut server = TestServer::start(executor.clone()).await;
-    let client_a = server.create_client(cx_a, "user_a").await;
-    let client_b = server.create_client(cx_b, "user_b").await;
+    let host_client = server.create_client(host_cx, "host_user").await;
+    let remote_client = server.create_client(remote_cx, "remote_user").await;
 
-    init_test(cx_a);
-    init_test(cx_b);
+    init_test(host_cx);
+    init_test(remote_cx);
 
     server
-        .create_room(&mut [(&client_a, cx_a), (&client_b, cx_b)])
+        .create_room(&mut [(&host_client, host_cx), (&remote_client, remote_cx)])
         .await;
-    let active_call_a = cx_a.read(ActiveCall::global);
-    let active_call_b = cx_b.read(ActiveCall::global);
+    let active_call_a = host_cx.read(ActiveCall::global);
+    let active_call_b = remote_cx.read(ActiveCall::global);
 
-    let (project_a, _worktree_id) = client_a.build_local_project("/project", cx_a).await;
+    let (host_project, _worktree_id) = host_client.build_local_project("/project", host_cx).await;
     active_call_a
-        .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
+        .update(host_cx, |call, cx| {
+            call.set_location(Some(&host_project), cx)
+        })
         .await
         .unwrap();
 
     let project_id = active_call_a
-        .update(cx_a, |call, cx| call.share_project(project_a.clone(), cx))
+        .update(host_cx, |call, cx| {
+            call.share_project(host_project.clone(), cx)
+        })
         .await
         .unwrap();
 
-    let (workspace_a, cx_a) = client_a.build_workspace(&project_a, cx_a);
+    let (host_workspace, host_cx) = host_client.build_workspace(&host_project, host_cx);
 
-    add_debugger_panel(&workspace_a, cx_a).await;
+    add_debugger_panel(&host_workspace, host_cx).await;
 
-    cx_a.run_until_parked();
+    host_cx.run_until_parked();
 
-    let task = project_a.update(cx_a, |project, cx| {
+    let task = host_project.update(host_cx, |project, cx| {
         project.start_debug_session(
             dap::DebugAdapterConfig {
                 label: "test config".into(),
@@ -298,25 +302,29 @@ async fn test_active_debug_panel_item_set_on_join_project(
         }))
         .await;
 
-    // Give client_a time to send a debug panel item to collab server
-    cx_a.run_until_parked();
+    // Give host_client time to send a debug panel item to collab server
+    host_cx.run_until_parked();
 
-    let project_b = client_b.join_remote_project(project_id, cx_b).await;
+    let remote_project = remote_client
+        .join_remote_project(project_id, remote_cx)
+        .await;
 
-    let (workspace_b, cx_b) = client_b.build_workspace(&project_b, cx_b);
-    add_debugger_panel(&workspace_b, cx_b).await;
+    let (remote_workspace, remote_cx) = remote_client.build_workspace(&remote_project, remote_cx);
+    add_debugger_panel(&remote_workspace, remote_cx).await;
 
-    cx_b.run_until_parked();
+    remote_cx.run_until_parked();
 
     active_call_b
-        .update(cx_b, |call, cx| call.set_location(Some(&project_b), cx))
+        .update(remote_cx, |call, cx| {
+            call.set_location(Some(&remote_project), cx)
+        })
         .await
         .unwrap();
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
-    workspace_b.update(cx_b, |workspace, cx| {
+    remote_workspace.update(remote_cx, |workspace, cx| {
         let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
         let active_debug_panel_item = debug_panel
             .update(cx, |this, cx| this.active_debug_panel_item(cx))
@@ -330,7 +338,7 @@ async fn test_active_debug_panel_item_set_on_join_project(
         assert_eq!(1, active_debug_panel_item.read(cx).thread_id());
     });
 
-    let shutdown_client = project_a.update(cx_a, |project, cx| {
+    let shutdown_client = host_project.update(host_cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
             dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
@@ -338,10 +346,10 @@ async fn test_active_debug_panel_item_set_on_join_project(
 
     shutdown_client.await.unwrap();
 
-    cx_b.run_until_parked();
+    remote_cx.run_until_parked();
 
     // assert we don't have a debug panel item anymore because the client shutdown
-    workspace_b.update(cx_b, |workspace, cx| {
+    remote_workspace.update(remote_cx, |workspace, cx| {
         let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
 
         debug_panel.update(cx, |this, cx| {
@@ -353,46 +361,14 @@ async fn test_active_debug_panel_item_set_on_join_project(
 
 #[gpui::test]
 async fn test_debug_panel_remote_button_presses(
-    cx_a: &mut TestAppContext,
-    cx_b: &mut TestAppContext,
+    host_cx: &mut TestAppContext,
+    remote_cx: &mut TestAppContext,
 ) {
-    let executor = cx_a.executor();
-    let mut server = TestServer::start(executor.clone()).await;
-    let client_a = server.create_client(cx_a, "user_a").await;
-    let client_b = server.create_client(cx_b, "user_b").await;
+    let (_server, mut host_zed, mut remote_zed) = setup_test(host_cx, remote_cx).await;
+    let (_client_host, host_workspace, host_project, host_cx) = host_zed.expand().await;
+    let (_client_remote, remote_workspace, _remote_project, remote_cx) = remote_zed.expand().await;
 
-    init_test(cx_a);
-    init_test(cx_b);
-
-    server
-        .create_room(&mut [(&client_a, cx_a), (&client_b, cx_b)])
-        .await;
-    let active_call_a = cx_a.read(ActiveCall::global);
-    let active_call_b = cx_b.read(ActiveCall::global);
-
-    let (project_a, _worktree_id) = client_a.build_local_project("/project", cx_a).await;
-    active_call_a
-        .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
-        .await
-        .unwrap();
-
-    let project_id = active_call_a
-        .update(cx_a, |call, cx| call.share_project(project_a.clone(), cx))
-        .await
-        .unwrap();
-    let project_b = client_b.join_remote_project(project_id, cx_b).await;
-    active_call_b
-        .update(cx_b, |call, cx| call.set_location(Some(&project_b), cx))
-        .await
-        .unwrap();
-
-    let (workspace_a, cx_a) = client_a.build_workspace(&project_a, cx_a);
-    let (workspace_b, cx_b) = client_b.build_workspace(&project_b, cx_b);
-
-    add_debugger_panel(&workspace_a, cx_a).await;
-    add_debugger_panel(&workspace_b, cx_b).await;
-
-    let task = project_a.update(cx_a, |project, cx| {
+    let task = host_project.update(host_cx, |project, cx| {
         project.start_debug_session(
             dap::DebugAdapterConfig {
                 label: "test config".into(),
@@ -450,10 +426,10 @@ async fn test_debug_panel_remote_button_presses(
         })
         .await;
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
-    let remote_debug_item = workspace_b.update(cx_b, |workspace, cx| {
+    let remote_debug_item = remote_workspace.update(remote_cx, |workspace, cx| {
         let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
         let active_debug_panel_item = debug_panel
             .update(cx, |this, cx| this.active_debug_panel_item(cx))
@@ -468,7 +444,7 @@ async fn test_debug_panel_remote_button_presses(
         active_debug_panel_item
     });
 
-    let local_debug_item = workspace_a.update(cx_a, |workspace, cx| {
+    let local_debug_item = host_workspace.update(host_cx, |workspace, cx| {
         let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
         let active_debug_panel_item = debug_panel
             .update(cx, |this, cx| this.active_debug_panel_item(cx))
@@ -483,21 +459,21 @@ async fn test_debug_panel_remote_button_presses(
         active_debug_panel_item
     });
 
-    remote_debug_item.update(cx_b, |this, cx| {
+    remote_debug_item.update(remote_cx, |this, cx| {
         this.continue_thread(cx);
     });
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
-    local_debug_item.update(cx_a, |debug_panel_item, cx| {
+    local_debug_item.update(host_cx, |debug_panel_item, cx| {
         assert_eq!(
             debugger_ui::debugger_panel::ThreadStatus::Running,
             debug_panel_item.thread_state().read(cx).status,
         );
     });
 
-    remote_debug_item.update(cx_b, |debug_panel_item, cx| {
+    remote_debug_item.update(remote_cx, |debug_panel_item, cx| {
         assert_eq!(
             debugger_ui::debugger_panel::ThreadStatus::Running,
             debug_panel_item.thread_state().read(cx).status,
@@ -525,17 +501,17 @@ async fn test_debug_panel_remote_button_presses(
         })
         .await;
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
-    local_debug_item.update(cx_a, |debug_panel_item, cx| {
+    local_debug_item.update(host_cx, |debug_panel_item, cx| {
         assert_eq!(
             debugger_ui::debugger_panel::ThreadStatus::Stopped,
             debug_panel_item.thread_state().read(cx).status,
         );
     });
 
-    remote_debug_item.update(cx_b, |debug_panel_item, cx| {
+    remote_debug_item.update(remote_cx, |debug_panel_item, cx| {
         assert_eq!(
             debugger_ui::debugger_panel::ThreadStatus::Stopped,
             debug_panel_item.thread_state().read(cx).status,
@@ -550,21 +526,21 @@ async fn test_debug_panel_remote_button_presses(
         })
         .await;
 
-    local_debug_item.update(cx_a, |this, cx| {
+    local_debug_item.update(host_cx, |this, cx| {
         this.continue_thread(cx);
     });
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
-    local_debug_item.update(cx_a, |debug_panel_item, cx| {
+    local_debug_item.update(host_cx, |debug_panel_item, cx| {
         assert_eq!(
             debugger_ui::debugger_panel::ThreadStatus::Running,
             debug_panel_item.thread_state().read(cx).status,
         );
     });
 
-    remote_debug_item.update(cx_b, |debug_panel_item, cx| {
+    remote_debug_item.update(remote_cx, |debug_panel_item, cx| {
         assert_eq!(
             debugger_ui::debugger_panel::ThreadStatus::Running,
             debug_panel_item.thread_state().read(cx).status,
@@ -596,18 +572,18 @@ async fn test_debug_panel_remote_button_presses(
         }))
         .await;
 
-    remote_debug_item.update(cx_b, |this, cx| {
+    remote_debug_item.update(remote_cx, |this, cx| {
         this.pause_thread(cx);
     });
 
-    cx_b.run_until_parked();
-    cx_a.run_until_parked();
+    remote_cx.run_until_parked();
+    host_cx.run_until_parked();
 
     client
         .on_request::<dap::requests::StepOut, _>(move |_, _| Ok(()))
         .await;
 
-    remote_debug_item.update(cx_b, |this, cx| {
+    remote_debug_item.update(remote_cx, |this, cx| {
         this.step_out(cx);
     });
 
@@ -623,14 +599,14 @@ async fn test_debug_panel_remote_button_presses(
         }))
         .await;
 
-    cx_b.run_until_parked();
-    cx_a.run_until_parked();
+    remote_cx.run_until_parked();
+    host_cx.run_until_parked();
 
     client
         .on_request::<dap::requests::Next, _>(move |_, _| Ok(()))
         .await;
 
-    remote_debug_item.update(cx_b, |this, cx| {
+    remote_debug_item.update(remote_cx, |this, cx| {
         this.step_over(cx);
     });
 
@@ -646,14 +622,14 @@ async fn test_debug_panel_remote_button_presses(
         }))
         .await;
 
-    cx_b.run_until_parked();
-    cx_a.run_until_parked();
+    remote_cx.run_until_parked();
+    host_cx.run_until_parked();
 
     client
         .on_request::<dap::requests::StepIn, _>(move |_, _| Ok(()))
         .await;
 
-    remote_debug_item.update(cx_b, |this, cx| {
+    remote_debug_item.update(remote_cx, |this, cx| {
         this.step_in(cx);
     });
 
@@ -669,14 +645,14 @@ async fn test_debug_panel_remote_button_presses(
         }))
         .await;
 
-    cx_b.run_until_parked();
-    cx_a.run_until_parked();
+    remote_cx.run_until_parked();
+    host_cx.run_until_parked();
 
     client
         .on_request::<dap::requests::StepBack, _>(move |_, _| Ok(()))
         .await;
 
-    remote_debug_item.update(cx_b, |this, cx| {
+    remote_debug_item.update(remote_cx, |this, cx| {
         this.step_back(cx);
     });
 
@@ -692,18 +668,18 @@ async fn test_debug_panel_remote_button_presses(
         }))
         .await;
 
-    cx_b.run_until_parked();
-    cx_a.run_until_parked();
+    remote_cx.run_until_parked();
+    host_cx.run_until_parked();
 
-    remote_debug_item.update(cx_b, |this, cx| {
+    remote_debug_item.update(remote_cx, |this, cx| {
         this.stop_thread(cx);
     });
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
     // assert we don't have a debug panel item anymore because the client shutdown
-    workspace_b.update(cx_b, |workspace, cx| {
+    remote_workspace.update(remote_cx, |workspace, cx| {
         let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
 
         debug_panel.update(cx, |this, cx| {
@@ -714,46 +690,14 @@ async fn test_debug_panel_remote_button_presses(
 }
 
 #[gpui::test]
-async fn test_restart_stack_frame(cx_a: &mut TestAppContext, cx_b: &mut TestAppContext) {
-    let executor = cx_a.executor();
-    let mut server = TestServer::start(executor.clone()).await;
-    let client_a = server.create_client(cx_a, "user_a").await;
-    let client_b = server.create_client(cx_b, "user_b").await;
-
-    init_test(cx_a);
-    init_test(cx_b);
+async fn test_restart_stack_frame(host_cx: &mut TestAppContext, remote_cx: &mut TestAppContext) {
+    let (_server, mut host_zed, mut remote_zed) = setup_test(host_cx, remote_cx).await;
+    let (_client_host, _host_workspace, host_project, host_cx) = host_zed.expand().await;
+    let (_client_remote, remote_workspace, _remote_project, remote_cx) = remote_zed.expand().await;
 
     let called_restart_frame = Arc::new(AtomicBool::new(false));
 
-    server
-        .create_room(&mut [(&client_a, cx_a), (&client_b, cx_b)])
-        .await;
-    let active_call_a = cx_a.read(ActiveCall::global);
-    let active_call_b = cx_b.read(ActiveCall::global);
-
-    let (project_a, _worktree_id) = client_a.build_local_project("/project", cx_a).await;
-    active_call_a
-        .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
-        .await
-        .unwrap();
-
-    let project_id = active_call_a
-        .update(cx_a, |call, cx| call.share_project(project_a.clone(), cx))
-        .await
-        .unwrap();
-    let project_b = client_b.join_remote_project(project_id, cx_b).await;
-    active_call_b
-        .update(cx_b, |call, cx| call.set_location(Some(&project_b), cx))
-        .await
-        .unwrap();
-
-    let (workspace_a, cx_a) = client_a.build_workspace(&project_a, cx_a);
-    let (workspace_b, cx_b) = client_b.build_workspace(&project_b, cx_b);
-
-    add_debugger_panel(&workspace_a, cx_a).await;
-    add_debugger_panel(&workspace_b, cx_b).await;
-
-    let task = project_a.update(cx_a, |project, cx| {
+    let task = host_project.update(host_cx, |project, cx| {
         project.start_debug_session(
             dap::DebugAdapterConfig {
                 label: "test config".into(),
@@ -844,11 +788,11 @@ async fn test_restart_stack_frame(cx_a: &mut TestAppContext, cx_b: &mut TestAppC
         }))
         .await;
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
     // try to restart stack frame 1 from the guest side
-    workspace_b.update(cx_b, |workspace, cx| {
+    remote_workspace.update(remote_cx, |workspace, cx| {
         let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
         let active_debug_panel_item = debug_panel
             .update(cx, |this, cx| this.active_debug_panel_item(cx))
@@ -863,15 +807,15 @@ async fn test_restart_stack_frame(cx_a: &mut TestAppContext, cx_b: &mut TestAppC
         });
     });
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
     assert!(
         called_restart_frame.load(std::sync::atomic::Ordering::SeqCst),
         "Restart stack frame was not called"
     );
 
-    let shutdown_client = project_a.update(cx_a, |project, cx| {
+    let shutdown_client = host_project.update(host_cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
             dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
@@ -882,15 +826,15 @@ async fn test_restart_stack_frame(cx_a: &mut TestAppContext, cx_b: &mut TestAppC
 
 #[gpui::test]
 async fn test_updated_breakpoints_send_to_dap(
-    cx_a: &mut TestAppContext,
-    cx_b: &mut TestAppContext,
+    host_cx: &mut TestAppContext,
+    remote_cx: &mut TestAppContext,
 ) {
-    let executor = cx_a.executor();
+    let executor = host_cx.executor();
     let mut server = TestServer::start(executor.clone()).await;
-    let client_a = server.create_client(cx_a, "user_a").await;
-    let client_b = server.create_client(cx_b, "user_b").await;
+    let host_client = server.create_client(host_cx, "host_user").await;
+    let remote_client = server.create_client(remote_cx, "remote_user").await;
 
-    client_a
+    host_client
         .fs()
         .insert_tree(
             "/project",
@@ -900,18 +844,20 @@ async fn test_updated_breakpoints_send_to_dap(
         )
         .await;
 
-    init_test(cx_a);
-    init_test(cx_b);
+    init_test(host_cx);
+    init_test(remote_cx);
 
     server
-        .create_room(&mut [(&client_a, cx_a), (&client_b, cx_b)])
+        .create_room(&mut [(&host_client, host_cx), (&remote_client, remote_cx)])
         .await;
-    let active_call_a = cx_a.read(ActiveCall::global);
-    let active_call_b = cx_b.read(ActiveCall::global);
+    let active_call_a = host_cx.read(ActiveCall::global);
+    let active_call_b = remote_cx.read(ActiveCall::global);
 
-    let (project_a, worktree_id) = client_a.build_local_project("/project", cx_a).await;
+    let (host_project, worktree_id) = host_client.build_local_project("/project", host_cx).await;
     active_call_a
-        .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
+        .update(host_cx, |call, cx| {
+            call.set_location(Some(&host_project), cx)
+        })
         .await
         .unwrap();
 
@@ -921,22 +867,28 @@ async fn test_updated_breakpoints_send_to_dap(
     };
 
     let project_id = active_call_a
-        .update(cx_a, |call, cx| call.share_project(project_a.clone(), cx))
+        .update(host_cx, |call, cx| {
+            call.share_project(host_project.clone(), cx)
+        })
         .await
         .unwrap();
-    let project_b = client_b.join_remote_project(project_id, cx_b).await;
+    let remote_project = remote_client
+        .join_remote_project(project_id, remote_cx)
+        .await;
     active_call_b
-        .update(cx_b, |call, cx| call.set_location(Some(&project_b), cx))
+        .update(remote_cx, |call, cx| {
+            call.set_location(Some(&remote_project), cx)
+        })
         .await
         .unwrap();
 
-    let (workspace_a, cx_a) = client_a.build_workspace(&project_a, cx_a);
-    let (workspace_b, cx_b) = client_b.build_workspace(&project_b, cx_b);
+    let (host_workspace, host_cx) = host_client.build_workspace(&host_project, host_cx);
+    let (remote_workspace, remote_cx) = remote_client.build_workspace(&remote_project, remote_cx);
 
-    add_debugger_panel(&workspace_a, cx_a).await;
-    add_debugger_panel(&workspace_b, cx_b).await;
+    add_debugger_panel(&host_workspace, host_cx).await;
+    add_debugger_panel(&remote_workspace, remote_cx).await;
 
-    let task = project_a.update(cx_a, |project, cx| {
+    let task = host_project.update(host_cx, |project, cx| {
         project.start_debug_session(
             dap::DebugAdapterConfig {
                 label: "test config".into(),
@@ -1013,12 +965,12 @@ async fn test_updated_breakpoints_send_to_dap(
         }))
         .await;
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
     // Client B opens an editor.
-    let editor_b = workspace_b
-        .update_in(cx_b, |workspace, window, cx| {
+    let editor_b = remote_workspace
+        .update_in(remote_cx, |workspace, window, cx| {
             workspace.open_path(project_path.clone(), None, true, window, cx)
         })
         .await
@@ -1026,15 +978,15 @@ async fn test_updated_breakpoints_send_to_dap(
         .downcast::<Editor>()
         .unwrap();
 
-    editor_b.update_in(cx_b, |editor, window, cx| {
+    editor_b.update_in(remote_cx, |editor, window, cx| {
         editor.move_down(&editor::actions::MoveDown, window, cx);
         editor.move_down(&editor::actions::MoveDown, window, cx);
         editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, window, cx);
     });
 
     // Client A opens an editor.
-    let editor_a = workspace_a
-        .update_in(cx_a, |workspace, window, cx| {
+    let editor_a = host_workspace
+        .update_in(host_cx, |workspace, window, cx| {
             workspace.open_path(project_path.clone(), None, true, window, cx)
         })
         .await
@@ -1042,8 +994,8 @@ async fn test_updated_breakpoints_send_to_dap(
         .downcast::<Editor>()
         .unwrap();
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
     let called_set_breakpoints = Arc::new(AtomicBool::new(false));
     client
@@ -1064,14 +1016,14 @@ async fn test_updated_breakpoints_send_to_dap(
         .await;
 
     // remove the breakpoint that client B added
-    editor_a.update_in(cx_a, |editor, window, cx| {
+    editor_a.update_in(host_cx, |editor, window, cx| {
         editor.move_down(&editor::actions::MoveDown, window, cx);
         editor.move_down(&editor::actions::MoveDown, window, cx);
         editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, window, cx);
     });
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
     assert!(
         called_set_breakpoints.load(std::sync::atomic::Ordering::SeqCst),
@@ -1119,21 +1071,21 @@ async fn test_updated_breakpoints_send_to_dap(
         .await;
 
     // Add our own breakpoint now
-    editor_a.update_in(cx_a, |editor, window, cx| {
+    editor_a.update_in(host_cx, |editor, window, cx| {
         editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, window, cx);
         editor.move_up(&editor::actions::MoveUp, window, cx);
         editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, window, cx);
     });
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
     assert!(
         called_set_breakpoints.load(std::sync::atomic::Ordering::SeqCst),
         "SetBreakpoint request must be called"
     );
 
-    let shutdown_client = project_a.update(cx_a, |project, cx| {
+    let shutdown_client = host_project.update(host_cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
             dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
@@ -1144,50 +1096,62 @@ async fn test_updated_breakpoints_send_to_dap(
 
 #[gpui::test]
 async fn test_module_list(
-    cx_a: &mut TestAppContext,
-    cx_b: &mut TestAppContext,
+    host_cx: &mut TestAppContext,
+    remote_cx: &mut TestAppContext,
     cx_c: &mut TestAppContext,
 ) {
-    let executor = cx_a.executor();
+    let executor = host_cx.executor();
     let mut server = TestServer::start(executor.clone()).await;
-    let client_a = server.create_client(cx_a, "user_a").await;
-    let client_b = server.create_client(cx_b, "user_b").await;
+    let host_client = server.create_client(host_cx, "host_user").await;
+    let remote_client = server.create_client(remote_cx, "remote_user").await;
     let client_c = server.create_client(cx_c, "user_c").await;
 
-    init_test(cx_a);
-    init_test(cx_b);
+    init_test(host_cx);
+    init_test(remote_cx);
     init_test(cx_c);
 
     server
-        .create_room(&mut [(&client_a, cx_a), (&client_b, cx_b), (&client_c, cx_c)])
+        .create_room(&mut [
+            (&host_client, host_cx),
+            (&remote_client, remote_cx),
+            (&client_c, cx_c),
+        ])
         .await;
-    let active_call_a = cx_a.read(ActiveCall::global);
-    let active_call_b = cx_b.read(ActiveCall::global);
+    let active_call_a = host_cx.read(ActiveCall::global);
+    let active_call_b = remote_cx.read(ActiveCall::global);
     let active_call_c = cx_c.read(ActiveCall::global);
 
-    let (project_a, _worktree_id) = client_a.build_local_project("/project", cx_a).await;
+    let (host_project, _worktree_id) = host_client.build_local_project("/project", host_cx).await;
     active_call_a
-        .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
+        .update(host_cx, |call, cx| {
+            call.set_location(Some(&host_project), cx)
+        })
         .await
         .unwrap();
 
     let project_id = active_call_a
-        .update(cx_a, |call, cx| call.share_project(project_a.clone(), cx))
+        .update(host_cx, |call, cx| {
+            call.share_project(host_project.clone(), cx)
+        })
         .await
         .unwrap();
-    let project_b = client_b.join_remote_project(project_id, cx_b).await;
+    let remote_project = remote_client
+        .join_remote_project(project_id, remote_cx)
+        .await;
     active_call_b
-        .update(cx_b, |call, cx| call.set_location(Some(&project_b), cx))
+        .update(remote_cx, |call, cx| {
+            call.set_location(Some(&remote_project), cx)
+        })
         .await
         .unwrap();
 
-    let (workspace_a, cx_a) = client_a.build_workspace(&project_a, cx_a);
-    let (workspace_b, cx_b) = client_b.build_workspace(&project_b, cx_b);
+    let (host_workspace, host_cx) = host_client.build_workspace(&host_project, host_cx);
+    let (remote_workspace, remote_cx) = remote_client.build_workspace(&remote_project, remote_cx);
 
-    add_debugger_panel(&workspace_a, cx_a).await;
-    add_debugger_panel(&workspace_b, cx_b).await;
+    add_debugger_panel(&host_workspace, host_cx).await;
+    add_debugger_panel(&remote_workspace, remote_cx).await;
 
-    let task = project_a.update(cx_a, |project, cx| {
+    let task = host_project.update(host_cx, |project, cx| {
         project.start_debug_session(
             dap::DebugAdapterConfig {
                 label: "test config".into(),
@@ -1278,8 +1242,8 @@ async fn test_module_list(
         })
         .await;
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
     assert!(
         called_initialize.load(std::sync::atomic::Ordering::SeqCst),
@@ -1298,15 +1262,15 @@ async fn test_module_list(
         }))
         .await;
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
     assert!(
         called_modules.load(std::sync::atomic::Ordering::SeqCst),
         "Request Modules must be called"
     );
 
-    workspace_a.update(cx_a, |workspace, cx| {
+    host_workspace.update(host_cx, |workspace, cx| {
         let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
         let debug_panel_item = debug_panel
             .update(cx, |this, cx| this.active_debug_panel_item(cx))
@@ -1334,7 +1298,7 @@ async fn test_module_list(
         })
     });
 
-    workspace_b.update(cx_b, |workspace, cx| {
+    remote_workspace.update(remote_cx, |workspace, cx| {
         let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
         let debug_panel_item = debug_panel
             .update(cx, |this, cx| this.active_debug_panel_item(cx))
@@ -1404,7 +1368,7 @@ async fn test_module_list(
 
     client.on_request::<Disconnect, _>(move |_, _| Ok(())).await;
 
-    let shutdown_client = project_a.update(cx_a, |project, cx| {
+    let shutdown_client = host_project.update(host_cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
             dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
@@ -1415,50 +1379,62 @@ async fn test_module_list(
 
 #[gpui::test]
 async fn test_variable_list(
-    cx_a: &mut TestAppContext,
-    cx_b: &mut TestAppContext,
+    host_cx: &mut TestAppContext,
+    remote_cx: &mut TestAppContext,
     cx_c: &mut TestAppContext,
 ) {
-    let executor = cx_a.executor();
+    let executor = host_cx.executor();
     let mut server = TestServer::start(executor.clone()).await;
-    let client_a = server.create_client(cx_a, "user_a").await;
-    let client_b = server.create_client(cx_b, "user_b").await;
+    let host_client = server.create_client(host_cx, "host_user").await;
+    let remote_client = server.create_client(remote_cx, "remote_user").await;
     let client_c = server.create_client(cx_c, "user_c").await;
 
-    init_test(cx_a);
-    init_test(cx_b);
+    init_test(host_cx);
+    init_test(remote_cx);
     init_test(cx_c);
 
     server
-        .create_room(&mut [(&client_a, cx_a), (&client_b, cx_b), (&client_c, cx_c)])
+        .create_room(&mut [
+            (&host_client, host_cx),
+            (&remote_client, remote_cx),
+            (&client_c, cx_c),
+        ])
         .await;
-    let active_call_a = cx_a.read(ActiveCall::global);
-    let active_call_b = cx_b.read(ActiveCall::global);
+    let active_call_a = host_cx.read(ActiveCall::global);
+    let active_call_b = remote_cx.read(ActiveCall::global);
     let active_call_c = cx_c.read(ActiveCall::global);
 
-    let (project_a, _worktree_id) = client_a.build_local_project("/project", cx_a).await;
+    let (host_project, _worktree_id) = host_client.build_local_project("/project", host_cx).await;
     active_call_a
-        .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
+        .update(host_cx, |call, cx| {
+            call.set_location(Some(&host_project), cx)
+        })
         .await
         .unwrap();
 
     let project_id = active_call_a
-        .update(cx_a, |call, cx| call.share_project(project_a.clone(), cx))
+        .update(host_cx, |call, cx| {
+            call.share_project(host_project.clone(), cx)
+        })
         .await
         .unwrap();
-    let project_b = client_b.join_remote_project(project_id, cx_b).await;
+    let remote_project = remote_client
+        .join_remote_project(project_id, remote_cx)
+        .await;
     active_call_b
-        .update(cx_b, |call, cx| call.set_location(Some(&project_b), cx))
+        .update(remote_cx, |call, cx| {
+            call.set_location(Some(&remote_project), cx)
+        })
         .await
         .unwrap();
 
-    let (workspace_a, cx_a) = client_a.build_workspace(&project_a, cx_a);
-    let (workspace_b, cx_b) = client_b.build_workspace(&project_b, cx_b);
+    let (host_workspace, host_cx) = host_client.build_workspace(&host_project, host_cx);
+    let (remote_workspace, remote_cx) = remote_client.build_workspace(&remote_project, remote_cx);
 
-    add_debugger_panel(&workspace_a, cx_a).await;
-    add_debugger_panel(&workspace_b, cx_b).await;
+    add_debugger_panel(&host_workspace, host_cx).await;
+    add_debugger_panel(&remote_workspace, remote_cx).await;
 
-    let task = project_a.update(cx_a, |project, cx| {
+    let task = host_project.update(host_cx, |project, cx| {
         project.start_debug_session(
             dap::DebugAdapterConfig {
                 label: "test config".into(),
@@ -1623,11 +1599,11 @@ async fn test_variable_list(
         }))
         .await;
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
     cx_c.run_until_parked();
 
-    let local_debug_item = workspace_a.update(cx_a, |workspace, cx| {
+    let local_debug_item = host_workspace.update(host_cx, |workspace, cx| {
         let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
         let active_debug_panel_item = debug_panel
             .update(cx, |this, cx| this.active_debug_panel_item(cx))
@@ -1642,7 +1618,7 @@ async fn test_variable_list(
         active_debug_panel_item
     });
 
-    let remote_debug_item = workspace_b.update(cx_b, |workspace, cx| {
+    let remote_debug_item = remote_workspace.update(remote_cx, |workspace, cx| {
         let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
         let active_debug_panel_item = debug_panel
             .update(cx, |this, cx| this.active_debug_panel_item(cx))
@@ -1672,8 +1648,8 @@ async fn test_variable_list(
     ];
 
     local_debug_item
-        .update(cx_a, |this, _| this.variable_list().clone())
-        .update(cx_a, |variable_list, cx| {
+        .update(host_cx, |this, _| this.variable_list().clone())
+        .update(host_cx, |variable_list, cx| {
             assert_eq!(1, variable_list.scopes().len());
             assert_eq!(scopes, variable_list.scopes().get(&1).unwrap().clone());
             assert_eq!(&first_variable_containers, &variable_list.variables());
@@ -1695,8 +1671,8 @@ async fn test_variable_list(
         .await;
 
     remote_debug_item
-        .update(cx_b, |this, _| this.variable_list().clone())
-        .update(cx_b, |variable_list, cx| {
+        .update(remote_cx, |this, _| this.variable_list().clone())
+        .update(remote_cx, |variable_list, cx| {
             assert_eq!(1, variable_list.scopes().len());
             assert_eq!(scopes, variable_list.scopes().get(&1).unwrap().clone());
             assert_eq!(&first_variable_containers, &variable_list.variables());
@@ -1711,8 +1687,8 @@ async fn test_variable_list(
             );
         });
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
     cx_c.run_until_parked();
 
     let second_req_variable_list = vec![
@@ -1734,8 +1710,8 @@ async fn test_variable_list(
     ];
 
     remote_debug_item
-        .update(cx_b, |this, _| this.variable_list().clone())
-        .update(cx_b, |variable_list, cx| {
+        .update(remote_cx, |this, _| this.variable_list().clone())
+        .update(remote_cx, |variable_list, cx| {
             assert_eq!(1, variable_list.scopes().len());
             assert_eq!(3, variable_list.variables().len());
             assert_eq!(scopes, variable_list.scopes().get(&1).unwrap().clone());
@@ -1766,8 +1742,8 @@ async fn test_variable_list(
         .await;
 
     local_debug_item
-        .update(cx_a, |this, _| this.variable_list().clone())
-        .update(cx_a, |variable_list, cx| {
+        .update(host_cx, |this, _| this.variable_list().clone())
+        .update(host_cx, |variable_list, cx| {
             assert_eq!(1, variable_list.scopes().len());
             assert_eq!(3, variable_list.variables().len());
             assert_eq!(scopes, variable_list.scopes().get(&1).unwrap().clone());
@@ -1783,8 +1759,8 @@ async fn test_variable_list(
             );
         });
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
     cx_c.run_until_parked();
 
     let final_variable_containers: Vec<VariableContainer> = vec![
@@ -1811,8 +1787,8 @@ async fn test_variable_list(
     ];
 
     remote_debug_item
-        .update(cx_b, |this, _| this.variable_list().clone())
-        .update(cx_b, |variable_list, cx| {
+        .update(remote_cx, |this, _| this.variable_list().clone())
+        .update(remote_cx, |variable_list, cx| {
             assert_eq!(1, variable_list.scopes().len());
             assert_eq!(4, variable_list.variables().len());
             assert_eq!(scopes, variable_list.scopes().get(&1).unwrap().clone());
@@ -1830,8 +1806,8 @@ async fn test_variable_list(
         });
 
     local_debug_item
-        .update(cx_a, |this, _| this.variable_list().clone())
-        .update(cx_a, |variable_list, cx| {
+        .update(host_cx, |this, _| this.variable_list().clone())
+        .update(host_cx, |variable_list, cx| {
             assert_eq!(1, variable_list.scopes().len());
             assert_eq!(4, variable_list.variables().len());
             assert_eq!(scopes, variable_list.scopes().get(&1).unwrap().clone());
@@ -1888,7 +1864,7 @@ async fn test_variable_list(
 
     client.on_request::<Disconnect, _>(move |_, _| Ok(())).await;
 
-    let shutdown_client = project_a.update(cx_a, |project, cx| {
+    let shutdown_client = host_project.update(host_cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
             dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
@@ -1899,17 +1875,17 @@ async fn test_variable_list(
 
 #[gpui::test]
 async fn test_ignore_breakpoints(
-    cx_a: &mut TestAppContext,
-    cx_b: &mut TestAppContext,
+    host_cx: &mut TestAppContext,
+    remote_cx: &mut TestAppContext,
     cx_c: &mut TestAppContext,
 ) {
-    let executor = cx_a.executor();
+    let executor = host_cx.executor();
     let mut server = TestServer::start(executor.clone()).await;
-    let client_a = server.create_client(cx_a, "user_a").await;
-    let client_b = server.create_client(cx_b, "user_b").await;
+    let host_client = server.create_client(host_cx, "host_user").await;
+    let remote_client = server.create_client(remote_cx, "remote_user").await;
     let client_c = server.create_client(cx_c, "user_c").await;
 
-    client_a
+    host_client
         .fs()
         .insert_tree(
             "/project",
@@ -1919,20 +1895,26 @@ async fn test_ignore_breakpoints(
         )
         .await;
 
-    init_test(cx_a);
-    init_test(cx_b);
+    init_test(host_cx);
+    init_test(remote_cx);
     init_test(cx_c);
 
     server
-        .create_room(&mut [(&client_a, cx_a), (&client_b, cx_b), (&client_c, cx_c)])
+        .create_room(&mut [
+            (&host_client, host_cx),
+            (&remote_client, remote_cx),
+            (&client_c, cx_c),
+        ])
         .await;
-    let active_call_a = cx_a.read(ActiveCall::global);
-    let active_call_b = cx_b.read(ActiveCall::global);
+    let active_call_a = host_cx.read(ActiveCall::global);
+    let active_call_b = remote_cx.read(ActiveCall::global);
     let active_call_c = cx_c.read(ActiveCall::global);
 
-    let (project_a, worktree_id) = client_a.build_local_project("/project", cx_a).await;
+    let (host_project, worktree_id) = host_client.build_local_project("/project", host_cx).await;
     active_call_a
-        .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
+        .update(host_cx, |call, cx| {
+            call.set_location(Some(&host_project), cx)
+        })
         .await
         .unwrap();
 
@@ -1942,23 +1924,29 @@ async fn test_ignore_breakpoints(
     };
 
     let project_id = active_call_a
-        .update(cx_a, |call, cx| call.share_project(project_a.clone(), cx))
+        .update(host_cx, |call, cx| {
+            call.share_project(host_project.clone(), cx)
+        })
         .await
         .unwrap();
-    let project_b = client_b.join_remote_project(project_id, cx_b).await;
+    let remote_project = remote_client
+        .join_remote_project(project_id, remote_cx)
+        .await;
     active_call_b
-        .update(cx_b, |call, cx| call.set_location(Some(&project_b), cx))
+        .update(remote_cx, |call, cx| {
+            call.set_location(Some(&remote_project), cx)
+        })
         .await
         .unwrap();
 
-    let (workspace_a, cx_a) = client_a.build_workspace(&project_a, cx_a);
-    let (workspace_b, cx_b) = client_b.build_workspace(&project_b, cx_b);
+    let (host_workspace, host_cx) = host_client.build_workspace(&host_project, host_cx);
+    let (remote_workspace, remote_cx) = remote_client.build_workspace(&remote_project, remote_cx);
 
-    add_debugger_panel(&workspace_a, cx_a).await;
-    add_debugger_panel(&workspace_b, cx_b).await;
+    add_debugger_panel(&host_workspace, host_cx).await;
+    add_debugger_panel(&remote_workspace, remote_cx).await;
 
-    let local_editor = workspace_a
-        .update_in(cx_a, |workspace, window, cx| {
+    let local_editor = host_workspace
+        .update_in(host_cx, |workspace, window, cx| {
             workspace.open_path(project_path.clone(), None, true, window, cx)
         })
         .await
@@ -1966,7 +1954,7 @@ async fn test_ignore_breakpoints(
         .downcast::<Editor>()
         .unwrap();
 
-    local_editor.update_in(cx_a, |editor, window, cx| {
+    local_editor.update_in(host_cx, |editor, window, cx| {
         editor.move_down(&editor::actions::MoveDown, window, cx);
         editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, window, cx); // Line 2
         editor.move_down(&editor::actions::MoveDown, window, cx);
@@ -1974,10 +1962,10 @@ async fn test_ignore_breakpoints(
         // Line 3
     });
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
-    let task = project_a.update(cx_a, |project, cx| {
+    let task = host_project.update(host_cx, |project, cx| {
         project.start_debug_session(
             dap::DebugAdapterConfig {
                 label: "test config".into(),
@@ -2064,8 +2052,8 @@ async fn test_ignore_breakpoints(
         )))
         .await;
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
     assert!(
         called_set_breakpoints.load(std::sync::atomic::Ordering::SeqCst),
@@ -2084,10 +2072,10 @@ async fn test_ignore_breakpoints(
         }))
         .await;
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
-    let remote_debug_item = workspace_b.update(cx_b, |workspace, cx| {
+    let remote_debug_item = remote_workspace.update(remote_cx, |workspace, cx| {
         let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
         let active_debug_panel_item = debug_panel
             .update(cx, |this, cx| this.active_debug_panel_item(cx))
@@ -2136,7 +2124,7 @@ async fn test_ignore_breakpoints(
         })
         .await;
 
-    let local_debug_item = workspace_a.update(cx_a, |workspace, cx| {
+    let local_debug_item = host_workspace.update(host_cx, |workspace, cx| {
         let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
         let active_debug_panel_item = debug_panel
             .update(cx, |this, cx| this.active_debug_panel_item(cx))
@@ -2157,13 +2145,13 @@ async fn test_ignore_breakpoints(
         active_debug_panel_item
     });
 
-    local_debug_item.update(cx_a, |item, cx| {
+    local_debug_item.update(host_cx, |item, cx| {
         item.toggle_ignore_breakpoints(cx); // Set to true
         assert_eq!(true, item.are_breakpoints_ignored(cx));
     });
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
     assert!(
         called_set_breakpoints.load(std::sync::atomic::Ordering::SeqCst),
@@ -2183,8 +2171,8 @@ async fn test_ignore_breakpoints(
         })
         .await;
 
-    let remote_editor = workspace_b
-        .update_in(cx_b, |workspace, window, cx| {
+    let remote_editor = remote_workspace
+        .update_in(remote_cx, |workspace, window, cx| {
             workspace.open_path(project_path.clone(), None, true, window, cx)
         })
         .await
@@ -2194,20 +2182,20 @@ async fn test_ignore_breakpoints(
 
     called_set_breakpoints.store(false, std::sync::atomic::Ordering::SeqCst);
 
-    remote_editor.update_in(cx_b, |editor, window, cx| {
+    remote_editor.update_in(remote_cx, |editor, window, cx| {
         // Line 1
         editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, window, cx);
     });
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
     assert!(
         called_set_breakpoints.load(std::sync::atomic::Ordering::SeqCst),
         "SetBreakpoint request be called whenever breakpoints are toggled but with not breakpoints"
     );
 
-    remote_debug_item.update(cx_b, |debug_panel, cx| {
+    remote_debug_item.update(remote_cx, |debug_panel, cx| {
         let breakpoints_ignored = debug_panel.are_breakpoints_ignored(cx);
 
         assert_eq!(true, breakpoints_ignored);
@@ -2293,12 +2281,12 @@ async fn test_ignore_breakpoints(
         active_debug_panel_item
     });
 
-    remote_debug_item.update(cx_b, |item, cx| {
+    remote_debug_item.update(remote_cx, |item, cx| {
         item.toggle_ignore_breakpoints(cx);
     });
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
     cx_c.run_until_parked();
 
     assert!(
@@ -2322,7 +2310,7 @@ async fn test_ignore_breakpoints(
         })
         .await;
 
-    local_debug_item.update(cx_a, |debug_panel_item, cx| {
+    local_debug_item.update(host_cx, |debug_panel_item, cx| {
         assert_eq!(
             false,
             debug_panel_item.are_breakpoints_ignored(cx),
@@ -2330,7 +2318,7 @@ async fn test_ignore_breakpoints(
         );
     });
 
-    remote_debug_item.update(cx_b, |debug_panel_item, cx| {
+    remote_debug_item.update(remote_cx, |debug_panel_item, cx| {
         assert_eq!(
             false,
             debug_panel_item.are_breakpoints_ignored(cx),
@@ -2346,7 +2334,7 @@ async fn test_ignore_breakpoints(
         );
     });
 
-    let shutdown_client = project_a.update(cx_a, |project, cx| {
+    let shutdown_client = host_project.update(host_cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
             dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
@@ -2354,10 +2342,10 @@ async fn test_ignore_breakpoints(
 
     shutdown_client.await.unwrap();
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
-    project_b.update(cx_b, |project, cx| {
+    remote_project.update(remote_cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, _cx| {
             let sessions = dap_store.sessions().collect::<Vec<_>>();
 
