@@ -8,7 +8,7 @@ use dap::{Scope, Variable};
 use debugger_ui::{debugger_panel::DebugPanel, variable_list::VariableContainer};
 use editor::Editor;
 use gpui::{Entity, TestAppContext, VisualTestContext};
-use project::ProjectPath;
+use project::{Project, ProjectPath};
 use serde_json::json;
 use std::sync::Arc;
 use std::{
@@ -17,7 +17,7 @@ use std::{
 };
 use workspace::{dock::Panel, Workspace};
 
-use super::TestServer;
+use super::{TestClient, TestServer};
 
 pub fn init_test(cx: &mut gpui::TestAppContext) {
     if std::env::var("RUST_LOG").is_ok() {
@@ -48,50 +48,95 @@ async fn add_debugger_panel(workspace: &Entity<Workspace>, cx: &mut VisualTestCo
     });
 }
 
-#[gpui::test]
-async fn test_debug_panel_item_opens_on_remote(
-    cx_a: &mut TestAppContext,
-    cx_b: &mut TestAppContext,
-) {
-    let executor = cx_a.executor();
-    let mut server = TestServer::start(executor.clone()).await;
-    let client_a = server.create_client(cx_a, "user_a").await;
-    let client_b = server.create_client(cx_b, "user_b").await;
+struct ZedClient<'a> {
+    client: TestClient,
+    project: Entity<Project>,
+    cx: &'a mut TestAppContext,
+}
 
-    init_test(cx_a);
-    init_test(cx_b);
+impl<'a> ZedClient<'a> {
+    fn new(client: TestClient, project: Entity<Project>, cx: &'a mut TestAppContext) -> Self {
+        ZedClient {
+            project,
+            client,
+            cx,
+        }
+    }
+
+    async fn expand(
+        &'a mut self,
+    ) -> (
+        &'a TestClient,
+        Entity<Workspace>,
+        Entity<Project>,
+        &'a mut VisualTestContext,
+    ) {
+        let (workspace, cx) = self.client.build_workspace(&self.project, self.cx);
+        add_debugger_panel(&workspace, cx).await;
+        (&self.client, workspace, self.project.clone(), cx)
+    }
+}
+
+async fn setup_test<'a, 'b>(
+    host_cx: &'a mut TestAppContext,
+    remote_cx: &'b mut TestAppContext,
+) -> (TestServer, ZedClient<'a>, ZedClient<'b>) {
+    let executor = host_cx.executor();
+    let mut server = TestServer::start(executor.clone()).await;
+    let host_client = server.create_client(host_cx, "user_host").await;
+    let remote_client = server.create_client(remote_cx, "user_remote").await;
+
+    init_test(host_cx);
+    init_test(remote_cx);
 
     server
-        .create_room(&mut [(&client_a, cx_a), (&client_b, cx_b)])
+        .create_room(&mut [(&host_client, host_cx), (&remote_client, remote_cx)])
         .await;
-    let active_call_a = cx_a.read(ActiveCall::global);
-    let active_call_b = cx_b.read(ActiveCall::global);
+    let host_active_call = host_cx.read(ActiveCall::global);
+    let remote_active_call = remote_cx.read(ActiveCall::global);
 
-    let (project_a, _worktree_id) = client_a.build_local_project("/project", cx_a).await;
-    active_call_a
-        .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
+    let (host_project, _worktree_id) = host_client.build_local_project("/project", host_cx).await;
+    host_active_call
+        .update(host_cx, |call, cx| {
+            call.set_location(Some(&host_project), cx)
+        })
         .await
         .unwrap();
 
-    let project_id = active_call_a
-        .update(cx_a, |call, cx| call.share_project(project_a.clone(), cx))
+    let project_id = host_active_call
+        .update(host_cx, |call, cx| {
+            call.share_project(host_project.clone(), cx)
+        })
         .await
         .unwrap();
-    let project_b = client_b.join_remote_project(project_id, cx_b).await;
-    active_call_b
-        .update(cx_b, |call, cx| call.set_location(Some(&project_b), cx))
+    let remote_project = remote_client
+        .join_remote_project(project_id, remote_cx)
+        .await;
+    remote_active_call
+        .update(remote_cx, |call, cx| {
+            call.set_location(Some(&remote_project), cx)
+        })
         .await
         .unwrap();
 
-    let (workspace_a, cx_a) = client_a.build_workspace(&project_a, cx_a);
-    let (workspace_b, cx_b) = client_b.build_workspace(&project_b, cx_b);
+    let host_zed = ZedClient::new(host_client, host_project, host_cx);
+    let remote_zed = ZedClient::new(remote_client, remote_project, remote_cx);
 
-    add_debugger_panel(&workspace_a, cx_a).await;
-    add_debugger_panel(&workspace_b, cx_b).await;
+    (server, host_zed, remote_zed)
+}
 
-    cx_b.run_until_parked();
+#[gpui::test]
+async fn test_debug_panel_item_opens_on_remote(
+    local_cx: &mut TestAppContext,
+    host_cx: &mut TestAppContext,
+) {
+    let (_server, mut host_zed, mut remote_zed) = setup_test(local_cx, host_cx).await;
+    let (_client_host, _host_workspace, host_project, host_cx) = host_zed.expand().await;
+    let (_client_remote, remote_workspace, _remote_project, remote_cx) = remote_zed.expand().await;
 
-    let task = project_a.update(cx_a, |project, cx| {
+    remote_cx.run_until_parked();
+
+    let task = host_project.update(host_cx, |project, cx| {
         project.start_debug_session(
             dap::DebugAdapterConfig {
                 label: "test config".into(),
@@ -141,10 +186,10 @@ async fn test_debug_panel_item_opens_on_remote(
         }))
         .await;
 
-    cx_a.run_until_parked();
-    cx_b.run_until_parked();
+    host_cx.run_until_parked();
+    remote_cx.run_until_parked();
 
-    workspace_b.update(cx_b, |workspace, cx| {
+    remote_workspace.update(remote_cx, |workspace, cx| {
         let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
         let active_debug_panel_item = debug_panel
             .update(cx, |this, cx| this.active_debug_panel_item(cx))
@@ -158,7 +203,7 @@ async fn test_debug_panel_item_opens_on_remote(
         assert_eq!(1, active_debug_panel_item.read(cx).thread_id());
     });
 
-    let shutdown_client = project_a.update(cx_a, |project, cx| {
+    let shutdown_client = host_project.update(host_cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
             dap_store.shutdown_session(&session.read(cx).id(), cx)
         })
