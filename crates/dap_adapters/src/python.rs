@@ -137,7 +137,7 @@ impl DebugAdapter for PythonDebugAdapter {
 
     fn request_args(&self, config: &DebugAdapterConfig) -> Value {
         let pid = if let DebugRequestType::Attach(attach_config) = &config.request {
-            attach_config.process_id
+            attach_config.process_id.filter(|pid| *pid > 0)
         } else {
             None
         };
