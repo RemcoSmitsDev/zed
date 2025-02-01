@@ -142,7 +142,7 @@ impl DebugAdapter for PythonDebugAdapter {
             None
         };
 
-        json!({
+        let mut config = json!({
             "request": match config.request {
                 DebugRequestType::Launch => "launch",
                 DebugRequestType::Attach(_) => "attach",
@@ -151,7 +151,13 @@ impl DebugAdapter for PythonDebugAdapter {
             "program": config.program,
             "subProcess": true,
             "cwd": config.cwd,
-        })
+        });
+
+        if let Value::Object(config) = &mut config {
+            config.retain(|_, v| !v.is_null());
+        }
+
+        config
     }
 
     fn supports_attach(&self) -> bool {
