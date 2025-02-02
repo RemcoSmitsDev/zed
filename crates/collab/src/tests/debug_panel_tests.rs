@@ -8,7 +8,7 @@ use dap::{Scope, Variable};
 use debugger_ui::{debugger_panel::DebugPanel, variable_list::VariableContainer};
 use editor::Editor;
 use gpui::{Entity, TestAppContext, VisualTestContext};
-use project::{Project, ProjectPath};
+use project::{Project, ProjectPath, WorktreeId};
 use serde_json::json;
 use std::sync::Arc;
 use std::{
@@ -65,19 +65,29 @@ impl<'a> ZedInstance<'a> {
         }
     }
 
-    async fn host_project(&mut self) -> u64 {
-        let (project, _worktree_id) = self.client.build_local_project("/project", self.cx).await;
+    async fn host_project(
+        &mut self,
+        project_files: Option<serde_json::Value>,
+    ) -> (u64, WorktreeId) {
+        let (project, worktree_id) = self.client.build_local_project("/project", self.cx).await;
         self.active_call
             .update(self.cx, |call, cx| call.set_location(Some(&project), cx))
             .await
             .unwrap();
 
+        if let Some(tree) = project_files {
+            self.client.fs().insert_tree("/project", tree).await;
+        }
+
         self.project = Some(project.clone());
 
-        self.active_call
+        let project_id = self
+            .active_call
             .update(self.cx, |call, cx| call.share_project(project, cx))
             .await
-            .unwrap()
+            .unwrap();
+
+        (project_id, worktree_id)
     }
 
     async fn join_project(&mut self, project_id: u64) {
@@ -174,7 +184,7 @@ async fn test_debug_panel_item_opens_on_remote(
     let (mut host_zed, mut remote_zed) =
         setup_two_member_test(&mut server, host_cx, remote_cx).await;
 
-    let host_project_id = host_zed.host_project().await;
+    let (host_project_id, _) = host_zed.host_project(None).await;
     remote_zed.join_project(host_project_id).await;
 
     let (_client_host, _host_workspace, host_project, host_cx) = host_zed.expand().await;
@@ -269,7 +279,7 @@ async fn test_active_debug_panel_item_set_on_join_project(
     let (mut host_zed, mut remote_zed) =
         setup_two_member_test(&mut server, host_cx, remote_cx).await;
 
-    let host_project_id = host_zed.host_project().await;
+    let (host_project_id, _) = host_zed.host_project(None).await;
 
     let (_client_host, _host_workspace, host_project, host_cx) = host_zed.expand().await;
 
@@ -380,7 +390,7 @@ async fn test_debug_panel_remote_button_presses(
     let (mut host_zed, mut remote_zed) =
         setup_two_member_test(&mut server, host_cx, remote_cx).await;
 
-    let host_project_id = host_zed.host_project().await;
+    let (host_project_id, _) = host_zed.host_project(None).await;
     remote_zed.join_project(host_project_id).await;
 
     let (_client_host, host_workspace, host_project, host_cx) = host_zed.expand().await;
@@ -715,7 +725,7 @@ async fn test_restart_stack_frame(host_cx: &mut TestAppContext, remote_cx: &mut 
     let (mut host_zed, mut remote_zed) =
         setup_two_member_test(&mut server, host_cx, remote_cx).await;
 
-    let host_project_id = host_zed.host_project().await;
+    let (host_project_id, _) = host_zed.host_project(None).await;
     remote_zed.join_project(host_project_id).await;
 
     let (_client_host, _host_workspace, host_project, host_cx) = host_zed.expand().await;
@@ -856,63 +866,24 @@ async fn test_updated_breakpoints_send_to_dap(
     remote_cx: &mut TestAppContext,
 ) {
     let executor = host_cx.executor();
-    let mut server = TestServer::start(executor.clone()).await;
-    let host_client = server.create_client(host_cx, "host_user").await;
-    let remote_client = server.create_client(remote_cx, "remote_user").await;
+    let mut server = TestServer::start(executor).await;
 
-    host_client
-        .fs()
-        .insert_tree(
-            "/project",
-            json!({
-                "test.txt": "one\ntwo\nthree\nfour\nfive",
-            }),
-        )
+    let (mut host_zed, mut remote_zed) =
+        setup_two_member_test(&mut server, host_cx, remote_cx).await;
+
+    let (host_project_id, worktree_id) = host_zed
+        .host_project(Some(json!({"test.txt": "one\ntwo\nthree\nfour\nfive"})))
         .await;
 
-    init_test(host_cx);
-    init_test(remote_cx);
+    remote_zed.join_project(host_project_id).await;
 
-    server
-        .create_room(&mut [(&host_client, host_cx), (&remote_client, remote_cx)])
-        .await;
-    let active_call_a = host_cx.read(ActiveCall::global);
-    let active_call_b = remote_cx.read(ActiveCall::global);
-
-    let (host_project, worktree_id) = host_client.build_local_project("/project", host_cx).await;
-    active_call_a
-        .update(host_cx, |call, cx| {
-            call.set_location(Some(&host_project), cx)
-        })
-        .await
-        .unwrap();
+    let (_client_host, host_workspace, host_project, host_cx) = host_zed.expand().await;
+    let (_client_remote, remote_workspace, _remote_project, remote_cx) = remote_zed.expand().await;
 
     let project_path = ProjectPath {
         worktree_id,
         path: Arc::from(Path::new(&"test.txt")),
     };
-
-    let project_id = active_call_a
-        .update(host_cx, |call, cx| {
-            call.share_project(host_project.clone(), cx)
-        })
-        .await
-        .unwrap();
-    let remote_project = remote_client
-        .join_remote_project(project_id, remote_cx)
-        .await;
-    active_call_b
-        .update(remote_cx, |call, cx| {
-            call.set_location(Some(&remote_project), cx)
-        })
-        .await
-        .unwrap();
-
-    let (host_workspace, host_cx) = host_client.build_workspace(&host_project, host_cx);
-    let (remote_workspace, remote_cx) = remote_client.build_workspace(&remote_project, remote_cx);
-
-    add_debugger_panel(&host_workspace, host_cx).await;
-    add_debugger_panel(&remote_workspace, remote_cx).await;
 
     let task = host_project.update(host_cx, |project, cx| {
         project.start_debug_session(
