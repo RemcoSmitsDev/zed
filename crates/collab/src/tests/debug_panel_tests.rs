@@ -264,37 +264,14 @@ async fn test_active_debug_panel_item_set_on_join_project(
     remote_cx: &mut TestAppContext,
 ) {
     let executor = host_cx.executor();
-    let mut server = TestServer::start(executor.clone()).await;
-    let host_client = server.create_client(host_cx, "host_user").await;
-    let remote_client = server.create_client(remote_cx, "remote_user").await;
+    let mut server = TestServer::start(executor).await;
 
-    init_test(host_cx);
-    init_test(remote_cx);
+    let (mut host_zed, mut remote_zed) =
+        setup_two_member_test(&mut server, host_cx, remote_cx).await;
 
-    server
-        .create_room(&mut [(&host_client, host_cx), (&remote_client, remote_cx)])
-        .await;
-    let active_call_a = host_cx.read(ActiveCall::global);
-    let active_call_b = remote_cx.read(ActiveCall::global);
+    let host_project_id = host_zed.host_project().await;
 
-    let (host_project, _worktree_id) = host_client.build_local_project("/project", host_cx).await;
-    active_call_a
-        .update(host_cx, |call, cx| {
-            call.set_location(Some(&host_project), cx)
-        })
-        .await
-        .unwrap();
-
-    let project_id = active_call_a
-        .update(host_cx, |call, cx| {
-            call.share_project(host_project.clone(), cx)
-        })
-        .await
-        .unwrap();
-
-    let (host_workspace, host_cx) = host_client.build_workspace(&host_project, host_cx);
-
-    add_debugger_panel(&host_workspace, host_cx).await;
+    let (_client_host, _host_workspace, host_project, host_cx) = host_zed.expand().await;
 
     host_cx.run_until_parked();
 
@@ -351,21 +328,8 @@ async fn test_active_debug_panel_item_set_on_join_project(
     // Give host_client time to send a debug panel item to collab server
     host_cx.run_until_parked();
 
-    let remote_project = remote_client
-        .join_remote_project(project_id, remote_cx)
-        .await;
-
-    let (remote_workspace, remote_cx) = remote_client.build_workspace(&remote_project, remote_cx);
-    add_debugger_panel(&remote_workspace, remote_cx).await;
-
-    remote_cx.run_until_parked();
-
-    active_call_b
-        .update(remote_cx, |call, cx| {
-            call.set_location(Some(&remote_project), cx)
-        })
-        .await
-        .unwrap();
+    remote_zed.join_project(host_project_id).await;
+    let (_client_remote, remote_workspace, _remote_project, remote_cx) = remote_zed.expand().await;
 
     host_cx.run_until_parked();
     remote_cx.run_until_parked();
