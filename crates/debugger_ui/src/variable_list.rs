@@ -548,6 +548,7 @@ impl VariableList {
                 }
 
                 variable_list.build_entries(true, true, cx);
+                variable_list.send_update_proto_message(cx);
             })
         }));
     }
