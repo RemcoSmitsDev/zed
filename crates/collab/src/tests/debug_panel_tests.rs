@@ -121,7 +121,7 @@ impl<'a> ZedInstance<'a> {
     }
 }
 
-async fn _setup_three_member_test<'a, 'b, 'c>(
+async fn setup_three_member_test<'a, 'b, 'c>(
     server: &mut TestServer,
     host_cx: &'a mut TestAppContext,
     first_remote_cx: &'b mut TestAppContext,
@@ -1877,70 +1877,24 @@ async fn test_ignore_breakpoints(
     cx_c: &mut TestAppContext,
 ) {
     let executor = host_cx.executor();
-    let mut server = TestServer::start(executor.clone()).await;
-    let host_client = server.create_client(host_cx, "host_user").await;
-    let remote_client = server.create_client(remote_cx, "remote_user").await;
-    let client_c = server.create_client(cx_c, "user_c").await;
+    let mut server = TestServer::start(executor).await;
 
-    host_client
-        .fs()
-        .insert_tree(
-            "/project",
-            json!({
-                "test.txt": "one\ntwo\nthree\nfour\nfive",
-            }),
-        )
+    let (mut host_zed, mut remote_zed, mut late_join_zed) =
+        setup_three_member_test(&mut server, host_cx, remote_cx, cx_c).await;
+
+    let (host_project_id, worktree_id) = host_zed
+        .host_project(Some(json!({"test.txt": "one\ntwo\nthree\nfour\nfive"})))
         .await;
 
-    init_test(host_cx);
-    init_test(remote_cx);
-    init_test(cx_c);
+    remote_zed.join_project(host_project_id).await;
 
-    server
-        .create_room(&mut [
-            (&host_client, host_cx),
-            (&remote_client, remote_cx),
-            (&client_c, cx_c),
-        ])
-        .await;
-    let active_call_a = host_cx.read(ActiveCall::global);
-    let active_call_b = remote_cx.read(ActiveCall::global);
-    let active_call_c = cx_c.read(ActiveCall::global);
-
-    let (host_project, worktree_id) = host_client.build_local_project("/project", host_cx).await;
-    active_call_a
-        .update(host_cx, |call, cx| {
-            call.set_location(Some(&host_project), cx)
-        })
-        .await
-        .unwrap();
+    let (_client_host, host_workspace, host_project, host_cx) = host_zed.expand().await;
+    let (_client_remote, remote_workspace, remote_project, remote_cx) = remote_zed.expand().await;
 
     let project_path = ProjectPath {
         worktree_id,
         path: Arc::from(Path::new(&"test.txt")),
     };
-
-    let project_id = active_call_a
-        .update(host_cx, |call, cx| {
-            call.share_project(host_project.clone(), cx)
-        })
-        .await
-        .unwrap();
-    let remote_project = remote_client
-        .join_remote_project(project_id, remote_cx)
-        .await;
-    active_call_b
-        .update(remote_cx, |call, cx| {
-            call.set_location(Some(&remote_project), cx)
-        })
-        .await
-        .unwrap();
-
-    let (host_workspace, host_cx) = host_client.build_workspace(&host_project, host_cx);
-    let (remote_workspace, remote_cx) = remote_client.build_workspace(&remote_project, remote_cx);
-
-    add_debugger_panel(&host_workspace, host_cx).await;
-    add_debugger_panel(&remote_workspace, remote_cx).await;
 
     let local_editor = host_workspace
         .update_in(host_cx, |workspace, window, cx| {
@@ -2247,19 +2201,13 @@ async fn test_ignore_breakpoints(
         })
         .await;
 
-    let project_c = client_c.join_remote_project(project_id, cx_c).await;
-    active_call_c
-        .update(cx_c, |call, cx| call.set_location(Some(&project_c), cx))
-        .await
-        .unwrap();
+    late_join_zed.join_project(host_project_id).await;
+    let (_client_remote_2, late_join_workspace, late_join_project, late_join_cx) =
+        late_join_zed.expand().await;
 
-    let (workspace_c, cx_c) = client_c.build_workspace(&project_c, cx_c);
+    late_join_cx.run_until_parked();
 
-    add_debugger_panel(&workspace_c, cx_c).await;
-
-    cx_c.run_until_parked();
-
-    let last_join_remote_item = workspace_c.update(cx_c, |workspace, cx| {
+    let last_join_remote_item = late_join_workspace.update(late_join_cx, |workspace, cx| {
         let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
         let active_debug_panel_item = debug_panel
             .update(cx, |this, cx| this.active_debug_panel_item(cx))
@@ -2284,7 +2232,7 @@ async fn test_ignore_breakpoints(
 
     host_cx.run_until_parked();
     remote_cx.run_until_parked();
-    cx_c.run_until_parked();
+    late_join_cx.run_until_parked();
 
     assert!(
         called_set_breakpoints.load(std::sync::atomic::Ordering::SeqCst),
@@ -2323,7 +2271,7 @@ async fn test_ignore_breakpoints(
         );
     });
 
-    last_join_remote_item.update(cx_c, |debug_panel_item, cx| {
+    last_join_remote_item.update(late_join_cx, |debug_panel_item, cx| {
         assert_eq!(
             false,
             debug_panel_item.are_breakpoints_ignored(cx),
@@ -2359,7 +2307,7 @@ async fn test_ignore_breakpoints(
         })
     });
 
-    project_c.update(cx_c, |project, cx| {
+    late_join_project.update(late_join_cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, _cx| {
             let sessions = dap_store.sessions().collect::<Vec<_>>();
 
