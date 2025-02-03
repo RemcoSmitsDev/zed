@@ -109,6 +109,10 @@ impl Console {
         &self.query_bar
     }
 
+    fn is_local(&self, cx: &Context<Self>) -> bool {
+        self.dap_store.read(cx).as_local().is_some()
+    }
+
     fn handle_stack_frame_list_events(
         &mut self,
         _: Entity<StackFrameList>,
@@ -352,11 +356,10 @@ impl Render for Console {
             .on_action(cx.listener(Self::evaluate))
             .size_full()
             .child(self.render_console(cx))
-            .child(
-                div()
-                    .child(self.render_query_bar(cx))
-                    .pt(DynamicSpacing::Base04.rems(cx)),
-            )
+            .when(self.is_local(cx), |this| {
+                this.child(self.render_query_bar(cx))
+                    .pt(DynamicSpacing::Base04.rems(cx))
+            })
             .border_2()
     }
 }
