@@ -1,13 +1,13 @@
 use dap::client::DebugAdapterClientId;
 use dap::session::DebugSessionId;
 use fuzzy::{StringMatch, StringMatchCandidate};
-use gpui::{DismissEvent, EventEmitter, FocusableView, Render, View};
-use gpui::{Model, Subscription};
+use gpui::Subscription;
+use gpui::{DismissEvent, Entity, EventEmitter, Focusable, Render};
 use picker::{Picker, PickerDelegate};
 use project::dap_store::DapStore;
 use std::sync::Arc;
 use sysinfo::System;
-use ui::{prelude::*, ViewContext};
+use ui::{prelude::*, Context, Tooltip};
 use ui::{ListItem, ListItemSpacing};
 use workspace::ModalView;
 
@@ -15,7 +15,7 @@ use workspace::ModalView;
 struct Candidate {
     pid: u32,
     name: String,
-    command: String,
+    command: Vec<String>,
 }
 
 pub(crate) struct AttachModalDelegate {
@@ -23,7 +23,7 @@ pub(crate) struct AttachModalDelegate {
     matches: Vec<StringMatch>,
     session_id: DebugSessionId,
     placeholder_text: Arc<str>,
-    dap_store: Model<DapStore>,
+    dap_store: Entity<DapStore>,
     client_id: DebugAdapterClientId,
     candidates: Option<Vec<Candidate>>,
 }
@@ -32,7 +32,7 @@ impl AttachModalDelegate {
     pub fn new(
         session_id: DebugSessionId,
         client_id: DebugAdapterClientId,
-        dap_store: Model<DapStore>,
+        dap_store: Entity<DapStore>,
     ) -> Self {
         Self {
             client_id,
@@ -48,19 +48,21 @@ impl AttachModalDelegate {
 
 pub(crate) struct AttachModal {
     _subscription: Subscription,
-    pub(crate) picker: View<Picker<AttachModalDelegate>>,
+    pub(crate) picker: Entity<Picker<AttachModalDelegate>>,
 }
 
 impl AttachModal {
     pub fn new(
         session_id: &DebugSessionId,
         client_id: &DebugAdapterClientId,
-        dap_store: Model<DapStore>,
-        cx: &mut ViewContext<Self>,
+        dap_store: Entity<DapStore>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
     ) -> Self {
-        let picker = cx.new_view(|cx| {
+        let picker = cx.new(|cx| {
             Picker::uniform_list(
                 AttachModalDelegate::new(*session_id, *client_id, dap_store),
+                window,
                 cx,
             )
         });
@@ -75,7 +77,7 @@ impl AttachModal {
 }
 
 impl Render for AttachModal {
-    fn render(&mut self, _: &mut ViewContext<Self>) -> impl ui::IntoElement {
+    fn render(&mut self, _window: &mut Window, _: &mut Context<Self>) -> impl ui::IntoElement {
         v_flex()
             .key_context("AttachModal")
             .w(rems(34.))
@@ -85,8 +87,8 @@ impl Render for AttachModal {
 
 impl EventEmitter<DismissEvent> for AttachModal {}
 
-impl FocusableView for AttachModal {
-    fn focus_handle(&self, cx: &gpui::AppContext) -> gpui::FocusHandle {
+impl Focusable for AttachModal {
+    fn focus_handle(&self, cx: &App) -> gpui::FocusHandle {
         self.picker.read(cx).focus_handle(cx)
     }
 }
@@ -104,18 +106,24 @@ impl PickerDelegate for AttachModalDelegate {
         self.selected_index
     }
 
-    fn set_selected_index(&mut self, ix: usize, _: &mut ViewContext<Picker<Self>>) {
+    fn set_selected_index(
+        &mut self,
+        ix: usize,
+        _window: &mut Window,
+        _: &mut Context<Picker<Self>>,
+    ) {
         self.selected_index = ix;
     }
 
-    fn placeholder_text(&self, _cx: &mut ui::WindowContext) -> std::sync::Arc<str> {
+    fn placeholder_text(&self, _window: &mut Window, _cx: &mut App) -> std::sync::Arc<str> {
         self.placeholder_text.clone()
     }
 
     fn update_matches(
         &mut self,
         query: String,
-        cx: &mut ViewContext<Picker<Self>>,
+        _window: &mut Window,
+        cx: &mut Context<Picker<Self>>,
     ) -> gpui::Task<()> {
         cx.spawn(|this, mut cx| async move {
             let Some(processes) = this
@@ -144,9 +152,8 @@ impl PickerDelegate for AttachModalDelegate {
                                 command: process
                                     .cmd()
                                     .iter()
-                                    .map(|s| s.to_string_lossy())
-                                    .collect::<Vec<_>>()
-                                    .join(" "),
+                                    .map(|s| s.to_string_lossy().to_string())
+                                    .collect::<Vec<_>>(),
                             })
                             .collect::<Vec<_>>();
 
@@ -167,8 +174,13 @@ impl PickerDelegate for AttachModalDelegate {
                     .map(|(id, candidate)| {
                         StringMatchCandidate::new(
                             id,
-                            format!("{} {} {}", candidate.command, candidate.pid, candidate.name)
-                                .as_str(),
+                            format!(
+                                "{} {} {}",
+                                candidate.command.join(" "),
+                                candidate.pid,
+                                candidate.name
+                            )
+                            .as_str(),
                         )
                     })
                     .collect::<Vec<_>>(),
@@ -197,7 +209,7 @@ impl PickerDelegate for AttachModalDelegate {
         })
     }
 
-    fn confirm(&mut self, _: bool, cx: &mut ViewContext<Picker<Self>>) {
+    fn confirm(&mut self, _: bool, _window: &mut Window, cx: &mut Context<Picker<Self>>) {
         let candidate = self
             .matches
             .get(self.selected_index())
@@ -218,7 +230,7 @@ impl PickerDelegate for AttachModalDelegate {
         cx.emit(DismissEvent);
     }
 
-    fn dismissed(&mut self, cx: &mut ViewContext<Picker<Self>>) {
+    fn dismissed(&mut self, _window: &mut Window, cx: &mut Context<Picker<Self>>) {
         self.selected_index = 0;
         self.candidates.take();
 
@@ -233,25 +245,48 @@ impl PickerDelegate for AttachModalDelegate {
         &self,
         ix: usize,
         selected: bool,
-        _: &mut ViewContext<Picker<Self>>,
+        _window: &mut Window,
+        _: &mut Context<Picker<Self>>,
     ) -> Option<Self::ListItem> {
         let candidates = self.candidates.as_ref()?;
         let hit = &self.matches[ix];
         let candidate = &candidates.get(hit.candidate_id)?;
 
         Some(
-            ListItem::new(SharedString::from(format!("attach-modal-{ix}")))
+            ListItem::new(SharedString::from(format!("process-entry-{ix}")))
                 .inset(true)
                 .spacing(ListItemSpacing::Sparse)
                 .toggle_state(selected)
                 .child(
                     v_flex()
                         .items_start()
-                        .child(Label::new(candidate.command.clone()))
+                        .child(Label::new(format!("{} {}", candidate.name, candidate.pid)))
                         .child(
-                            Label::new(format!("Pid: {}, name: {}", candidate.pid, candidate.name))
-                                .size(LabelSize::Small)
-                                .color(Color::Muted),
+                            div()
+                                .id(SharedString::from(format!("process-entry-{ix}-command")))
+                                .tooltip(Tooltip::text(
+                                    candidate
+                                        .command
+                                        .clone()
+                                        .into_iter()
+                                        .collect::<Vec<_>>()
+                                        .join(" "),
+                                ))
+                                .child(
+                                    Label::new(format!(
+                                        "{} {}",
+                                        candidate.name,
+                                        candidate
+                                            .command
+                                            .clone()
+                                            .into_iter()
+                                            .skip(1)
+                                            .collect::<Vec<_>>()
+                                            .join(" ")
+                                    ))
+                                    .size(LabelSize::Small)
+                                    .color(Color::Muted),
+                                ),
                         ),
                 ),
         )
@@ -260,10 +295,7 @@ impl PickerDelegate for AttachModalDelegate {
 
 #[allow(dead_code)]
 #[cfg(any(test, feature = "test-support"))]
-pub(crate) fn procss_names(
-    modal: &AttachModal,
-    cx: &mut gpui::ViewContext<AttachModal>,
-) -> Vec<String> {
+pub(crate) fn procss_names(modal: &AttachModal, cx: &mut Context<AttachModal>) -> Vec<String> {
     modal.picker.update(cx, |picker, _| {
         picker
             .delegate

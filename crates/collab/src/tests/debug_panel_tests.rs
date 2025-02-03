@@ -7,7 +7,7 @@ use dap::{
 use dap::{Scope, Variable};
 use debugger_ui::{debugger_panel::DebugPanel, variable_list::VariableContainer};
 use editor::Editor;
-use gpui::{TestAppContext, View, VisualTestContext};
+use gpui::{Entity, TestAppContext, VisualTestContext};
 use project::ProjectPath;
 use serde_json::json;
 use std::sync::Arc;
@@ -35,14 +35,16 @@ pub fn init_test(cx: &mut gpui::TestAppContext) {
     });
 }
 
-pub async fn add_debugger_panel(workspace: &View<Workspace>, cx: &mut VisualTestContext) {
+async fn add_debugger_panel(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) {
     let debugger_panel = workspace
-        .update(cx, |_, cx| cx.spawn(DebugPanel::load))
+        .update_in(cx, |_workspace, window, cx| {
+            cx.spawn_in(window, DebugPanel::load)
+        })
         .await
         .unwrap();
 
-    workspace.update(cx, |workspace, cx| {
-        workspace.add_panel(debugger_panel, cx);
+    workspace.update_in(cx, |workspace, window, cx| {
+        workspace.add_panel(debugger_panel, window, cx);
     });
 }
 
@@ -65,7 +67,7 @@ async fn test_debug_panel_item_opens_on_remote(
     let active_call_a = cx_a.read(ActiveCall::global);
     let active_call_b = cx_b.read(ActiveCall::global);
 
-    let (project_a, _worktree_id) = client_a.build_local_project("/a", cx_a).await;
+    let (project_a, _worktree_id) = client_a.build_local_project("/project", cx_a).await;
     active_call_a
         .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
         .await
@@ -87,20 +89,20 @@ async fn test_debug_panel_item_opens_on_remote(
     add_debugger_panel(&workspace_a, cx_a).await;
     add_debugger_panel(&workspace_b, cx_b).await;
 
+    cx_b.run_until_parked();
+
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -184,7 +186,7 @@ async fn test_active_debug_panel_item_set_on_join_project(
     let active_call_a = cx_a.read(ActiveCall::global);
     let active_call_b = cx_b.read(ActiveCall::global);
 
-    let (project_a, _worktree_id) = client_a.build_local_project("/a", cx_a).await;
+    let (project_a, _worktree_id) = client_a.build_local_project("/project", cx_a).await;
     active_call_a
         .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
         .await
@@ -199,20 +201,20 @@ async fn test_active_debug_panel_item_set_on_join_project(
 
     add_debugger_panel(&workspace_a, cx_a).await;
 
+    cx_a.run_until_parked();
+
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -255,8 +257,11 @@ async fn test_active_debug_panel_item_set_on_join_project(
     cx_a.run_until_parked();
 
     let project_b = client_b.join_remote_project(project_id, cx_b).await;
+
     let (workspace_b, cx_b) = client_b.build_workspace(&project_b, cx_b);
     add_debugger_panel(&workspace_b, cx_b).await;
+
+    cx_b.run_until_parked();
 
     active_call_b
         .update(cx_b, |call, cx| call.set_location(Some(&project_b), cx))
@@ -320,7 +325,7 @@ async fn test_debug_panel_remote_button_presses(
     let active_call_a = cx_a.read(ActiveCall::global);
     let active_call_b = cx_b.read(ActiveCall::global);
 
-    let (project_a, _worktree_id) = client_a.build_local_project("/a", cx_a).await;
+    let (project_a, _worktree_id) = client_a.build_local_project("/project", cx_a).await;
     active_call_a
         .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
         .await
@@ -343,19 +348,17 @@ async fn test_debug_panel_remote_button_presses(
     add_debugger_panel(&workspace_b, cx_b).await;
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (_, client) = task.await.unwrap();
@@ -683,7 +686,7 @@ async fn test_restart_stack_frame(cx_a: &mut TestAppContext, cx_b: &mut TestAppC
     let active_call_a = cx_a.read(ActiveCall::global);
     let active_call_b = cx_b.read(ActiveCall::global);
 
-    let (project_a, _worktree_id) = client_a.build_local_project("/a", cx_a).await;
+    let (project_a, _worktree_id) = client_a.build_local_project("/project", cx_a).await;
     active_call_a
         .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
         .await
@@ -706,19 +709,17 @@ async fn test_restart_stack_frame(cx_a: &mut TestAppContext, cx_b: &mut TestAppC
     add_debugger_panel(&workspace_b, cx_b).await;
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -847,7 +848,7 @@ async fn test_updated_breakpoints_send_to_dap(
     client_a
         .fs()
         .insert_tree(
-            "/a",
+            "/project",
             json!({
                 "test.txt": "one\ntwo\nthree\nfour\nfive",
             }),
@@ -863,7 +864,7 @@ async fn test_updated_breakpoints_send_to_dap(
     let active_call_a = cx_a.read(ActiveCall::global);
     let active_call_b = cx_b.read(ActiveCall::global);
 
-    let (project_a, worktree_id) = client_a.build_local_project("/a", cx_a).await;
+    let (project_a, worktree_id) = client_a.build_local_project("/project", cx_a).await;
     active_call_a
         .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
         .await
@@ -891,19 +892,17 @@ async fn test_updated_breakpoints_send_to_dap(
     add_debugger_panel(&workspace_b, cx_b).await;
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -932,7 +931,7 @@ async fn test_updated_breakpoints_send_to_dap(
         .on_request::<SetBreakpoints, _>({
             let called_set_breakpoints = called_set_breakpoints.clone();
             move |_, args| {
-                assert_eq!("/a/test.txt", args.source.path.unwrap());
+                assert_eq!("/project/test.txt", args.source.path.unwrap());
                 assert_eq!(
                     vec![SourceBreakpoint {
                         line: 3,
@@ -974,24 +973,24 @@ async fn test_updated_breakpoints_send_to_dap(
 
     // Client B opens an editor.
     let editor_b = workspace_b
-        .update(cx_b, |workspace, cx| {
-            workspace.open_path(project_path.clone(), None, true, cx)
+        .update_in(cx_b, |workspace, window, cx| {
+            workspace.open_path(project_path.clone(), None, true, window, cx)
         })
         .await
         .unwrap()
         .downcast::<Editor>()
         .unwrap();
 
-    editor_b.update(cx_b, |editor, cx| {
-        editor.move_down(&editor::actions::MoveDown, cx);
-        editor.move_down(&editor::actions::MoveDown, cx);
-        editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, cx);
+    editor_b.update_in(cx_b, |editor, window, cx| {
+        editor.move_down(&editor::actions::MoveDown, window, cx);
+        editor.move_down(&editor::actions::MoveDown, window, cx);
+        editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, window, cx);
     });
 
     // Client A opens an editor.
     let editor_a = workspace_a
-        .update(cx_a, |workspace, cx| {
-            workspace.open_path(project_path.clone(), None, true, cx)
+        .update_in(cx_a, |workspace, window, cx| {
+            workspace.open_path(project_path.clone(), None, true, window, cx)
         })
         .await
         .unwrap()
@@ -1006,7 +1005,7 @@ async fn test_updated_breakpoints_send_to_dap(
         .on_request::<SetBreakpoints, _>({
             let called_set_breakpoints = called_set_breakpoints.clone();
             move |_, args| {
-                assert_eq!("/a/test.txt", args.source.path.unwrap());
+                assert_eq!("/project/test.txt", args.source.path.unwrap());
                 assert!(args.breakpoints.unwrap().is_empty());
                 assert!(!args.source_modified.unwrap());
 
@@ -1020,10 +1019,10 @@ async fn test_updated_breakpoints_send_to_dap(
         .await;
 
     // remove the breakpoint that client B added
-    editor_a.update(cx_a, |editor, cx| {
-        editor.move_down(&editor::actions::MoveDown, cx);
-        editor.move_down(&editor::actions::MoveDown, cx);
-        editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, cx);
+    editor_a.update_in(cx_a, |editor, window, cx| {
+        editor.move_down(&editor::actions::MoveDown, window, cx);
+        editor.move_down(&editor::actions::MoveDown, window, cx);
+        editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, window, cx);
     });
 
     cx_a.run_until_parked();
@@ -1039,7 +1038,7 @@ async fn test_updated_breakpoints_send_to_dap(
         .on_request::<SetBreakpoints, _>({
             let called_set_breakpoints = called_set_breakpoints.clone();
             move |_, args| {
-                assert_eq!("/a/test.txt", args.source.path.unwrap());
+                assert_eq!("/project/test.txt", args.source.path.unwrap());
                 let mut breakpoints = args.breakpoints.unwrap();
                 breakpoints.sort_by_key(|b| b.line);
                 assert_eq!(
@@ -1075,10 +1074,10 @@ async fn test_updated_breakpoints_send_to_dap(
         .await;
 
     // Add our own breakpoint now
-    editor_a.update(cx_a, |editor, cx| {
-        editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, cx);
-        editor.move_up(&editor::actions::MoveUp, cx);
-        editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, cx);
+    editor_a.update_in(cx_a, |editor, window, cx| {
+        editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, window, cx);
+        editor.move_up(&editor::actions::MoveUp, window, cx);
+        editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, window, cx);
     });
 
     cx_a.run_until_parked();
@@ -1121,7 +1120,7 @@ async fn test_module_list(
     let active_call_b = cx_b.read(ActiveCall::global);
     let active_call_c = cx_c.read(ActiveCall::global);
 
-    let (project_a, _worktree_id) = client_a.build_local_project("/a", cx_a).await;
+    let (project_a, _worktree_id) = client_a.build_local_project("/project", cx_a).await;
     active_call_a
         .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
         .await
@@ -1144,19 +1143,17 @@ async fn test_module_list(
     add_debugger_panel(&workspace_b, cx_b).await;
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -1326,7 +1323,11 @@ async fn test_module_list(
         .unwrap();
 
     let (workspace_c, cx_c) = client_c.build_workspace(&project_c, cx_c);
+
     add_debugger_panel(&workspace_c, cx_c).await;
+
+    cx_c.run_until_parked();
+
     cx_c.run_until_parked();
 
     workspace_c.update(cx_c, |workspace, cx| {
@@ -1390,7 +1391,7 @@ async fn test_variable_list(
     let active_call_b = cx_b.read(ActiveCall::global);
     let active_call_c = cx_c.read(ActiveCall::global);
 
-    let (project_a, _worktree_id) = client_a.build_local_project("/a", cx_a).await;
+    let (project_a, _worktree_id) = client_a.build_local_project("/project", cx_a).await;
     active_call_a
         .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
         .await
@@ -1413,19 +1414,17 @@ async fn test_variable_list(
     add_debugger_panel(&workspace_b, cx_b).await;
 
     let task = project_a.update(cx_a, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                dap::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: dap::DebugAdapterKind::Fake,
-                    request: dap::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -1812,6 +1811,8 @@ async fn test_variable_list(
 
     let (workspace_c, cx_c) = client_c.build_workspace(&project_c, cx_c);
     add_debugger_panel(&workspace_c, cx_c).await;
+
+    cx_c.run_until_parked();
     cx_c.run_until_parked();
 
     let last_join_remote_item = workspace_c.update(cx_c, |workspace, cx| {
@@ -1849,4 +1850,499 @@ async fn test_variable_list(
     });
 
     shutdown_client.await.unwrap();
+}
+
+#[gpui::test]
+async fn test_ignore_breakpoints(
+    cx_a: &mut TestAppContext,
+    cx_b: &mut TestAppContext,
+    cx_c: &mut TestAppContext,
+) {
+    let executor = cx_a.executor();
+    let mut server = TestServer::start(executor.clone()).await;
+    let client_a = server.create_client(cx_a, "user_a").await;
+    let client_b = server.create_client(cx_b, "user_b").await;
+    let client_c = server.create_client(cx_c, "user_c").await;
+
+    client_a
+        .fs()
+        .insert_tree(
+            "/project",
+            json!({
+                "test.txt": "one\ntwo\nthree\nfour\nfive",
+            }),
+        )
+        .await;
+
+    init_test(cx_a);
+    init_test(cx_b);
+    init_test(cx_c);
+
+    server
+        .create_room(&mut [(&client_a, cx_a), (&client_b, cx_b), (&client_c, cx_c)])
+        .await;
+    let active_call_a = cx_a.read(ActiveCall::global);
+    let active_call_b = cx_b.read(ActiveCall::global);
+    let active_call_c = cx_c.read(ActiveCall::global);
+
+    let (project_a, worktree_id) = client_a.build_local_project("/project", cx_a).await;
+    active_call_a
+        .update(cx_a, |call, cx| call.set_location(Some(&project_a), cx))
+        .await
+        .unwrap();
+
+    let project_path = ProjectPath {
+        worktree_id,
+        path: Arc::from(Path::new(&"test.txt")),
+    };
+
+    let project_id = active_call_a
+        .update(cx_a, |call, cx| call.share_project(project_a.clone(), cx))
+        .await
+        .unwrap();
+    let project_b = client_b.join_remote_project(project_id, cx_b).await;
+    active_call_b
+        .update(cx_b, |call, cx| call.set_location(Some(&project_b), cx))
+        .await
+        .unwrap();
+
+    let (workspace_a, cx_a) = client_a.build_workspace(&project_a, cx_a);
+    let (workspace_b, cx_b) = client_b.build_workspace(&project_b, cx_b);
+
+    add_debugger_panel(&workspace_a, cx_a).await;
+    add_debugger_panel(&workspace_b, cx_b).await;
+
+    let local_editor = workspace_a
+        .update_in(cx_a, |workspace, window, cx| {
+            workspace.open_path(project_path.clone(), None, true, window, cx)
+        })
+        .await
+        .unwrap()
+        .downcast::<Editor>()
+        .unwrap();
+
+    local_editor.update_in(cx_a, |editor, window, cx| {
+        editor.move_down(&editor::actions::MoveDown, window, cx);
+        editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, window, cx); // Line 2
+        editor.move_down(&editor::actions::MoveDown, window, cx);
+        editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, window, cx);
+        // Line 3
+    });
+
+    cx_a.run_until_parked();
+    cx_b.run_until_parked();
+
+    let task = project_a.update(cx_a, |project, cx| {
+        project.start_debug_session(
+            dap::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: dap::DebugAdapterKind::Fake,
+                request: dap::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
+    });
+
+    let (session, client) = task.await.unwrap();
+    let client_id = client.id();
+
+    client
+        .on_request::<Initialize, _>(move |_, _| {
+            Ok(dap::Capabilities {
+                supports_configuration_done_request: Some(true),
+                ..Default::default()
+            })
+        })
+        .await;
+
+    let called_set_breakpoints = Arc::new(AtomicBool::new(false));
+    client
+        .on_request::<SetBreakpoints, _>({
+            let called_set_breakpoints = called_set_breakpoints.clone();
+            move |_, args| {
+                assert_eq!("/project/test.txt", args.source.path.unwrap());
+
+                let mut actual_breakpoints = args.breakpoints.unwrap();
+                actual_breakpoints.sort_by_key(|b| b.line);
+
+                let expected_breakpoints = vec![
+                    SourceBreakpoint {
+                        line: 2,
+                        column: None,
+                        condition: None,
+                        hit_condition: None,
+                        log_message: None,
+                        mode: None,
+                    },
+                    SourceBreakpoint {
+                        line: 3,
+                        column: None,
+                        condition: None,
+                        hit_condition: None,
+                        log_message: None,
+                        mode: None,
+                    },
+                ];
+
+                assert_eq!(actual_breakpoints, expected_breakpoints);
+
+                called_set_breakpoints.store(true, Ordering::SeqCst);
+
+                Ok(dap::SetBreakpointsResponse {
+                    breakpoints: Vec::default(),
+                })
+            }
+        })
+        .await;
+
+    client.on_request::<Launch, _>(move |_, _| Ok(())).await;
+    client
+        .on_request::<StackTrace, _>(move |_, _| {
+            Ok(dap::StackTraceResponse {
+                stack_frames: Vec::default(),
+                total_frames: None,
+            })
+        })
+        .await;
+
+    client.on_request::<Disconnect, _>(move |_, _| Ok(())).await;
+
+    client
+        .fake_event(dap::messages::Events::Initialized(Some(
+            dap::Capabilities {
+                supports_configuration_done_request: Some(true),
+                ..Default::default()
+            },
+        )))
+        .await;
+
+    cx_a.run_until_parked();
+    cx_b.run_until_parked();
+
+    assert!(
+        called_set_breakpoints.load(std::sync::atomic::Ordering::SeqCst),
+        "SetBreakpoint request must be called when starting debug session"
+    );
+
+    client
+        .fake_event(dap::messages::Events::Stopped(dap::StoppedEvent {
+            reason: dap::StoppedEventReason::Pause,
+            description: None,
+            thread_id: Some(1),
+            preserve_focus_hint: None,
+            text: None,
+            all_threads_stopped: None,
+            hit_breakpoint_ids: None,
+        }))
+        .await;
+
+    cx_a.run_until_parked();
+    cx_b.run_until_parked();
+
+    let remote_debug_item = workspace_b.update(cx_b, |workspace, cx| {
+        let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
+        let active_debug_panel_item = debug_panel
+            .update(cx, |this, cx| this.active_debug_panel_item(cx))
+            .unwrap();
+
+        assert_eq!(
+            1,
+            debug_panel.update(cx, |this, cx| this.pane().unwrap().read(cx).items_len())
+        );
+
+        let session_id = debug_panel.update(cx, |this, cx| {
+            this.dap_store()
+                .read(cx)
+                .as_remote()
+                .unwrap()
+                .session_by_client_id(&client.id())
+                .unwrap()
+                .read(cx)
+                .id()
+        });
+
+        let breakpoints_ignored = active_debug_panel_item.read(cx).are_breakpoints_ignored(cx);
+
+        assert_eq!(session_id, active_debug_panel_item.read(cx).session_id());
+        assert_eq!(false, breakpoints_ignored);
+        assert_eq!(client.id(), active_debug_panel_item.read(cx).client_id());
+        assert_eq!(1, active_debug_panel_item.read(cx).thread_id());
+        active_debug_panel_item
+    });
+
+    called_set_breakpoints.store(false, Ordering::SeqCst);
+
+    client
+        .on_request::<SetBreakpoints, _>({
+            let called_set_breakpoints = called_set_breakpoints.clone();
+            move |_, args| {
+                assert_eq!("/project/test.txt", args.source.path.unwrap());
+                assert_eq!(args.breakpoints, Some(vec![]));
+
+                called_set_breakpoints.store(true, Ordering::SeqCst);
+
+                Ok(dap::SetBreakpointsResponse {
+                    breakpoints: Vec::default(),
+                })
+            }
+        })
+        .await;
+
+    let local_debug_item = workspace_a.update(cx_a, |workspace, cx| {
+        let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
+        let active_debug_panel_item = debug_panel
+            .update(cx, |this, cx| this.active_debug_panel_item(cx))
+            .unwrap();
+
+        assert_eq!(
+            1,
+            debug_panel.update(cx, |this, cx| this.pane().unwrap().read(cx).items_len())
+        );
+
+        assert_eq!(
+            false,
+            active_debug_panel_item.read(cx).are_breakpoints_ignored(cx)
+        );
+        assert_eq!(client.id(), active_debug_panel_item.read(cx).client_id());
+        assert_eq!(1, active_debug_panel_item.read(cx).thread_id());
+
+        active_debug_panel_item
+    });
+
+    local_debug_item.update(cx_a, |item, cx| {
+        item.toggle_ignore_breakpoints(cx); // Set to true
+        assert_eq!(true, item.are_breakpoints_ignored(cx));
+    });
+
+    cx_a.run_until_parked();
+    cx_b.run_until_parked();
+
+    assert!(
+        called_set_breakpoints.load(std::sync::atomic::Ordering::SeqCst),
+        "SetBreakpoint request must be called to ignore breakpoints"
+    );
+
+    client
+        .on_request::<SetBreakpoints, _>({
+            let called_set_breakpoints = called_set_breakpoints.clone();
+            move |_, _args| {
+                called_set_breakpoints.store(true, Ordering::SeqCst);
+
+                Ok(dap::SetBreakpointsResponse {
+                    breakpoints: Vec::default(),
+                })
+            }
+        })
+        .await;
+
+    let remote_editor = workspace_b
+        .update_in(cx_b, |workspace, window, cx| {
+            workspace.open_path(project_path.clone(), None, true, window, cx)
+        })
+        .await
+        .unwrap()
+        .downcast::<Editor>()
+        .unwrap();
+
+    called_set_breakpoints.store(false, std::sync::atomic::Ordering::SeqCst);
+
+    remote_editor.update_in(cx_b, |editor, window, cx| {
+        // Line 1
+        editor.toggle_breakpoint(&editor::actions::ToggleBreakpoint, window, cx);
+    });
+
+    cx_a.run_until_parked();
+    cx_b.run_until_parked();
+
+    assert!(
+        called_set_breakpoints.load(std::sync::atomic::Ordering::SeqCst),
+        "SetBreakpoint request be called whenever breakpoints are toggled but with not breakpoints"
+    );
+
+    remote_debug_item.update(cx_b, |debug_panel, cx| {
+        let breakpoints_ignored = debug_panel.are_breakpoints_ignored(cx);
+
+        assert_eq!(true, breakpoints_ignored);
+        assert_eq!(client.id(), debug_panel.client_id());
+        assert_eq!(1, debug_panel.thread_id());
+    });
+
+    client
+        .on_request::<SetBreakpoints, _>({
+            let called_set_breakpoints = called_set_breakpoints.clone();
+            move |_, args| {
+                assert_eq!("/project/test.txt", args.source.path.unwrap());
+
+                let mut actual_breakpoints = args.breakpoints.unwrap();
+                actual_breakpoints.sort_by_key(|b| b.line);
+
+                let expected_breakpoints = vec![
+                    SourceBreakpoint {
+                        line: 1,
+                        column: None,
+                        condition: None,
+                        hit_condition: None,
+                        log_message: None,
+                        mode: None,
+                    },
+                    SourceBreakpoint {
+                        line: 2,
+                        column: None,
+                        condition: None,
+                        hit_condition: None,
+                        log_message: None,
+                        mode: None,
+                    },
+                    SourceBreakpoint {
+                        line: 3,
+                        column: None,
+                        condition: None,
+                        hit_condition: None,
+                        log_message: None,
+                        mode: None,
+                    },
+                ];
+
+                assert_eq!(actual_breakpoints, expected_breakpoints);
+
+                called_set_breakpoints.store(true, Ordering::SeqCst);
+
+                Ok(dap::SetBreakpointsResponse {
+                    breakpoints: Vec::default(),
+                })
+            }
+        })
+        .await;
+
+    let project_c = client_c.join_remote_project(project_id, cx_c).await;
+    active_call_c
+        .update(cx_c, |call, cx| call.set_location(Some(&project_c), cx))
+        .await
+        .unwrap();
+
+    let (workspace_c, cx_c) = client_c.build_workspace(&project_c, cx_c);
+
+    add_debugger_panel(&workspace_c, cx_c).await;
+
+    cx_c.run_until_parked();
+
+    let last_join_remote_item = workspace_c.update(cx_c, |workspace, cx| {
+        let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
+        let active_debug_panel_item = debug_panel
+            .update(cx, |this, cx| this.active_debug_panel_item(cx))
+            .unwrap();
+
+        let breakpoints_ignored = active_debug_panel_item.read(cx).are_breakpoints_ignored(cx);
+
+        assert_eq!(true, breakpoints_ignored);
+
+        assert_eq!(
+            1,
+            debug_panel.update(cx, |this, cx| this.pane().unwrap().read(cx).items_len())
+        );
+        assert_eq!(client.id(), active_debug_panel_item.read(cx).client_id());
+        assert_eq!(1, active_debug_panel_item.read(cx).thread_id());
+        active_debug_panel_item
+    });
+
+    remote_debug_item.update(cx_b, |item, cx| {
+        item.toggle_ignore_breakpoints(cx);
+    });
+
+    cx_a.run_until_parked();
+    cx_b.run_until_parked();
+    cx_c.run_until_parked();
+
+    assert!(
+        called_set_breakpoints.load(std::sync::atomic::Ordering::SeqCst),
+        "SetBreakpoint request should be called to update breakpoints"
+    );
+
+    client
+        .on_request::<SetBreakpoints, _>({
+            let called_set_breakpoints = called_set_breakpoints.clone();
+            move |_, args| {
+                assert_eq!("/project/test.txt", args.source.path.unwrap());
+                assert_eq!(args.breakpoints, Some(vec![]));
+
+                called_set_breakpoints.store(true, Ordering::SeqCst);
+
+                Ok(dap::SetBreakpointsResponse {
+                    breakpoints: Vec::default(),
+                })
+            }
+        })
+        .await;
+
+    local_debug_item.update(cx_a, |debug_panel_item, cx| {
+        assert_eq!(
+            false,
+            debug_panel_item.are_breakpoints_ignored(cx),
+            "Remote client set this to false"
+        );
+    });
+
+    remote_debug_item.update(cx_b, |debug_panel_item, cx| {
+        assert_eq!(
+            false,
+            debug_panel_item.are_breakpoints_ignored(cx),
+            "Remote client set this to false"
+        );
+    });
+
+    last_join_remote_item.update(cx_c, |debug_panel_item, cx| {
+        assert_eq!(
+            false,
+            debug_panel_item.are_breakpoints_ignored(cx),
+            "Remote client set this to false"
+        );
+    });
+
+    let shutdown_client = project_a.update(cx_a, |project, cx| {
+        project.dap_store().update(cx, |dap_store, cx| {
+            dap_store.shutdown_session(&session.read(cx).id(), cx)
+        })
+    });
+
+    shutdown_client.await.unwrap();
+
+    cx_a.run_until_parked();
+    cx_b.run_until_parked();
+
+    project_b.update(cx_b, |project, cx| {
+        project.dap_store().update(cx, |dap_store, _cx| {
+            let sessions = dap_store.sessions().collect::<Vec<_>>();
+
+            assert_eq!(
+                None,
+                dap_store.session_by_client_id(&client_id),
+                "No client_id to session mapping should exist after shutdown"
+            );
+            assert_eq!(
+                0,
+                sessions.len(),
+                "No sessions should be left after shutdown"
+            );
+        })
+    });
+
+    project_c.update(cx_c, |project, cx| {
+        project.dap_store().update(cx, |dap_store, _cx| {
+            let sessions = dap_store.sessions().collect::<Vec<_>>();
+
+            assert_eq!(
+                None,
+                dap_store.session_by_client_id(&client_id),
+                "No client_id to session mapping should exist after shutdown"
+            );
+            assert_eq!(
+                0,
+                sessions.len(),
+                "No sessions should be left after shutdown"
+            );
+        })
+    });
 }

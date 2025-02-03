@@ -34,7 +34,6 @@ collections.workspace = true
 dashmap.workspace = true
 derive_more.workspace = true
 envy = "0.4.2"
-fireworks.workspace = true
 futures.workspace = true
 google_ai.workspace = true
 hex.workspace = true
@@ -79,6 +78,7 @@ uuid.workspace = true
 
 [dev-dependencies]
 assistant = { workspace = true, features = ["test-support"] }
+assistant_context_editor.workspace = true
 assistant_slash_command.workspace = true
 assistant_tool.workspace = true
 async-trait.workspace = true

@@ -1,12 +1,12 @@
 use std::sync::Arc;
 use std::{fmt::Debug, path::Path};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Context as _, Result};
 use collections::HashMap;
 use derive_more::{Deref, DerefMut};
 use fs::Fs;
 use futures::StreamExt;
-use gpui::{AppContext, AssetSource, Global, SharedString};
+use gpui::{App, AssetSource, Global, SharedString};
 use parking_lot::RwLock;
 use util::ResultExt;
 
@@ -49,19 +49,19 @@ pub struct ThemeRegistry {
 
 impl ThemeRegistry {
     /// Returns the global [`ThemeRegistry`].
-    pub fn global(cx: &AppContext) -> Arc<Self> {
+    pub fn global(cx: &App) -> Arc<Self> {
         cx.global::<GlobalThemeRegistry>().0.clone()
     }
 
     /// Returns the global [`ThemeRegistry`].
     ///
     /// Inserts a default [`ThemeRegistry`] if one does not yet exist.
-    pub fn default_global(cx: &mut AppContext) -> Arc<Self> {
+    pub fn default_global(cx: &mut App) -> Arc<Self> {
         cx.default_global::<GlobalThemeRegistry>().0.clone()
     }
 
     /// Sets the global [`ThemeRegistry`].
-    pub(crate) fn set_global(assets: Box<dyn AssetSource>, cx: &mut AppContext) {
+    pub(crate) fn set_global(assets: Box<dyn AssetSource>, cx: &mut App) {
         cx.set_global(GlobalThemeRegistry(Arc::new(ThemeRegistry::new(assets))));
     }
 
@@ -212,6 +212,19 @@ impl ThemeRegistry {
         self.get_icon_theme(DEFAULT_ICON_THEME_NAME)
     }
 
+    /// Returns the metadata of all icon themes in the registry.
+    pub fn list_icon_themes(&self) -> Vec<ThemeMeta> {
+        self.state
+            .read()
+            .icon_themes
+            .values()
+            .map(|theme| ThemeMeta {
+                name: theme.name.clone(),
+                appearance: theme.appearance,
+            })
+            .collect()
+    }
+
     /// Returns the icon theme with the specified name.
     pub fn get_icon_theme(&self, name: &str) -> Result<Arc<IconTheme>> {
         self.state
@@ -242,6 +255,14 @@ impl ThemeRegistry {
     ) -> Result<()> {
         let icon_theme_family = read_icon_theme(icon_theme_path, fs).await?;
 
+        let resolve_icon_path = |path: SharedString| {
+            icons_root_dir
+                .join(path.as_ref())
+                .to_string_lossy()
+                .to_string()
+                .into()
+        };
+
         let mut state = self.state.write();
         for icon_theme in icon_theme_family.themes {
             let icon_theme = IconTheme {
@@ -252,23 +273,21 @@ impl ThemeRegistry {
                     AppearanceContent::Dark => Appearance::Dark,
                 },
                 directory_icons: DirectoryIcons {
-                    collapsed: icon_theme.directory_icons.collapsed,
-                    expanded: icon_theme.directory_icons.expanded,
+                    collapsed: icon_theme.directory_icons.collapsed.map(resolve_icon_path),
+                    expanded: icon_theme.directory_icons.expanded.map(resolve_icon_path),
                 },
                 chevron_icons: ChevronIcons {
-                    collapsed: icon_theme.chevron_icons.collapsed,
-                    expanded: icon_theme.chevron_icons.expanded,
+                    collapsed: icon_theme.chevron_icons.collapsed.map(resolve_icon_path),
+                    expanded: icon_theme.chevron_icons.expanded.map(resolve_icon_path),
                 },
                 file_icons: icon_theme
                     .file_icons
                     .into_iter()
                     .map(|(key, icon)| {
-                        let path = icons_root_dir.join(icon.path.as_ref());
-
                         (
                             key,
                             IconDefinition {
-                                path: path.to_string_lossy().to_string().into(),
+                                path: resolve_icon_path(icon.path),
                             },
                         )
                     })

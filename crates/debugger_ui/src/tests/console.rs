@@ -20,24 +20,30 @@ async fn test_handle_output_event(executor: BackgroundExecutor, cx: &mut TestApp
 
     let fs = FakeFs::new(executor.clone());
 
-    let project = Project::test(fs, [], cx).await;
+    fs.insert_tree(
+        "/project",
+        json!({
+            "main.rs": "First line\nSecond line\nThird line\nFourth line",
+        }),
+    )
+    .await;
+
+    let project = Project::test(fs, ["/project".as_ref()], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                task::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: task::DebugAdapterKind::Fake,
-                    request: task::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            task::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: task::DebugAdapterKind::Fake,
+                request: task::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -106,7 +112,7 @@ async fn test_handle_output_event(executor: BackgroundExecutor, cx: &mut TestApp
 
     // assert we have output from before the thread stopped
     workspace
-        .update(cx, |workspace, cx| {
+        .update(cx, |workspace, _window, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
             let active_debug_panel_item = debug_panel
                 .update(cx, |this, cx| this.active_debug_panel_item(cx))
@@ -151,7 +157,7 @@ async fn test_handle_output_event(executor: BackgroundExecutor, cx: &mut TestApp
 
     // assert we have output from before and after the thread stopped
     workspace
-        .update(cx, |workspace, cx| {
+        .update(cx, |workspace, _window, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
             let active_debug_panel_item = debug_panel
                 .update(cx, |this, cx| this.active_debug_panel_item(cx))
@@ -181,24 +187,30 @@ async fn test_grouped_output(executor: BackgroundExecutor, cx: &mut TestAppConte
 
     let fs = FakeFs::new(executor.clone());
 
-    let project = Project::test(fs, [], cx).await;
+    fs.insert_tree(
+        "/project",
+        json!({
+            "main.rs": "First line\nSecond line\nThird line\nFourth line",
+        }),
+    )
+    .await;
+
+    let project = Project::test(fs, ["/project".as_ref()], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                task::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: task::DebugAdapterKind::Fake,
-                    request: task::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            task::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: task::DebugAdapterKind::Fake,
+                request: task::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -489,19 +501,17 @@ async fn test_evaluate_expression(executor: BackgroundExecutor, cx: &mut TestApp
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                task::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: task::DebugAdapterKind::Fake,
-                    request: task::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            task::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: task::DebugAdapterKind::Fake,
+                request: task::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -740,13 +750,15 @@ async fn test_evaluate_expression(executor: BackgroundExecutor, cx: &mut TestApp
 
     cx.run_until_parked();
 
-    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
-        debug_panel_item.console().update(cx, |console, cx| {
-            console.query_bar().update(cx, |query_bar, cx| {
-                query_bar.set_text(format!("$variable1 = {}", NEW_VALUE), cx);
-            });
+    active_debug_panel_item(workspace, cx).update_in(cx, |debug_panel_item, window, cx| {
+        debug_panel_item.console().update(cx, |console, item_cx| {
+            console
+                .query_bar()
+                .update(item_cx, |query_bar, console_cx| {
+                    query_bar.set_text(format!("$variable1 = {}", NEW_VALUE), window, console_cx);
+                });
 
-            console.evaluate(&menu::Confirm, cx);
+            console.evaluate(&menu::Confirm, window, item_cx);
         });
     });
 

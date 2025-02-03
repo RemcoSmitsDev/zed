@@ -73,7 +73,8 @@ message Envelope {
         ProjectEntryResponse project_entry_response = 50;
         ExpandProjectEntry expand_project_entry = 51;
         ExpandProjectEntryResponse expand_project_entry_response = 52;
-
+        ExpandAllForProjectEntry expand_all_for_project_entry = 291;
+        ExpandAllForProjectEntryResponse expand_all_for_project_entry_response = 292;
         UpdateDiagnosticSummary update_diagnostic_summary = 53;
         StartLanguageServer start_language_server = 54;
         UpdateLanguageServer update_language_server = 55;
@@ -308,30 +309,37 @@ message Envelope {
 
         RegisterBufferWithLanguageServers register_buffer_with_language_servers = 290;
 
-        SynchronizeBreakpoints Synchronize_breakpoints = 291;
-        SetActiveDebugLine set_active_debug_line = 292;
-        RemoveActiveDebugLine remove_active_debug_line = 293;
-        SetDebuggerPanelItem set_debugger_panel_item = 294;
-        UpdateDebugAdapter update_debug_adapter = 295;
-        ShutdownDebugClient shutdown_debug_client = 296;
-        SetDebugClientCapabilities set_debug_client_capabilities = 297;
+        Stage stage = 293;
+        Unstage unstage = 294;
+        Commit commit = 295;
 
-        DapNextRequest dap_next_request = 298;
-        DapStepInRequest dap_step_in_request = 299;
-        DapStepOutRequest dap_step_out_request = 300;
-        DapStepBackRequest dap_step_back_request = 301;
-        DapContinueRequest dap_continue_request = 302;
-        DapContinueResponse dap_continue_response = 303;
-        DapPauseRequest dap_pause_request = 304;
-        DapDisconnectRequest dap_disconnect_request = 305;
-        DapTerminateThreadsRequest dap_terminate_threads_request = 306;
-        DapTerminateRequest dap_terminate_request = 307;
-        DapRestartRequest dap_restart_request = 308;
-        DapShutdownSession dap_shutdown_session = 309;
-        UpdateThreadStatus update_thread_status = 310;
-        VariablesRequest variables_request = 311;
-        DapVariables dap_variables = 312;
-        DapRestartStackFrameRequest dap_restart_stack_frame_request = 313; // current max
+        SynchronizeBreakpoints Synchronize_breakpoints = 296;
+        SetActiveDebugLine set_active_debug_line = 297;
+        RemoveActiveDebugLine remove_active_debug_line = 298;
+        SetDebuggerPanelItem set_debugger_panel_item = 299;
+        UpdateDebugAdapter update_debug_adapter = 300;
+        ShutdownDebugClient shutdown_debug_client = 301;
+        SetDebugClientCapabilities set_debug_client_capabilities = 302;
+
+        DapNextRequest dap_next_request = 303;
+        DapStepInRequest dap_step_in_request = 304;
+        DapStepOutRequest dap_step_out_request = 305;
+        DapStepBackRequest dap_step_back_request = 306;
+        DapContinueRequest dap_continue_request = 307;
+        DapContinueResponse dap_continue_response = 308;
+        DapPauseRequest dap_pause_request = 309;
+        DapDisconnectRequest dap_disconnect_request = 310;
+        DapTerminateThreadsRequest dap_terminate_threads_request = 311;
+        DapTerminateRequest dap_terminate_request = 312;
+        DapRestartRequest dap_restart_request = 313;
+        DapShutdownSession dap_shutdown_session = 314;
+        UpdateThreadStatus update_thread_status = 315;
+        VariablesRequest variables_request = 316;
+        DapVariables dap_variables = 317;
+        DapRestartStackFrameRequest dap_restart_stack_frame_request = 318;
+        IgnoreBreakpointState ignore_breakpoint_state = 319;
+        ToggleIgnoreBreakpoints toggle_ignore_breakpoints = 320;
+        DebuggerSessionEnded debugger_session_ended = 321; // current max
     }
 
     reserved 87 to 88;
@@ -655,6 +663,15 @@ message ExpandProjectEntry {
 }
 
 message ExpandProjectEntryResponse {
+    uint64 worktree_scan_id = 1;
+}
+
+message ExpandAllForProjectEntry {
+    uint64 project_id = 1;
+    uint64 entry_id = 2;
+}
+
+message ExpandAllForProjectEntryResponse {
     uint64 worktree_scan_id = 1;
 }
 
@@ -2471,10 +2488,16 @@ enum BreakpointKind {
     Log = 1;
 }
 
+message DebuggerSessionEnded {
+    uint64 project_id = 1;
+    uint64 session_id = 2;
+}
+
 message DebuggerSession {
     uint64 session_id = 1;
     uint64 project_id = 2;
-    repeated DebugClient clients = 3;
+    bool ignore_breakpoints = 3;
+    repeated DebugClient clients = 4;
 }
 
 message DebugClient {
@@ -2707,6 +2730,18 @@ message DapRestartStackFrameRequest {
 message DapShutdownSession {
     uint64 project_id = 1;
     optional uint64 session_id = 2; // Shutdown all sessions if this is None
+}
+
+message ToggleIgnoreBreakpoints {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    uint64 session_id = 3;
+}
+
+message IgnoreBreakpointState {
+    uint64 project_id = 1;
+    uint64 session_id = 2;
+    bool ignore = 3;
 }
 
 message DapNextRequest {
@@ -3099,4 +3134,27 @@ message InstallExtension {
 message RegisterBufferWithLanguageServers{
     uint64 project_id = 1;
     uint64 buffer_id = 2;
+}
+
+message Stage {
+    uint64 project_id = 1;
+    uint64 worktree_id = 2;
+    uint64 work_directory_id = 3;
+    repeated string paths = 4;
+}
+
+message Unstage {
+    uint64 project_id = 1;
+    uint64 worktree_id = 2;
+    uint64 work_directory_id = 3;
+    repeated string paths = 4;
+}
+
+message Commit {
+    uint64 project_id = 1;
+    uint64 worktree_id = 2;
+    uint64 work_directory_id = 3;
+    string message = 4;
+    optional string name = 5;
+    optional string email = 6;
 }

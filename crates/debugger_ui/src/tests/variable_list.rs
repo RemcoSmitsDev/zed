@@ -9,7 +9,7 @@ use dap::{
     requests::{Disconnect, Initialize, Launch, Scopes, StackTrace, Variables},
     Scope, StackFrame, Variable,
 };
-use gpui::{BackgroundExecutor, TestAppContext, VisualTestContext};
+use gpui::{BackgroundExecutor, Focusable, TestAppContext, VisualTestContext};
 use menu::{SelectFirst, SelectNext};
 use project::{FakeFs, Project};
 use serde_json::json;
@@ -46,19 +46,17 @@ async fn test_basic_fetch_initial_scope_and_variables(
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                task::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: task::DebugAdapterKind::Fake,
-                    request: task::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            task::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: task::DebugAdapterKind::Fake,
+                request: task::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -270,19 +268,17 @@ async fn test_fetch_variables_for_multiple_scopes(
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                task::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: task::DebugAdapterKind::Fake,
-                    request: task::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            task::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: task::DebugAdapterKind::Fake,
+                request: task::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -539,19 +535,17 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                task::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: task::DebugAdapterKind::Fake,
-                    request: task::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            task::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: task::DebugAdapterKind::Fake,
+                request: task::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -744,8 +738,11 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
 
     cx.run_until_parked();
 
-    active_debug_panel_item(workspace, cx).update(cx, |debug_panel_item, cx| {
-        debug_panel_item.variable_list().focus_handle(cx).focus(cx);
+    active_debug_panel_item(workspace, cx).update_in(cx, |debug_panel_item, window, cx| {
+        debug_panel_item
+            .variable_list()
+            .focus_handle(cx)
+            .focus(window);
     });
 
     cx.dispatch_action(SelectFirst);

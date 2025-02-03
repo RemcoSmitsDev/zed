@@ -32,7 +32,7 @@ pub trait KeyedItem: Item {
 
 /// A type that describes the Sum of all [`Item`]s in a subtree of the [`SumTree`]
 ///
-/// Each Summary type can have multiple [`Dimensions`] that it measures,
+/// Each Summary type can have multiple [`Dimension`]s that it measures,
 /// which can be used to navigate the tree
 pub trait Summary: Clone {
     type Context;
@@ -115,11 +115,26 @@ impl<'a, T: Summary, D1: Dimension<'a, T>, D2: Dimension<'a, T>> Dimension<'a, T
     }
 }
 
-impl<'a, S: Summary, D1: SeekTarget<'a, S, D1> + Dimension<'a, S>, D2: Dimension<'a, S>>
-    SeekTarget<'a, S, (D1, D2)> for D1
+impl<'a, S, D1, D2> SeekTarget<'a, S, (D1, D2)> for D1
+where
+    S: Summary,
+    D1: SeekTarget<'a, S, D1> + Dimension<'a, S>,
+    D2: Dimension<'a, S>,
 {
     fn cmp(&self, cursor_location: &(D1, D2), cx: &S::Context) -> Ordering {
         self.cmp(&cursor_location.0, cx)
+    }
+}
+
+impl<'a, S, D1, D2, D3> SeekTarget<'a, S, ((D1, D2), D3)> for D1
+where
+    S: Summary,
+    D1: SeekTarget<'a, S, D1> + Dimension<'a, S>,
+    D2: Dimension<'a, S>,
+    D3: Dimension<'a, S>,
+{
+    fn cmp(&self, cursor_location: &((D1, D2), D3), cx: &S::Context) -> Ordering {
+        self.cmp(&cursor_location.0 .0, cx)
     }
 }
 

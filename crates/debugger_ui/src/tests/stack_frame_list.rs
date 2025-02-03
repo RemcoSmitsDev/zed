@@ -51,19 +51,17 @@ async fn test_fetch_initial_stack_frames_and_go_to_stack_frame(
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                task::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: task::DebugAdapterKind::Fake,
-                    request: task::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            task::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: task::DebugAdapterKind::Fake,
+                request: task::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -157,7 +155,7 @@ async fn test_fetch_initial_stack_frames_and_go_to_stack_frame(
     cx.run_until_parked();
 
     workspace
-        .update(cx, |workspace, cx| {
+        .update(cx, |workspace, _window, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
             let active_debug_panel_item = debug_panel
                 .update(cx, |this, cx| this.active_debug_panel_item(cx))
@@ -215,19 +213,17 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                task::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: task::DebugAdapterKind::Fake,
-                    request: task::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            task::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: task::DebugAdapterKind::Fake,
+                request: task::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
@@ -321,7 +317,7 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
     cx.run_until_parked();
 
     workspace
-        .update(cx, |workspace, cx| {
+        .update(cx, |workspace, window, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
             let active_debug_panel_item = debug_panel
                 .update(cx, |this, cx| this.active_debug_panel_item(cx))
@@ -345,7 +341,7 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
             assert_eq!(
                 vec![2..3],
                 editors[0].update(cx, |editor, cx| {
-                    let snapshot = editor.snapshot(cx);
+                    let snapshot = editor.snapshot(window, cx);
 
                     editor
                         .highlighted_rows::<editor::DebugCurrentRowHighlight>()
@@ -361,7 +357,7 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
         .unwrap();
 
     let stack_frame_list = workspace
-        .update(cx, |workspace, cx| {
+        .update(cx, |workspace, _window, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
             let active_debug_panel_item = debug_panel
                 .update(cx, |this, cx| this.active_debug_panel_item(cx))
@@ -373,14 +369,14 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
 
     // select second stack frame
     stack_frame_list
-        .update(cx, |stack_frame_list, cx| {
-            stack_frame_list.select_stack_frame(&stack_frames[1], true, cx)
+        .update_in(cx, |stack_frame_list, window, cx| {
+            stack_frame_list.select_stack_frame(&stack_frames[1], true, window, cx)
         })
         .await
         .unwrap();
 
     workspace
-        .update(cx, |workspace, cx| {
+        .update(cx, |workspace, window, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
             let active_debug_panel_item = debug_panel
                 .update(cx, |this, cx| this.active_debug_panel_item(cx))
@@ -404,7 +400,7 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
             assert_eq!(
                 vec![0..1],
                 editors[0].update(cx, |editor, cx| {
-                    let snapshot = editor.snapshot(cx);
+                    let snapshot = editor.snapshot(window, cx);
 
                     editor
                         .highlighted_rows::<editor::DebugCurrentRowHighlight>()
@@ -462,19 +458,17 @@ async fn test_collapsed_entries(executor: BackgroundExecutor, cx: &mut TestAppCo
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.dap_store().update(cx, |store, cx| {
-            store.start_debug_session(
-                task::DebugAdapterConfig {
-                    label: "test config".into(),
-                    kind: task::DebugAdapterKind::Fake,
-                    request: task::DebugRequestType::Launch,
-                    program: None,
-                    cwd: None,
-                    initialize_args: None,
-                },
-                cx,
-            )
-        })
+        project.start_debug_session(
+            task::DebugAdapterConfig {
+                label: "test config".into(),
+                kind: task::DebugAdapterKind::Fake,
+                request: task::DebugRequestType::Launch,
+                program: None,
+                cwd: None,
+                initialize_args: None,
+            },
+            cx,
+        )
     });
 
     let (session, client) = task.await.unwrap();
