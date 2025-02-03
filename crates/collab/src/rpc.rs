@@ -1912,7 +1912,6 @@ fn join_project_internal(
         language_servers: project.language_servers.clone(),
         role: project.role.into(),
         breakpoints,
-        debug_sessions: project.debug_sessions.clone(), // Todo(Debugger) Figure out how to avoid cloning
     })?;
 
     for (worktree_id, worktree) in mem::take(&mut project.worktrees) {
