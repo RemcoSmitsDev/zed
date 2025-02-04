@@ -2,6 +2,7 @@ use dap::debugger_settings::DebuggerSettings;
 use debugger_panel::{DebugPanel, ToggleFocus};
 use debugger_panel_item::DebugPanelItem;
 use gpui::App;
+use rpc::AnyProtoClient;
 use settings::Settings;
 use workspace::{
     Continue, Pause, Restart, ShutdownDebugAdapters, Start, StepBack, StepInto, StepOut, StepOver,
@@ -20,7 +21,8 @@ pub mod variable_list;
 #[cfg(test)]
 mod tests;
 
-pub fn init(cx: &mut App) {
+pub fn init(client: &AnyProtoClient, cx: &mut App) {
+    client.add_model_request_handler(DebugPanel::handle_active_debug_sessions_request);
     DebuggerSettings::register(cx);
     workspace::FollowableViewRegistry::register::<DebugPanelItem>(cx);
 

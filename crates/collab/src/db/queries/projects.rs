@@ -1108,50 +1108,6 @@ impl Database {
             }
         }
 
-        let project_id = project.id.to_proto();
-        let debug_clients = project.find_related(debug_clients::Entity).all(tx).await?;
-        let mut debug_sessions: HashMap<_, Vec<_>> = HashMap::default();
-
-        for debug_client in debug_clients {
-            debug_sessions
-                .entry(debug_client.session_id)
-                .or_default()
-                .push(debug_client);
-        }
-
-        let mut sessions: Vec<_> = Vec::default();
-
-        for (session_id, clients) in debug_sessions.into_iter() {
-            let mut debug_clients = Vec::default();
-            let ignore_breakpoints = clients.iter().any(|debug| debug.ignore_breakpoints); // Temp solution until client -> session change
-
-            for debug_client in clients.into_iter() {
-                let debug_panel_items = debug_client
-                    .find_related(debug_panel_items::Entity)
-                    .all(tx)
-                    .await?
-                    .into_iter()
-                    .map(|item| item.panel_item())
-                    .collect();
-
-                debug_clients.push(proto::DebugClient {
-                    client_id: debug_client.id as u64,
-                    capabilities: Some(debug_client.capabilities()),
-                    debug_panel_items,
-                    active_debug_line: None,
-                });
-            }
-
-            sessions.push(proto::DebuggerSession {
-                project_id,
-                session_id: session_id as u64,
-                clients: debug_clients,
-                ignore_breakpoints,
-            });
-        }
-
-        let debug_sessions = sessions;
-
         let mut breakpoints: HashMap<proto::ProjectPath, HashSet<proto::Breakpoint>> =
             HashMap::default();
 
@@ -1207,7 +1163,6 @@ impl Database {
                 })
                 .collect(),
             breakpoints,
-            debug_sessions,
         };
         Ok((project, replica_id as ReplicaId))
     }

@@ -1,6 +1,5 @@
 use crate::{attach_modal::AttachModal, debugger_panel_item::DebugPanelItem};
 use anyhow::Result;
-use client::proto;
 use collections::{BTreeMap, HashMap};
 use command_palette_hooks::CommandPaletteFilter;
 use dap::{
@@ -14,7 +13,7 @@ use dap::{
     TerminatedEvent, ThreadEvent, ThreadEventReason,
 };
 use gpui::{
-    actions, Action, App, AsyncWindowContext, Context, Entity, EventEmitter, FocusHandle,
+    actions, Action, App, AsyncApp, AsyncWindowContext, Context, Entity, EventEmitter, FocusHandle,
     Focusable, Subscription, Task, WeakEntity,
 };
 use project::{
@@ -22,6 +21,7 @@ use project::{
     terminals::TerminalKind,
 };
 use rpc::proto::{SetDebuggerPanelItem, UpdateDebugAdapter};
+use rpc::{proto, TypedEnvelope};
 use serde_json::Value;
 use settings::Settings;
 use std::{any::TypeId, collections::VecDeque, path::PathBuf, u64};
@@ -315,6 +315,20 @@ impl DebugPanel {
             .read(cx)
             .active_item()
             .and_then(|panel| panel.downcast::<DebugPanelItem>())
+    }
+
+    pub fn debug_panel_items_by_client(
+        &self,
+        client_id: &DebugAdapterClientId,
+        cx: &Context<Self>,
+    ) -> Vec<Entity<DebugPanelItem>> {
+        self.pane
+            .read(cx)
+            .items()
+            .filter_map(|item| item.downcast::<DebugPanelItem>())
+            .filter(|item| &item.read(cx).client_id() == client_id)
+            .map(|item| item.clone())
+            .collect()
     }
 
     pub fn debug_panel_item_by_client(
@@ -949,6 +963,9 @@ impl DebugPanel {
             project::dap_store::DapStoreEvent::UpdateThreadStatus(thread_status_update) => {
                 self.handle_thread_status_update(thread_status_update, cx);
             }
+            project::dap_store::DapStoreEvent::RemoteHasInitialized => {
+                self.handle_remote_has_initialized(window, cx)
+            }
             _ => {}
         }
     }
@@ -1016,6 +1033,85 @@ impl DebugPanel {
                 }
             });
         }
+    }
+
+    fn handle_remote_has_initialized(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(mut dap_event_queue) = self
+            .dap_store
+            .clone()
+            .update(cx, |this, _| this.remote_event_queue())
+        {
+            while let Some(dap_event) = dap_event_queue.pop_front() {
+                self.on_dap_store_event(&self.dap_store.clone(), &dap_event, window, cx);
+            }
+        }
+    }
+
+    pub(crate) async fn handle_active_debug_sessions_request(
+        this: Entity<Self>,
+        envelope: TypedEnvelope<proto::ActiveDebugSessionsRequest>,
+        mut cx: AsyncApp,
+    ) -> Result<proto::ActiveDebugSessionsResponse> {
+        let mut debug_sessions = Vec::new();
+
+        this.update(&mut cx, |debug_panel, cx| {
+            for session in debug_panel.dap_store.read(cx).sessions() {
+                let session = session.read(cx);
+                let session_id = session.id();
+                let ignore_breakpoints = session.ignore_breakpoints();
+
+                let clients_ids: Vec<_> = session
+                    .as_local()
+                    .unwrap()
+                    .clients()
+                    .into_iter()
+                    .map(|client| client.id())
+                    .collect();
+                let mut debug_clients = Vec::new();
+
+                for client_id in clients_ids {
+                    let capabilities = debug_panel
+                        .dap_store
+                        .read(cx)
+                        .capabilities_by_id(&client_id);
+
+                    let capabilities = dap::proto_conversions::capabilities_to_proto(
+                        &capabilities,
+                        envelope.payload.project_id,
+                        session_id.to_proto(),
+                        client_id.to_proto(),
+                    );
+
+                    let mut panel_items = Vec::new();
+
+                    for debug_panel_item in debug_panel.debug_panel_items_by_client(&client_id, cx)
+                    {
+                        panel_items.push(
+                            debug_panel_item
+                                .read(cx)
+                                .to_proto(envelope.payload.project_id, cx),
+                        )
+                    }
+
+                    debug_clients.push(proto::DebugClient {
+                        client_id: client_id.to_proto(),
+                        capabilities: Some(capabilities),
+                        debug_panel_items: panel_items,
+                    })
+                }
+
+                debug_sessions.push(proto::DebuggerSession {
+                    session_id: session_id.to_proto(),
+                    ignore_breakpoints,
+                    clients: debug_clients,
+                });
+            }
+        })
+        .log_err();
+
+        Ok(proto::ActiveDebugSessionsResponse {
+            sessions: debug_sessions,
+        })
     }
 
     pub(crate) fn handle_set_debug_panel_item(

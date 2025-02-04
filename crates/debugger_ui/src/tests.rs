@@ -26,7 +26,6 @@ pub fn init_test(cx: &mut gpui::TestAppContext) {
         language::init(cx);
         workspace::init_settings(cx);
         Project::init_settings(cx);
-        crate::init(cx);
         editor::init(cx);
     });
 }

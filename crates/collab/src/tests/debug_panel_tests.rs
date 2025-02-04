@@ -21,7 +21,7 @@ use workspace::{dock::Panel, Workspace};
 
 use super::{TestClient, TestServer};
 
-pub fn init_test(cx: &mut gpui::TestAppContext) {
+pub fn init_test(client: &TestClient, cx: &mut gpui::TestAppContext) {
     if std::env::var("RUST_LOG").is_ok() {
         env_logger::try_init().ok();
     }
@@ -32,7 +32,7 @@ pub fn init_test(cx: &mut gpui::TestAppContext) {
         language::init(cx);
         workspace::init_settings(cx);
         project::Project::init_settings(cx);
-        debugger_ui::init(cx);
+        debugger_ui::init(&client.client().clone().into(), cx);
         editor::init(cx);
     });
 }
@@ -147,9 +147,9 @@ async fn setup_three_member_test<'a, 'b, 'c>(
         .create_client(second_remote_cx, "user_remote_2")
         .await;
 
-    init_test(host_cx);
-    init_test(first_remote_cx);
-    init_test(second_remote_cx);
+    init_test(&host_client, host_cx);
+    init_test(&first_remote_client, first_remote_cx);
+    init_test(&second_remote_client, second_remote_cx);
 
     server
         .create_room(&mut [
@@ -174,8 +174,8 @@ async fn setup_two_member_test<'a, 'b>(
     let host_client = server.create_client(host_cx, "user_host").await;
     let remote_client = server.create_client(remote_cx, "user_remote").await;
 
-    init_test(host_cx);
-    init_test(remote_cx);
+    init_test(&host_client, host_cx);
+    init_test(&remote_client, remote_cx);
 
     server
         .create_room(&mut [(&host_client, host_cx), (&remote_client, remote_cx)])

@@ -80,6 +80,7 @@ pub enum DapStoreEvent {
         source_changed: bool,
     },
     ActiveDebugLineChanged,
+    RemoteHasInitialized,
     SetDebugPanelItem(SetDebuggerPanelItem),
     UpdateDebugAdapter(UpdateDebugAdapter),
     UpdateThreadStatus(UpdateThreadStatus),
@@ -1736,8 +1737,23 @@ impl DapStore {
         })
     }
 
-    pub fn request_active_debug_sessions(&mut self, _cx: &mut Context<Self>) {
-        todo!()
+    pub fn request_active_debug_sessions(&mut self, cx: &mut Context<Self>) {
+        if let Some((client, project_id)) = self.upstream_client() {
+            cx.spawn(|this, mut cx| async move {
+                let response = client
+                    .request(proto::ActiveDebugSessionsRequest { project_id })
+                    .await
+                    .log_err();
+
+                if let Some(response) = response {
+                    this.update(&mut cx, |dap_store, cx| {
+                        dap_store.set_debug_sessions_from_proto(response.sessions, cx)
+                    })
+                    .log_err();
+                }
+            })
+            .detach();
+        }
     }
 
     pub fn set_debug_sessions_from_proto(
@@ -1758,6 +1774,7 @@ impl DapStore {
                             queue.push_back(DapStoreEvent::SetDebugPanelItem(item));
                         });
                     }
+                    cx.emit(DapStoreEvent::RemoteHasInitialized);
                 }
 
                 let client = DebugAdapterClientId::from_proto(debug_client.client_id);

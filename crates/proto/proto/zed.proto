@@ -340,7 +340,7 @@ message Envelope {
         DapRestartStackFrameRequest dap_restart_stack_frame_request = 319;
         IgnoreBreakpointState ignore_breakpoint_state = 320;
         ToggleIgnoreBreakpoints toggle_ignore_breakpoints = 321;
-        DebuggerSessionEnded debugger_session_ended = 322; // current max
+        DebuggerSessionEnded debugger_session_ended = 322;
         ActiveDebugSessionsRequest active_debug_sessions_request = 323;
         ActiveDebugSessionsResponse active_debug_sessions_response = 324; // current max
     }
@@ -2496,8 +2496,7 @@ message DebuggerSessionEnded {
 }
 
 message ActiveDebugSessionsRequest {
-    uint64 client_id = 1;
-    uint64 project_id = 2;
+    uint64 project_id = 1;
 }
 
 message ActiveDebugSessionsResponse {
@@ -2506,16 +2505,14 @@ message ActiveDebugSessionsResponse {
 
 message DebuggerSession {
     uint64 session_id = 1;
-    uint64 project_id = 2;
-    bool ignore_breakpoints = 3;
-    repeated DebugClient clients = 4;
+    bool ignore_breakpoints = 2;
+    repeated DebugClient clients = 3;
 }
 
 message DebugClient {
     uint64 client_id = 1;
     SetDebugClientCapabilities capabilities = 2;
-    SetActiveDebugLine active_debug_line = 3;
-    repeated SetDebuggerPanelItem debug_panel_items = 4;
+    repeated SetDebuggerPanelItem debug_panel_items = 3;
 }
 
 message ShutdownDebugClient {
