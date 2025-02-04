@@ -450,8 +450,9 @@ impl Server {
                 broadcast_project_message_from_host::<proto::ToggleIgnoreBreakpoints>,
             )
             .add_message_handler(ignore_breakpoint_state)
-            .add_message_handler(
-                broadcast_project_message_from_host::<proto::DebuggerSessionEnded>,
+            .add_message_handler(broadcast_project_message_from_host::<proto::DebuggerSessionEnded>)
+            .add_request_handler(
+                forward_mutating_project_request::<proto::ActiveDebugSessionsRequest>,
             );
 
         Arc::new(server)
