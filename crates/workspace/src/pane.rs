@@ -310,7 +310,7 @@ pub struct Pane {
     /// Is None if navigation buttons are permanently turned off (and should not react to setting changes).
     /// Otherwise, when `display_nav_history_buttons` is Some, it determines whether nav buttons should be displayed.
     display_nav_history_buttons: Option<bool>,
-    double_click_dispatch_action: Option<Box<dyn Action>>,
+    double_click_dispatch_action: Box<dyn Action>,
     save_modals_spawned: HashSet<EntityId>,
     close_pane_if_empty: bool,
     pub new_item_context_menu_handle: PopoverMenuHandle<ContextMenu>,
@@ -384,7 +384,7 @@ impl Pane {
         project: Entity<Project>,
         next_timestamp: Arc<AtomicUsize>,
         can_drop_predicate: Option<Arc<dyn Fn(&dyn Any, &mut Window, &mut App) -> bool + 'static>>,
-        double_click_dispatch_action: Option<Box<dyn Action>>,
+        double_click_dispatch_action: Box<dyn Action>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -584,6 +584,11 @@ impl Pane {
 
         if let Some(active_item) = self.active_item() {
             if self.focus_handle.is_focused(window) {
+                // Schedule a redraw next frame, so that the focus changes below take effect
+                cx.on_next_frame(window, |_, _, cx| {
+                    cx.notify();
+                });
+
                 // Pane was focused directly. We need to either focus a view inside the active item,
                 // or focus the active item itself
                 if let Some(weak_last_focus_handle) =
@@ -2550,8 +2555,10 @@ impl Pane {
         let navigate_backward = IconButton::new("navigate_backward", IconName::ArrowLeft)
             .icon_size(IconSize::Small)
             .on_click({
-                let model = cx.entity().clone();
-                move |_, window, cx| model.update(cx, |pane, cx| pane.navigate_backward(window, cx))
+                let entity = cx.entity().clone();
+                move |_, window, cx| {
+                    entity.update(cx, |pane, cx| pane.navigate_backward(window, cx))
+                }
             })
             .disabled(!self.can_navigate_backward())
             .tooltip({
@@ -2564,8 +2571,8 @@ impl Pane {
         let navigate_forward = IconButton::new("navigate_forward", IconName::ArrowRight)
             .icon_size(IconSize::Small)
             .on_click({
-                let model = cx.entity().clone();
-                move |_, window, cx| model.update(cx, |pane, cx| pane.navigate_forward(window, cx))
+                let entity = cx.entity().clone();
+                move |_, window, cx| entity.update(cx, |pane, cx| pane.navigate_forward(window, cx))
             })
             .disabled(!self.can_navigate_forward())
             .tooltip({
@@ -2658,9 +2665,10 @@ impl Pane {
                             }))
                             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                                 if event.up.click_count == 2 {
-                                    if let Some(action) = &this.double_click_dispatch_action {
-                                        window.dispatch_action(action.boxed_clone(), cx);
-                                    }
+                                    window.dispatch_action(
+                                        this.double_click_dispatch_action.boxed_clone(),
+                                        cx,
+                                    );
                                 }
                             })),
                     ),

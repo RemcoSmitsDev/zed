@@ -129,7 +129,7 @@ message Envelope {
         GetPrivateUserInfo get_private_user_info = 102;
         GetPrivateUserInfoResponse get_private_user_info_response = 103;
         UpdateUserPlan update_user_plan = 234;
-        UpdateDiffBase update_diff_base = 104;
+        UpdateDiffBases update_diff_bases = 104;
         AcceptTermsOfService accept_terms_of_service = 239;
         AcceptTermsOfServiceResponse accept_terms_of_service_response = 240;
 
@@ -304,42 +304,46 @@ message Envelope {
         SyncExtensionsResponse sync_extensions_response = 286;
         InstallExtension install_extension = 287;
 
-        GetStagedText get_staged_text = 288;
-        GetStagedTextResponse get_staged_text_response = 289;
+        OpenUnstagedChanges open_unstaged_changes = 288;
+        OpenUnstagedChangesResponse open_unstaged_changes_response = 289;
 
         RegisterBufferWithLanguageServers register_buffer_with_language_servers = 290;
 
         Stage stage = 293;
         Unstage unstage = 294;
         Commit commit = 295;
+        OpenCommitMessageBuffer open_commit_message_buffer = 296;
 
-        SynchronizeBreakpoints Synchronize_breakpoints = 296;
-        SetActiveDebugLine set_active_debug_line = 297;
-        RemoveActiveDebugLine remove_active_debug_line = 298;
-        SetDebuggerPanelItem set_debugger_panel_item = 299;
-        UpdateDebugAdapter update_debug_adapter = 300;
-        ShutdownDebugClient shutdown_debug_client = 301;
-        SetDebugClientCapabilities set_debug_client_capabilities = 302;
+        OpenUncommittedChanges open_uncommitted_changes = 297;
+        OpenUncommittedChangesResponse open_uncommitted_changes_response = 298;
 
-        DapNextRequest dap_next_request = 303;
-        DapStepInRequest dap_step_in_request = 304;
-        DapStepOutRequest dap_step_out_request = 305;
-        DapStepBackRequest dap_step_back_request = 306;
-        DapContinueRequest dap_continue_request = 307;
-        DapContinueResponse dap_continue_response = 308;
-        DapPauseRequest dap_pause_request = 309;
-        DapDisconnectRequest dap_disconnect_request = 310;
-        DapTerminateThreadsRequest dap_terminate_threads_request = 311;
-        DapTerminateRequest dap_terminate_request = 312;
-        DapRestartRequest dap_restart_request = 313;
-        DapShutdownSession dap_shutdown_session = 314;
-        UpdateThreadStatus update_thread_status = 315;
-        VariablesRequest variables_request = 316;
-        DapVariables dap_variables = 317;
-        DapRestartStackFrameRequest dap_restart_stack_frame_request = 318;
-        IgnoreBreakpointState ignore_breakpoint_state = 319;
-        ToggleIgnoreBreakpoints toggle_ignore_breakpoints = 320;
-        DebuggerSessionEnded debugger_session_ended = 321; // current max
+        SynchronizeBreakpoints synchronize_breakpoints = 299;
+        SetActiveDebugLine set_active_debug_line = 300;
+        RemoveActiveDebugLine remove_active_debug_line = 301;
+        SetDebuggerPanelItem set_debugger_panel_item = 302;
+        UpdateDebugAdapter update_debug_adapter = 303;
+        ShutdownDebugClient shutdown_debug_client = 304;
+        SetDebugClientCapabilities set_debug_client_capabilities = 305;
+
+        DapNextRequest dap_next_request = 306;
+        DapStepInRequest dap_step_in_request = 307;
+        DapStepOutRequest dap_step_out_request = 308;
+        DapStepBackRequest dap_step_back_request = 309;
+        DapContinueRequest dap_continue_request = 310;
+        DapContinueResponse dap_continue_response = 311;
+        DapPauseRequest dap_pause_request = 312;
+        DapDisconnectRequest dap_disconnect_request = 313;
+        DapTerminateThreadsRequest dap_terminate_threads_request = 314;
+        DapTerminateRequest dap_terminate_request = 315;
+        DapRestartRequest dap_restart_request = 316;
+        DapShutdownSession dap_shutdown_session = 317;
+        UpdateThreadStatus update_thread_status = 318;
+        VariablesRequest variables_request = 319;
+        DapVariables dap_variables = 320;
+        DapRestartStackFrameRequest dap_restart_stack_frame_request = 321;
+        IgnoreBreakpointState ignore_breakpoint_state = 322;
+        ToggleIgnoreBreakpoints toggle_ignore_breakpoints = 323;
+        DebuggerSessionEnded debugger_session_ended = 324; // current max
     }
 
     reserved 87 to 88;
@@ -2067,19 +2071,51 @@ message WorktreeMetadata {
     string abs_path = 4;
 }
 
-message UpdateDiffBase {
+message UpdateDiffBases {
     uint64 project_id = 1;
     uint64 buffer_id = 2;
+
+    enum Mode {
+        // No collaborator is using the unstaged diff.
+        HEAD_ONLY = 0;
+        // No collaborator is using the diff from HEAD.
+        INDEX_ONLY = 1;
+        // Both the unstaged and uncommitted diffs are demanded,
+        // and the contents of the index and HEAD are the same for this path.
+        INDEX_MATCHES_HEAD = 2;
+        // Both the unstaged and uncommitted diffs are demanded,
+        // and the contents of the index and HEAD differ for this path,
+        // where None means the path doesn't exist in that state of the repo.
+        INDEX_AND_HEAD = 3;
+    }
+
     optional string staged_text = 3;
+    optional string committed_text = 4;
+    Mode mode = 5;
 }
 
-message GetStagedText {
+message OpenUnstagedChanges {
     uint64 project_id = 1;
     uint64 buffer_id = 2;
 }
 
-message GetStagedTextResponse {
+message OpenUnstagedChangesResponse {
     optional string staged_text = 1;
+}
+
+message OpenUncommittedChanges {
+    uint64 project_id = 1;
+    uint64 buffer_id = 2;
+}
+
+message OpenUncommittedChangesResponse {
+    enum Mode {
+        INDEX_MATCHES_HEAD = 0;
+        INDEX_AND_HEAD = 1;
+    }
+    optional string staged_text = 1;
+    optional string committed_text = 2;
+    Mode mode = 3;
 }
 
 message GetNotifications {
@@ -2809,8 +2845,7 @@ message DebuggerLoadedSourceList {
 }
 
 message DebuggerConsole {
-    // Editor console = 1;
-    // Editor query_bar = 2;
+    // repeated DapOutputEvent events = 1;
 }
 
 message DebuggerModuleList {
@@ -2844,6 +2879,7 @@ message UpdateDebugAdapter {
         DebuggerVariableList variable_list = 7;
         AddToVariableList add_to_variable_list = 8;
         DebuggerModuleList modules = 9;
+        DapOutputEvent output_event = 10;
     }
 }
 
@@ -2890,6 +2926,30 @@ message DapSource {
     repeated DapSource sources = 6;
     optional bytes adapter_data = 7;
     repeated DapChecksum checksums = 8;
+}
+
+enum DapOutputCategory {
+    ConsoleOutput = 0;
+    Important = 1;
+    Stdout = 2;
+    Stderr = 3;
+    Unknown = 4;
+}
+
+enum DapOutputEventGroup {
+    Start = 0;
+    StartCollapsed = 1;
+    End = 2;
+}
+
+message DapOutputEvent {
+    string output = 1;
+    optional DapOutputCategory category = 2;
+    optional uint64 variables_reference = 3;
+    optional DapOutputEventGroup group = 4;
+    optional DapSource source = 5;
+    optional uint32 line = 6;
+    optional uint32 column = 7;
 }
 
 enum DapChecksumAlgorithm {
@@ -3154,7 +3214,12 @@ message Commit {
     uint64 project_id = 1;
     uint64 worktree_id = 2;
     uint64 work_directory_id = 3;
-    string message = 4;
-    optional string name = 5;
-    optional string email = 6;
+    optional string name = 4;
+    optional string email = 5;
+}
+
+message OpenCommitMessageBuffer {
+    uint64 project_id = 1;
+    uint64 worktree_id = 2;
+    uint64 work_directory_id = 3;
 }

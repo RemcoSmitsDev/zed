@@ -39,7 +39,7 @@ use gpui::{App, AppContext, AsyncApp, Context, Entity, EventEmitter, SharedStrin
 use http_client::HttpClient;
 use language::{
     proto::{deserialize_anchor, serialize_anchor as serialize_text_anchor},
-    Buffer, BufferSnapshot, LanguageRegistry, LanguageServerBinaryStatus, LanguageToolchainStore,
+    BinaryStatus, Buffer, BufferSnapshot, LanguageRegistry, LanguageToolchainStore,
 };
 use lsp::LanguageServerName;
 use node_runtime::NodeRuntime;
@@ -156,30 +156,30 @@ impl DapStore {
     const INDEX_STARTS_AT_ONE: bool = true;
 
     pub fn init(client: &AnyProtoClient) {
-        client.add_model_message_handler(Self::handle_remove_active_debug_line);
-        client.add_model_message_handler(Self::handle_shutdown_debug_client);
-        client.add_model_message_handler(Self::handle_set_active_debug_line);
-        client.add_model_message_handler(Self::handle_set_debug_client_capabilities);
-        client.add_model_message_handler(Self::handle_set_debug_panel_item);
-        client.add_model_message_handler(Self::handle_synchronize_breakpoints);
-        client.add_model_message_handler(Self::handle_update_debug_adapter);
-        client.add_model_message_handler(Self::handle_update_thread_status);
-        client.add_model_message_handler(Self::handle_ignore_breakpoint_state);
-        client.add_model_message_handler(Self::handle_session_has_shutdown);
+        client.add_entity_message_handler(Self::handle_remove_active_debug_line);
+        client.add_entity_message_handler(Self::handle_shutdown_debug_client);
+        client.add_entity_message_handler(Self::handle_set_active_debug_line);
+        client.add_entity_message_handler(Self::handle_set_debug_client_capabilities);
+        client.add_entity_message_handler(Self::handle_set_debug_panel_item);
+        client.add_entity_message_handler(Self::handle_synchronize_breakpoints);
+        client.add_entity_message_handler(Self::handle_update_debug_adapter);
+        client.add_entity_message_handler(Self::handle_update_thread_status);
+        client.add_entity_message_handler(Self::handle_ignore_breakpoint_state);
+        client.add_entity_message_handler(Self::handle_session_has_shutdown);
 
-        client.add_model_request_handler(Self::handle_dap_command::<NextCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<StepInCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<StepOutCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<StepBackCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<ContinueCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<PauseCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<DisconnectCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<TerminateThreadsCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<TerminateCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<RestartCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<VariablesCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<RestartStackFrameCommand>);
-        client.add_model_request_handler(Self::handle_shutdown_session_request);
+        client.add_entity_request_handler(Self::handle_dap_command::<NextCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<StepInCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<StepOutCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<StepBackCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<ContinueCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<PauseCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<DisconnectCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<TerminateThreadsCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<TerminateCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<RestartCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<VariablesCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<RestartStackFrameCommand>);
+        client.add_entity_request_handler(Self::handle_shutdown_session_request);
     }
 
     pub fn new_local(
@@ -2428,10 +2428,10 @@ impl dap::adapters::DapDelegate for DapAdapterDelegate {
     fn update_status(&self, dap_name: DebugAdapterName, status: dap::adapters::DapStatus) {
         let name = SharedString::from(dap_name.to_string());
         let status = match status {
-            DapStatus::None => LanguageServerBinaryStatus::None,
-            DapStatus::Downloading => LanguageServerBinaryStatus::Downloading,
-            DapStatus::Failed { error } => LanguageServerBinaryStatus::Failed { error },
-            DapStatus::CheckingForUpdate => LanguageServerBinaryStatus::CheckingForUpdate,
+            DapStatus::None => BinaryStatus::None,
+            DapStatus::Downloading => BinaryStatus::Downloading,
+            DapStatus::Failed { error } => BinaryStatus::Failed { error },
+            DapStatus::CheckingForUpdate => BinaryStatus::CheckingForUpdate,
         };
 
         self.language_registry

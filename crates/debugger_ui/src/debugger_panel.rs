@@ -135,7 +135,7 @@ impl DebugPanel {
                     workspace.project().clone(),
                     Default::default(),
                     None,
-                    None,
+                    gpui::NoAction.boxed_clone(),
                     window,
                     cx,
                 );
@@ -1009,7 +1009,7 @@ impl DebugPanel {
 
         if let Some((debug_panel_item, is_active_item)) = search {
             debug_panel_item.update(cx, |this, cx| {
-                this.update_adapter(update, cx);
+                this.update_adapter(update, window, cx);
 
                 if is_active_item {
                     this.go_to_current_stack_frame(window, cx);
@@ -1216,8 +1216,8 @@ impl Render for DebugPanel {
                                             "Choose a debugger",
                                         )
                                         .label_size(LabelSize::Small)
-                                        .on_click(move |_, _window, cx| {
-                                            cx.dispatch_action(&Start);
+                                        .on_click(move |_, window, cx| {
+                                            window.dispatch_action(Box::new(Start), cx);
                                         })
                                     ),
                                 ),
