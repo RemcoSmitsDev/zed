@@ -514,7 +514,9 @@ impl VariableList {
                 self.handle_selected_stack_frame_changed(*stack_frame_id, cx);
             }
             StackFrameListEvent::StackFramesUpdated => {
-                self.fetch_variables(cx);
+                self.entries.clear();
+                self.variables.clear();
+                self.scopes.clear();
             }
         }
     }
@@ -530,7 +532,7 @@ impl VariableList {
 
         self.fetch_variables_task = Some(cx.spawn(|this, mut cx| async move {
             let task = this.update(&mut cx, |variable_list, cx| {
-                variable_list.fetch_variables_for_stack_frame(stack_frame_id, &Vec::default(), cx)
+                variable_list.fetch_variables_for_stack_frame(stack_frame_id, cx)
             })?;
 
             let (scopes, variables) = task.await?;
@@ -549,6 +551,8 @@ impl VariableList {
 
                 variable_list.build_entries(true, true, cx);
                 variable_list.send_update_proto_message(cx);
+
+                variable_list.fetch_variables_task.take();
             })
         }));
     }
@@ -928,7 +932,6 @@ impl VariableList {
     fn fetch_variables_for_stack_frame(
         &self,
         stack_frame_id: u64,
-        open_entries: &Vec<OpenEntry>,
         cx: &mut Context<Self>,
     ) -> Task<Result<(Vec<Scope>, HashMap<u64, Vec<VariableContainer>>)>> {
         let scopes_task = self.dap_store.update(cx, |store, cx| {
@@ -936,11 +939,19 @@ impl VariableList {
         });
 
         cx.spawn({
-            let open_entries = open_entries.clone();
             |this, mut cx| async move {
                 let mut variables = HashMap::new();
 
                 let scopes = scopes_task.await?;
+
+                let open_entries = this.read_with(&cx, |variable_list, _| {
+                    variable_list
+                        .open_entries
+                        .iter()
+                        .filter(|e| matches!(e, OpenEntry::Variable { .. }))
+                        .cloned()
+                        .collect::<Vec<_>>()
+                })?;
 
                 for scope in scopes.iter() {
                     let variables_task = this.update(&mut cx, |this, cx| {
@@ -953,58 +964,6 @@ impl VariableList {
                 Ok((scopes, variables))
             }
         })
-    }
-
-    fn fetch_variables(&mut self, cx: &mut Context<Self>) {
-        if self.dap_store.read(cx).upstream_client().is_some() {
-            return;
-        }
-
-        let stack_frames = self.stack_frame_list.read(cx).stack_frames().clone();
-
-        self.fetch_variables_task = Some(cx.spawn(|this, mut cx| async move {
-            let open_entries = this.update(&mut cx, |this, _| {
-                this.open_entries
-                    .iter()
-                    .filter(|e| matches!(e, OpenEntry::Variable { .. }))
-                    .cloned()
-                    .collect::<Vec<_>>()
-            })?;
-
-            let first_stack_frame = stack_frames
-                .first()
-                .ok_or(anyhow!("Expected to find a stackframe"))?;
-
-            let (scopes, variables) = this
-                .update(&mut cx, |this, cx| {
-                    this.fetch_variables_for_stack_frame(first_stack_frame.id, &open_entries, cx)
-                })?
-                .await?;
-
-            this.update(&mut cx, |this, cx| {
-                let mut new_variables = BTreeMap::new();
-                let mut new_scopes = HashMap::new();
-
-                new_scopes.insert(first_stack_frame.id, scopes);
-
-                for (scope_id, variables) in variables.into_iter() {
-                    let mut variable_index = ScopeVariableIndex::new();
-                    variable_index.add_variables(scope_id, variables);
-
-                    new_variables.insert((first_stack_frame.id, scope_id), variable_index);
-                }
-
-                std::mem::swap(&mut this.variables, &mut new_variables);
-                std::mem::swap(&mut this.scopes, &mut new_scopes);
-
-                this.entries.clear();
-                this.build_entries(true, true, cx);
-
-                this.send_update_proto_message(cx);
-
-                this.fetch_variables_task.take();
-            })
-        }));
     }
 
     fn send_update_proto_message(&self, cx: &mut Context<Self>) {
