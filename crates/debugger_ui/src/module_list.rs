@@ -1,10 +1,7 @@
 use anyhow::Result;
-use dap::{
-    client::DebugAdapterClientId, proto_conversions::ProtoConversion, session::DebugSession,
-    Module, ModuleEvent,
-};
+use dap::{client::DebugAdapterClientId, proto_conversions::ProtoConversion, Module, ModuleEvent};
 use gpui::{list, AnyElement, Empty, Entity, FocusHandle, Focusable, ListState, Task};
-use project::dap_store::DapStore;
+use project::{dap_session::DebugSession, dap_store::DapStore};
 use rpc::proto::{DebuggerModuleList, UpdateDebugAdapter};
 use ui::prelude::*;
 use util::ResultExt;
@@ -47,101 +44,32 @@ impl ModuleList {
             client_id: *client_id,
         };
 
-        if this.dap_store.read(cx).as_local().is_some() {
-            this.fetch_modules(cx).detach_and_log_err(cx);
-        }
         this
     }
 
-    pub(crate) fn set_from_proto(
-        &mut self,
-        module_list: &DebuggerModuleList,
-        cx: &mut Context<Self>,
-    ) {
-        let modules = module_list
-            .modules
-            .iter()
-            .filter_map(|payload| Module::from_proto(payload.clone()).log_err())
-            .collect();
-
-        self.session.update(cx, |session, cx| {
-            session.set_modules(
-                DebugAdapterClientId::from_proto(module_list.client_id),
-                modules,
-                cx,
-            );
-        });
-
-        self.list.reset(modules.len());
-        cx.notify();
-    }
-
-    pub(crate) fn to_proto(&self) -> DebuggerModuleList {
-        DebuggerModuleList {
-            client_id: self.client_id.to_proto(),
-            modules: self
-                .session
-                .read(cx)
-                .modules(self.client_id)
-                .unwrap_or_default()
-                .iter()
-                .map(|module| module.to_proto())
-                .collect(),
-        }
-    }
-
     pub fn on_module_event(&mut self, event: &ModuleEvent, cx: &mut Context<Self>) {
-        self.session.update(cx, |session, cx| {
-            session.on_module_event(self.client_id, event, cx);
-        });
+        if let Some(state) = self.session.read(cx).client_state(self.client_id) {
+            let module_len = state.update(cx, |state, cx| {
+                state.handle_module_event(event);
+                state.modules(cx).len()
+            });
 
-        if let Some(modules) = self.session.read(cx).modules(client_id) {
-            self.list.reset(modules.len());
-            cx.notify();
-        }
-
-        self.propagate_updates(cx);
-    }
-
-    fn fetch_modules(&self, cx: &mut Context<Self>) -> Task<Result<()>> {
-        let task = self
-            .dap_store
-            .update(cx, |store, cx| store.modules(&self.client_id, cx));
-
-        cx.spawn(|this, mut cx| async move {
-            let mut modules = task.await?;
-
-            this.update(&mut cx, |this, cx| {
-                this.session.update(cx, |session, cx| {
-                    session.set_modules(this.client_id, modules, cx);
-                });
-
-                this.list.reset(modules.len());
-                cx.notify();
-
-                this.propagate_updates(cx);
-            })
-        })
-    }
-
-    fn propagate_updates(&self, cx: &Context<Self>) {
-        if let Some((client, id)) = self.dap_store.read(cx).downstream_client() {
-            let request = UpdateDebugAdapter {
-                session_id: self.session.read(cx).id().to_proto(),
-                client_id: self.client_id.to_proto(),
-                project_id: *id,
-                thread_id: None,
-                variant: Some(rpc::proto::update_debug_adapter::Variant::Modules(
-                    self.to_proto(),
-                )),
-            };
-
-            client.send(request).log_err();
+            self.list.reset(module_len);
+            cx.notify()
         }
     }
 
     fn render_entry(&mut self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
-        let Some(module) = self.session.read(cx).modules(self.client_id) else {
+        let Some((module_name, module_path)) = self.session.update(cx, |session, cx| {
+            session
+                .client_state(self.client_id)?
+                .update(cx, |state, cx| {
+                    state
+                        .modules(cx)
+                        .get(ix)
+                        .map(|module| (module.name.clone(), module.path.clone()))
+                })
+        }) else {
             return Empty.into_any();
         };
 
@@ -151,12 +79,12 @@ impl ModuleList {
             .group("")
             .p_1()
             .hover(|s| s.bg(cx.theme().colors().element_hover))
-            .child(h_flex().gap_0p5().text_ui_sm(cx).child(module.name.clone()))
+            .child(h_flex().gap_0p5().text_ui_sm(cx).child(module_name))
             .child(
                 h_flex()
                     .text_ui_xs(cx)
                     .text_color(cx.theme().colors().text_muted)
-                    .when_some(module.path.clone(), |this, path| this.child(path)),
+                    .when_some(module_path, |this, path| this.child(path)),
             )
             .into_any()
     }
@@ -179,10 +107,11 @@ impl Render for ModuleList {
 
 #[cfg(any(test, feature = "test-support"))]
 impl ModuleList {
-    pub fn modules(&self, cx: &Context<Self>) -> &Vec<Module> {
-        self.session
-            .read(cx)
-            .modules(self.client_id)
-            .unwrap_or_default()
+    pub fn modules(&self, cx: &mut Context<Self>) -> Vec<Module> {
+        let Some(state) = self.session.read(cx).client_state(self.client_id) else {
+            return vec![];
+        };
+
+        state.update(cx, |state, cx| state.modules(cx).iter().cloned().collect())
     }
 }

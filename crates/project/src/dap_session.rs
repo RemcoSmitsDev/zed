@@ -64,7 +64,7 @@ enum ClientRequest {
     StackFrames(dap::StackTraceArguments),
 }
 
-struct DebugAdapterClientState {
+pub struct DebugAdapterClientState {
     dap_store: WeakEntity<DapStore>,
     client_id: DebugAdapterClientId,
     modules: Vec<dap::Module>,
@@ -249,20 +249,7 @@ impl DebugSession {
     pub fn client_state(
         &self,
         client_id: DebugAdapterClientId,
-    ) -> Option<&Entity<DebugAdapterClientState>> {
-        self.states.get(&client_id)
-    }
-
-    pub fn on_module_event(
-        &mut self,
-        client_id: DebugAdapterClientId,
-        event: &ModuleEvent,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(state) = self.states.get_mut(&client_id) {
-            // TODO:
-            // state.handle_module_event(event);
-            // cx.notify();
-        }
+    ) -> Option<Entity<DebugAdapterClientState>> {
+        self.states.get(&client_id).cloned()
     }
 }

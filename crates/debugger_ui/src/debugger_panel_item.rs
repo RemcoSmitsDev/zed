@@ -6,7 +6,6 @@ use crate::stack_frame_list::{StackFrameList, StackFrameListEvent};
 use crate::variable_list::VariableList;
 
 use dap::proto_conversions::{self, ProtoConversion};
-use dap::session::DebugSession;
 use dap::{
     client::DebugAdapterClientId, debugger_settings::DebuggerSettings, Capabilities,
     ContinuedEvent, LoadedSourceEvent, ModuleEvent, OutputEvent, OutputEventCategory, StoppedEvent,
@@ -16,6 +15,7 @@ use editor::Editor;
 use gpui::{
     AnyElement, App, Entity, EventEmitter, FocusHandle, Focusable, Subscription, Task, WeakEntity,
 };
+use project::dap_session::DebugSession;
 use project::dap_store::DapStore;
 use rpc::proto::{self, DebuggerThreadStatus, PeerId, SetDebuggerPanelItem, UpdateDebugAdapter};
 use settings::Settings;
@@ -253,11 +253,6 @@ impl DebugPanelItem {
                 .update(cx, |this, cx| this.set_from_proto(variable_list_state, cx));
         }
 
-        if let Some(module_list_state) = state.module_list.as_ref() {
-            self.module_list
-                .update(cx, |this, cx| this.set_from_proto(module_list_state, cx));
-        }
-
         cx.notify();
     }
 
@@ -470,11 +465,7 @@ impl DebugPanelItem {
                 proto::update_debug_adapter::Variant::AddToVariableList(variables_to_add) => self
                     .variable_list
                     .update(cx, |this, _| this.add_variables(variables_to_add.clone())),
-                proto::update_debug_adapter::Variant::Modules(module_list) => {
-                    self.module_list.update(cx, |this, cx| {
-                        this.set_from_proto(module_list, cx);
-                    })
-                }
+                proto::update_debug_adapter::Variant::Modules(module_list) => {}
                 proto::update_debug_adapter::Variant::OutputEvent(output_event) => {
                     self.console.update(cx, |this, cx| {
                         this.add_message(OutputEvent::from_proto(output_event.clone()), window, cx);
