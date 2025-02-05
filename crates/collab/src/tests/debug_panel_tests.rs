@@ -1605,12 +1605,7 @@ async fn test_variable_list(
 
             variable_list.assert_visual_entries(first_visual_entries.clone(), cx);
 
-            variable_list.toggle_variable_in_test(
-                scopes[0].variables_reference,
-                &variable_1,
-                1,
-                cx,
-            );
+            variable_list.toggle_variable(scopes[0].variables_reference, &variable_1, 1, cx);
         });
 
     host_cx.run_until_parked();
@@ -1676,7 +1671,7 @@ async fn test_variable_list(
 
             variable_list.assert_visual_entries(first_visual_entries.clone(), cx);
 
-            variable_list.toggle_variable_in_test(
+            variable_list.toggle_variable(
                 scopes[0].variables_reference,
                 &variable_2.clone(),
                 1,
