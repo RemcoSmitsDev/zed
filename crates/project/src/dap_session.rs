@@ -1,10 +1,11 @@
-use collections::HashMap;
-use dap_types::{Module, ModuleEvent, StackFrame, Thread};
-use gpui::Context;
-use std::sync::Arc;
+use collections::{BTreeMap, HashMap};
+use dap::{Module, ModuleEvent};
+use gpui::{App, Context, Entity, Task, WeakEntity};
+use std::{collections::hash_map::Entry, sync::Arc};
 use task::DebugAdapterConfig;
 
-use crate::client::{DebugAdapterClient, DebugAdapterClientId};
+use crate::{dap_command, dap_store::DapStore};
+use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
@@ -24,12 +25,18 @@ impl DebugSessionId {
 #[repr(transparent)]
 struct ThreadId(u64);
 
-struct Scope {
-    scope: dap_types::Scope,
-    variables: Vec<dap_types::Variable>,
+struct Variable {
+    variable: dap::Variable,
+    variables: Vec<Variable>,
 }
+
+struct Scope {
+    scope: dap::Scope,
+    variables: Vec<Variable>,
+}
+
 struct StackFrame {
-    stack_frame: dap_types::StackFrame,
+    stack_frame: dap::StackFrame,
     scopes: Vec<Scope>,
 }
 
@@ -42,36 +49,71 @@ pub enum ThreadStatus {
     Ended,
 }
 
-#[derive(Default)]
 struct Thread {
-    thread: dap_types::Thread,
+    thread: dap::Thread,
     stack_frames: Vec<StackFrame>,
     status: ThreadStatus,
     has_stopped: bool,
 }
 
-#[derive(Default)]
+#[derive(PartialEq, Eq, Hash)]
+enum ClientRequest {
+    Modules,
+    Scopes(dap::ScopesArguments),
+    Variables(dap::VariablesArguments),
+    StackFrames(dap::StackTraceArguments),
+}
+
 struct DebugAdapterClientState {
-    modules: Vec<dap_types::Module>,
+    dap_store: WeakEntity<DapStore>,
+    client_id: DebugAdapterClientId,
+    modules: Vec<dap::Module>,
     threads: BTreeMap<ThreadId, Thread>,
+    requests: HashMap<ClientRequest, Task<anyhow::Result<()>>>,
 }
 
 impl DebugAdapterClientState {
-    pub fn modules(&self) -> &[Module] {
+    pub(crate) fn wait_for_request(
+        &self,
+        request: ClientRequest,
+    ) -> Option<&Task<anyhow::Result<()>>> {
+        self.requests.get(&request)
+    }
+
+    pub fn modules(&mut self, cx: &mut Context<Self>) -> &[Module] {
+        let entry = self.requests.entry(ClientRequest::Modules);
+        if let Entry::Vacant(vacant) = entry {
+            let client_id = self.client_id;
+
+            if let Ok(request) = self.dap_store.update(cx, |dap_store, cx| {
+                let command = dap_command::ModulesCommand;
+
+                dap_store.request_dap(&client_id, command, cx)
+            }) {
+                let task = cx.spawn(|this, mut cx| async move {
+                    let result = request.await?;
+                    this.update(&mut cx, |this, _| {
+                        this.modules = result;
+                    })?;
+                    Ok(())
+                });
+
+                vacant.insert(task);
+            }
+        }
+
         &self.modules
     }
 
-    pub fn handle_module_event(&mut self, event: dap_types::ModuleEvent) {
+    pub fn handle_module_event(&mut self, event: &dap::ModuleEvent) {
         match event.reason {
-            dap_types::ModuleEventReason::New => self.modules.push(event.module.clone()),
-            dap_types::ModuleEventReason::Changed => {
+            dap::ModuleEventReason::New => self.modules.push(event.module.clone()),
+            dap::ModuleEventReason::Changed => {
                 if let Some(module) = self.modules.iter_mut().find(|m| m.id == event.module.id) {
                     *module = event.module.clone();
                 }
             }
-            dap_types::ModuleEventReason::Removed => {
-                self.modules.retain(|m| m.id != event.module.id)
-            }
+            dap::ModuleEventReason::Removed => self.modules.retain(|m| m.id != event.module.id),
         }
     }
 }
@@ -79,7 +121,7 @@ impl DebugAdapterClientState {
 pub struct DebugSession {
     id: DebugSessionId,
     mode: DebugSessionMode,
-    states: HashMap<DebugAdapterClientId, DebugAdapterClientState>,
+    states: HashMap<DebugAdapterClientId, Entity<DebugAdapterClientState>>,
     ignore_breakpoints: bool,
 }
 
@@ -207,25 +249,8 @@ impl DebugSession {
     pub fn client_state(
         &self,
         client_id: DebugAdapterClientId,
-    ) -> Option<&DebugAdapterClientState> {
+    ) -> Option<&Entity<DebugAdapterClientState>> {
         self.states.get(&client_id)
-    }
-
-    pub fn modules(&self, client_id: DebugAdapterClientId) -> Option<&[Module]> {
-        self.client_state(client_id)
-            .map(|state| state.modules.as_slice())
-    }
-
-    pub fn set_modules(
-        &mut self,
-        client_id: DebugAdapterClientId,
-        modules: Vec<Module>,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(state) = self.states.get_mut(&client_id) {
-            state.modules = modules;
-            cx.notify();
-        }
     }
 
     pub fn on_module_event(
@@ -235,8 +260,9 @@ impl DebugSession {
         cx: &mut Context<Self>,
     ) {
         if let Some(state) = self.states.get_mut(&client_id) {
-            state.handle_module_event(event);
-            cx.notify();
+            // TODO:
+            // state.handle_module_event(event);
+            // cx.notify();
         }
     }
 }

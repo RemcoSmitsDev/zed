@@ -4,12 +4,14 @@ use crate::{
         RestartStackFrameCommand, StepBackCommand, StepCommand, StepInCommand, StepOutCommand,
         TerminateCommand, TerminateThreadsCommand, VariablesCommand,
     },
+    dap_session::{DebugSession, DebugSessionId},
     project_settings::ProjectSettings,
     ProjectEnvironment, ProjectItem as _, ProjectPath,
 };
 use anyhow::{anyhow, bail, Context as _, Result};
 use async_trait::async_trait;
 use collections::HashMap;
+use dap::ContinueResponse;
 use dap::{
     adapters::{DapDelegate, DapStatus, DebugAdapter, DebugAdapterBinary, DebugAdapterName},
     client::{DebugAdapterClient, DebugAdapterClientId},
@@ -27,10 +29,6 @@ use dap::{
     SetVariableArguments, Source, SourceBreakpoint, StackFrame, StackTraceArguments,
     StartDebuggingRequestArguments, StartDebuggingRequestArgumentsRequest, SteppingGranularity,
     TerminateArguments, Variable,
-};
-use dap::{
-    session::{DebugSession, DebugSessionId},
-    ContinueResponse,
 };
 use dap_adapters::build_adapter;
 use fs::Fs;
@@ -1252,7 +1250,7 @@ impl DapStore {
         self.request_dap(client_id, command, cx)
     }
 
-    fn request_dap<R: DapCommand>(
+    pub fn request_dap<R: DapCommand>(
         &self,
         client_id: &DebugAdapterClientId,
         request: R,

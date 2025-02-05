@@ -3,7 +3,6 @@ use dap::{
     client::DebugAdapterClientId,
     proto_conversions::ProtoConversion,
     requests::{Continue, Next},
-    session::DebugSessionId,
     ContinueArguments, NextArguments, StepInArguments, StepOutArguments, SteppingGranularity,
     ValueFormat, Variable, VariablesArgumentsFilter,
 };
@@ -11,7 +10,7 @@ use gpui::{AsyncApp, WeakEntity};
 use rpc::proto;
 use util::ResultExt;
 
-use crate::dap_store::DapStore;
+use crate::{dap_session::DebugSessionId, dap_store::DapStore};
 
 pub trait DapCommand: 'static + Sized + Send + Sync + std::fmt::Debug {
     type Response: 'static + Send + std::fmt::Debug;
@@ -983,5 +982,71 @@ impl DapCommand for RestartStackFrameCommand {
         _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
     ) -> Result<Self::Response> {
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ModulesCommand;
+
+impl DapCommand for ModulesCommand {
+    type Response = Vec<dap::Module>;
+    type DapRequest = dap::requests::Modules;
+    type ProtoRequest = proto::DapModulesRequest;
+
+    fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
+        DebugAdapterClientId::from_proto(request.client_id)
+    }
+
+    fn from_proto(_request: &Self::ProtoRequest) -> Self {
+        Self {}
+    }
+
+    fn to_proto(
+        &self,
+        debug_client_id: &DebugAdapterClientId,
+        upstream_project_id: u64,
+    ) -> proto::DapModulesRequest {
+        proto::DapModulesRequest {
+            project_id: upstream_project_id,
+            client_id: debug_client_id.to_proto(),
+        }
+    }
+
+    fn response_to_proto(
+        debug_client_id: &DebugAdapterClientId,
+        message: Self::Response,
+    ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
+        proto::DapModulesResponse {
+            modules: message
+                .into_iter()
+                .map(|module| module.to_proto())
+                .collect(),
+            client_id: debug_client_id.to_proto(),
+        }
+    }
+
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        dap::ModulesArguments {
+            start_module: None,
+            module_count: None,
+        }
+    }
+
+    fn response_from_dap(
+        &self,
+        message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Result<Self::Response> {
+        Ok(message.modules)
+    }
+
+    fn response_from_proto(
+        self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
+        Ok(message
+            .modules
+            .into_iter()
+            .filter_map(|module| dap::Module::from_proto(module).ok())
+            .collect())
     }
 }
