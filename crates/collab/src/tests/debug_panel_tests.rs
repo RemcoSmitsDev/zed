@@ -1255,7 +1255,7 @@ async fn test_module_list(
                 "Local supports modules request should be true"
             );
 
-            let local_module_list = item.module_list().read(cx).modules();
+            let local_module_list = item.module_list().read(cx).modules(cx);
 
             assert_eq!(
                 2usize,
@@ -1282,7 +1282,7 @@ async fn test_module_list(
                 item.capabilities(cx).supports_modules_request.unwrap(),
                 "Remote capabilities supports modules request should be true"
             );
-            let remote_module_list = item.module_list().read(cx).modules();
+            let remote_module_list = item.module_list().read(cx).modules(cx);
 
             assert_eq!(
                 2usize,
@@ -1313,7 +1313,7 @@ async fn test_module_list(
                 item.capabilities(cx).supports_modules_request.unwrap(),
                 "Remote (mid session join) capabilities supports modules request should be true"
             );
-            let remote_module_list = item.module_list().read(cx).modules();
+            let remote_module_list = item.module_list().read(cx).modules(cx);
 
             assert_eq!(
                 2usize,

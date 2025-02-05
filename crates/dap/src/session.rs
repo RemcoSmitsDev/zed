@@ -1,4 +1,5 @@
 use collections::HashMap;
+use dap_types::{Module, ModuleEvent, StackFrame, Thread};
 use gpui::Context;
 use std::sync::Arc;
 use task::DebugAdapterConfig;
@@ -19,9 +20,66 @@ impl DebugSessionId {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, PartialOrd)]
+#[repr(transparent)]
+struct ThreadId(u64);
+
+struct Scope {
+    scope: dap_types::Scope,
+    variables: Vec<dap_types::Variable>,
+}
+struct StackFrame {
+    stack_frame: dap_types::StackFrame,
+    scopes: Vec<Scope>,
+}
+
+#[derive(Copy, Clone, Default, PartialEq, Eq)]
+pub enum ThreadStatus {
+    #[default]
+    Running,
+    Stopped,
+    Exited,
+    Ended,
+}
+
+#[derive(Default)]
+struct Thread {
+    thread: dap_types::Thread,
+    stack_frames: Vec<StackFrame>,
+    status: ThreadStatus,
+    has_stopped: bool,
+}
+
+#[derive(Default)]
+struct DebugAdapterClientState {
+    modules: Vec<dap_types::Module>,
+    threads: BTreeMap<ThreadId, Thread>,
+}
+
+impl DebugAdapterClientState {
+    pub fn modules(&self) -> &[Module] {
+        &self.modules
+    }
+
+    pub fn handle_module_event(&mut self, event: dap_types::ModuleEvent) {
+        match event.reason {
+            dap_types::ModuleEventReason::New => self.modules.push(event.module.clone()),
+            dap_types::ModuleEventReason::Changed => {
+                if let Some(module) = self.modules.iter_mut().find(|m| m.id == event.module.id) {
+                    *module = event.module.clone();
+                }
+            }
+            dap_types::ModuleEventReason::Removed => {
+                self.modules.retain(|m| m.id != event.module.id)
+            }
+        }
+    }
+}
+
 pub struct DebugSession {
     id: DebugSessionId,
     mode: DebugSessionMode,
+    states: HashMap<DebugAdapterClientId, DebugAdapterClientState>,
     ignore_breakpoints: bool,
 }
 
@@ -95,6 +153,7 @@ impl DebugSession {
         Self {
             id,
             ignore_breakpoints: false,
+            states: HashMap::default(),
             mode: DebugSessionMode::Local(LocalDebugSession {
                 configuration,
                 clients: HashMap::default(),
@@ -120,6 +179,7 @@ impl DebugSession {
         Self {
             id,
             ignore_breakpoints,
+            states: HashMap::default(),
             mode: DebugSessionMode::Remote(RemoteDebugSession { label }),
         }
     }
@@ -142,5 +202,41 @@ impl DebugSession {
     pub fn set_ignore_breakpoints(&mut self, ignore: bool, cx: &mut Context<Self>) {
         self.ignore_breakpoints = ignore;
         cx.notify();
+    }
+
+    pub fn client_state(
+        &self,
+        client_id: DebugAdapterClientId,
+    ) -> Option<&DebugAdapterClientState> {
+        self.states.get(&client_id)
+    }
+
+    pub fn modules(&self, client_id: DebugAdapterClientId) -> Option<&[Module]> {
+        self.client_state(client_id)
+            .map(|state| state.modules.as_slice())
+    }
+
+    pub fn set_modules(
+        &mut self,
+        client_id: DebugAdapterClientId,
+        modules: Vec<Module>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(state) = self.states.get_mut(&client_id) {
+            state.modules = modules;
+            cx.notify();
+        }
+    }
+
+    pub fn on_module_event(
+        &mut self,
+        client_id: DebugAdapterClientId,
+        event: &ModuleEvent,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(state) = self.states.get_mut(&client_id) {
+            state.handle_module_event(event);
+            cx.notify();
+        }
     }
 }

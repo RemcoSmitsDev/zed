@@ -3,7 +3,7 @@ use dap::{
     client::DebugAdapterClientId, proto_conversions::ProtoConversion, session::DebugSession,
     Module, ModuleEvent,
 };
-use gpui::{list, AnyElement, Entity, FocusHandle, Focusable, ListState, Task};
+use gpui::{list, AnyElement, Empty, Entity, FocusHandle, Focusable, ListState, Task};
 use project::dap_store::DapStore;
 use rpc::proto::{DebuggerModuleList, UpdateDebugAdapter};
 use ui::prelude::*;
@@ -11,7 +11,6 @@ use util::ResultExt;
 
 pub struct ModuleList {
     list: ListState,
-    modules: Vec<Module>,
     focus_handle: FocusHandle,
     dap_store: Entity<DapStore>,
     session: Entity<DebugSession>,
@@ -46,7 +45,6 @@ impl ModuleList {
             dap_store,
             focus_handle,
             client_id: *client_id,
-            modules: Vec::default(),
         };
 
         if this.dap_store.read(cx).as_local().is_some() {
@@ -60,15 +58,21 @@ impl ModuleList {
         module_list: &DebuggerModuleList,
         cx: &mut Context<Self>,
     ) {
-        self.modules = module_list
+        let modules = module_list
             .modules
             .iter()
             .filter_map(|payload| Module::from_proto(payload.clone()).log_err())
             .collect();
 
-        self.client_id = DebugAdapterClientId::from_proto(module_list.client_id);
+        self.session.update(cx, |session, cx| {
+            session.set_modules(
+                DebugAdapterClientId::from_proto(module_list.client_id),
+                modules,
+                cx,
+            );
+        });
 
-        self.list.reset(self.modules.len());
+        self.list.reset(modules.len());
         cx.notify();
     }
 
@@ -76,7 +80,10 @@ impl ModuleList {
         DebuggerModuleList {
             client_id: self.client_id.to_proto(),
             modules: self
-                .modules
+                .session
+                .read(cx)
+                .modules(self.client_id)
+                .unwrap_or_default()
                 .iter()
                 .map(|module| module.to_proto())
                 .collect(),
@@ -84,27 +91,16 @@ impl ModuleList {
     }
 
     pub fn on_module_event(&mut self, event: &ModuleEvent, cx: &mut Context<Self>) {
-        match event.reason {
-            dap::ModuleEventReason::New => self.modules.push(event.module.clone()),
-            dap::ModuleEventReason::Changed => {
-                if let Some(module) = self.modules.iter_mut().find(|m| m.id == event.module.id) {
-                    *module = event.module.clone();
-                }
-            }
-            dap::ModuleEventReason::Removed => self.modules.retain(|m| m.id != event.module.id),
-        }
-
-        self.list.reset(self.modules.len());
-        cx.notify();
-
-        let task = cx.spawn(|this, mut cx| async move {
-            this.update(&mut cx, |this, cx| {
-                this.propagate_updates(cx);
-            })
-            .log_err();
+        self.session.update(cx, |session, cx| {
+            session.on_module_event(self.client_id, event, cx);
         });
 
-        cx.background_executor().spawn(task).detach();
+        if let Some(modules) = self.session.read(cx).modules(client_id) {
+            self.list.reset(modules.len());
+            cx.notify();
+        }
+
+        self.propagate_updates(cx);
     }
 
     fn fetch_modules(&self, cx: &mut Context<Self>) -> Task<Result<()>> {
@@ -116,8 +112,11 @@ impl ModuleList {
             let mut modules = task.await?;
 
             this.update(&mut cx, |this, cx| {
-                std::mem::swap(&mut this.modules, &mut modules);
-                this.list.reset(this.modules.len());
+                this.session.update(cx, |session, cx| {
+                    session.set_modules(this.client_id, modules, cx);
+                });
+
+                this.list.reset(modules.len());
                 cx.notify();
 
                 this.propagate_updates(cx);
@@ -142,7 +141,9 @@ impl ModuleList {
     }
 
     fn render_entry(&mut self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
-        let module = &self.modules[ix];
+        let Some(module) = self.session.read(cx).modules(self.client_id) else {
+            return Empty.into_any();
+        };
 
         v_flex()
             .rounded_md()
@@ -178,7 +179,10 @@ impl Render for ModuleList {
 
 #[cfg(any(test, feature = "test-support"))]
 impl ModuleList {
-    pub fn modules(&self) -> &Vec<Module> {
-        &self.modules
+    pub fn modules(&self, cx: &Context<Self>) -> &Vec<Module> {
+        self.session
+            .read(cx)
+            .modules(self.client_id)
+            .unwrap_or_default()
     }
 }
