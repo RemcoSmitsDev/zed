@@ -1,3 +1,4 @@
+use client::Client;
 use dap::debugger_settings::DebuggerSettings;
 use debugger_panel::{DebugPanel, ToggleFocus};
 use debugger_panel_item::DebugPanelItem;
@@ -21,8 +22,10 @@ pub mod variable_list;
 #[cfg(test)]
 mod tests;
 
-pub fn init(client: &AnyProtoClient, cx: &mut App) {
+pub fn init(client: &std::sync::Arc<Client>, cx: &mut App) {
+    let client: AnyProtoClient = client.clone().into();
     client.add_model_request_handler(DebugPanel::handle_active_debug_sessions_request);
+
     DebuggerSettings::register(cx);
     workspace::FollowableViewRegistry::register::<DebugPanelItem>(cx);
 

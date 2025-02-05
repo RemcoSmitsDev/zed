@@ -406,8 +406,8 @@ messages!(
     (IgnoreBreakpointState, Background),
     (ToggleIgnoreBreakpoints, Background),
     (DebuggerSessionEnded, Background),
-    (ActiveDebugSessionsRequest, Background),
-    (ActiveDebugSessionsResponse, Background),
+    (ActiveDebugSessionsRequest, Foreground),
+    (ActiveDebugSessionsResponse, Foreground),
 );
 
 request_messages!(

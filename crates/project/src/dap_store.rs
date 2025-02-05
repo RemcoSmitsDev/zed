@@ -1740,10 +1740,12 @@ impl DapStore {
     pub fn request_active_debug_sessions(&mut self, cx: &mut Context<Self>) {
         if let Some((client, project_id)) = self.upstream_client() {
             cx.spawn(|this, mut cx| async move {
-                let response = client
-                    .request(proto::ActiveDebugSessionsRequest { project_id })
-                    .await
-                    .log_err();
+                let response = dbg!(
+                    client
+                        .request(proto::ActiveDebugSessionsRequest { project_id })
+                        .await
+                )
+                .log_err();
 
                 if let Some(response) = response {
                     this.update(&mut cx, |dap_store, cx| {

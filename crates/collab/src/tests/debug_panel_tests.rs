@@ -1752,6 +1752,7 @@ async fn test_variable_list(
     let (_late_join_client, late_join_workspace, _late_join_project, late_join_cx) =
         late_join_zed.expand().await;
 
+    host_cx.run_until_parked();
     late_join_cx.run_until_parked();
 
     let last_join_remote_item = late_join_workspace.update(late_join_cx, |workspace, cx| {
