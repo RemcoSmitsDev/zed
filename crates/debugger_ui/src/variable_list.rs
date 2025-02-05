@@ -1157,6 +1157,10 @@ impl VariableList {
     }
 
     pub fn invalidate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.variables.clear();
+        self.scopes.clear();
+        self.entries.clear();
+
         self.stack_frame_list.update(cx, |stack_frame_list, cx| {
             stack_frame_list.invalidate(window, cx);
         });
