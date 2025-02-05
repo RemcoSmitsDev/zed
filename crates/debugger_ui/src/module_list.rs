@@ -1,22 +1,17 @@
-use anyhow::Result;
-use dap::{client::DebugAdapterClientId, proto_conversions::ProtoConversion, Module, ModuleEvent};
-use gpui::{list, AnyElement, Empty, Entity, FocusHandle, Focusable, ListState, Task};
-use project::{dap_session::DebugSession, dap_store::DapStore};
-use rpc::proto::{DebuggerModuleList, UpdateDebugAdapter};
+use dap::{client::DebugAdapterClientId, Module, ModuleEvent};
+use gpui::{list, AnyElement, Empty, Entity, FocusHandle, Focusable, ListState};
+use project::dap_session::DebugSession;
 use ui::prelude::*;
-use util::ResultExt;
 
 pub struct ModuleList {
     list: ListState,
     focus_handle: FocusHandle,
-    dap_store: Entity<DapStore>,
     session: Entity<DebugSession>,
     client_id: DebugAdapterClientId,
 }
 
 impl ModuleList {
     pub fn new(
-        dap_store: Entity<DapStore>,
         session: Entity<DebugSession>,
         client_id: &DebugAdapterClientId,
         cx: &mut Context<Self>,
@@ -39,7 +34,6 @@ impl ModuleList {
         let this = Self {
             list,
             session,
-            dap_store,
             focus_handle,
             client_id: *client_id,
         };

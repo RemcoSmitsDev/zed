@@ -120,8 +120,7 @@ impl DebugPanelItem {
             )
         });
 
-        let module_list =
-            cx.new(|cx| ModuleList::new(dap_store.clone(), session.clone(), &client_id, cx));
+        let module_list = cx.new(|cx| ModuleList::new(session.clone(), &client_id, cx));
 
         let loaded_source_list =
             cx.new(|cx| LoadedSourceList::new(&this, dap_store.clone(), &client_id, cx));
