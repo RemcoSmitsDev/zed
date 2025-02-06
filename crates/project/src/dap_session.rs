@@ -1,10 +1,18 @@
 use collections::{BTreeMap, HashMap};
 use dap::{Module, ModuleEvent};
 use gpui::{App, Context, Entity, Task, WeakEntity};
-use std::{collections::hash_map::Entry, sync::Arc};
+use std::{
+    any::Any,
+    collections::hash_map::Entry,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 use task::DebugAdapterConfig;
 
-use crate::{dap_command, dap_store::DapStore};
+use crate::{
+    dap_command::{self, DapCommand},
+    dap_store::DapStore,
+};
 use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -56,32 +64,72 @@ struct Thread {
     has_stopped: bool,
 }
 
-#[derive(PartialEq, Eq, Hash)]
-enum ClientRequest {
-    Modules,
-    Scopes(dap::ScopesArguments),
-    Variables(dap::VariablesArguments),
-    StackFrames(dap::StackTraceArguments),
-}
-
 pub struct DebugAdapterClientState {
     dap_store: WeakEntity<DapStore>,
     client_id: DebugAdapterClientId,
     modules: Vec<dap::Module>,
     threads: BTreeMap<ThreadId, Thread>,
-    requests: HashMap<ClientRequest, Task<anyhow::Result<()>>>,
+    requests: HashMap<RequestSlot, Task<anyhow::Result<()>>>,
+}
+
+trait CacheableCommand: 'static {
+    fn as_any(&self) -> &dyn Any;
+    fn dyn_eq(&self, rhs: &dyn CacheableCommand) -> bool;
+    fn dyn_hash(&self, hasher: &mut dyn Hasher);
+}
+
+impl<T> CacheableCommand for T
+where
+    T: DapCommand + PartialEq + Hash,
+{
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn dyn_eq(&self, rhs: &dyn CacheableCommand) -> bool {
+        rhs.as_any()
+            .downcast_ref::<Self>()
+            .map_or(false, |rhs| self == rhs)
+    }
+    fn dyn_hash(&self, mut hasher: &mut dyn Hasher) {
+        T::hash(self, &mut hasher);
+    }
+}
+
+pub(crate) struct RequestSlot(Arc<dyn CacheableCommand>);
+
+impl<T: DapCommand + PartialEq + Hash> From<T> for RequestSlot {
+    fn from(request: T) -> Self {
+        Self(Arc::new(request))
+    }
+}
+
+impl PartialEq for RequestSlot {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.dyn_eq(other.0.as_ref())
+    }
+}
+
+impl Eq for RequestSlot {}
+
+impl Hash for RequestSlot {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.dyn_hash(state);
+        self.0.as_any().type_id().hash(state);
+    }
 }
 
 impl DebugAdapterClientState {
     pub(crate) fn wait_for_request(
         &self,
-        request: ClientRequest,
+        request: impl Into<RequestSlot>,
     ) -> Option<&Task<anyhow::Result<()>>> {
-        self.requests.get(&request)
+        self.requests.get(&request.into())
     }
 
     pub fn modules(&mut self, cx: &mut Context<Self>) -> &[Module] {
-        let entry = self.requests.entry(ClientRequest::Modules);
+        let slot = dap_command::ModulesCommand.into();
+        let entry = self.requests.entry(slot);
         if let Entry::Vacant(vacant) = entry {
             let client_id = self.client_id;
 
