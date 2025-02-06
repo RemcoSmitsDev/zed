@@ -147,6 +147,82 @@ async fn test_module_list(executor: BackgroundExecutor, cx: &mut TestAppContext)
         assert_eq!(modules, actual_modules);
     });
 
+    // Test all module events now
+    // New Module
+    // Changed
+    // Removed
+
+    let new_module = dap::Module {
+        id: dap::ModuleId::Number(3),
+        name: "Third Module".into(),
+        address_range: None,
+        date_time_stamp: None,
+        path: None,
+        symbol_file_path: None,
+        symbol_status: None,
+        version: None,
+        is_optimized: None,
+        is_user_code: None,
+    };
+
+    client
+        .fake_event(dap::messages::Events::Module(dap::ModuleEvent {
+            reason: dap::ModuleEventReason::New,
+            module: new_module.clone(),
+        }))
+        .await;
+
+    cx.run_until_parked();
+
+    active_debug_panel_item(workspace, cx).update(cx, |item, cx| {
+        let actual_modules = item.module_list().update(cx, |list, cx| list.modules(cx));
+        assert_eq!(actual_modules.len(), 3);
+        assert!(actual_modules.contains(&new_module));
+    });
+
+    let changed_module = dap::Module {
+        id: dap::ModuleId::Number(2),
+        name: "Modified Second Module".into(),
+        address_range: None,
+        date_time_stamp: None,
+        path: None,
+        symbol_file_path: None,
+        symbol_status: None,
+        version: None,
+        is_optimized: None,
+        is_user_code: None,
+    };
+
+    client
+        .fake_event(dap::messages::Events::Module(dap::ModuleEvent {
+            reason: dap::ModuleEventReason::Changed,
+            module: changed_module.clone(),
+        }))
+        .await;
+
+    cx.run_until_parked();
+
+    active_debug_panel_item(workspace, cx).update(cx, |item, cx| {
+        let actual_modules = item.module_list().update(cx, |list, cx| list.modules(cx));
+        assert_eq!(actual_modules.len(), 3);
+        assert!(actual_modules.contains(&changed_module));
+    });
+
+    client
+        .fake_event(dap::messages::Events::Module(dap::ModuleEvent {
+            reason: dap::ModuleEventReason::Removed,
+            module: changed_module.clone(),
+        }))
+        .await;
+
+    cx.run_until_parked();
+
+    active_debug_panel_item(workspace, cx).update(cx, |item, cx| {
+        let actual_modules = item.module_list().update(cx, |list, cx| list.modules(cx));
+        assert_eq!(actual_modules.len(), 2);
+        assert!(!actual_modules.contains(&changed_module));
+    });
+
     let shutdown_session = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
             dap_store.shutdown_session(&session.read(cx).id(), cx)
