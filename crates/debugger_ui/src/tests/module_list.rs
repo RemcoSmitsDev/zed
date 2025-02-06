@@ -129,8 +129,8 @@ async fn test_module_list(executor: BackgroundExecutor, cx: &mut TestAppContext)
         "Request Modules shouldn't be called before it's needed"
     );
 
-    active_debug_panel_item(workspace, cx).update(cx, |item, _cx| {
-        item.set_thread_item(ThreadItem::Modules);
+    active_debug_panel_item(workspace, cx).update(cx, |item, cx| {
+        item.set_thread_item(ThreadItem::Modules, cx);
     });
 
     cx.run_until_parked();
@@ -139,6 +139,13 @@ async fn test_module_list(executor: BackgroundExecutor, cx: &mut TestAppContext)
         called_modules.load(std::sync::atomic::Ordering::SeqCst),
         "Request Modules should be called because a user clicked on the module list"
     );
+
+    active_debug_panel_item(workspace, cx).update(cx, |item, cx| {
+        item.set_thread_item(ThreadItem::Modules, cx);
+
+        let actual_modules = item.module_list().update(cx, |list, cx| list.modules(cx));
+        assert_eq!(modules, actual_modules);
+    });
 
     let shutdown_session = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {

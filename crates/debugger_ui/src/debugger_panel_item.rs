@@ -497,8 +497,9 @@ impl DebugPanelItem {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub fn set_thread_item(&mut self, thread_item: ThreadItem) {
+    pub fn set_thread_item(&mut self, thread_item: ThreadItem, cx: &mut Context<Self>) {
         self.active_thread_item = thread_item;
+        cx.notify()
     }
 
     #[cfg(any(test, feature = "test-support"))]

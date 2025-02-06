@@ -638,8 +638,10 @@ impl DapStore {
                     .insert(client_id, session_id);
 
                 let session = store.session_by_id(&session_id).unwrap();
+                let weak_dap = cx.weak_entity();
 
                 session.update(cx, |session, cx| {
+                    session.add_client(Some(Arc::new(client)), client_id, weak_dap, cx);
                     let local_session = session.as_local_mut().unwrap();
 
                     local_session.update_configuration(
@@ -648,7 +650,6 @@ impl DapStore {
                         },
                         cx,
                     );
-                    local_session.add_client(Arc::new(client), cx);
                 });
 
                 // don't emit this event ourself in tests, so we can add request,
@@ -786,11 +787,10 @@ impl DapStore {
             };
 
             this.update(&mut cx, |store, cx| {
+                let weak_dap = cx.weak_entity();
+
                 session.update(cx, |session, cx| {
-                    session
-                        .as_local_mut()
-                        .unwrap()
-                        .add_client(client.clone(), cx);
+                    session.add_client(Some(client.clone()), client.id(), weak_dap, cx);
                 });
 
                 let client_id = client.id();

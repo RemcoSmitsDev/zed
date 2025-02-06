@@ -31,6 +31,10 @@ impl ModuleList {
             },
         );
 
+        session.update(cx, |session, _cx| {
+            session.client_state(*client_id).unwrap();
+        });
+
         Self {
             list,
             session,
@@ -89,7 +93,16 @@ impl Focusable for ModuleList {
 }
 
 impl Render for ModuleList {
-    fn render(&mut self, _window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let session = self.session.read(cx);
+        let modules_len = session
+            .client_state(self.client_id)
+            .map_or(0usize, |state| {
+                state.update(cx, |state, cx| state.modules(cx).len())
+            });
+
+        self.list.reset(modules_len);
+
         div()
             .size_full()
             .p_1()

@@ -1,7 +1,7 @@
 use collections::{BTreeMap, HashMap};
 use dap::{Module, Source};
 use futures::{future::Shared, FutureExt};
-use gpui::{Context, Entity, Task, WeakEntity};
+use gpui::{AppContext, Context, Entity, Task, WeakEntity};
 use std::{
     any::Any,
     collections::hash_map::Entry,
@@ -79,7 +79,7 @@ trait CacheableCommand: 'static + Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn dyn_eq(&self, rhs: &dyn CacheableCommand) -> bool;
     fn dyn_hash(&self, hasher: &mut dyn Hasher);
-    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
+    // fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
 }
 
 impl<T> CacheableCommand for T
@@ -98,9 +98,9 @@ where
     fn dyn_hash(&self, mut hasher: &mut dyn Hasher) {
         T::hash(self, &mut hasher);
     }
-    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
-        self
-    }
+    // fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
+    //     self
+    // }
 }
 
 pub(crate) struct RequestSlot(Arc<dyn CacheableCommand>);
@@ -143,11 +143,11 @@ impl DebugAdapterClientState {
         cx: &mut Context<Self>,
     ) {
         let command = Arc::new(request);
-        let slot = command.into();
+        let slot = command.clone().into();
         let entry = self.requests.entry(slot);
+
         if let Entry::Vacant(vacant) = entry {
             let client_id = self.client_id;
-            let command = vacant.key().0.clone().as_any_arc().downcast::<T>().unwrap();
             if let Ok(request) = self.dap_store.update(cx, |dap_store, cx| {
                 dap_store.request_dap(&client_id, command, cx)
             }) {
@@ -232,7 +232,7 @@ impl LocalDebugSession {
         cx.notify();
     }
 
-    pub fn add_client(&mut self, client: Arc<DebugAdapterClient>, cx: &mut Context<DebugSession>) {
+    fn add_client(&mut self, client: Arc<DebugAdapterClient>, cx: &mut Context<DebugSession>) {
         self.clients.insert(client.id(), client);
         cx.notify();
     }
@@ -334,5 +334,32 @@ impl DebugSession {
         client_id: DebugAdapterClientId,
     ) -> Option<Entity<DebugAdapterClientState>> {
         self.states.get(&client_id).cloned()
+    }
+
+    pub fn add_client(
+        &mut self,
+        client: Option<Arc<DebugAdapterClient>>,
+        client_id: DebugAdapterClientId,
+        weak_dap: WeakEntity<DapStore>,
+        cx: &mut Context<DebugSession>,
+    ) {
+        if !self.states.contains_key(&client_id) {
+            let state = cx.new(|_cx| DebugAdapterClientState {
+                dap_store: weak_dap,
+                client_id,
+                modules: Vec::default(),
+                loaded_sources: Vec::default(),
+                _threads: BTreeMap::default(),
+                requests: HashMap::default(),
+            });
+
+            self.states.insert(client_id, state);
+        }
+
+        if let Some(client) = client {
+            self.as_local_mut()
+                .expect("Client can only exist on local Zed instances")
+                .add_client(client, cx);
+        }
     }
 }
