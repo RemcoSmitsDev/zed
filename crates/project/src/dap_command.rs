@@ -12,9 +12,12 @@ use gpui::{AsyncApp, WeakEntity};
 use rpc::proto;
 use util::ResultExt;
 
-use crate::{dap_session::DebugSessionId, dap_store::DapStore};
+use crate::{
+    dap_session::{self, DebugSessionId},
+    dap_store::DapStore,
+};
 
-pub trait DapCommand: 'static + Send + Sync + std::fmt::Debug {
+pub(crate) trait DapCommand: 'static + Send + Sync + std::fmt::Debug {
     type Response: 'static + Send + std::fmt::Debug;
     type DapRequest: 'static + Send + dap::requests::Request;
     type ProtoRequest: 'static + Send + proto::RequestMessage;

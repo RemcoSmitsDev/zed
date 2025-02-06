@@ -1815,6 +1815,29 @@ impl DapStore {
         Ok(proto::Ack {})
     }
 
+    async fn handle_dap_command_2<T: DapCommand + PartialEq + Eq + Hash>(
+        this: Entity<Self>,
+        envelope: TypedEnvelope<T::ProtoRequest>,
+        mut cx: AsyncApp,
+    ) -> Result<<T::ProtoRequest as proto::RequestMessage>::Response>
+    where
+        <T::DapRequest as dap::requests::Request>::Arguments: Send,
+        <T::DapRequest as dap::requests::Request>::Response: Send,
+    {
+        let request = T::from_proto(&envelope.payload);
+        let client_id = T::client_id_from_proto(&envelope.payload);
+
+        let state = this.update(&mut cx, |this, cx| {
+            this.session_by_client_id(&client_id)?
+                .read(cx)
+                .client_state(client_id)?
+                .read(cx)
+                .wait_for_request(request)
+        });
+
+        todo!()
+    }
+
     async fn handle_dap_command<T: DapCommand>(
         this: Entity<Self>,
         envelope: TypedEnvelope<T::ProtoRequest>,

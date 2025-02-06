@@ -1,5 +1,6 @@
 use collections::{BTreeMap, HashMap};
 use dap::{Module, ModuleEvent};
+use futures::{future::Shared, FutureExt};
 use gpui::{App, Context, Entity, Task, WeakEntity};
 use std::{
     any::Any,
@@ -8,6 +9,7 @@ use std::{
     sync::Arc,
 };
 use task::DebugAdapterConfig;
+use util::ResultExt;
 
 use crate::{
     dap_command::{self, DapCommand},
@@ -69,7 +71,7 @@ pub struct DebugAdapterClientState {
     client_id: DebugAdapterClientId,
     modules: Vec<dap::Module>,
     threads: BTreeMap<ThreadId, Thread>,
-    requests: HashMap<RequestSlot, Task<anyhow::Result<()>>>,
+    requests: HashMap<RequestSlot, Shared<Task<Option<()>>>>,
 }
 
 trait CacheableCommand: 'static + Send + Sync {
@@ -124,11 +126,12 @@ impl Hash for RequestSlot {
 }
 
 impl DebugAdapterClientState {
-    pub(crate) fn wait_for_request(
+    pub(crate) fn wait_for_request<R: DapCommand + PartialEq + Eq + Hash>(
         &self,
-        request: impl Into<RequestSlot>,
-    ) -> Option<&Task<anyhow::Result<()>>> {
-        self.requests.get(&request.into())
+        request: R,
+    ) -> Option<Shared<Task<Option<()>>>> {
+        let request_slot = RequestSlot::from(request);
+        self.requests.get(&request_slot).cloned()
     }
 
     /// Ensure that there's a request in flight for the given command, and if not, send it.
@@ -147,13 +150,15 @@ impl DebugAdapterClientState {
             if let Ok(request) = self.dap_store.update(cx, |dap_store, cx| {
                 dap_store.request_dap(&client_id, command, cx)
             }) {
-                let task = cx.spawn(|this, mut cx| async move {
-                    let result = request.await?;
-                    this.update(&mut cx, |this, _| {
-                        process_result(this, result);
-                    })?;
-                    Ok(())
-                });
+                let task = cx
+                    .spawn(|this, mut cx| async move {
+                        let result = request.await.log_err()?;
+                        this.update(&mut cx, |this, _| {
+                            process_result(this, result);
+                        })
+                        .log_err()
+                    })
+                    .shared();
 
                 vacant.insert(task);
             }
