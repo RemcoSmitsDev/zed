@@ -8,6 +8,7 @@ pub struct ModuleList {
     focus_handle: FocusHandle,
     session: Entity<DebugSession>,
     client_id: DebugAdapterClientId,
+    modules_len: usize,
 }
 
 impl ModuleList {
@@ -40,17 +41,22 @@ impl ModuleList {
             session,
             focus_handle,
             client_id: *client_id,
+            modules_len: 0,
         }
     }
 
     pub fn on_module_event(&mut self, event: &ModuleEvent, cx: &mut Context<Self>) {
         if let Some(state) = self.session.read(cx).client_state(self.client_id) {
-            let module_len = state.update(cx, |state, cx| {
+            let modules_len = state.update(cx, |state, cx| {
                 state.handle_module_event(event);
                 state.modules(cx).len()
             });
 
-            self.list.reset(module_len);
+            if modules_len != self.modules_len {
+                self.modules_len = modules_len;
+                self.list.reset(self.modules_len);
+            }
+
             cx.notify()
         }
     }
@@ -101,7 +107,10 @@ impl Render for ModuleList {
                 state.update(cx, |state, cx| state.modules(cx).len())
             });
 
-        self.list.reset(modules_len);
+        if modules_len != self.modules_len {
+            self.modules_len = modules_len;
+            self.list.reset(self.modules_len);
+        }
 
         div()
             .size_full()
