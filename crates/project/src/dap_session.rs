@@ -80,7 +80,7 @@ trait CacheableCommand: 'static {
 
 impl<T> CacheableCommand for T
 where
-    T: DapCommand + PartialEq + Hash,
+    T: DapCommand + PartialEq + Eq + Hash,
 {
     fn as_any(&self) -> &dyn Any {
         self
@@ -98,7 +98,7 @@ where
 
 pub(crate) struct RequestSlot(Arc<dyn CacheableCommand>);
 
-impl<T: DapCommand + PartialEq + Hash> From<T> for RequestSlot {
+impl<T: DapCommand + PartialEq + Eq + Hash> From<T> for RequestSlot {
     fn from(request: T) -> Self {
         Self(Arc::new(request))
     }

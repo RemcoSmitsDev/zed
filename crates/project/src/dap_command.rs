@@ -55,7 +55,7 @@ pub trait DapCommand: 'static + Send + Sync + std::fmt::Debug {
     ) -> Result<Self::Response>;
 }
 
-#[derive(Debug, Hash, PartialEq)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub struct StepCommand {
     pub thread_id: u64,
     pub granularity: Option<SteppingGranularity>,
@@ -81,7 +81,7 @@ impl StepCommand {
     }
 }
 
-#[derive(Debug, Hash, PartialEq)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub(crate) struct NextCommand {
     pub inner: StepCommand,
 }
@@ -145,7 +145,7 @@ impl DapCommand for NextCommand {
     }
 }
 
-#[derive(Debug, Hash, PartialEq)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub(crate) struct StepInCommand {
     pub inner: StepCommand,
 }
@@ -217,7 +217,7 @@ impl DapCommand for StepInCommand {
     }
 }
 
-#[derive(Debug, Hash, PartialEq)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub(crate) struct StepOutCommand {
     pub inner: StepCommand,
 }
@@ -317,7 +317,7 @@ impl DapCommand for StepOutCommand {
     }
 }
 
-#[derive(Debug, Hash, PartialEq)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub(crate) struct StepBackCommand {
     pub inner: StepCommand,
 }
@@ -387,7 +387,7 @@ impl DapCommand for StepBackCommand {
     }
 }
 
-#[derive(Debug, Hash, PartialEq)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub(crate) struct ContinueCommand {
     pub args: ContinueArguments,
 }
@@ -484,7 +484,7 @@ impl DapCommand for ContinueCommand {
     }
 }
 
-#[derive(Debug, Hash, PartialEq)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub(crate) struct PauseCommand {
     pub thread_id: u64,
 }
@@ -544,7 +544,7 @@ impl DapCommand for PauseCommand {
     }
 }
 
-#[derive(Debug, Hash, PartialEq)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub(crate) struct DisconnectCommand {
     pub restart: Option<bool>,
     pub terminate_debuggee: Option<bool>,
@@ -612,7 +612,7 @@ impl DapCommand for DisconnectCommand {
     }
 }
 
-#[derive(Debug, Hash, PartialEq)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub(crate) struct TerminateThreadsCommand {
     pub thread_ids: Option<Vec<u64>>,
 }
@@ -676,7 +676,7 @@ impl DapCommand for TerminateThreadsCommand {
     }
 }
 
-#[derive(Debug, Hash, PartialEq)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub(crate) struct TerminateCommand {
     pub restart: Option<bool>,
 }
@@ -736,7 +736,7 @@ impl DapCommand for TerminateCommand {
     }
 }
 
-#[derive(Debug, Hash, PartialEq)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub(crate) struct RestartCommand {
     pub raw: serde_json::Value,
 }
@@ -800,7 +800,7 @@ impl DapCommand for RestartCommand {
     }
 }
 
-#[derive(Debug, Hash, PartialEq)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariablesCommand {
     pub stack_frame_id: u64,
     pub scope_id: u64,
@@ -925,7 +925,7 @@ impl DapCommand for VariablesCommand {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct RestartStackFrameCommand {
     pub stack_frame_id: u64,
 }
@@ -985,7 +985,7 @@ impl DapCommand for RestartStackFrameCommand {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct ModulesCommand;
 
 impl DapCommand for ModulesCommand {
