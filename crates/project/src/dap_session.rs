@@ -131,26 +131,26 @@ impl DebugAdapterClientState {
         self.requests.get(&request.into())
     }
 
-    pub fn modules(&mut self, cx: &mut Context<Self>) -> &[Module] {
-        let command = Arc::new(dap_command::ModulesCommand);
+    /// Ensure that there's a request in flight for the given command, and if not, send it.
+    fn request<T: DapCommand + PartialEq + Eq + Hash>(
+        &mut self,
+        request: T,
+        process_result: impl FnOnce(&mut Self, T::Response) + 'static + Send + Sync,
+        cx: &mut Context<Self>,
+    ) {
+        let command = Arc::new(request);
         let slot = command.into();
         let entry = self.requests.entry(slot);
         if let Entry::Vacant(vacant) = entry {
             let client_id = self.client_id;
-            let command = vacant
-                .key()
-                .0
-                .clone()
-                .as_any_arc()
-                .downcast::<dap_command::ModulesCommand>()
-                .unwrap();
+            let command = vacant.key().0.clone().as_any_arc().downcast::<T>().unwrap();
             if let Ok(request) = self.dap_store.update(cx, |dap_store, cx| {
                 dap_store.request_dap(&client_id, command, cx)
             }) {
                 let task = cx.spawn(|this, mut cx| async move {
                     let result = request.await?;
                     this.update(&mut cx, |this, _| {
-                        this.modules = result;
+                        process_result(this, result);
                     })?;
                     Ok(())
                 });
@@ -158,7 +158,15 @@ impl DebugAdapterClientState {
                 vacant.insert(task);
             }
         }
-
+    }
+    pub fn modules(&mut self, cx: &mut Context<Self>) -> &[Module] {
+        self.request(
+            dap_command::ModulesCommand,
+            |this, result| {
+                this.modules = result;
+            },
+            cx,
+        );
         &self.modules
     }
 
