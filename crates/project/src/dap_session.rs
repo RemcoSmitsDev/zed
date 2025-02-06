@@ -72,10 +72,11 @@ pub struct DebugAdapterClientState {
     requests: HashMap<RequestSlot, Task<anyhow::Result<()>>>,
 }
 
-trait CacheableCommand: 'static {
+trait CacheableCommand: 'static + Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn dyn_eq(&self, rhs: &dyn CacheableCommand) -> bool;
     fn dyn_hash(&self, hasher: &mut dyn Hasher);
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
 }
 
 impl<T> CacheableCommand for T
@@ -93,6 +94,9 @@ where
     }
     fn dyn_hash(&self, mut hasher: &mut dyn Hasher) {
         T::hash(self, &mut hasher);
+    }
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
+        self
     }
 }
 
@@ -128,14 +132,19 @@ impl DebugAdapterClientState {
     }
 
     pub fn modules(&mut self, cx: &mut Context<Self>) -> &[Module] {
-        let slot = dap_command::ModulesCommand.into();
+        let command = Arc::new(dap_command::ModulesCommand);
+        let slot = command.into();
         let entry = self.requests.entry(slot);
         if let Entry::Vacant(vacant) = entry {
             let client_id = self.client_id;
-
+            let command = vacant
+                .key()
+                .0
+                .clone()
+                .as_any_arc()
+                .downcast::<dap_command::ModulesCommand>()
+                .unwrap();
             if let Ok(request) = self.dap_store.update(cx, |dap_store, cx| {
-                let command = dap_command::ModulesCommand;
-
                 dap_store.request_dap(&client_id, command, cx)
             }) {
                 let task = cx.spawn(|this, mut cx| async move {
