@@ -36,18 +36,18 @@ impl DebugSessionId {
 struct ThreadId(u64);
 
 struct Variable {
-    variable: dap::Variable,
-    variables: Vec<Variable>,
+    _variable: dap::Variable,
+    _variables: Vec<Variable>,
 }
 
 struct Scope {
-    scope: dap::Scope,
-    variables: Vec<Variable>,
+    _scope: dap::Scope,
+    _variables: Vec<Variable>,
 }
 
 struct StackFrame {
-    stack_frame: dap::StackFrame,
-    scopes: Vec<Scope>,
+    _stack_frame: dap::StackFrame,
+    _scopes: Vec<Scope>,
 }
 
 #[derive(Copy, Clone, Default, PartialEq, Eq)]
@@ -60,10 +60,10 @@ pub enum ThreadStatus {
 }
 
 struct Thread {
-    thread: dap::Thread,
-    stack_frames: Vec<StackFrame>,
-    status: ThreadStatus,
-    has_stopped: bool,
+    _thread: dap::Thread,
+    _stack_frames: Vec<StackFrame>,
+    _status: ThreadStatus,
+    _has_stopped: bool,
 }
 
 pub struct DebugAdapterClientState {
@@ -71,7 +71,7 @@ pub struct DebugAdapterClientState {
     client_id: DebugAdapterClientId,
     modules: Vec<dap::Module>,
     loaded_sources: Vec<dap::Source>,
-    threads: BTreeMap<ThreadId, Thread>,
+    _threads: BTreeMap<ThreadId, Thread>,
     requests: HashMap<RequestSlot, Shared<Task<Option<()>>>>,
 }
 
@@ -127,7 +127,7 @@ impl Hash for RequestSlot {
 }
 
 impl DebugAdapterClientState {
-    pub(crate) fn wait_for_request<R: DapCommand + PartialEq + Eq + Hash>(
+    pub(crate) fn _wait_for_request<R: DapCommand + PartialEq + Eq + Hash>(
         &self,
         request: R,
     ) -> Option<Shared<Task<Option<()>>>> {

@@ -109,7 +109,7 @@ async fn test_module_list(executor: BackgroundExecutor, cx: &mut TestAppContext)
         .await;
 
     client
-        .fake_event(dap::messages::Events::Stopped(dap::StoppedEvent {
+        .fake_event(dap::messages::Events::Stopped(StoppedEvent {
             reason: dap::StoppedEventReason::Pause,
             description: None,
             thread_id: Some(1),

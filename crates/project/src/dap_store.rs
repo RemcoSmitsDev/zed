@@ -1250,7 +1250,7 @@ impl DapStore {
         self.request_dap(client_id, command, cx)
     }
 
-    pub fn request_dap<R: DapCommand>(
+    pub(crate) fn request_dap<R: DapCommand>(
         &self,
         client_id: &DebugAdapterClientId,
         request: R,
@@ -1815,7 +1815,7 @@ impl DapStore {
         Ok(proto::Ack {})
     }
 
-    async fn handle_dap_command_2<T: DapCommand + PartialEq + Eq + Hash>(
+    async fn _handle_dap_command_2<T: DapCommand + PartialEq + Eq + Hash>(
         this: Entity<Self>,
         envelope: TypedEnvelope<T::ProtoRequest>,
         mut cx: AsyncApp,
@@ -1827,12 +1827,12 @@ impl DapStore {
         let request = T::from_proto(&envelope.payload);
         let client_id = T::client_id_from_proto(&envelope.payload);
 
-        let state = this.update(&mut cx, |this, cx| {
+        let _state = this.update(&mut cx, |this, cx| {
             this.session_by_client_id(&client_id)?
                 .read(cx)
                 .client_state(client_id)?
                 .read(cx)
-                .wait_for_request(request)
+                ._wait_for_request(request)
         });
 
         todo!()
