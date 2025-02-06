@@ -33,6 +33,16 @@ pub enum DebugPanelItemEvent {
 }
 
 #[derive(Clone, PartialEq, Eq)]
+#[cfg(any(test, feature = "test-support"))]
+pub enum ThreadItem {
+    Console,
+    LoadedSource,
+    Modules,
+    Variables,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+#[cfg(not(any(test, feature = "test-support")))]
 enum ThreadItem {
     Console,
     LoadedSource,
@@ -484,6 +494,11 @@ impl DebugPanelItem {
 
     pub fn thread_id(&self) -> u64 {
         self.thread_id
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_thread_item(&mut self, thread_item: ThreadItem) {
+        self.active_thread_item = thread_item;
     }
 
     #[cfg(any(test, feature = "test-support"))]

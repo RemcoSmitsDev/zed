@@ -98,6 +98,9 @@ impl Render for ModuleList {
 }
 
 #[cfg(any(test, feature = "test-support"))]
+use dap::Module;
+
+#[cfg(any(test, feature = "test-support"))]
 impl ModuleList {
     pub fn modules(&self, cx: &mut Context<Self>) -> Vec<Module> {
         let Some(state) = self.session.read(cx).client_state(self.client_id) else {
