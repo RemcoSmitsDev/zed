@@ -79,7 +79,7 @@ trait CacheableCommand: 'static + Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn dyn_eq(&self, rhs: &dyn CacheableCommand) -> bool;
     fn dyn_hash(&self, hasher: &mut dyn Hasher);
-    // fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
 }
 
 impl<T> CacheableCommand for T
@@ -98,9 +98,9 @@ where
     fn dyn_hash(&self, mut hasher: &mut dyn Hasher) {
         T::hash(self, &mut hasher);
     }
-    // fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
-    //     self
-    // }
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
+        self
+    }
 }
 
 pub(crate) struct RequestSlot(Arc<dyn CacheableCommand>);
@@ -142,12 +142,13 @@ impl DebugAdapterClientState {
         process_result: impl FnOnce(&mut Self, T::Response) + 'static + Send + Sync,
         cx: &mut Context<Self>,
     ) {
-        let command = Arc::new(request);
-        let slot = command.clone().into();
+        let slot = request.into();
         let entry = self.requests.entry(slot);
 
         if let Entry::Vacant(vacant) = entry {
             let client_id = self.client_id;
+            let command = vacant.key().0.clone().as_any_arc().downcast::<T>().unwrap();
+
             if let Ok(request) = self.dap_store.update(cx, |dap_store, cx| {
                 dap_store.request_dap(&client_id, command, cx)
             }) {
