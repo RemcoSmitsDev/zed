@@ -1,4 +1,4 @@
-use dap::{client::DebugAdapterClientId, Module, ModuleEvent};
+use dap::{client::DebugAdapterClientId, ModuleEvent};
 use gpui::{list, AnyElement, Empty, Entity, FocusHandle, Focusable, ListState};
 use project::dap_session::DebugSession;
 use ui::prelude::*;
