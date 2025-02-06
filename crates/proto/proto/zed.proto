@@ -345,7 +345,9 @@ message Envelope {
         ToggleIgnoreBreakpoints toggle_ignore_breakpoints = 323;
         DebuggerSessionEnded debugger_session_ended = 324;
         DapModulesRequest dap_modules_request = 325;
-        DapModulesResponse dap_modules_response = 326; // current max
+        DapModulesResponse dap_modules_response = 326;
+        DapLoadedSourcesRequest dap_loaded_sources_request = 327;
+        DapLoadedSourcesResponse dap_loaded_sources_response = 328; // current max
     }
 
     reserved 87 to 88;
@@ -2835,6 +2837,16 @@ message DapModulesRequest {
 message DapModulesResponse {
     uint64 client_id = 1;
     repeated DapModule modules = 2;
+}
+
+message DapLoadedSourcesRequest {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+}
+
+message DapLoadedSourcesResponse {
+    uint64 client_id = 1;
+    repeated DapSource sources = 2;
 }
 
 message DapStackFrame {

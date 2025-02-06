@@ -1,7 +1,7 @@
 use collections::{BTreeMap, HashMap};
-use dap::{Module, ModuleEvent};
+use dap::{Module, Source};
 use futures::{future::Shared, FutureExt};
-use gpui::{App, Context, Entity, Task, WeakEntity};
+use gpui::{Context, Entity, Task, WeakEntity};
 use std::{
     any::Any,
     collections::hash_map::Entry,
@@ -70,6 +70,7 @@ pub struct DebugAdapterClientState {
     dap_store: WeakEntity<DapStore>,
     client_id: DebugAdapterClientId,
     modules: Vec<dap::Module>,
+    loaded_sources: Vec<dap::Source>,
     threads: BTreeMap<ThreadId, Thread>,
     requests: HashMap<RequestSlot, Shared<Task<Option<()>>>>,
 }
@@ -164,6 +165,7 @@ impl DebugAdapterClientState {
             }
         }
     }
+
     pub fn modules(&mut self, cx: &mut Context<Self>) -> &[Module] {
         self.request(
             dap_command::ModulesCommand,
@@ -185,6 +187,17 @@ impl DebugAdapterClientState {
             }
             dap::ModuleEventReason::Removed => self.modules.retain(|m| m.id != event.module.id),
         }
+    }
+
+    pub fn loaded_sources(&mut self, cx: &mut Context<Self>) -> &[Source] {
+        self.request(
+            dap_command::LoadedSourcesCommand,
+            |this, result| {
+                this.loaded_sources = result;
+            },
+            cx,
+        );
+        &self.loaded_sources
     }
 }
 

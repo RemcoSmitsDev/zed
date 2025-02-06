@@ -12,10 +12,7 @@ use gpui::{AsyncApp, WeakEntity};
 use rpc::proto;
 use util::ResultExt;
 
-use crate::{
-    dap_session::{self, DebugSessionId},
-    dap_store::DapStore,
-};
+use crate::{dap_session::DebugSessionId, dap_store::DapStore};
 
 pub(crate) trait DapCommand: 'static + Send + Sync + std::fmt::Debug {
     type Response: 'static + Send + std::fmt::Debug;
@@ -1099,6 +1096,69 @@ impl DapCommand for ModulesCommand {
             .modules
             .into_iter()
             .filter_map(|module| dap::Module::from_proto(module).ok())
+            .collect())
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub(crate) struct LoadedSourcesCommand;
+
+impl DapCommand for LoadedSourcesCommand {
+    type Response = Vec<dap::Source>;
+    type DapRequest = dap::requests::LoadedSources;
+    type ProtoRequest = proto::DapLoadedSourcesRequest;
+
+    fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
+        DebugAdapterClientId::from_proto(request.client_id)
+    }
+
+    fn from_proto(_request: &Self::ProtoRequest) -> Self {
+        Self {}
+    }
+
+    fn to_proto(
+        &self,
+        debug_client_id: &DebugAdapterClientId,
+        upstream_project_id: u64,
+    ) -> proto::DapLoadedSourcesRequest {
+        proto::DapLoadedSourcesRequest {
+            project_id: upstream_project_id,
+            client_id: debug_client_id.to_proto(),
+        }
+    }
+
+    fn response_to_proto(
+        debug_client_id: &DebugAdapterClientId,
+        message: Self::Response,
+    ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
+        proto::DapLoadedSourcesResponse {
+            sources: message
+                .into_iter()
+                .map(|source| source.to_proto())
+                .collect(),
+            client_id: debug_client_id.to_proto(),
+        }
+    }
+
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        dap::LoadedSourcesArguments {}
+    }
+
+    fn response_from_dap(
+        &self,
+        message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Result<Self::Response> {
+        Ok(message.sources)
+    }
+
+    fn response_from_proto(
+        &self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
+        Ok(message
+            .sources
+            .into_iter()
+            .map(dap::Source::from_proto)
             .collect())
     }
 }

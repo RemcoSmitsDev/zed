@@ -31,14 +31,12 @@ impl ModuleList {
             },
         );
 
-        let this = Self {
+        Self {
             list,
             session,
             focus_handle,
             client_id: *client_id,
-        };
-
-        this
+        }
     }
 
     pub fn on_module_event(&mut self, event: &ModuleEvent, cx: &mut Context<Self>) {
