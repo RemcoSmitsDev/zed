@@ -4,12 +4,14 @@ use crate::{
         RestartStackFrameCommand, StepBackCommand, StepCommand, StepInCommand, StepOutCommand,
         TerminateCommand, TerminateThreadsCommand, VariablesCommand,
     },
+    dap_session::{DebugSession, DebugSessionId},
     project_settings::ProjectSettings,
     ProjectEnvironment, ProjectItem as _, ProjectPath,
 };
 use anyhow::{anyhow, bail, Context as _, Result};
 use async_trait::async_trait;
 use collections::HashMap;
+use dap::ContinueResponse;
 use dap::{
     adapters::{DapDelegate, DapStatus, DebugAdapter, DebugAdapterBinary, DebugAdapterName},
     client::{DebugAdapterClient, DebugAdapterClientId},
@@ -27,10 +29,6 @@ use dap::{
     SetVariableArguments, Source, SourceBreakpoint, StackFrame, StackTraceArguments,
     StartDebuggingRequestArguments, StartDebuggingRequestArgumentsRequest, SteppingGranularity,
     TerminateArguments, Variable,
-};
-use dap::{
-    session::{DebugSession, DebugSessionId},
-    ContinueResponse,
 };
 use dap_adapters::build_adapter;
 use fs::Fs;
@@ -157,30 +155,30 @@ impl DapStore {
     const INDEX_STARTS_AT_ONE: bool = true;
 
     pub fn init(client: &AnyProtoClient) {
-        client.add_model_message_handler(Self::handle_remove_active_debug_line);
-        client.add_model_message_handler(Self::handle_shutdown_debug_client);
-        client.add_model_message_handler(Self::handle_set_active_debug_line);
-        client.add_model_message_handler(Self::handle_set_debug_client_capabilities);
-        client.add_model_message_handler(Self::handle_set_debug_panel_item);
-        client.add_model_message_handler(Self::handle_synchronize_breakpoints);
-        client.add_model_message_handler(Self::handle_update_debug_adapter);
-        client.add_model_message_handler(Self::handle_update_thread_status);
-        client.add_model_message_handler(Self::handle_ignore_breakpoint_state);
-        client.add_model_message_handler(Self::handle_session_has_shutdown);
+        client.add_entity_message_handler(Self::handle_remove_active_debug_line);
+        client.add_entity_message_handler(Self::handle_shutdown_debug_client);
+        client.add_entity_message_handler(Self::handle_set_active_debug_line);
+        client.add_entity_message_handler(Self::handle_set_debug_client_capabilities);
+        client.add_entity_message_handler(Self::handle_set_debug_panel_item);
+        client.add_entity_message_handler(Self::handle_synchronize_breakpoints);
+        client.add_entity_message_handler(Self::handle_update_debug_adapter);
+        client.add_entity_message_handler(Self::handle_update_thread_status);
+        client.add_entity_message_handler(Self::handle_ignore_breakpoint_state);
+        client.add_entity_message_handler(Self::handle_session_has_shutdown);
 
-        client.add_model_request_handler(Self::handle_dap_command::<NextCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<StepInCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<StepOutCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<StepBackCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<ContinueCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<PauseCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<DisconnectCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<TerminateThreadsCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<TerminateCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<RestartCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<VariablesCommand>);
-        client.add_model_request_handler(Self::handle_dap_command::<RestartStackFrameCommand>);
-        client.add_model_request_handler(Self::handle_shutdown_session_request);
+        client.add_entity_request_handler(Self::handle_dap_command::<NextCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<StepInCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<StepOutCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<StepBackCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<ContinueCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<PauseCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<DisconnectCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<TerminateThreadsCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<TerminateCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<RestartCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<VariablesCommand>);
+        client.add_entity_request_handler(Self::handle_dap_command::<RestartStackFrameCommand>);
+        client.add_entity_request_handler(Self::handle_shutdown_session_request);
     }
 
     pub fn new_local(
@@ -641,8 +639,10 @@ impl DapStore {
                     .insert(client_id, session_id);
 
                 let session = store.session_by_id(&session_id).unwrap();
+                let weak_dap = cx.weak_entity();
 
                 session.update(cx, |session, cx| {
+                    session.add_client(Some(Arc::new(client)), client_id, weak_dap, cx);
                     let local_session = session.as_local_mut().unwrap();
 
                     local_session.update_configuration(
@@ -651,7 +651,6 @@ impl DapStore {
                         },
                         cx,
                     );
-                    local_session.add_client(Arc::new(client), cx);
                 });
 
                 // don't emit this event ourself in tests, so we can add request,
@@ -789,11 +788,10 @@ impl DapStore {
             };
 
             this.update(&mut cx, |store, cx| {
+                let weak_dap = cx.weak_entity();
+
                 session.update(cx, |session, cx| {
-                    session
-                        .as_local_mut()
-                        .unwrap()
-                        .add_client(client.clone(), cx);
+                    session.add_client(Some(client.clone()), client.id(), weak_dap, cx);
                 });
 
                 let client_id = client.id();
@@ -1253,7 +1251,7 @@ impl DapStore {
         self.request_dap(client_id, command, cx)
     }
 
-    fn request_dap<R: DapCommand>(
+    pub(crate) fn request_dap<R: DapCommand>(
         &self,
         client_id: &DebugAdapterClientId,
         request: R,
@@ -1840,6 +1838,29 @@ impl DapStore {
         Ok(proto::Ack {})
     }
 
+    async fn _handle_dap_command_2<T: DapCommand + PartialEq + Eq + Hash>(
+        this: Entity<Self>,
+        envelope: TypedEnvelope<T::ProtoRequest>,
+        mut cx: AsyncApp,
+    ) -> Result<<T::ProtoRequest as proto::RequestMessage>::Response>
+    where
+        <T::DapRequest as dap::requests::Request>::Arguments: Send,
+        <T::DapRequest as dap::requests::Request>::Response: Send,
+    {
+        let request = T::from_proto(&envelope.payload);
+        let client_id = T::client_id_from_proto(&envelope.payload);
+
+        let _state = this.update(&mut cx, |this, cx| {
+            this.session_by_client_id(&client_id)?
+                .read(cx)
+                .client_state(client_id)?
+                .read(cx)
+                ._wait_for_request(request)
+        });
+
+        todo!()
+    }
+
     async fn handle_dap_command<T: DapCommand>(
         this: Entity<Self>,
         envelope: TypedEnvelope<T::ProtoRequest>,
@@ -2113,10 +2134,11 @@ impl DapStore {
         for session in local_store
             .sessions
             .values()
-            .filter_map(|session| session.read(cx).as_local())
+            .filter(|session| session.read(cx).as_local().is_some())
         {
-            let ignore_breakpoints = self.ignore_breakpoints(&session.id(), cx);
-            for client in session.clients().collect::<Vec<_>>() {
+            let session = session.read(cx);
+            let ignore_breakpoints = session.ignore_breakpoints();
+            for client in session.as_local().unwrap().clients().collect::<Vec<_>>() {
                 tasks.push(self.send_breakpoints(
                     &client.id(),
                     Arc::from(absolute_path.clone()),

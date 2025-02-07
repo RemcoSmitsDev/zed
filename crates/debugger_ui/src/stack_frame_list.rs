@@ -3,12 +3,12 @@ use std::path::Path;
 use anyhow::{anyhow, Result};
 use dap::client::DebugAdapterClientId;
 use dap::proto_conversions::ProtoConversion;
-use dap::session::DebugSessionId;
 use dap::StackFrame;
 use gpui::{
     list, AnyElement, Entity, EventEmitter, FocusHandle, Focusable, ListState, Subscription, Task,
     WeakEntity,
 };
+use project::dap_session::DebugSession;
 use project::dap_store::DapStore;
 use project::ProjectPath;
 use rpc::proto::{DebuggerStackFrameList, UpdateDebugAdapter};
@@ -19,9 +19,11 @@ use workspace::Workspace;
 use crate::debugger_panel_item::DebugPanelItemEvent::Stopped;
 use crate::debugger_panel_item::{self, DebugPanelItem};
 
+pub type StackFrameId = u64;
+
 #[derive(Debug)]
 pub enum StackFrameListEvent {
-    SelectedStackFrameChanged,
+    SelectedStackFrameChanged(StackFrameId),
     StackFramesUpdated,
 }
 
@@ -29,14 +31,14 @@ pub struct StackFrameList {
     thread_id: u64,
     list: ListState,
     focus_handle: FocusHandle,
-    session_id: DebugSessionId,
     dap_store: Entity<DapStore>,
-    current_stack_frame_id: u64,
+    session: Entity<DebugSession>,
     stack_frames: Vec<StackFrame>,
     entries: Vec<StackFrameEntry>,
     workspace: WeakEntity<Workspace>,
     client_id: DebugAdapterClientId,
     _subscriptions: Vec<Subscription>,
+    current_stack_frame_id: StackFrameId,
     fetch_stack_frames_task: Option<Task<Result<()>>>,
 }
 
@@ -49,11 +51,11 @@ pub enum StackFrameEntry {
 impl StackFrameList {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        workspace: &WeakEntity<Workspace>,
+        workspace: WeakEntity<Workspace>,
         debug_panel_item: &Entity<DebugPanelItem>,
-        dap_store: &Entity<DapStore>,
+        dap_store: Entity<DapStore>,
+        session: Entity<DebugSession>,
         client_id: &DebugAdapterClientId,
-        session_id: &DebugSessionId,
         thread_id: u64,
         window: &Window,
         cx: &mut Context<Self>,
@@ -83,14 +85,14 @@ impl StackFrameList {
 
         Self {
             list,
+            session,
+            workspace,
+            dap_store,
             thread_id,
             focus_handle,
             _subscriptions,
             client_id: *client_id,
-            session_id: *session_id,
             entries: Default::default(),
-            workspace: workspace.clone(),
-            dap_store: dap_store.clone(),
             fetch_stack_frames_task: None,
             stack_frames: Default::default(),
             current_stack_frame_id: Default::default(),
@@ -244,13 +246,15 @@ impl StackFrameList {
     ) -> Task<Result<()>> {
         self.current_stack_frame_id = stack_frame.id;
 
-        cx.emit(StackFrameListEvent::SelectedStackFrameChanged);
+        cx.emit(StackFrameListEvent::SelectedStackFrameChanged(
+            stack_frame.id,
+        ));
         cx.notify();
 
         if let Some((client, id)) = self.dap_store.read(cx).downstream_client() {
             let request = UpdateDebugAdapter {
                 client_id: self.client_id.to_proto(),
-                session_id: self.session_id.to_proto(),
+                session_id: self.session.read(cx).id().to_proto(),
                 project_id: *id,
                 thread_id: Some(self.thread_id),
                 variant: Some(rpc::proto::update_debug_adapter::Variant::StackFrameList(

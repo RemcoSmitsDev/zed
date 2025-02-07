@@ -3,8 +3,7 @@ use crate::{
     variable_list::VariableList,
 };
 use dap::{
-    client::DebugAdapterClientId, proto_conversions::ProtoConversion, session::DebugSessionId,
-    OutputEvent, OutputEventGroup,
+    client::DebugAdapterClientId, proto_conversions::ProtoConversion, OutputEvent, OutputEventGroup,
 };
 use editor::{
     display_map::{Crease, CreaseId},
@@ -14,7 +13,7 @@ use fuzzy::StringMatchCandidate;
 use gpui::{Context, Entity, Render, Subscription, Task, TextStyle, WeakEntity};
 use language::{Buffer, CodeLabel, LanguageServerId, ToOffsetUtf16};
 use menu::Confirm;
-use project::{dap_store::DapStore, Completion};
+use project::{dap_session::DebugSession, dap_store::DapStore, Completion};
 use rpc::proto;
 use settings::Settings;
 use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
@@ -34,8 +33,8 @@ pub struct Console {
     groups: Vec<OutputGroup>,
     console: Entity<Editor>,
     query_bar: Entity<Editor>,
-    session_id: DebugSessionId,
     dap_store: Entity<DapStore>,
+    session: Entity<DebugSession>,
     client_id: DebugAdapterClientId,
     _subscriptions: Vec<Subscription>,
     variable_list: Entity<VariableList>,
@@ -44,11 +43,11 @@ pub struct Console {
 
 impl Console {
     pub fn new(
-        stack_frame_list: &Entity<StackFrameList>,
-        session_id: &DebugSessionId,
+        session: Entity<DebugSession>,
         client_id: &DebugAdapterClientId,
-        variable_list: Entity<VariableList>,
         dap_store: Entity<DapStore>,
+        stack_frame_list: Entity<StackFrameList>,
+        variable_list: Entity<VariableList>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -84,18 +83,18 @@ impl Console {
         });
 
         let _subscriptions =
-            vec![cx.subscribe(stack_frame_list, Self::handle_stack_frame_list_events)];
+            vec![cx.subscribe(&stack_frame_list, Self::handle_stack_frame_list_events)];
 
         Self {
+            session,
             console,
             dap_store,
             query_bar,
             variable_list,
             _subscriptions,
+            stack_frame_list,
             client_id: *client_id,
             groups: Vec::default(),
-            session_id: *session_id,
-            stack_frame_list: stack_frame_list.clone(),
         }
     }
 
@@ -120,7 +119,7 @@ impl Console {
         cx: &mut Context<Self>,
     ) {
         match event {
-            StackFrameListEvent::SelectedStackFrameChanged => cx.notify(),
+            StackFrameListEvent::SelectedStackFrameChanged(_) => cx.notify(),
             StackFrameListEvent::StackFramesUpdated => {}
         }
     }
@@ -132,7 +131,7 @@ impl Console {
                     project_id: *project_id,
                     client_id: self.client_id.to_proto(),
                     thread_id: None,
-                    session_id: self.session_id.to_proto(),
+                    session_id: self.session.read(cx).id().to_proto(),
                     variant: Some(proto::update_debug_adapter::Variant::OutputEvent(
                         event.to_proto(),
                     )),

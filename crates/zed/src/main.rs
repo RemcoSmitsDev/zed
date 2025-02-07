@@ -363,7 +363,7 @@ fn main() {
 
         zed::init(cx);
         project::Project::init(&client, cx);
-        debugger_ui::init(&client, cx);
+        debugger_ui::init(cx);
         debugger_tools::init(cx);
         client::init(&client, cx);
         let telemetry = client.telemetry();
@@ -441,7 +441,6 @@ fn main() {
         inline_completion_registry::init(
             app_state.client.clone(),
             app_state.user_store.clone(),
-            app_state.fs.clone(),
             cx,
         );
         let prompt_builder = PromptBuilder::load(app_state.fs.clone(), stdout_is_a_pty(), cx);

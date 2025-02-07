@@ -164,6 +164,7 @@ pub enum IconName {
     ChevronRight,
     ChevronUp,
     ChevronUpDown,
+    Circle,
     Close,
     Code,
     Command,
@@ -336,6 +337,7 @@ pub enum IconName {
     ZedAssistant2,
     ZedAssistantFilled,
     ZedPredict,
+    ZedPredictDisabled,
     ZedXCopilot,
 }
 

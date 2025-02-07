@@ -7,21 +7,20 @@ use dap::{
     debugger_settings::DebuggerSettings,
     messages::{Events, Message},
     requests::{Request, RunInTerminal, StartDebugging},
-    session::DebugSessionId,
     Capabilities, CapabilitiesEvent, ContinuedEvent, ErrorResponse, ExitedEvent, LoadedSourceEvent,
     ModuleEvent, OutputEvent, RunInTerminalRequestArguments, RunInTerminalResponse, StoppedEvent,
     TerminatedEvent, ThreadEvent, ThreadEventReason,
 };
 use gpui::{
-    actions, Action, App, AsyncApp, AsyncWindowContext, Context, Entity, EventEmitter, FocusHandle,
+    actions, Action, App, AsyncWindowContext, Context, Entity, EventEmitter, FocusHandle,
     Focusable, Subscription, Task, WeakEntity,
 };
 use project::{
+    dap_session::DebugSessionId,
     dap_store::{DapStore, DapStoreEvent},
     terminals::TerminalKind,
 };
-use rpc::proto::{SetDebuggerPanelItem, UpdateDebugAdapter};
-use rpc::{proto, TypedEnvelope};
+use rpc::proto::{self, SetDebuggerPanelItem, UpdateDebugAdapter};
 use serde_json::Value;
 use settings::Settings;
 use std::{any::TypeId, collections::VecDeque, path::PathBuf, u64};
@@ -360,7 +359,7 @@ impl DebugPanel {
                 let thread_panel = item.downcast::<DebugPanelItem>().unwrap();
 
                 let thread_id = thread_panel.read(cx).thread_id();
-                let session_id = thread_panel.read(cx).session_id();
+                let session_id = thread_panel.read(cx).session().read(cx).id();
                 let client_id = thread_panel.read(cx).client_id();
 
                 self.thread_states.remove(&(client_id, thread_id));
@@ -772,19 +771,16 @@ impl DebugPanel {
             return;
         };
 
-        let Some(session_name) = self
+        let Some(session) = self
             .dap_store
             .read(cx)
             .session_by_id(session_id)
-            .map(|session| session.read(cx).name())
+            .map(|session| session)
         else {
-            return; // this can never happen
+            return; // this can/should never happen
         };
 
-        let session_id = *session_id;
         let client_id = *client_id;
-
-        let session_name = SharedString::from(session_name);
 
         cx.spawn_in(window, {
             let event = event.clone();
@@ -803,18 +799,17 @@ impl DebugPanel {
 
                     let existing_item = this.debug_panel_item_by_client(&client_id, thread_id, cx);
                     if existing_item.is_none() {
-                        let debug_panel = cx.entity().clone();
+                        let debug_panel = cx.entity();
                         this.pane.update(cx, |pane, cx| {
                             let tab = cx.new(|cx| {
                                 DebugPanelItem::new(
-                                    debug_panel,
-                                    this.workspace.clone(),
-                                    this.dap_store.clone(),
-                                    thread_state.clone(),
-                                    &session_id,
+                                    session,
                                     &client_id,
-                                    session_name,
                                     thread_id,
+                                    thread_state,
+                                    this.dap_store.clone(),
+                                    &debug_panel,
+                                    this.workspace.clone(),
                                     window,
                                     cx,
                                 )
@@ -1047,73 +1042,6 @@ impl DebugPanel {
         }
     }
 
-    pub(crate) async fn handle_active_debug_sessions_request(
-        this: Entity<Self>,
-        envelope: TypedEnvelope<proto::ActiveDebugSessionsRequest>,
-        mut cx: AsyncApp,
-    ) -> Result<proto::ActiveDebugSessionsResponse> {
-        let mut debug_sessions = Vec::new();
-
-        this.update(&mut cx, |debug_panel, cx| {
-            for session in debug_panel.dap_store.read(cx).sessions() {
-                let session = session.read(cx);
-                let session_id = session.id();
-                let ignore_breakpoints = session.ignore_breakpoints();
-
-                let clients_ids: Vec<_> = session
-                    .as_local()
-                    .unwrap()
-                    .clients()
-                    .into_iter()
-                    .map(|client| client.id())
-                    .collect();
-                let mut debug_clients = Vec::new();
-
-                for client_id in clients_ids {
-                    let capabilities = debug_panel
-                        .dap_store
-                        .read(cx)
-                        .capabilities_by_id(&client_id);
-
-                    let capabilities = dap::proto_conversions::capabilities_to_proto(
-                        &capabilities,
-                        envelope.payload.project_id,
-                        session_id.to_proto(),
-                        client_id.to_proto(),
-                    );
-
-                    let mut panel_items = Vec::new();
-
-                    for debug_panel_item in debug_panel.debug_panel_items_by_client(&client_id, cx)
-                    {
-                        panel_items.push(
-                            debug_panel_item
-                                .read(cx)
-                                .to_proto(envelope.payload.project_id, cx),
-                        )
-                    }
-
-                    debug_clients.push(proto::DebugClient {
-                        client_id: client_id.to_proto(),
-                        capabilities: Some(capabilities),
-                        debug_panel_items: panel_items,
-                    })
-                }
-
-                debug_sessions.push(proto::DebuggerSession {
-                    session_id: session_id.to_proto(),
-                    ignore_breakpoints,
-                    clients: debug_clients,
-                });
-            }
-        })
-        .log_err();
-
-        Ok(proto::ActiveDebugSessionsResponse {
-            sessions: debug_sessions,
-        })
-    }
-
     pub(crate) fn handle_set_debug_panel_item(
         &mut self,
         payload: &SetDebuggerPanelItem,
@@ -1121,6 +1049,10 @@ impl DebugPanel {
         cx: &mut Context<Self>,
     ) {
         let session_id = DebugSessionId::from_proto(payload.session_id);
+        let Some(session) = self.dap_store.read(cx).session_by_id(&session_id) else {
+            return;
+        };
+
         let client_id = DebugAdapterClientId::from_proto(payload.client_id);
         let thread_id = payload.thread_id;
         let thread_state = payload.thread_state.clone().unwrap();
@@ -1141,18 +1073,17 @@ impl DebugPanel {
             self.thread_states
                 .insert((client_id, thread_id), thread_state.clone());
 
-            let debug_panel = cx.entity().clone();
+            let debug_panel = cx.entity();
             let debug_panel_item = self.pane.update(cx, |pane, cx| {
                 let debug_panel_item = cx.new(|cx| {
                     DebugPanelItem::new(
-                        debug_panel,
-                        self.workspace.clone(),
-                        self.dap_store.clone(),
-                        thread_state,
-                        &session_id,
+                        session,
                         &client_id,
-                        payload.session_name.clone().into(),
                         thread_id,
+                        thread_state,
+                        self.dap_store.clone(),
+                        &debug_panel,
+                        self.workspace.clone(),
                         window,
                         cx,
                     )
