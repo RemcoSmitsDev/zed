@@ -4,7 +4,7 @@ use super::{
         RestartStackFrameCommand, StepBackCommand, StepCommand, StepInCommand, StepOutCommand,
         TerminateCommand, TerminateThreadsCommand, VariablesCommand,
     },
-    dap_session::{DebugSession, DebugSessionId},
+    dap_session::{self, DebugSession, DebugSessionId},
 };
 use crate::{project_settings::ProjectSettings, ProjectEnvironment, ProjectItem as _, ProjectPath};
 use anyhow::{anyhow, bail, Context as _, Result};
@@ -305,7 +305,7 @@ impl DapStore {
         &self,
         client_id: impl Borrow<DebugAdapterClientId>,
         cx: &Context<Self>,
-    ) -> Option<(Entity<DebugSession>, Arc<DebugAdapterClient>)> {
+    ) -> Option<(Entity<DebugSession>, Entity<dap_session::Client>)> {
         let client_id = client_id.borrow();
         let session = self.session_by_client_id(client_id)?;
 
@@ -1202,31 +1202,12 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Could not find session: {:?}", session_id)));
         };
 
-        let Some(local_session) = session.read(cx).as_local() else {
-            return Task::ready(Err(anyhow!(
-                "Cannot shutdown session on remote side: {:?}",
-                session_id
-            )));
-        };
-
-        let mut tasks = Vec::new();
-        for client in local_session.clients().collect::<Vec<_>>() {
-            tasks.push(self.shutdown_client(&session, client, cx));
+        for client_id in session.read(cx).client_ids().collect::<Vec<_>>() {
+            session.update(cx, |this, cx| {
+                this.shutdown_client(client_id, cx);
+            });
         }
-
-        if let Some((downstream_client, project_id)) = self.downstream_client.as_ref() {
-            downstream_client
-                .send(proto::DebuggerSessionEnded {
-                    project_id: *project_id,
-                    session_id: session_id.to_proto(),
-                })
-                .log_err();
-        }
-
-        cx.background_executor().spawn(async move {
-            futures::future::join_all(tasks).await;
-            Ok(())
-        })
+        Task::ready(Ok(()))
     }
 
     pub fn request_active_debug_sessions(&mut self, cx: &mut Context<Self>) {
@@ -1632,9 +1613,9 @@ impl DapStore {
         {
             let session = session.read(cx);
             let ignore_breakpoints = session.ignore_breakpoints();
-            for client in session.as_local().unwrap().clients().collect::<Vec<_>>() {
+            for client_id in session.client_ids().collect::<Vec<_>>() {
                 tasks.push(self.send_breakpoints(
-                    &client.id(),
+                    &client_id,
                     Arc::from(absolute_path.clone()),
                     source_breakpoints.clone(),
                     ignore_breakpoints,

@@ -731,7 +731,7 @@ impl Client {
 pub struct DebugSession {
     id: DebugSessionId,
     mode: DebugSessionMode,
-    pub(super) states: HashMap<DebugAdapterClientId, Entity<Client>>,
+    pub(super) states: BTreeMap<DebugAdapterClientId, Entity<Client>>,
     ignore_breakpoints: bool,
 }
 
@@ -773,7 +773,7 @@ impl DebugSession {
         Self {
             id,
             ignore_breakpoints: false,
-            states: HashMap::default(),
+            states: BTreeMap::default(),
             mode: DebugSessionMode::Local(LocalDebugSession { configuration }),
         }
     }
@@ -796,7 +796,7 @@ impl DebugSession {
         Self {
             id,
             ignore_breakpoints,
-            states: HashMap::default(),
+            states: BTreeMap::default(),
             mode: DebugSessionMode::Remote(RemoteDebugSession { label }),
         }
     }
@@ -823,6 +823,9 @@ impl DebugSession {
 
     pub fn client_state(&self, client_id: DebugAdapterClientId) -> Option<Entity<Client>> {
         self.states.get(&client_id).cloned()
+    }
+    pub(super) fn client_ids(&self) -> impl Iterator<Item = DebugAdapterClientId> {
+        self.states.keys()
     }
 
     pub fn add_client(
@@ -854,7 +857,11 @@ impl DebugSession {
         self.states.get(client_id.borrow()).cloned()
     }
 
-    fn shutdown_client(&mut self, client_id: DebugAdapterClientId, cx: &mut Context<Self>) {
+    pub(crate) fn shutdown_client(
+        &mut self,
+        client_id: DebugAdapterClientId,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(client) = self.states.remove(&client_id) {
             client.update(cx, |this, cx| {
                 this.shutdown(cx);
