@@ -1,33 +1,30 @@
 use super::{
-    dap_command::{
-        ContinueCommand, DapCommand, DisconnectCommand, NextCommand, PauseCommand, RestartCommand,
-        RestartStackFrameCommand, StepBackCommand, StepCommand, StepInCommand, StepOutCommand,
-        TerminateCommand, TerminateThreadsCommand, VariablesCommand,
-    },
+    // Will need to uncomment this once we implement rpc message handler again
+    // dap_command::{
+    //     ContinueCommand, DapCommand, DisconnectCommand, NextCommand, PauseCommand, RestartCommand,
+    //     RestartStackFrameCommand, StepBackCommand, StepCommand, StepInCommand, StepOutCommand,
+    //     TerminateCommand, TerminateThreadsCommand, VariablesCommand,
+    // },
+    dap_command::DapCommand,
     dap_session::{self, DebugSession, DebugSessionId},
 };
 use crate::{project_settings::ProjectSettings, ProjectEnvironment, ProjectItem as _, ProjectPath};
 use anyhow::{anyhow, bail, Context as _, Result};
 use async_trait::async_trait;
 use collections::HashMap;
-use dap::ContinueResponse;
 use dap::{
     adapters::{DapDelegate, DapStatus, DebugAdapter, DebugAdapterBinary, DebugAdapterName},
     client::{DebugAdapterClient, DebugAdapterClientId},
     messages::{Message, Response},
     requests::{
-        Attach, Completions, ConfigurationDone, Disconnect, Evaluate, Initialize, Launch,
-        LoadedSources, Modules, Request as _, RunInTerminal, Scopes, SetBreakpoints, SetExpression,
-        SetVariable, StackTrace, StartDebugging, Terminate,
+        Attach, Completions, Evaluate, Initialize, Launch, Request as _, RunInTerminal,
+        SetBreakpoints, SetExpression, SetVariable, StartDebugging,
     },
-    AttachRequestArguments, Capabilities, CompletionItem, CompletionsArguments,
-    ConfigurationDoneArguments, ContinueArguments, DisconnectArguments, ErrorResponse,
+    AttachRequestArguments, Capabilities, CompletionItem, CompletionsArguments, ErrorResponse,
     EvaluateArguments, EvaluateArgumentsContext, EvaluateResponse, InitializeRequestArguments,
-    InitializeRequestArgumentsPathFormat, LaunchRequestArguments, LoadedSourcesArguments, Module,
-    ModulesArguments, Scope, ScopesArguments, SetBreakpointsArguments, SetExpressionArguments,
-    SetVariableArguments, Source, SourceBreakpoint, StackFrame, StackTraceArguments,
-    StartDebuggingRequestArguments, StartDebuggingRequestArgumentsRequest, SteppingGranularity,
-    TerminateArguments, Variable,
+    InitializeRequestArgumentsPathFormat, LaunchRequestArguments, SetBreakpointsArguments,
+    SetExpressionArguments, SetVariableArguments, Source, SourceBreakpoint,
+    StartDebuggingRequestArguments, StartDebuggingRequestArgumentsRequest,
 };
 use dap_adapters::build_adapter;
 use fs::Fs;
@@ -302,7 +299,7 @@ impl DapStore {
             .cloned()
     }
 
-    fn client_by_id(
+    pub fn client_by_id(
         &self,
         client_id: impl Borrow<DebugAdapterClientId>,
         cx: &Context<Self>,
@@ -759,7 +756,7 @@ impl DapStore {
     pub fn initialize(
         &mut self,
         session_id: &DebugSessionId,
-        client_id: &DebugAdapterClientId,
+        client_id: DebugAdapterClientId,
         cx: &mut Context<Self>,
     ) -> Task<Result<()>> {
         let Some(client) = self
@@ -774,7 +771,6 @@ impl DapStore {
         };
 
         let session_id = *session_id;
-        let client_id = *client_id;
 
         cx.spawn(|this, mut cx| async move {
             let capabilities = client
@@ -807,7 +803,7 @@ impl DapStore {
     pub fn launch(
         &mut self,
         session_id: &DebugSessionId,
-        client_id: &DebugAdapterClientId,
+        client_id: DebugAdapterClientId,
         cx: &mut Context<Self>,
     ) -> Task<Result<()>> {
         let Some((session, client)) = self
@@ -852,7 +848,7 @@ impl DapStore {
     pub fn attach(
         &mut self,
         session_id: &DebugSessionId,
-        client_id: &DebugAdapterClientId,
+        client_id: DebugAdapterClientId,
         process_id: u32,
         cx: &mut Context<Self>,
     ) -> Task<Result<()>> {
@@ -898,7 +894,7 @@ impl DapStore {
     pub fn respond_to_start_debugging(
         &mut self,
         session_id: &DebugSessionId,
-        client_id: &DebugAdapterClientId,
+        client_id: DebugAdapterClientId,
         seq: u64,
         args: Option<StartDebuggingRequestArguments>,
         cx: &mut Context<Self>,
@@ -1031,7 +1027,7 @@ impl DapStore {
     pub fn respond_to_run_in_terminal(
         &self,
         session_id: &DebugSessionId,
-        client_id: &DebugAdapterClientId,
+        client_id: DebugAdapterClientId,
         success: bool,
         seq: u64,
         body: Option<Value>,

@@ -47,7 +47,6 @@ impl Console {
     pub fn new(
         session: Entity<DebugSession>,
         client_id: DebugAdapterClientId,
-        dap_store: Entity<DapStore>,
         stack_frame_list: Entity<StackFrameList>,
         variable_list: Entity<VariableList>,
         window: &mut Window,
@@ -109,8 +108,9 @@ impl Console {
         &self.query_bar
     }
 
-    fn is_local(&self, cx: &Context<Self>) -> bool {
-        self.dap_store.read(cx).as_local().is_some()
+    fn is_local(&self, _cx: &Context<Self>) -> bool {
+        // todo(debugger): Fix this function
+        true
     }
 
     fn handle_stack_frame_list_events(
@@ -126,21 +126,6 @@ impl Console {
     }
 
     pub fn add_message(&mut self, event: OutputEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some((client, project_id)) = self.dap_store.read(cx).downstream_client() {
-            client
-                .send(proto::UpdateDebugAdapter {
-                    project_id: *project_id,
-                    client_id: self.client_id.to_proto(),
-                    thread_id: None,
-                    session_id: self.session.read(cx).id().to_proto(),
-                    variant: Some(proto::update_debug_adapter::Variant::OutputEvent(
-                        event.to_proto(),
-                    )),
-                })
-                .log_err();
-            return;
-        }
-
         self.console.update(cx, |console, cx| {
             let output = event.output.trim_end().to_string();
 

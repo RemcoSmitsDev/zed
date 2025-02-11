@@ -8,7 +8,6 @@ use dap::{
     Capabilities, ContinueArguments, NextArguments, StepInArguments, StepOutArguments,
     SteppingGranularity, ValueFormat, Variable, VariablesArgumentsFilter,
 };
-use gpui::{AsyncApp, WeakEntity};
 use rpc::proto;
 use util::ResultExt;
 

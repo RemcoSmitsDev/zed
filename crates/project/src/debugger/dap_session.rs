@@ -6,13 +6,10 @@ use super::dap_command::{
 use anyhow::{anyhow, Result};
 use collections::{BTreeMap, HashMap};
 use dap::client::{DebugAdapterClient, DebugAdapterClientId};
-use dap::requests::{Disconnect, Request, StackTrace, Terminate};
-use dap::{
-    Capabilities, ContinueArguments, DisconnectArguments, Module, Source, StackTraceArguments,
-    SteppingGranularity, TerminateArguments,
-};
+use dap::requests::Request;
+use dap::{Capabilities, ContinueArguments, Module, Source, SteppingGranularity};
 use futures::{future::Shared, FutureExt};
-use gpui::{App, AppContext, Context, Entity, Task, WeakEntity};
+use gpui::{App, AppContext, Context, Entity, Task};
 use rpc::AnyProtoClient;
 use serde_json::Value;
 use std::borrow::Borrow;
@@ -276,6 +273,10 @@ impl Hash for RequestSlot {
 }
 
 impl Client {
+    pub fn capabilities(&self) -> &Capabilities {
+        &self.capabilities
+    }
+
     pub(crate) fn _wait_for_request<R: DapCommand + PartialEq + Eq + Hash>(
         &self,
         request: R,
@@ -826,8 +827,16 @@ impl DebugSession {
     pub fn client_state(&self, client_id: DebugAdapterClientId) -> Option<Entity<Client>> {
         self.states.get(&client_id).cloned()
     }
+
     pub(super) fn client_ids(&self) -> impl Iterator<Item = DebugAdapterClientId> + '_ {
         self.states.keys().copied()
+    }
+
+    pub fn clients(&self, cx: &App) -> Vec<Arc<DebugAdapterClient>> {
+        self.states
+            .values()
+            .filter_map(|state| state.read(cx).adapter_client())
+            .collect()
     }
 
     pub fn add_client(

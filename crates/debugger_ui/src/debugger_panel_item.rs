@@ -5,7 +5,6 @@ use crate::module_list::ModuleList;
 use crate::stack_frame_list::{StackFrameList, StackFrameListEvent};
 use crate::variable_list::VariableList;
 
-use dap::proto_conversions::{self, ProtoConversion};
 use dap::{
     client::DebugAdapterClientId, debugger_settings::DebuggerSettings, Capabilities,
     ContinuedEvent, LoadedSourceEvent, ModuleEvent, OutputEvent, OutputEventCategory, StoppedEvent,
@@ -15,11 +14,10 @@ use editor::Editor;
 use gpui::{
     AnyElement, App, Entity, EventEmitter, FocusHandle, Focusable, Subscription, Task, WeakEntity,
 };
-use project::debugger::{dap_session::DebugSession, dap_store::DapStore};
-use rpc::proto::{self, DebuggerThreadStatus, PeerId, SetDebuggerPanelItem, UpdateDebugAdapter};
+use project::debugger::dap_session::DebugSession;
+use rpc::proto::{self, DebuggerThreadStatus, PeerId, SetDebuggerPanelItem};
 use settings::Settings;
 use ui::{prelude::*, Indicator, Tooltip};
-use util::ResultExt as _;
 use workspace::{
     item::{self, Item, ItemEvent},
     FollowableItem, ItemHandle, ViewId, Workspace,
@@ -108,7 +106,6 @@ impl DebugPanelItem {
             VariableList::new(
                 session.clone(),
                 client_id,
-                dap_store.clone(),
                 stack_frame_list.clone(),
                 window,
                 cx,
@@ -398,10 +395,6 @@ impl DebugPanelItem {
 
         self.update_thread_state_status(ThreadStatus::Exited, cx);
 
-        self.dap_store.update(cx, |store, cx| {
-            store.remove_active_debug_line_for_client(client_id, cx);
-        });
-
         cx.emit(DebugPanelItemEvent::Close);
     }
 
@@ -414,56 +407,42 @@ impl DebugPanelItem {
             return;
         }
 
-        // notify the view that the capabilities have changed
         cx.notify();
-
-        if let Some((downstream_client, project_id)) = self.dap_store.read(cx).downstream_client() {
-            if let Some(caps) = self.dap_store.read(cx).capabilities_by_id(client_id, cx) {
-                let message = proto_conversions::capabilities_to_proto(
-                    &caps,
-                    *project_id,
-                    self.session.read(cx).id().to_proto(),
-                    self.client_id.to_proto(),
-                );
-
-                downstream_client.send(message).log_err();
-            }
-        }
     }
 
-    pub(crate) fn update_adapter(
-        &mut self,
-        update: &UpdateDebugAdapter,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(update_variant) = update.variant.as_ref() {
-            match update_variant {
-                proto::update_debug_adapter::Variant::StackFrameList(stack_frame_list) => {
-                    self.stack_frame_list.update(cx, |this, cx| {
-                        this.set_from_proto(stack_frame_list.clone(), cx);
-                    })
-                }
-                proto::update_debug_adapter::Variant::ThreadState(thread_state) => {
-                    self.thread_state.update(cx, |this, _| {
-                        *this = ThreadState::from_proto(thread_state.clone());
-                    })
-                }
-                proto::update_debug_adapter::Variant::VariableList(variable_list) => self
-                    .variable_list
-                    .update(cx, |this, cx| this.set_from_proto(variable_list, cx)),
-                proto::update_debug_adapter::Variant::AddToVariableList(variables_to_add) => self
-                    .variable_list
-                    .update(cx, |this, _| this.add_variables(variables_to_add.clone())),
-                proto::update_debug_adapter::Variant::Modules(_) => {}
-                proto::update_debug_adapter::Variant::OutputEvent(output_event) => {
-                    self.console.update(cx, |this, cx| {
-                        this.add_message(OutputEvent::from_proto(output_event.clone()), window, cx);
-                    })
-                }
-            }
-        }
-    }
+    // pub(crate) fn update_adapter(
+    //     &mut self,
+    //     update: &UpdateDebugAdapter,
+    //     window: &mut Window,
+    //     cx: &mut Context<Self>,
+    // ) {
+    //     if let Some(update_variant) = update.variant.as_ref() {
+    //         match update_variant {
+    //             proto::update_debug_adapter::Variant::StackFrameList(stack_frame_list) => {
+    //                 self.stack_frame_list.update(cx, |this, cx| {
+    //                     this.set_from_proto(stack_frame_list.clone(), cx);
+    //                 })
+    //             }
+    //             proto::update_debug_adapter::Variant::ThreadState(thread_state) => {
+    //                 self.thread_state.update(cx, |this, _| {
+    //                     *this = ThreadState::from_proto(thread_state.clone());
+    //                 })
+    //             }
+    //             proto::update_debug_adapter::Variant::VariableList(variable_list) => self
+    //                 .variable_list
+    //                 .update(cx, |this, cx| this.set_from_proto(variable_list, cx)),
+    //             proto::update_debug_adapter::Variant::AddToVariableList(variables_to_add) => self
+    //                 .variable_list
+    //                 .update(cx, |this, _| this.add_variables(variables_to_add.clone())),
+    //             proto::update_debug_adapter::Variant::Modules(_) => {}
+    //             proto::update_debug_adapter::Variant::OutputEvent(output_event) => {
+    //                 self.console.update(cx, |this, cx| {
+    //                     this.add_message(OutputEvent::from_proto(output_event.clone()), window, cx);
+    //                 })
+    //             }
+    //         }
+    //     }
+    // }
 
     pub fn session(&self) -> &Entity<DebugSession> {
         &self.session
@@ -514,9 +493,10 @@ impl DebugPanelItem {
     }
 
     pub fn capabilities(&self, cx: &mut Context<Self>) -> Option<Capabilities> {
-        self.dap_store
+        self.session()
             .read(cx)
-            .capabilities_by_id(&self.client_id, cx)
+            .client_state(self.client_id)
+            .map(|state| state.read(cx).capabilities().clone())
     }
 
     fn clear_highlights(&self, cx: &mut Context<Self>) {
@@ -590,134 +570,110 @@ impl DebugPanelItem {
     }
 
     pub fn continue_thread(&mut self, cx: &mut Context<Self>) {
-        self.update_thread_state_status(ThreadStatus::Running, cx);
-
-        let task = self.dap_store.update(cx, |store, cx| {
-            store.continue_thread(&self.client_id, self.thread_id, cx)
-        });
-
-        cx.spawn(|this, mut cx| async move {
-            if task.await.log_err().is_none() {
-                this.update(&mut cx, |debug_panel_item, cx| {
-                    debug_panel_item.update_thread_state_status(ThreadStatus::Stopped, cx);
-                })
-                .log_err();
-            }
-        })
-        .detach();
+        self.session()
+            .read(cx)
+            .client_state(self.client_id)
+            .map(|entity| {
+                entity.update(cx, |state, cx| {
+                    state.continue_thread(self.thread_id, cx);
+                });
+            });
     }
 
     pub fn step_over(&mut self, cx: &mut Context<Self>) {
-        self.update_thread_state_status(ThreadStatus::Running, cx);
         let granularity = DebuggerSettings::get_global(cx).stepping_granularity;
 
-        let task = self.dap_store.update(cx, |store, cx| {
-            store.step_over(&self.client_id, self.thread_id, granularity, cx)
-        });
-
-        cx.spawn(|this, mut cx| async move {
-            if task.await.log_err().is_none() {
-                this.update(&mut cx, |debug_panel_item, cx| {
-                    debug_panel_item.update_thread_state_status(ThreadStatus::Stopped, cx);
-                })
-                .log_err();
-            }
-        })
-        .detach();
+        self.session()
+            .read(cx)
+            .client_state(self.client_id)
+            .map(|entity| {
+                entity.update(cx, |state, cx| {
+                    state.step_over(self.thread_id, granularity, cx);
+                });
+            });
     }
 
     pub fn step_in(&mut self, cx: &mut Context<Self>) {
-        self.update_thread_state_status(ThreadStatus::Running, cx);
         let granularity = DebuggerSettings::get_global(cx).stepping_granularity;
 
-        let task = self.dap_store.update(cx, |store, cx| {
-            store.step_in(&self.client_id, self.thread_id, granularity, cx)
-        });
-
-        cx.spawn(|this, mut cx| async move {
-            if task.await.log_err().is_none() {
-                this.update(&mut cx, |debug_panel_item, cx| {
-                    debug_panel_item.update_thread_state_status(ThreadStatus::Stopped, cx);
-                })
-                .log_err();
-            }
-        })
-        .detach();
+        self.session()
+            .read(cx)
+            .client_state(self.client_id)
+            .map(|entity| {
+                entity.update(cx, |state, cx| {
+                    state.step_in(self.thread_id, granularity, cx);
+                });
+            });
     }
 
     pub fn step_out(&mut self, cx: &mut Context<Self>) {
-        self.update_thread_state_status(ThreadStatus::Running, cx);
         let granularity = DebuggerSettings::get_global(cx).stepping_granularity;
 
-        let task = self.dap_store.update(cx, |store, cx| {
-            store.step_out(&self.client_id, self.thread_id, granularity, cx)
-        });
-
-        cx.spawn(|this, mut cx| async move {
-            if task.await.log_err().is_none() {
-                this.update(&mut cx, |debug_panel_item, cx| {
-                    debug_panel_item.update_thread_state_status(ThreadStatus::Stopped, cx);
-                })
-                .log_err();
-            }
-        })
-        .detach();
+        self.session()
+            .read(cx)
+            .client_state(self.client_id)
+            .map(|entity| {
+                entity.update(cx, |state, cx| {
+                    state.step_out(self.thread_id, granularity, cx);
+                });
+            });
     }
 
     pub fn step_back(&mut self, cx: &mut Context<Self>) {
-        self.update_thread_state_status(ThreadStatus::Running, cx);
         let granularity = DebuggerSettings::get_global(cx).stepping_granularity;
 
-        let task = self.dap_store.update(cx, |store, cx| {
-            store.step_back(&self.client_id, self.thread_id, granularity, cx)
-        });
-
-        cx.spawn(|this, mut cx| async move {
-            if task.await.log_err().is_none() {
-                this.update(&mut cx, |debug_panel_item, cx| {
-                    debug_panel_item.update_thread_state_status(ThreadStatus::Stopped, cx);
-                })
-                .log_err();
-            }
-        })
-        .detach();
+        self.session()
+            .read(cx)
+            .client_state(self.client_id)
+            .map(|entity| {
+                entity.update(cx, |state, cx| {
+                    state.step_back(self.thread_id, granularity, cx);
+                });
+            });
     }
 
     pub fn restart_client(&self, cx: &mut Context<Self>) {
-        self.dap_store.update(cx, |store, cx| {
-            store
-                .restart(&self.client_id, None, cx)
-                .detach_and_log_err(cx);
-        });
+        self.session()
+            .read(cx)
+            .client_state(self.client_id)
+            .map(|entity| {
+                entity.update(cx, |state, cx| {
+                    state.restart(None, cx);
+                });
+            });
     }
 
     pub fn pause_thread(&self, cx: &mut Context<Self>) {
-        self.dap_store.update(cx, |store, cx| {
-            store
-                .pause_thread(&self.client_id, self.thread_id, cx)
-                .detach_and_log_err(cx)
-        });
+        self.session()
+            .read(cx)
+            .client_state(self.client_id)
+            .map(|entity| {
+                entity.update(cx, |state, cx| {
+                    state.pause_thread(self.thread_id, cx);
+                });
+            });
     }
 
     pub fn stop_thread(&self, cx: &mut Context<Self>) {
-        self.dap_store.update(cx, |store, cx| {
-            store
-                .terminate_threads(
-                    &self.session.read(cx).id(),
-                    &self.client_id,
-                    Some(vec![self.thread_id; 1]),
-                    cx,
-                )
-                .detach_and_log_err(cx)
-        });
+        self.session()
+            .read(cx)
+            .client_state(self.client_id)
+            .map(|entity| {
+                entity.update(cx, |state, cx| {
+                    state.terminate_threads(Some(vec![self.thread_id; 1]), cx);
+                });
+            });
     }
 
     pub fn disconnect_client(&self, cx: &mut Context<Self>) {
-        self.dap_store.update(cx, |store, cx| {
-            store
-                .disconnect_client(&self.client_id, cx)
-                .detach_and_log_err(cx);
-        });
+        self.session()
+            .read(cx)
+            .client_state(self.client_id)
+            .map(|entity| {
+                entity.update(cx, |state, cx| {
+                    state.disconnect_client(cx);
+                });
+            });
     }
 
     pub fn toggle_ignore_breakpoints(&mut self, cx: &mut Context<Self>) {

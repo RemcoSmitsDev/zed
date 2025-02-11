@@ -247,20 +247,6 @@ impl StackFrameList {
         ));
         cx.notify();
 
-        if let Some((client, id)) = self.dap_store.read(cx).downstream_client() {
-            let request = UpdateDebugAdapter {
-                client_id: self.client_id.to_proto(),
-                session_id: self.session.read(cx).id().to_proto(),
-                project_id: *id,
-                thread_id: Some(self.thread_id),
-                variant: Some(rpc::proto::update_debug_adapter::Variant::StackFrameList(
-                    self.to_proto(),
-                )),
-            };
-
-            client.send(request).log_err();
-        }
-
         if !go_to_stack_frame {
             return Task::ready(Ok(()));
         };
@@ -332,11 +318,10 @@ impl StackFrameList {
         );
 
         let supports_frame_restart = self
-            .dap_store
+            .session
             .read(cx)
-            .capabilities_by_id(&self.client_id, cx)
-            .map(|caps| caps.supports_restart_frame)
-            .flatten()
+            .client_state(self.client_id)
+            .and_then(|client| client.read(cx).capabilities().supports_restart_frame)
             .unwrap_or_default();
 
         let origin = stack_frame

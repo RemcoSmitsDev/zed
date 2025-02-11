@@ -329,7 +329,6 @@ type ScopeId = u64;
 pub struct VariableList {
     list: ListState,
     focus_handle: FocusHandle,
-    dap_store: Entity<DapStore>,
     open_entries: Vec<OpenEntry>,
     session: Entity<DebugSession>,
     client_id: DebugAdapterClientId,
@@ -349,7 +348,6 @@ impl VariableList {
     pub fn new(
         session: Entity<DebugSession>,
         client_id: DebugAdapterClientId,
-        dap_store: Entity<DapStore>,
         stack_frame_list: Entity<StackFrameList>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -387,7 +385,6 @@ impl VariableList {
         Self {
             list,
             session,
-            dap_store,
             focus_handle,
             _subscriptions,
             selection: None,
@@ -461,42 +458,8 @@ impl VariableList {
             })
             .collect();
 
-        for variables in state.added_variables.iter() {
-            self.add_variables(variables.clone());
-        }
-
         self.build_entries(true, cx);
         cx.notify();
-    }
-
-    pub(crate) fn add_variables(&mut self, variables_to_add: proto::AddToVariableList) {
-        let variables: Vec<Variable> = Vec::from_proto(variables_to_add.variables);
-        let variable_id = variables_to_add.variable_id;
-        let stack_frame_id = variables_to_add.stack_frame_id;
-        let scope_id = variables_to_add.scope_id;
-        let key = (stack_frame_id, scope_id);
-
-        if let Some(depth) = self.variables.get(&key).and_then(|containers| {
-            containers
-                .variables
-                .iter()
-                .find(|container| container.variable.variables_reference == variable_id)
-                .map(|container| container.depth + 1usize)
-        }) {
-            if let Some(index) = self.variables.get_mut(&key) {
-                index.add_variables(
-                    variable_id,
-                    variables
-                        .into_iter()
-                        .map(|var| VariableContainer {
-                            container_reference: variable_id,
-                            variable: var,
-                            depth,
-                        })
-                        .collect(),
-                );
-            }
-        }
     }
 
     fn handle_stack_frame_list_events(
@@ -546,7 +509,6 @@ impl VariableList {
                 }
 
                 variable_list.build_entries(true, cx);
-                variable_list.send_update_proto_message(cx);
 
                 variable_list.fetch_variables_task.take();
             })
@@ -919,65 +881,6 @@ impl VariableList {
         })
     }
 
-    fn fetch_variables_for_stack_frame(
-        &self,
-        stack_frame_id: u64,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<(Vec<Scope>, HashMap<u64, Vec<VariableContainer>>)>> {
-        let scopes_task = self.dap_store.update(cx, |store, cx| {
-            store.scopes(&self.client_id, stack_frame_id, cx)
-        });
-
-        cx.spawn({
-            |this, mut cx| async move {
-                let mut variables = HashMap::new();
-
-                let scopes = scopes_task.await?;
-
-                let open_entries = this.read_with(&cx, |variable_list, _| {
-                    variable_list
-                        .open_entries
-                        .iter()
-                        .filter(|entry| matches!(entry, OpenEntry::Variable { .. }))
-                        .cloned()
-                        .collect::<Vec<_>>()
-                })?;
-
-                for scope in scopes.iter() {
-                    let variables_task = this.update(&mut cx, |this, cx| {
-                        this.fetch_nested_variables(
-                            scope,
-                            scope.variables_reference,
-                            1,
-                            &open_entries,
-                            cx,
-                        )
-                    })?;
-
-                    variables.insert(scope.variables_reference, variables_task.await?);
-                }
-
-                Ok((scopes, variables))
-            }
-        })
-    }
-
-    fn send_update_proto_message(&self, cx: &mut Context<Self>) {
-        if let Some((client, project_id)) = self.dap_store.read(cx).downstream_client() {
-            let request = UpdateDebugAdapter {
-                client_id: self.client_id.to_proto(),
-                session_id: self.session.read(cx).id().to_proto(),
-                thread_id: Some(self.stack_frame_list.read(cx).thread_id()),
-                project_id: *project_id,
-                variant: Some(rpc::proto::update_debug_adapter::Variant::VariableList(
-                    self.to_proto(),
-                )),
-            };
-
-            client.send(request).log_err();
-        };
-    }
-
     fn deploy_variable_context_menu(
         &mut self,
         parent_variables_reference: u64,
@@ -987,14 +890,20 @@ impl VariableList {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(caps) = self
-            .dap_store
+        let Some((support_set_variable, support_clipboard_context)) = self
+            .session
             .read(cx)
-            .capabilities_by_id(&self.client_id, cx)
+            .client_state(self.client_id)
+            .map(|state| state.read(cx).capabilities())
+            .map(|caps| {
+                (
+                    caps.supports_set_variable.unwrap_or_default(),
+                    caps.supports_clipboard_context.unwrap_or_default(),
+                )
+            })
         else {
             return;
         };
-        let support_set_variable = caps.supports_set_variable.unwrap_or_default();
 
         let this = cx.entity();
 
@@ -1012,36 +921,27 @@ impl VariableList {
                 let evaluate_name = variable.evaluate_name.clone();
 
                 window.handler_for(&this.clone(), move |this, _window, cx| {
-                    this.dap_store.update(cx, |dap_store, cx| {
-                        if dap_store
-                            .capabilities_by_id(&this.client_id, cx)
-                            .map(|caps| caps.supports_clipboard_context)
-                            .flatten()
-                            .unwrap_or_default()
-                        {
-                            let task = dap_store.evaluate(
-                                &this.client_id,
-                                this.stack_frame_list.read(cx).current_stack_frame_id(),
-                                evaluate_name.clone().unwrap_or(variable_name.clone()),
-                                dap::EvaluateArgumentsContext::Clipboard,
-                                source.clone(),
-                                cx,
-                            );
+                    if support_clipboard_context {
+                        let task = this.dap_store.evaluate(
+                            &this.client_id,
+                            this.stack_frame_list.read(cx).current_stack_frame_id(),
+                            evaluate_name.clone().unwrap_or(variable_name.clone()),
+                            dap::EvaluateArgumentsContext::Clipboard,
+                            source.clone(),
+                            cx,
+                        );
 
-                            cx.spawn(|_, cx| async move {
-                                let response = task.await?;
+                        cx.spawn(|_, cx| async move {
+                            let response = task.await?;
 
-                                cx.update(|cx| {
-                                    cx.write_to_clipboard(ClipboardItem::new_string(
-                                        response.result,
-                                    ))
-                                })
+                            cx.update(|cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(response.result))
                             })
-                            .detach_and_log_err(cx);
-                        } else {
-                            cx.write_to_clipboard(ClipboardItem::new_string(variable_value.clone()))
-                        }
-                    });
+                        })
+                        .detach_and_log_err(cx);
+                    } else {
+                        cx.write_to_clipboard(ClipboardItem::new_string(variable_value.clone()))
+                    }
                 })
             })
             .when_some(
