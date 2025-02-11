@@ -47,8 +47,8 @@ use rpc::{
 use serde_json::Value;
 use settings::{Settings as _, WorktreeId};
 use smol::lock::Mutex;
-use std::collections::VecDeque;
 use std::{
+    borrow::Borrow,
     collections::{BTreeMap, HashSet},
     ffi::OsStr,
     hash::{Hash, Hasher},
@@ -58,6 +58,7 @@ use std::{
         Arc,
     },
 };
+use std::{collections::VecDeque, sync::atomic::AtomicU32};
 use task::{AttachConfig, DebugAdapterConfig, DebugRequestType};
 use text::Point;
 use util::{merge_json_value_into, ResultExt as _};
@@ -92,7 +93,7 @@ pub enum DapStoreMode {
 pub struct LocalDapStore {
     fs: Arc<dyn Fs>,
     node_runtime: NodeRuntime,
-    next_client_id: AtomicUsize,
+    next_client_id: AtomicU32,
     next_session_id: AtomicUsize,
     http_client: Arc<dyn HttpClient>,
     environment: Entity<ProjectEnvironment>,
@@ -293,29 +294,32 @@ impl DapStore {
 
     pub fn session_by_client_id(
         &self,
-        client_id: &DebugAdapterClientId,
+        client_id: impl Borrow<DebugAdapterClientId>,
     ) -> Option<Entity<DebugSession>> {
         self.sessions
-            .get(self.client_by_session.get(client_id)?)
+            .get(self.client_by_session.get(client_id.borrow())?)
             .cloned()
     }
 
-    pub fn client_by_id(
+    fn client_by_id(
         &self,
-        client_id: &DebugAdapterClientId,
+        client_id: impl Borrow<DebugAdapterClientId>,
         cx: &Context<Self>,
     ) -> Option<(Entity<DebugSession>, Arc<DebugAdapterClient>)> {
-        let local_session = self.session_by_client_id(client_id)?;
-        let client = local_session.read(cx).as_local()?.client_by_id(client_id)?;
+        let client_id = client_id.borrow();
+        let session = self.session_by_client_id(client_id)?;
 
-        Some((local_session, client))
+        let client = session.read(cx).client_by_id(*client_id)?;
+
+        Some((session, client))
     }
 
     pub fn capabilities_by_id(
         &self,
-        client_id: &DebugAdapterClientId,
+        client_id: impl Borrow<DebugAdapterClientId>,
         cx: &App,
     ) -> Option<Capabilities> {
+        let client_id = client_id.borrow();
         self.session_by_client_id(client_id).and_then(|session| {
             session
                 .read(cx)
@@ -584,10 +588,9 @@ impl DapStore {
                 store.client_by_session.insert(client_id, session_id);
 
                 let session = store.session_by_id(&session_id).unwrap();
-                let weak_dap = cx.weak_entity();
 
                 session.update(cx, |session, cx| {
-                    session.add_client(Some(Arc::new(client)), client_id, weak_dap, cx);
+                    session.add_client(Arc::new(client), client_id, cx);
                     let local_session = session
                         .as_local_mut()
                         .expect("Only local sessions should attempt to reconnect");
@@ -735,10 +738,8 @@ impl DapStore {
             };
 
             this.update(&mut cx, |store, cx| {
-                let weak_dap = cx.weak_entity();
-
                 session.update(cx, |session, cx| {
-                    session.add_client(Some(client.clone()), client.id(), weak_dap, cx);
+                    session.add_client(client.clone(), client.id(), cx);
                 });
 
                 let client_id = client.id();
@@ -882,147 +883,6 @@ impl DapStore {
                 .request::<Attach>(AttachRequestArguments { raw: adapter_args })
                 .await
         })
-    }
-
-    pub fn modules(
-        &mut self,
-        client_id: &DebugAdapterClientId,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<Vec<Module>>> {
-        let Some((_, client)) = self.client_by_id(client_id, cx) else {
-            return Task::ready(Err(anyhow!("Client was not found")));
-        };
-
-        if !self
-            .capabilities_by_id(client_id, cx)
-            .map(|caps| caps.supports_modules_request)
-            .flatten()
-            .unwrap_or_default()
-        {
-            return Task::ready(Ok(Vec::default()));
-        }
-
-        cx.background_executor().spawn(async move {
-            Ok(client
-                .request::<Modules>(ModulesArguments {
-                    start_module: None,
-                    module_count: None,
-                })
-                .await?
-                .modules)
-        })
-    }
-
-    pub fn loaded_sources(
-        &mut self,
-        client_id: &DebugAdapterClientId,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<Vec<Source>>> {
-        let Some((_, client)) = self.client_by_id(client_id, cx) else {
-            return Task::ready(Err(anyhow!("Client was not found")));
-        };
-
-        if !self
-            .capabilities_by_id(client_id, cx)
-            .map(|caps| caps.supports_loaded_sources_request)
-            .flatten()
-            .unwrap_or_default()
-        {
-            return Task::ready(Ok(Vec::default()));
-        }
-
-        cx.background_executor().spawn(async move {
-            Ok(client
-                .request::<LoadedSources>(LoadedSourcesArguments {})
-                .await?
-                .sources)
-        })
-    }
-
-    pub fn stack_frames(
-        &mut self,
-        client_id: &DebugAdapterClientId,
-        thread_id: u64,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<Vec<StackFrame>>> {
-        let Some((_, client)) = self.client_by_id(client_id, cx) else {
-            return Task::ready(Err(anyhow!("Client was not found")));
-        };
-
-        cx.background_executor().spawn(async move {
-            Ok(client
-                .request::<StackTrace>(StackTraceArguments {
-                    thread_id,
-                    start_frame: None,
-                    levels: None,
-                    format: None,
-                })
-                .await?
-                .stack_frames)
-        })
-    }
-
-    pub fn restart_stack_frame(
-        &mut self,
-        client_id: &DebugAdapterClientId,
-        stack_frame_id: u64,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<()>> {
-        if !self
-            .capabilities_by_id(client_id, cx)
-            .map(|caps| caps.supports_restart_frame)
-            .flatten()
-            .unwrap_or_default()
-        {
-            return Task::ready(Ok(()));
-        }
-
-        self.request_dap(client_id, RestartStackFrameCommand { stack_frame_id }, cx)
-    }
-
-    pub fn scopes(
-        &mut self,
-        client_id: &DebugAdapterClientId,
-        stack_frame_id: u64,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<Vec<Scope>>> {
-        let Some((_, client)) = self.client_by_id(client_id, cx) else {
-            return Task::ready(Err(anyhow!("Client was not found")));
-        };
-
-        cx.background_executor().spawn(async move {
-            Ok(client
-                .request::<Scopes>(ScopesArguments {
-                    frame_id: stack_frame_id,
-                })
-                .await?
-                .scopes)
-        })
-    }
-
-    pub fn configuration_done(
-        &self,
-        client_id: &DebugAdapterClientId,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<()>> {
-        let Some((_, client)) = self.client_by_id(client_id, cx) else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
-        };
-
-        if self
-            .capabilities_by_id(client_id, cx)
-            .map(|caps| caps.supports_configuration_done_request)
-            .flatten()
-            .unwrap_or_default()
-        {
-            cx.background_executor().spawn(async move {
-                client
-                    .request::<ConfigurationDone>(ConfigurationDoneArguments)
-                    .await
-            })
-        } else {
-            Task::ready(Ok(()))
-        }
     }
 
     pub fn respond_to_start_debugging(
@@ -1185,231 +1045,6 @@ impl DapStore {
         })
     }
 
-    pub fn continue_thread(
-        &self,
-        client_id: &DebugAdapterClientId,
-        thread_id: u64,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<ContinueResponse>> {
-        let command = ContinueCommand {
-            args: ContinueArguments {
-                thread_id,
-                single_thread: Some(true),
-            },
-        };
-
-        self.request_dap(client_id, command, cx)
-    }
-
-    pub(crate) fn request_dap<R: DapCommand>(
-        &self,
-        client_id: &DebugAdapterClientId,
-        request: R,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<R::Response>>
-    where
-        <R::DapRequest as dap::requests::Request>::Response: 'static,
-        <R::DapRequest as dap::requests::Request>::Arguments: 'static + Send,
-    {
-        if let Some((upstream_client, upstream_project_id)) = self.upstream_client() {
-            return self.send_proto_client_request::<R>(
-                upstream_client,
-                upstream_project_id,
-                client_id,
-                request,
-                cx,
-            );
-        }
-
-        let Some((session, client)) = self.client_by_id(client_id, cx) else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
-        };
-
-        let Some(caps) = session
-            .read(cx)
-            .client_state(*client_id)
-            .map(|state| state.read(cx).capabilities.clone())
-        else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
-        };
-        if !request.is_supported(&caps) {
-            return Task::ready(Err(anyhow!(
-                "Request {} is not supported",
-                R::DapRequest::COMMAND
-            )));
-        }
-
-        let client_id = *client_id;
-        let request = Arc::new(request);
-
-        let request_clone = request.clone();
-        let request_task = cx.background_executor().spawn(async move {
-            let args = request_clone.to_dap();
-            client.request::<R::DapRequest>(args).await
-        });
-
-        cx.spawn(|this, mut cx| async move {
-            let response = request.response_from_dap(request_task.await?);
-            request.handle_response(this, &client_id, response, &mut cx)
-        })
-    }
-
-    fn send_proto_client_request<R: DapCommand>(
-        &self,
-        upstream_client: AnyProtoClient,
-        upstream_project_id: u64,
-        client_id: &DebugAdapterClientId,
-        request: R,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<R::Response>> {
-        let message = request.to_proto(&client_id, upstream_project_id);
-        cx.background_executor().spawn(async move {
-            let response = upstream_client.request(message).await?;
-            request.response_from_proto(response)
-        })
-    }
-
-    pub fn step_over(
-        &self,
-        client_id: &DebugAdapterClientId,
-        thread_id: u64,
-        granularity: SteppingGranularity,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<()>> {
-        let Some(capabilities) = self.capabilities_by_id(client_id, cx) else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
-        };
-        let supports_single_thread_execution_requests = capabilities
-            .supports_single_thread_execution_requests
-            .unwrap_or_default();
-        let supports_stepping_granularity = capabilities
-            .supports_stepping_granularity
-            .unwrap_or_default();
-
-        let command = NextCommand {
-            inner: StepCommand {
-                thread_id,
-                granularity: supports_stepping_granularity.then(|| granularity),
-                single_thread: supports_single_thread_execution_requests.then(|| true),
-            },
-        };
-
-        self.request_dap(client_id, command, cx)
-    }
-
-    pub fn step_in(
-        &self,
-        client_id: &DebugAdapterClientId,
-        thread_id: u64,
-        granularity: SteppingGranularity,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<()>> {
-        let Some(capabilities) = self.capabilities_by_id(client_id, cx) else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
-        };
-        let supports_single_thread_execution_requests = capabilities
-            .supports_single_thread_execution_requests
-            .unwrap_or_default();
-        let supports_stepping_granularity = capabilities
-            .supports_stepping_granularity
-            .unwrap_or_default();
-
-        let command = StepInCommand {
-            inner: StepCommand {
-                thread_id,
-                granularity: supports_stepping_granularity.then(|| granularity),
-                single_thread: supports_single_thread_execution_requests.then(|| true),
-            },
-        };
-
-        self.request_dap(client_id, command, cx)
-    }
-
-    pub fn step_out(
-        &self,
-        client_id: &DebugAdapterClientId,
-        thread_id: u64,
-        granularity: SteppingGranularity,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<()>> {
-        let Some(capabilities) = self.capabilities_by_id(client_id, cx) else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
-        };
-        let supports_single_thread_execution_requests = capabilities
-            .supports_single_thread_execution_requests
-            .unwrap_or_default();
-        let supports_stepping_granularity = capabilities
-            .supports_stepping_granularity
-            .unwrap_or_default();
-
-        let command = StepOutCommand {
-            inner: StepCommand {
-                thread_id,
-                granularity: supports_stepping_granularity.then(|| granularity),
-                single_thread: supports_single_thread_execution_requests.then(|| true),
-            },
-        };
-
-        self.request_dap(client_id, command, cx)
-    }
-
-    pub fn step_back(
-        &self,
-        client_id: &DebugAdapterClientId,
-        thread_id: u64,
-        granularity: SteppingGranularity,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<()>> {
-        let Some(capabilities) = self.capabilities_by_id(client_id, cx) else {
-            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
-        };
-        if !capabilities.supports_step_back.unwrap_or_default() {
-            return Task::ready(Ok(()));
-        }
-
-        let supports_single_thread_execution_requests = capabilities
-            .supports_single_thread_execution_requests
-            .unwrap_or_default();
-        let supports_stepping_granularity = capabilities
-            .supports_stepping_granularity
-            .unwrap_or_default();
-
-        let command = StepBackCommand {
-            inner: StepCommand {
-                thread_id,
-                granularity: supports_stepping_granularity.then(|| granularity),
-                single_thread: supports_single_thread_execution_requests.then(|| true),
-            },
-        };
-
-        self.request_dap(client_id, command, cx)
-    }
-    #[allow(clippy::too_many_arguments)]
-    pub fn variables(
-        &self,
-        client_id: &DebugAdapterClientId,
-        thread_id: u64,
-        stack_frame_id: u64,
-        scope_id: u64,
-        session_id: DebugSessionId,
-        variables_reference: u64,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<Vec<Variable>>> {
-        let command = VariablesCommand {
-            stack_frame_id,
-            scope_id,
-            session_id,
-            thread_id,
-            variables_reference,
-            filter: None,
-            start: None,
-            count: None,
-            format: None,
-        };
-
-        self.request_dap(&client_id, command, cx)
-    }
-
     pub fn evaluate(
         &self,
         client_id: &DebugAdapterClientId,
@@ -1509,76 +1144,10 @@ impl DapStore {
         })
     }
 
-    pub fn pause_thread(
-        &mut self,
-        client_id: &DebugAdapterClientId,
-        thread_id: u64,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<()>> {
-        self.request_dap(client_id, PauseCommand { thread_id }, cx)
-    }
-
-    pub fn terminate_threads(
-        &mut self,
-        session_id: &DebugSessionId,
-        client_id: &DebugAdapterClientId,
-        thread_ids: Option<Vec<u64>>,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<()>> {
-        if self
-            .capabilities_by_id(client_id, cx)
-            .map(|caps| caps.supports_terminate_threads_request)
-            .flatten()
-            .unwrap_or_default()
-        {
-            self.request_dap(client_id, TerminateThreadsCommand { thread_ids }, cx)
-        } else {
-            self.shutdown_session(session_id, cx)
-        }
-    }
-
-    pub fn disconnect_client(
-        &mut self,
-        client_id: &DebugAdapterClientId,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<()>> {
-        let command = DisconnectCommand {
-            restart: Some(false),
-            terminate_debuggee: Some(true),
-            suspend_debuggee: Some(false),
-        };
-
-        self.request_dap(client_id, command, cx)
-    }
-
-    pub fn restart(
-        &mut self,
-        client_id: &DebugAdapterClientId,
-        args: Option<Value>,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<()>> {
-        let supports_restart = self
-            .capabilities_by_id(client_id, cx)
-            .map(|caps| caps.supports_restart_request)
-            .flatten()
-            .unwrap_or_default();
-
-        if supports_restart {
-            let command = RestartCommand {
-                raw: args.unwrap_or(Value::Null),
-            };
-
-            self.request_dap(client_id, command, cx)
-        } else {
-            let command = DisconnectCommand {
-                restart: Some(false),
-                terminate_debuggee: Some(true),
-                suspend_debuggee: Some(false),
-            };
-
-            self.request_dap(client_id, command, cx)
-        }
-    }
+    // .. get the client and what not
+    // let _ = client.modules(); // This can fire a request to a dap adapter or be a cheap getter.
+    // client.wait_for_request(request::Modules); // This ensures that the request that we've fired off runs to completions
+    // let returned_value = client.modules(); // this is a cheap getter.
 
     pub fn shutdown_sessions(&mut self, cx: &mut Context<Self>) -> Task<()> {
         let Some(_) = self.as_local() else {
@@ -1656,64 +1225,6 @@ impl DapStore {
 
         cx.background_executor().spawn(async move {
             futures::future::join_all(tasks).await;
-            Ok(())
-        })
-    }
-
-    fn shutdown_client(
-        &mut self,
-        session: &Entity<DebugSession>,
-        client: Arc<DebugAdapterClient>,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<()>> {
-        let client_id = client.id();
-
-        cx.emit(DapStoreEvent::DebugClientShutdown(client_id));
-        let Some(capabilities) = self.session_by_client_id(&client_id).and_then(|session| {
-            session
-                .read(cx)
-                .client_state(client_id)
-                .map(|state| state.read(cx).capabilities.clone())
-        }) else {
-            return Task::ready(Err(anyhow!("Client not found")));
-        };
-        let session = session.clone();
-        self.client_by_session.remove(&client_id);
-        if let Some((downstream_client, project_id)) = self.downstream_client.as_ref() {
-            downstream_client
-                .send(proto::ShutdownDebugClient {
-                    session_id: session.read(cx).id().to_proto(),
-                    client_id: client_id.to_proto(),
-                    project_id: *project_id,
-                })
-                .log_err();
-        }
-
-        cx.spawn(|_, mut cx| async move {
-            if capabilities.supports_terminate_request.unwrap_or_default() {
-                let _ = client
-                    .request::<Terminate>(TerminateArguments {
-                        restart: Some(false),
-                    })
-                    .await
-                    .log_err();
-            } else {
-                let _ = client
-                    .request::<Disconnect>(DisconnectArguments {
-                        restart: Some(false),
-                        terminate_debuggee: Some(true),
-                        suspend_debuggee: Some(false),
-                    })
-                    .await
-                    .log_err();
-            }
-
-            client.shutdown().await?;
-
-            let _ = session.update(&mut cx, |this, _| {
-                this.states.remove(&client_id);
-            });
-
             Ok(())
         })
     }
@@ -1834,7 +1345,7 @@ impl DapStore {
         let client_id = T::client_id_from_proto(&envelope.payload);
 
         let _state = this.update(&mut cx, |this, cx| {
-            this.session_by_client_id(&client_id)?
+            this.session_by_client_id(client_id)?
                 .read(cx)
                 .client_state(client_id)?
                 .read(cx)

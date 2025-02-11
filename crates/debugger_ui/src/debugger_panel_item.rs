@@ -85,21 +85,18 @@ impl DebugPanelItem {
         client_id: &DebugAdapterClientId,
         thread_id: u64,
         thread_state: Entity<ThreadState>,
-        dap_store: Entity<DapStore>,
         debug_panel: &Entity<DebugPanel>,
         workspace: WeakEntity<Workspace>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let focus_handle = cx.focus_handle();
-
         let this = cx.entity();
 
         let stack_frame_list = cx.new(|cx| {
             StackFrameList::new(
                 workspace.clone(),
                 &this,
-                dap_store.clone(),
                 session.clone(),
                 client_id,
                 thread_id,

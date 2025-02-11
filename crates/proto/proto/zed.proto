@@ -349,7 +349,11 @@ message Envelope {
         DapLoadedSourcesRequest dap_loaded_sources_request = 327;
         DapLoadedSourcesResponse dap_loaded_sources_response = 328;
         ActiveDebugSessionsRequest active_debug_sessions_request = 329;
-        ActiveDebugSessionsResponse active_debug_sessions_response = 330; // current max
+        ActiveDebugSessionsResponse active_debug_sessions_response = 330;
+        DapStackTraceRequest dap_stack_trace_request = 331;
+        DapStackTraceResponse dap_stack_trace_response = 332;
+        DapScopesRequest dap_scopes_request = 333;
+        DapScopesResponse dap_scopes_response = 334; // current max
     }
 
     reserved 87 to 88;
@@ -2692,7 +2696,6 @@ message VariableListVariables {
 message DebuggerVariableList {
     repeated VariableListScopes scopes = 1;
     repeated VariableListVariables variables = 2;
-    repeated AddToVariableList added_variables = 3;
 }
 
 enum VariablesArgumentsFilter {
@@ -2710,20 +2713,13 @@ message VariablesRequest {
     uint64 thread_id = 3;
     uint64 session_id = 4;
     uint64 stack_frame_id = 5;
-    uint64 scope_id = 6;
-    uint64 variables_reference = 7;
-    optional VariablesArgumentsFilter filter = 8;
-    optional uint64 start = 9;
-    optional uint64 count = 10;
-    optional ValueFormat format = 11;
+    uint64 variables_reference = 6;
+    optional VariablesArgumentsFilter filter = 7;
+    optional uint64 start = 8;
+    optional uint64 count = 9;
+    optional ValueFormat format = 10;
 }
 
-message AddToVariableList {
-    uint64 variable_id = 1;
-    uint64 stack_frame_id = 2;
-    uint64 scope_id = 3;
-    repeated DapVariable variables = 4;
-}
 
 message DebuggerStackFrameList {
     uint64 thread_id = 1;
@@ -2736,6 +2732,17 @@ enum SteppingGranularity {
     Statement = 0;
     Line = 1;
     Instruction = 2;
+}
+
+message DapScopesRequest {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    uint64 thread_id = 3;
+    uint64 stack_frame_id = 4;
+}
+
+message DapScopesResponse {
+    repeated DapScope scopes = 1;
 }
 
 message DapPauseRequest {
@@ -2858,6 +2865,18 @@ message DapLoadedSourcesResponse {
     repeated DapSource sources = 2;
 }
 
+message DapStackTraceRequest {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    uint64 thread_id = 3;
+    optional uint64 start_frame = 4;
+    optional uint64 stack_trace_levels = 5;
+}
+
+message DapStackTraceResponse {
+    repeated DapStackFrame frames = 1;
+}
+
 message DapStackFrame {
     uint64 id = 1;
     string name = 2;
@@ -2910,9 +2929,8 @@ message UpdateDebugAdapter {
         DebuggerThreadState thread_state = 5;
         DebuggerStackFrameList stack_frame_list = 6;
         DebuggerVariableList variable_list = 7;
-        AddToVariableList add_to_variable_list = 8;
-        DebuggerModuleList modules = 9;
-        DapOutputEvent output_event = 10;
+        DebuggerModuleList modules = 8;
+        DapOutputEvent output_event = 9;
     }
 }
 

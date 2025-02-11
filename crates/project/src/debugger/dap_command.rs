@@ -12,7 +12,7 @@ use gpui::{AsyncApp, WeakEntity};
 use rpc::proto;
 use util::ResultExt;
 
-use super::{dap_session::DebugSessionId, dap_store::DapStore};
+use super::dap_session::DebugSessionId;
 
 pub(crate) trait DapCommand: 'static + Send + Sync + std::fmt::Debug {
     type Response: 'static + Send + std::fmt::Debug;
@@ -20,16 +20,6 @@ pub(crate) trait DapCommand: 'static + Send + Sync + std::fmt::Debug {
     type ProtoRequest: 'static + Send + proto::RequestMessage;
 
     fn is_supported(&self, capabilities: &Capabilities) -> bool;
-
-    fn handle_response(
-        &self,
-        _dap_store: WeakEntity<DapStore>,
-        _client_id: &DebugAdapterClientId,
-        response: Result<Self::Response>,
-        _cx: &mut AsyncApp,
-    ) -> Result<Self::Response> {
-        response
-    }
 
     fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId;
 
@@ -294,36 +284,6 @@ impl DapCommand for StepOutCommand {
         true
     }
 
-    fn handle_response(
-        &self,
-        dap_store: WeakEntity<DapStore>,
-        client_id: &DebugAdapterClientId,
-        response: Result<Self::Response>,
-        cx: &mut AsyncApp,
-    ) -> Result<Self::Response> {
-        if response.is_ok() {
-            dap_store
-                .update(cx, |this, cx| {
-                    if let Some((client, project_id)) = this.downstream_client() {
-                        let thread_message = proto::UpdateThreadStatus {
-                            project_id: *project_id,
-                            client_id: client_id.to_proto(),
-                            thread_id: self.inner.thread_id,
-                            status: proto::DebuggerThreadStatus::Running.into(),
-                        };
-
-                        cx.emit(super::dap_store::DapStoreEvent::UpdateThreadStatus(
-                            thread_message.clone(),
-                        ));
-
-                        client.send(thread_message).log_err();
-                    }
-                })
-                .log_err();
-        }
-        response
-    }
-
     fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
         DebugAdapterClientId::from_proto(request.client_id)
     }
@@ -470,36 +430,6 @@ impl DapCommand for ContinueCommand {
 
     fn is_supported(&self, _capabilities: &Capabilities) -> bool {
         true
-    }
-
-    fn handle_response(
-        &self,
-        dap_store: WeakEntity<DapStore>,
-        client_id: &DebugAdapterClientId,
-        response: Result<Self::Response>,
-        cx: &mut AsyncApp,
-    ) -> Result<Self::Response> {
-        if response.is_ok() {
-            dap_store
-                .update(cx, |this, cx| {
-                    if let Some((client, project_id)) = this.downstream_client() {
-                        let thread_message = proto::UpdateThreadStatus {
-                            project_id: *project_id,
-                            client_id: client_id.to_proto(),
-                            thread_id: self.args.thread_id,
-                            status: proto::DebuggerThreadStatus::Running.into(),
-                        };
-
-                        cx.emit(super::dap_store::DapStoreEvent::UpdateThreadStatus(
-                            thread_message.clone(),
-                        ));
-
-                        client.send(thread_message).log_err();
-                    }
-                })
-                .log_err();
-        }
-        response
     }
 
     fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
@@ -900,7 +830,6 @@ impl DapCommand for RestartCommand {
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariablesCommand {
     pub stack_frame_id: u64,
-    pub scope_id: u64,
     pub thread_id: u64,
     pub variables_reference: u64,
     pub session_id: DebugSessionId,
@@ -917,40 +846,6 @@ impl DapCommand for VariablesCommand {
 
     fn is_supported(&self, _capabilities: &Capabilities) -> bool {
         true
-    }
-
-    fn handle_response(
-        &self,
-        dap_store: WeakEntity<DapStore>,
-        client_id: &DebugAdapterClientId,
-        response: Result<Self::Response>,
-        cx: &mut AsyncApp,
-    ) -> Result<Self::Response> {
-        let variables = response?;
-
-        dap_store.update(cx, |this, _| {
-            if let Some((downstream_clients, project_id)) = this.downstream_client() {
-                let update = proto::UpdateDebugAdapter {
-                    project_id: *project_id,
-                    session_id: self.session_id.to_proto(),
-                    client_id: client_id.to_proto(),
-                    thread_id: Some(self.thread_id),
-                    variant: Some(proto::update_debug_adapter::Variant::AddToVariableList(
-                        proto::AddToVariableList {
-                            scope_id: self.scope_id,
-                            stack_frame_id: self.stack_frame_id,
-                            variable_id: self.variables_reference,
-                            variables: variables.to_proto(),
-                        },
-                    )),
-                };
-
-                downstream_clients.send(update.clone()).log_err();
-                // cx.emit(crate::dap_store::DapStoreEvent::UpdateDebugAdapter(update));
-            }
-        })?;
-
-        Ok(variables)
     }
 
     fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
@@ -985,7 +880,6 @@ impl DapCommand for VariablesCommand {
             thread_id: self.thread_id,
             session_id: self.session_id.to_proto(),
             stack_frame_id: self.stack_frame_id,
-            scope_id: self.scope_id,
             variables_reference: self.variables_reference,
             filter: None,
             start: self.start,
@@ -999,7 +893,6 @@ impl DapCommand for VariablesCommand {
             thread_id: request.thread_id,
             session_id: DebugSessionId::from_proto(request.session_id),
             stack_frame_id: request.stack_frame_id,
-            scope_id: request.scope_id,
             variables_reference: request.variables_reference,
             filter: None,
             start: request.start,
@@ -1226,5 +1119,153 @@ impl DapCommand for LoadedSourcesCommand {
             .into_iter()
             .map(dap::Source::from_proto)
             .collect())
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub(crate) struct StackTraceCommand {
+    pub thread_id: u64,
+    pub start_frame: Option<u64>,
+    pub levels: Option<u64>,
+}
+
+impl DapCommand for StackTraceCommand {
+    type Response = Vec<dap::StackFrame>;
+    type DapRequest = dap::requests::StackTrace;
+    type ProtoRequest = proto::DapStackTraceRequest;
+
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        dap::StackTraceArguments {
+            thread_id: self.thread_id,
+            start_frame: self.start_frame,
+            levels: self.levels,
+            format: None,
+        }
+    }
+
+    fn response_from_dap(
+        &self,
+        message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Result<Self::Response> {
+        Ok(message.stack_frames)
+    }
+
+    fn is_supported(&self, _capabilities: &Capabilities) -> bool {
+        true
+    }
+
+    fn to_proto(
+        &self,
+        debug_client_id: &DebugAdapterClientId,
+        upstream_project_id: u64,
+    ) -> Self::ProtoRequest {
+        proto::DapStackTraceRequest {
+            project_id: upstream_project_id,
+            client_id: debug_client_id.to_proto(),
+            thread_id: self.thread_id,
+            start_frame: self.start_frame,
+            stack_trace_levels: self.levels,
+        }
+    }
+
+    fn from_proto(request: &Self::ProtoRequest) -> Self {
+        Self {
+            thread_id: request.thread_id,
+            start_frame: request.start_frame,
+            levels: request.stack_trace_levels,
+        }
+    }
+
+    fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
+        DebugAdapterClientId::from_proto(request.client_id)
+    }
+
+    fn response_from_proto(
+        &self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
+        Ok(message
+            .frames
+            .into_iter()
+            .map(dap::StackFrame::from_proto)
+            .collect())
+    }
+
+    fn response_to_proto(
+        _debug_client_id: &DebugAdapterClientId,
+        message: Self::Response,
+    ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
+        proto::DapStackTraceResponse {
+            frames: message.to_proto(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub(crate) struct ScopesCommand {
+    pub thread_id: u64,
+    pub stack_frame_id: u64,
+}
+
+impl DapCommand for ScopesCommand {
+    type Response = Vec<dap::Scope>;
+    type DapRequest = dap::requests::Scopes;
+    type ProtoRequest = proto::DapScopesRequest;
+
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        dap::ScopesArguments {
+            frame_id: self.stack_frame_id,
+        }
+    }
+
+    fn response_from_dap(
+        &self,
+        message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Result<Self::Response> {
+        Ok(message.scopes)
+    }
+
+    fn is_supported(&self, _capabilities: &Capabilities) -> bool {
+        true
+    }
+
+    fn to_proto(
+        &self,
+        debug_client_id: &DebugAdapterClientId,
+        upstream_project_id: u64,
+    ) -> Self::ProtoRequest {
+        proto::DapScopesRequest {
+            project_id: upstream_project_id,
+            client_id: debug_client_id.to_proto(),
+            thread_id: self.thread_id,
+            stack_frame_id: self.stack_frame_id,
+        }
+    }
+
+    fn from_proto(request: &Self::ProtoRequest) -> Self {
+        Self {
+            thread_id: request.thread_id,
+            stack_frame_id: request.stack_frame_id,
+        }
+    }
+
+    fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
+        DebugAdapterClientId::from_proto(request.client_id)
+    }
+
+    fn response_from_proto(
+        &self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
+        Ok(Vec::from_proto(message.scopes))
+    }
+
+    fn response_to_proto(
+        _debug_client_id: &DebugAdapterClientId,
+        message: Self::Response,
+    ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
+        proto::DapScopesResponse {
+            scopes: message.to_proto(),
+        }
     }
 }
