@@ -64,7 +64,6 @@ pub struct DebugPanelItem {
     console: Entity<Console>,
     focus_handle: FocusHandle,
     remote_id: Option<ViewId>,
-    dap_store: Entity<DapStore>,
     session: Entity<DebugSession>,
     show_console_indicator: bool,
     module_list: Entity<ModuleList>,
@@ -82,7 +81,7 @@ impl DebugPanelItem {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         session: Entity<DebugSession>,
-        client_id: &DebugAdapterClientId,
+        client_id: DebugAdapterClientId,
         thread_id: u64,
         thread_state: Entity<ThreadState>,
         debug_panel: &Entity<DebugPanel>,
@@ -116,16 +115,14 @@ impl DebugPanelItem {
             )
         });
 
-        let module_list = cx.new(|cx| ModuleList::new(session.clone(), &client_id, cx));
+        let module_list = cx.new(|cx| ModuleList::new(session.clone(), client_id, cx));
 
-        let loaded_source_list =
-            cx.new(|cx| LoadedSourceList::new(session.clone(), &client_id, cx));
+        let loaded_source_list = cx.new(|cx| LoadedSourceList::new(session.clone(), client_id, cx));
 
         let console = cx.new(|cx| {
             Console::new(
                 session.clone(),
                 client_id,
-                dap_store.clone(),
                 stack_frame_list.clone(),
                 variable_list.clone(),
                 window,
@@ -185,7 +182,6 @@ impl DebugPanelItem {
             session,
             console,
             thread_id,
-            dap_store,
             workspace,
             module_list,
             thread_state,
@@ -195,7 +191,7 @@ impl DebugPanelItem {
             remote_id: None,
             stack_frame_list,
             loaded_source_list,
-            client_id: *client_id,
+            client_id,
             show_console_indicator: false,
             active_thread_item: ThreadItem::Variables,
         }
@@ -299,12 +295,6 @@ impl DebugPanelItem {
         }
 
         cx.emit(DebugPanelItemEvent::Stopped { go_to_stack_frame });
-
-        if let Some((downstream_client, project_id)) = self.dap_store.read(cx).downstream_client() {
-            downstream_client
-                .send(self.to_proto(*project_id, cx))
-                .log_err();
-        }
     }
 
     fn handle_thread_event(

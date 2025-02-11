@@ -15,7 +15,7 @@ use editor::{
 };
 use gpui::{BackgroundExecutor, TestAppContext, VisualTestContext};
 use project::{
-    dap_store::{Breakpoint, BreakpointEditAction, BreakpointKind},
+    debugger::dap_store::{Breakpoint, BreakpointEditAction, BreakpointKind},
     FakeFs, Project,
 };
 use serde_json::json;
@@ -749,7 +749,7 @@ async fn test_handle_start_debugging_reverse_request(
     cx.run_until_parked();
 
     project.update(cx, |_, cx| {
-        assert_eq!(2, session.read(cx).as_local().unwrap().clients_len());
+        assert_eq!(2, session.read(cx).clients_len());
     });
     assert!(
         send_response.load(std::sync::atomic::Ordering::SeqCst),
@@ -759,9 +759,10 @@ async fn test_handle_start_debugging_reverse_request(
     let second_client = project.update(cx, |_, cx| {
         session
             .read(cx)
-            .as_local()
+            .client_state(DebugAdapterClientId(1))
             .unwrap()
-            .client_by_id(&DebugAdapterClientId(1))
+            .read(cx)
+            .adapter_client()
             .unwrap()
     });
 

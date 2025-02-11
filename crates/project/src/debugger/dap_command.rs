@@ -27,12 +27,12 @@ pub(crate) trait DapCommand: 'static + Send + Sync + std::fmt::Debug {
 
     fn to_proto(
         &self,
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         upstream_project_id: u64,
     ) -> Self::ProtoRequest;
 
     fn response_to_proto(
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response;
 
@@ -68,14 +68,14 @@ impl<T: DapCommand> DapCommand for Arc<T> {
 
     fn to_proto(
         &self,
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         upstream_project_id: u64,
     ) -> Self::ProtoRequest {
         T::to_proto(self, debug_client_id, upstream_project_id)
     }
 
     fn response_to_proto(
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         T::response_to_proto(debug_client_id, message)
@@ -151,7 +151,7 @@ impl DapCommand for NextCommand {
     }
 
     fn response_to_proto(
-        _debug_client_id: &DebugAdapterClientId,
+        _debug_client_id: DebugAdapterClientId,
         _message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::Ack {}
@@ -159,7 +159,7 @@ impl DapCommand for NextCommand {
 
     fn to_proto(
         &self,
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         upstream_project_id: u64,
     ) -> proto::DapNextRequest {
         proto::DapNextRequest {
@@ -225,7 +225,7 @@ impl DapCommand for StepInCommand {
     }
 
     fn response_to_proto(
-        _debug_client_id: &DebugAdapterClientId,
+        _debug_client_id: DebugAdapterClientId,
         _message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::Ack {}
@@ -233,7 +233,7 @@ impl DapCommand for StepInCommand {
 
     fn to_proto(
         &self,
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         upstream_project_id: u64,
     ) -> proto::DapStepInRequest {
         proto::DapStepInRequest {
@@ -301,7 +301,7 @@ impl DapCommand for StepOutCommand {
     }
 
     fn response_to_proto(
-        _debug_client_id: &DebugAdapterClientId,
+        _debug_client_id: DebugAdapterClientId,
         _message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::Ack {}
@@ -309,7 +309,7 @@ impl DapCommand for StepOutCommand {
 
     fn to_proto(
         &self,
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         upstream_project_id: u64,
     ) -> proto::DapStepOutRequest {
         proto::DapStepOutRequest {
@@ -375,7 +375,7 @@ impl DapCommand for StepBackCommand {
     }
 
     fn response_to_proto(
-        _debug_client_id: &DebugAdapterClientId,
+        _debug_client_id: DebugAdapterClientId,
         _message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::Ack {}
@@ -383,7 +383,7 @@ impl DapCommand for StepBackCommand {
 
     fn to_proto(
         &self,
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         upstream_project_id: u64,
     ) -> proto::DapStepBackRequest {
         proto::DapStepBackRequest {
@@ -438,7 +438,7 @@ impl DapCommand for ContinueCommand {
 
     fn to_proto(
         &self,
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         upstream_project_id: u64,
     ) -> proto::DapContinueRequest {
         proto::DapContinueRequest {
@@ -479,7 +479,7 @@ impl DapCommand for ContinueCommand {
     }
 
     fn response_to_proto(
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::DapContinueResponse {
@@ -515,7 +515,7 @@ impl DapCommand for PauseCommand {
 
     fn to_proto(
         &self,
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         upstream_project_id: u64,
     ) -> proto::DapPauseRequest {
         proto::DapPauseRequest {
@@ -526,7 +526,7 @@ impl DapCommand for PauseCommand {
     }
 
     fn response_to_proto(
-        _debug_client_id: &DebugAdapterClientId,
+        _debug_client_id: DebugAdapterClientId,
         _message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::Ack {}
@@ -583,7 +583,7 @@ impl DapCommand for DisconnectCommand {
 
     fn to_proto(
         &self,
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         upstream_project_id: u64,
     ) -> proto::DapDisconnectRequest {
         proto::DapDisconnectRequest {
@@ -596,7 +596,7 @@ impl DapCommand for DisconnectCommand {
     }
 
     fn response_to_proto(
-        _debug_client_id: &DebugAdapterClientId,
+        _debug_client_id: DebugAdapterClientId,
         _message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::Ack {}
@@ -657,7 +657,7 @@ impl DapCommand for TerminateThreadsCommand {
 
     fn to_proto(
         &self,
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         upstream_project_id: u64,
     ) -> proto::DapTerminateThreadsRequest {
         proto::DapTerminateThreadsRequest {
@@ -668,7 +668,7 @@ impl DapCommand for TerminateThreadsCommand {
     }
 
     fn response_to_proto(
-        _debug_client_id: &DebugAdapterClientId,
+        _debug_client_id: DebugAdapterClientId,
         _message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::Ack {}
@@ -721,7 +721,7 @@ impl DapCommand for TerminateCommand {
 
     fn to_proto(
         &self,
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         upstream_project_id: u64,
     ) -> proto::DapTerminateRequest {
         proto::DapTerminateRequest {
@@ -732,7 +732,7 @@ impl DapCommand for TerminateCommand {
     }
 
     fn response_to_proto(
-        _debug_client_id: &DebugAdapterClientId,
+        _debug_client_id: DebugAdapterClientId,
         _message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::Ack {}
@@ -787,7 +787,7 @@ impl DapCommand for RestartCommand {
 
     fn to_proto(
         &self,
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         upstream_project_id: u64,
     ) -> proto::DapRestartRequest {
         let raw_args = serde_json::to_vec(&self.raw).log_err().unwrap_or_default();
@@ -800,7 +800,7 @@ impl DapCommand for RestartCommand {
     }
 
     fn response_to_proto(
-        _debug_client_id: &DebugAdapterClientId,
+        _debug_client_id: DebugAdapterClientId,
         _message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::Ack {}
@@ -871,7 +871,7 @@ impl DapCommand for VariablesCommand {
 
     fn to_proto(
         &self,
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         upstream_project_id: u64,
     ) -> Self::ProtoRequest {
         proto::VariablesRequest {
@@ -902,7 +902,7 @@ impl DapCommand for VariablesCommand {
     }
 
     fn response_to_proto(
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::DapVariables {
@@ -945,7 +945,7 @@ impl DapCommand for RestartStackFrameCommand {
 
     fn to_proto(
         &self,
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         upstream_project_id: u64,
     ) -> proto::DapRestartStackFrameRequest {
         proto::DapRestartStackFrameRequest {
@@ -956,7 +956,7 @@ impl DapCommand for RestartStackFrameCommand {
     }
 
     fn response_to_proto(
-        _debug_client_id: &DebugAdapterClientId,
+        _debug_client_id: DebugAdapterClientId,
         _message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::Ack {}
@@ -1005,7 +1005,7 @@ impl DapCommand for ModulesCommand {
 
     fn to_proto(
         &self,
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         upstream_project_id: u64,
     ) -> proto::DapModulesRequest {
         proto::DapModulesRequest {
@@ -1015,7 +1015,7 @@ impl DapCommand for ModulesCommand {
     }
 
     fn response_to_proto(
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::DapModulesResponse {
@@ -1077,7 +1077,7 @@ impl DapCommand for LoadedSourcesCommand {
 
     fn to_proto(
         &self,
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         upstream_project_id: u64,
     ) -> proto::DapLoadedSourcesRequest {
         proto::DapLoadedSourcesRequest {
@@ -1087,7 +1087,7 @@ impl DapCommand for LoadedSourcesCommand {
     }
 
     fn response_to_proto(
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::DapLoadedSourcesResponse {
@@ -1156,7 +1156,7 @@ impl DapCommand for StackTraceCommand {
 
     fn to_proto(
         &self,
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         upstream_project_id: u64,
     ) -> Self::ProtoRequest {
         proto::DapStackTraceRequest {
@@ -1192,7 +1192,7 @@ impl DapCommand for StackTraceCommand {
     }
 
     fn response_to_proto(
-        _debug_client_id: &DebugAdapterClientId,
+        _debug_client_id: DebugAdapterClientId,
         message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::DapStackTraceResponse {
@@ -1231,7 +1231,7 @@ impl DapCommand for ScopesCommand {
 
     fn to_proto(
         &self,
-        debug_client_id: &DebugAdapterClientId,
+        debug_client_id: DebugAdapterClientId,
         upstream_project_id: u64,
     ) -> Self::ProtoRequest {
         proto::DapScopesRequest {
@@ -1261,7 +1261,7 @@ impl DapCommand for ScopesCommand {
     }
 
     fn response_to_proto(
-        _debug_client_id: &DebugAdapterClientId,
+        _debug_client_id: DebugAdapterClientId,
         message: Self::Response,
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::DapScopesResponse {

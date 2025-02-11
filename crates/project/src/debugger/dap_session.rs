@@ -119,7 +119,7 @@ impl RemoteConnection {
         client_id: DebugAdapterClientId,
         cx: &mut App,
     ) -> Task<Result<R::Response>> {
-        let message = request.to_proto(&client_id, self.upstream_project_id);
+        let message = request.to_proto(client_id, self.upstream_project_id);
         let upstream_client = self.client.clone();
         cx.background_executor().spawn(async move {
             let response = upstream_client.request(message).await?;
@@ -458,6 +458,13 @@ impl Client {
         .detach();
     }
 
+    pub fn adapter_client(&self) -> Option<Arc<DebugAdapterClient>> {
+        match self.mode {
+            Mode::Local(ref adapter_client) => Some(adapter_client.clone()),
+            Mode::Remote(_) => None,
+        }
+    }
+
     pub fn step_over(
         &mut self,
         thread_id: u64,
@@ -757,11 +764,6 @@ impl LocalDebugSession {
         f(&mut self.configuration);
         cx.notify();
     }
-
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn clients_len(&self) -> usize {
-        self.clients.len()
-    }
 }
 
 pub struct RemoteDebugSession {
@@ -824,8 +826,8 @@ impl DebugSession {
     pub fn client_state(&self, client_id: DebugAdapterClientId) -> Option<Entity<Client>> {
         self.states.get(&client_id).cloned()
     }
-    pub(super) fn client_ids(&self) -> impl Iterator<Item = DebugAdapterClientId> {
-        self.states.keys()
+    pub(super) fn client_ids(&self) -> impl Iterator<Item = DebugAdapterClientId> + '_ {
+        self.states.keys().copied()
     }
 
     pub fn add_client(
@@ -867,5 +869,10 @@ impl DebugSession {
                 this.shutdown(cx);
             })
         }
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn clients_len(&self) -> usize {
+        self.states.len()
     }
 }

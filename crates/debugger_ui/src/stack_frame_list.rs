@@ -87,7 +87,7 @@ impl StackFrameList {
             thread_id,
             focus_handle,
             _subscriptions,
-            client_id: *client_id,
+            client_id,
             entries: Default::default(),
             fetch_stack_frames_task: None,
             stack_frames: Default::default(),
@@ -290,7 +290,7 @@ impl StackFrameList {
 
                 this.update(&mut cx, |this, cx| {
                     this.dap_store.update(cx, |store, cx| {
-                        store.set_active_debug_line(&client_id, &project_path, row, cx);
+                        store.set_active_debug_line(client_id, &project_path, row, cx);
                     })
                 })
             }

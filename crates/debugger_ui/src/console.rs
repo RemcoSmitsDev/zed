@@ -36,7 +36,6 @@ pub struct Console {
     groups: Vec<OutputGroup>,
     console: Entity<Editor>,
     query_bar: Entity<Editor>,
-    dap_store: Entity<DapStore>,
     session: Entity<DebugSession>,
     client_id: DebugAdapterClientId,
     _subscriptions: Vec<Subscription>,
@@ -47,7 +46,7 @@ pub struct Console {
 impl Console {
     pub fn new(
         session: Entity<DebugSession>,
-        client_id: &DebugAdapterClientId,
+        client_id: DebugAdapterClientId,
         dap_store: Entity<DapStore>,
         stack_frame_list: Entity<StackFrameList>,
         variable_list: Entity<VariableList>,
@@ -91,12 +90,11 @@ impl Console {
         Self {
             session,
             console,
-            dap_store,
             query_bar,
             variable_list,
             _subscriptions,
             stack_frame_list,
-            client_id: *client_id,
+            client_id,
             groups: Vec::default(),
         }
     }

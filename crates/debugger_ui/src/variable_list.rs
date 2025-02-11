@@ -348,7 +348,7 @@ pub struct VariableList {
 impl VariableList {
     pub fn new(
         session: Entity<DebugSession>,
-        client_id: &DebugAdapterClientId,
+        client_id: DebugAdapterClientId,
         dap_store: Entity<DapStore>,
         stack_frame_list: Entity<StackFrameList>,
         window: &mut Window,
@@ -393,7 +393,7 @@ impl VariableList {
             selection: None,
             stack_frame_list,
             set_variable_editor,
-            client_id: *client_id,
+            client_id,
             open_context_menu: None,
             set_variable_state: None,
             fetch_variables_task: None,
@@ -426,11 +426,7 @@ impl VariableList {
             })
             .collect();
 
-        proto::DebuggerVariableList {
-            scopes,
-            variables,
-            added_variables: vec![],
-        }
+        proto::DebuggerVariableList { scopes, variables }
     }
 
     pub(crate) fn set_from_proto(
