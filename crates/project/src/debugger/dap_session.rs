@@ -431,7 +431,8 @@ impl Client {
                 },
                 Self::empty_response,
                 cx,
-            );
+            )
+            .detach();
         } else {
             self.request(
                 DisconnectCommand {
@@ -441,7 +442,8 @@ impl Client {
                 },
                 Self::empty_response,
                 cx,
-            );
+            )
+            .detach();
         }
     }
 
