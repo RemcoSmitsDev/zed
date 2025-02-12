@@ -5,8 +5,8 @@ use dap::{
     client::DebugAdapterClientId,
     proto_conversions::ProtoConversion,
     requests::{Continue, Next},
-    Capabilities, ContinueArguments, NextArguments, StepInArguments, StepOutArguments,
-    SteppingGranularity, ValueFormat, Variable, VariablesArgumentsFilter,
+    Capabilities, ContinueArguments, NextArguments, SetVariableResponse, StepInArguments,
+    StepOutArguments, SteppingGranularity, ValueFormat, Variable, VariablesArgumentsFilter,
 };
 use rpc::proto;
 use util::ResultExt;
@@ -915,6 +915,94 @@ impl DapCommand for VariablesCommand {
         message: <Self::ProtoRequest as proto::RequestMessage>::Response,
     ) -> Result<Self::Response> {
         Ok(Vec::from_proto(message.variables))
+    }
+}
+
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct SetVariableValueCommand {
+    pub name: String,
+    pub value: String,
+    pub variables_reference: u64,
+}
+
+impl DapCommand for SetVariableValueCommand {
+    type Response = SetVariableResponse;
+    type DapRequest = dap::requests::SetVariable;
+    type ProtoRequest = proto::DapSetVariableValueRequest;
+
+    fn is_supported(&self, capabilities: &Capabilities) -> bool {
+        capabilities.supports_set_variable.unwrap_or_default()
+    }
+
+    fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
+        DebugAdapterClientId::from_proto(request.client_id)
+    }
+
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        dap::SetVariableArguments {
+            format: None,
+            name: self.name.clone(),
+            value: self.value.clone(),
+            variables_reference: self.variables_reference,
+        }
+    }
+
+    fn response_from_dap(
+        &self,
+        message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Result<Self::Response> {
+        Ok(message)
+    }
+
+    fn to_proto(
+        &self,
+        debug_client_id: DebugAdapterClientId,
+        upstream_project_id: u64,
+    ) -> Self::ProtoRequest {
+        proto::DapSetVariableValueRequest {
+            project_id: upstream_project_id,
+            client_id: debug_client_id.to_proto(),
+            variables_reference: self.variables_reference,
+            value: self.value.clone(),
+            name: self.name.clone(),
+        }
+    }
+
+    fn from_proto(request: &Self::ProtoRequest) -> Self {
+        Self {
+            variables_reference: request.variables_reference,
+            name: request.name.clone(),
+            value: request.value.clone(),
+        }
+    }
+
+    fn response_to_proto(
+        debug_client_id: DebugAdapterClientId,
+        message: Self::Response,
+    ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
+        proto::DapSetVariableValueResponse {
+            client_id: debug_client_id.to_proto(),
+            value: message.value,
+            type_: message.type_,
+            named_variables: message.named_variables,
+            variables_reference: message.variables_reference,
+            indexed_variables: message.indexed_variables,
+            memory_reference: message.memory_reference,
+        }
+    }
+
+    fn response_from_proto(
+        &self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
+        Ok(SetVariableResponse {
+            value: message.value,
+            type_: message.type_,
+            variables_reference: message.variables_reference,
+            named_variables: message.named_variables,
+            indexed_variables: message.indexed_variables,
+            memory_reference: message.memory_reference,
+        })
     }
 }
 

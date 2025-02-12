@@ -353,7 +353,9 @@ message Envelope {
         DapStackTraceRequest dap_stack_trace_request = 331;
         DapStackTraceResponse dap_stack_trace_response = 332;
         DapScopesRequest dap_scopes_request = 333;
-        DapScopesResponse dap_scopes_response = 334; // current max
+        DapScopesResponse dap_scopes_response = 334;
+        DapSetVariableValueRequest dap_set_variable_value_request = 335;
+        DapSetVariableValueResponse dap_set_variable_value_response = 336; // current max
     }
 
     reserved 87 to 88;
@@ -2743,6 +2745,24 @@ message DapScopesRequest {
 
 message DapScopesResponse {
     repeated DapScope scopes = 1;
+}
+
+message DapSetVariableValueRequest {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    string name = 3;
+    string value = 4;
+    uint64 variables_reference = 5;
+}
+
+message DapSetVariableValueResponse {
+    uint64 client_id = 1;
+    string value = 2;
+    optional string type_ = 3;
+    optional uint64 variables_reference = 4;
+    optional uint64 named_variables = 5;
+    optional uint64 indexed_variables = 6;
+    optional string memory_reference = 7;
 }
 
 message DapPauseRequest {

@@ -288,7 +288,10 @@ impl DebugPanelItem {
         }
 
         if let Some(client_state) = self.session.read(cx).client_state(*client_id) {
-            client_state.update(cx, |state, cx| state.invalidate(cx));
+            client_state.update(cx, |state, cx| {
+                state.invalidate();
+                cx.notify();
+            });
         }
 
         cx.emit(DebugPanelItemEvent::Stopped { go_to_stack_frame });

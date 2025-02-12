@@ -1,7 +1,8 @@
 use super::dap_command::{
     self, ContinueCommand, DapCommand, DisconnectCommand, NextCommand, PauseCommand,
-    RestartCommand, RestartStackFrameCommand, ScopesCommand, StepBackCommand, StepCommand,
-    StepInCommand, StepOutCommand, TerminateCommand, TerminateThreadsCommand, VariablesCommand,
+    RestartCommand, RestartStackFrameCommand, ScopesCommand, SetVariableValueCommand,
+    StepBackCommand, StepCommand, StepInCommand, StepOutCommand, TerminateCommand,
+    TerminateThreadsCommand, VariablesCommand,
 };
 use anyhow::{anyhow, Result};
 use collections::{BTreeMap, HashMap};
@@ -344,12 +345,10 @@ impl Client {
         )
     }
 
-    pub fn invalidate(&mut self, cx: &mut Context<Self>) {
+    pub fn invalidate(&mut self) {
         self.requests.clear();
         self.modules.clear();
         self.loaded_sources.clear();
-
-        cx.notify();
     }
 
     pub fn modules(&mut self, cx: &mut Context<Self>) -> &[Module] {
@@ -491,6 +490,7 @@ impl Client {
 
         self.request(command, Self::empty_response, cx).detach();
     }
+
     pub fn step_in(
         &self,
         thread_id: u64,
@@ -673,6 +673,7 @@ impl Client {
                 .find(|scope| scope.dap.variables_reference == variables_reference)
         })
     }
+
     #[allow(clippy::too_many_arguments)]
     pub fn variables(
         &mut self,
@@ -710,6 +711,29 @@ impl Client {
         self.find_scope(thread_id, stack_frame_id, variables_reference)
             .map(|scope| scope.variables.clone())
             .unwrap_or_default()
+    }
+
+    pub fn set_variable_value(
+        &mut self,
+        variables_reference: u64,
+        name: String,
+        value: String,
+        cx: &mut Context<Self>,
+    ) {
+        if self.capabilities.supports_set_variable.unwrap_or_default() {
+            self.request(
+                SetVariableValueCommand {
+                    name,
+                    value,
+                    variables_reference,
+                },
+                |this, _response| {
+                    this.invalidate();
+                },
+                cx,
+            )
+            .detach()
+        }
     }
 
     pub fn disconnect_client(&mut self, cx: &mut Context<Self>) {

@@ -1032,29 +1032,21 @@ impl VariableList {
             return cx.notify();
         }
 
-        let set_value_task = self.dap_store.update(cx, |store, cx| {
-            store.set_variable_value(
-                &self.client_id,
-                state.stack_frame_id,
+        let Some(client_state) = self.session.read(cx).client_state(self.client_id) else {
+            return;
+        };
+
+        client_state.update(cx, |state, cx| {
+            state.set_variable_value(
                 state.parent_variables_reference,
                 state.name,
                 new_variable_value,
-                state.evaluate_name,
                 cx,
-            )
+            );
         });
-
-        cx.spawn_in(window, |this, mut cx| async move {
-            set_value_task.await?;
-
-            this.update_in(&mut cx, |this, window, cx| {
-                this.build_entries(false, cx);
-                this.invalidate(window, cx);
-            })
-        })
-        .detach_and_log_err(cx);
     }
 
+    // TODO(debugger): remove this
     pub fn invalidate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.variables.clear();
         self.scopes.clear();
