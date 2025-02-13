@@ -5,7 +5,7 @@ use super::dap_command::{
     TerminateThreadsCommand, VariablesCommand,
 };
 use anyhow::{anyhow, Result};
-use collections::{BTreeMap, HashMap};
+use collections::{BTreeMap, HashMap, IndexMap};
 use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 use dap::requests::Request;
 use dap::{
@@ -42,7 +42,7 @@ impl DebugSessionId {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, PartialOrd, Ord, Eq)]
 #[repr(transparent)]
 pub struct ThreadId(pub u64);
 
@@ -106,10 +106,21 @@ pub enum ThreadStatus {
 }
 
 pub struct Thread {
-    _thread: dap::Thread,
+    dap: dap::Thread,
     stack_frames: Vec<StackFrame>,
     _status: ThreadStatus,
     _has_stopped: bool,
+}
+
+impl From<dap::Thread> for Thread {
+    fn from(dap: dap::Thread) -> Self {
+        Self {
+            dap,
+            stack_frames: vec![],
+            _status: ThreadStatus::default(),
+            _has_stopped: false,
+        }
+    }
 }
 
 type UpstreamProjectId = u64;
@@ -227,7 +238,7 @@ pub struct Client {
     client_id: DebugAdapterClientId,
     modules: Vec<dap::Module>,
     loaded_sources: Vec<dap::Source>,
-    threads: BTreeMap<ThreadId, Thread>,
+    threads: IndexMap<ThreadId, Thread>,
     requests: HashMap<RequestSlot, Shared<Task<Option<()>>>>,
 }
 
@@ -389,6 +400,24 @@ impl Client {
         self.modules.clear();
         self.loaded_sources.clear();
         cx.notify();
+    }
+
+    pub fn threads(&mut self, cx: &mut Context<Self>) -> Vec<dap::Thread> {
+        self.fetch(
+            dap_command::ThreadsCommand,
+            |this, result, cx| {
+                this.threads.extend(
+                    result
+                        .iter()
+                        .map(|thread| (ThreadId(thread.id), Thread::from(thread.clone()))),
+                );
+            },
+            cx,
+        );
+        self.threads
+            .values()
+            .map(|thread| thread.dap.clone())
+            .collect()
     }
 
     pub fn modules(&mut self, cx: &mut Context<Self>) -> &[Module] {
@@ -681,7 +710,7 @@ impl Client {
                     thread.stack_frames = stack_frames.iter().cloned().map(From::from).collect();
                 });
                 debug_assert!(
-                    matches!(entry, BTreeMapEntry::Occupied(_)),
+                    matches!(entry, indexmap::map::Entry::Occupied(_)),
                     "Sent request for thread_id that doesn't exist"
                 );
 
@@ -978,7 +1007,7 @@ impl DebugSession {
                 client_id,
                 modules: Vec::default(),
                 loaded_sources: Vec::default(),
-                threads: BTreeMap::default(),
+                threads: IndexMap::default(),
                 requests: HashMap::default(),
                 capabilities: Default::default(),
                 mode,

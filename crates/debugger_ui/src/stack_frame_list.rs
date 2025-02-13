@@ -44,7 +44,7 @@ impl StackFrameList {
         session: Entity<DebugSession>,
         client_id: DebugAdapterClientId,
         thread_id: ThreadId,
-        window: &Window,
+        _window: &Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let weak_entity = cx.weak_entity();
@@ -67,7 +67,7 @@ impl StackFrameList {
         let client_state = session.read(cx).client_state(client_id).unwrap();
 
         let _subscription = cx.observe(&client_state, |stack_frame_list, state, cx| {
-            let frame_len = state.update(cx, |state, cx| {
+            let _frame_len = state.update(cx, |state, cx| {
                 state.stack_frames(stack_frame_list.thread_id, cx).len()
             });
 

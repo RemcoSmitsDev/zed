@@ -1355,7 +1355,7 @@ async fn test_it_only_fetches_scopes_and_variables_for_the_first_stack_frame(
 
         assert_eq!(1, stack_frame_id);
         assert_eq!(stack_frames, stack_frame_list);
-        let stack_frame_list = debug_panel_item.stack_frame_list().read(cx);
+
         let variable_list = debug_panel_item.variable_list().read(cx);
 
         assert_eq!(

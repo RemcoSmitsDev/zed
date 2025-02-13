@@ -365,7 +365,9 @@ message Envelope {
         DapEvaluateRequest dap_evaluate_request = 341;
         DapEvaluateResponse dap_evaluate_response = 342;
         DapCompletionRequest dap_completion_request = 343;
-        DapCompletionResponse dap_completion_response = 344; // current max
+        DapCompletionResponse dap_completion_response = 344;
+        DapThreadsRequest dap_threads_request = 345;
+        DapThreadsResponse dap_threads_response = 346; // current max
     }
 
     reserved 87 to 88;
@@ -2880,6 +2882,15 @@ message DapTerminateThreadsRequest {
     repeated uint64 thread_ids = 3;
 }
 
+message DapThreadsRequest {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+}
+
+message DapThreadsResponse {
+    repeated DapThread threads = 1;
+}
+
 message DapTerminateRequest {
     uint64 project_id = 1;
     uint64 client_id = 2;
@@ -3067,6 +3078,11 @@ message DapVariable {
     optional uint64 named_variables = 7;
     optional uint64 indexed_variables = 8;
     optional string memory_reference = 9;
+}
+
+message DapThread {
+    uint64 id = 1;
+    string name = 2;
 }
 
 message DapScope {

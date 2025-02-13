@@ -619,3 +619,22 @@ impl ProtoConversion for dap_types::CompletionItemType {
         }
     }
 }
+
+impl ProtoConversion for dap_types::Thread {
+    type ProtoType = proto::DapThread;
+    type Output = Self;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        proto::DapThread {
+            id: self.id,
+            name: self.name.clone(),
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        Self {
+            id: payload.id,
+            name: payload.name,
+        }
+    }
+}

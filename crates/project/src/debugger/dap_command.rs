@@ -1527,3 +1527,62 @@ impl DapCommand for EvaluateCommand {
         }
     }
 }
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub(crate) struct ThreadsCommand;
+
+impl DapCommand for ThreadsCommand {
+    type Response = Vec<dap::Thread>;
+    type DapRequest = dap::requests::Threads;
+    type ProtoRequest = proto::DapThreadsRequest;
+
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        ()
+    }
+
+    fn response_from_dap(
+        &self,
+        message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Result<Self::Response> {
+        Ok(message.threads)
+    }
+
+    fn is_supported(&self, _capabilities: &Capabilities) -> bool {
+        true
+    }
+
+    fn to_proto(
+        &self,
+        debug_client_id: DebugAdapterClientId,
+        upstream_project_id: u64,
+    ) -> Self::ProtoRequest {
+        proto::DapThreadsRequest {
+            project_id: upstream_project_id,
+            client_id: debug_client_id.to_proto(),
+        }
+    }
+
+    fn from_proto(_request: &Self::ProtoRequest) -> Self {
+        Self {}
+    }
+
+    fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
+        DebugAdapterClientId::from_proto(request.client_id)
+    }
+
+    fn response_from_proto(
+        &self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
+        Ok(Vec::from_proto(message.threads))
+    }
+
+    fn response_to_proto(
+        _debug_client_id: DebugAdapterClientId,
+        message: Self::Response,
+    ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
+        proto::DapThreadsResponse {
+            threads: message.to_proto(),
+        }
+    }
+}
