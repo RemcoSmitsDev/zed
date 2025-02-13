@@ -369,10 +369,17 @@ impl DebugPanel {
 
                 cx.notify();
 
-                self.dap_store.update(cx, |store, cx| {
-                    store
-                        .terminate_threads(&session_id, client_id, Some(vec![thread_id; 1]), cx)
-                        .detach()
+                let Some(client_state) = thread_panel
+                    .read(cx)
+                    .session()
+                    .read(cx)
+                    .client_state(client_id)
+                else {
+                    return;
+                };
+
+                client_state.update(cx, |state, cx| {
+                    state.terminate_threads(Some(vec![thread_id; 1]), cx);
                 });
             }
             pane::Event::Remove { .. } => cx.emit(PanelEvent::Close),
