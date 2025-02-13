@@ -1,8 +1,8 @@
 use super::dap_command::{
-    self, ContinueCommand, DapCommand, DisconnectCommand, EvaluateCommand, NextCommand,
-    PauseCommand, RestartCommand, RestartStackFrameCommand, ScopesCommand, SetVariableValueCommand,
-    StepBackCommand, StepCommand, StepInCommand, StepOutCommand, TerminateCommand,
-    TerminateThreadsCommand, VariablesCommand,
+    self, CompletionsCommand, ContinueCommand, DapCommand, DisconnectCommand, EvaluateCommand,
+    NextCommand, PauseCommand, RestartCommand, RestartStackFrameCommand, ScopesCommand,
+    SetVariableValueCommand, StepBackCommand, StepCommand, StepInCommand, StepOutCommand,
+    TerminateCommand, TerminateThreadsCommand, VariablesCommand,
 };
 use anyhow::{anyhow, Result};
 use collections::{BTreeMap, HashMap};
@@ -25,6 +25,7 @@ use std::{
     sync::Arc,
 };
 use task::DebugAdapterConfig;
+use text::{PointUtf16, ToPointUtf16};
 use util::ResultExt;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -59,7 +60,7 @@ pub struct Variable {
 impl From<dap::Variable> for Variable {
     fn from(dap: dap::Variable) -> Self {
         Self {
-            dap,
+            dap: dap.clone(),
             variables: vec![],
         }
     }
@@ -74,7 +75,7 @@ pub struct Scope {
 impl From<dap::Scope> for Scope {
     fn from(scope: dap::Scope) -> Self {
         Self {
-            dap: scope,
+            dap,
             variables: vec![],
         }
     }
@@ -281,6 +282,30 @@ impl Hash for RequestSlot {
     }
 }
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct CompletionsQuery {
+    pub query: String,
+    pub column: u64,
+    pub line: Option<u64>,
+    pub frame_id: Option<u64>,
+}
+
+impl CompletionsQuery {
+    pub fn new(
+        buffer: &language::Buffer,
+        cursor_position: language::Anchor,
+        frame_id: Option<u64>,
+    ) -> Self {
+        let PointUtf16 { row, column } = cursor_position.to_point_utf16(&buffer.snapshot());
+        Self {
+            query: buffer.text(),
+            column: column as u64,
+            frame_id,
+            line: Some(row as u64),
+        }
+    }
+}
+
 impl Client {
     pub fn capabilities(&self) -> &Capabilities {
         &self.capabilities
@@ -298,21 +323,27 @@ impl Client {
     fn fetch<T: DapCommand + PartialEq + Eq + Hash>(
         &mut self,
         request: T,
-        process_result: impl FnOnce(&mut Self, T::Response, &mut Context<Self>) + 'static,
+        process_result: impl FnOnce(&mut Self, &T::Response, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
     ) {
         if let Entry::Vacant(vacant) = self.requests.entry(request.into()) {
             let command = vacant.key().0.clone().as_any_arc().downcast::<T>().unwrap();
 
-            let task = Self::request_inner(
+            let task = Self::request_inner::<Arc<T>>(
                 &self.capabilities,
                 self.client_id,
                 &self.mode,
                 command,
                 process_result,
                 cx,
-            )
-            .shared();
+            );
+            let task = cx
+                .background_executor()
+                .spawn(async move {
+                    let _ = task.await?;
+                    Some(())
+                })
+                .shared();
 
             vacant.insert(task);
         }
@@ -323,25 +354,26 @@ impl Client {
         client_id: DebugAdapterClientId,
         mode: &Mode,
         request: T,
-        process_result: impl FnOnce(&mut Self, T::Response, &mut Context<Self>) + 'static,
+        process_result: impl FnOnce(&mut Self, &T::Response, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
-    ) -> Task<Option<()>> {
+    ) -> Task<Option<T::Response>> {
         let request = mode.request_dap(&capabilities, client_id, request, cx);
         cx.spawn(|this, mut cx| async move {
             let result = request.await.log_err()?;
             this.update(&mut cx, |this, cx| {
-                process_result(this, result, cx);
+                process_result(this, &result, cx);
             })
-            .log_err()
+            .log_err();
+            Some(result)
         })
     }
 
     fn request<T: DapCommand + PartialEq + Eq + Hash>(
         &self,
         request: T,
-        process_result: impl FnOnce(&mut Self, T::Response, &mut Context<Self>) + 'static,
+        process_result: impl FnOnce(&mut Self, &T::Response, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
-    ) -> Task<Option<()>> {
+    ) -> Task<Option<T::Response>> {
         Self::request_inner(
             &self.capabilities,
             self.client_id,
@@ -360,15 +392,14 @@ impl Client {
     }
 
     pub fn modules(&mut self, cx: &mut Context<Self>) -> &[Module] {
-        self.request(
+        self.fetch(
             dap_command::ModulesCommand,
             |this, result, cx| {
-                this.modules = result;
+                this.modules = result.clone();
                 cx.notify();
             },
             cx,
-        )
-        .detach();
+        );
         &self.modules
     }
 
@@ -386,19 +417,18 @@ impl Client {
     }
 
     pub fn loaded_sources(&mut self, cx: &mut Context<Self>) -> &[Source] {
-        self.request(
+        self.fetch(
             dap_command::LoadedSourcesCommand,
             |this, result, cx| {
-                this.loaded_sources = result;
+                this.loaded_sources = result.clone();
                 cx.notify();
             },
             cx,
-        )
-        .detach();
+        );
         &self.loaded_sources
     }
 
-    fn empty_response(&mut self, _: (), _cx: &mut Context<Self>) {}
+    fn empty_response(&mut self, _: &(), _cx: &mut Context<Self>) {}
 
     pub fn pause_thread(&mut self, thread_id: ThreadId, cx: &mut Context<Self>) {
         self.request(
@@ -470,6 +500,24 @@ impl Client {
             )
             .detach();
         }
+    }
+
+    pub async fn completions(
+        &mut self,
+        query: CompletionsQuery,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<dap::CompletionItem>> {
+        let task = self.request(
+            CompletionsCommand(CompletionsQuery),
+            Self::empty_response,
+            cx,
+        );
+
+        cx.background_executor().spawn(async move {
+            Ok(task
+                .await
+                .ok_or_else(anyhow!("failed to fetch completions"))?)
+        })
     }
 
     pub fn continue_thread(&mut self, thread_id: ThreadId, cx: &mut Context<Self>) {
@@ -632,7 +680,7 @@ impl Client {
             },
             move |this, stack_frames, cx| {
                 let entry = this.threads.entry(thread_id).and_modify(|thread| {
-                    thread.stack_frames = stack_frames.into_iter().map(From::from).collect();
+                    thread.stack_frames = stack_frames.iter().cloned().map(From::from).collect();
                 });
                 debug_assert!(
                     matches!(entry, BTreeMapEntry::Occupied(_)),
@@ -668,7 +716,7 @@ impl Client {
                         .iter_mut()
                         .find(|frame| frame.dap.id == stack_frame_id)
                     {
-                        stack_frame.scopes = scopes.into_iter().map(From::from).collect();
+                        stack_frame.scopes = scopes.iter().cloned().map(From::from).collect();
                         cx.notify();
                     }
                 });
@@ -731,7 +779,7 @@ impl Client {
                     // This is only valid if scope.variable[x].ref_id == variables_reference
                     // otherwise we have to search the tree for the right index to add variables too
                     // todo(debugger): Fix this ^
-                    scope.variables = variables.into_iter().map(From::from).collect();
+                    scope.variables = variables.iter().cloned().map(From::from).collect();
                     cx.notify();
                 }
             },

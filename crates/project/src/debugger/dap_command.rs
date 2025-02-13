@@ -1357,6 +1357,82 @@ impl DapCommand for ScopesCommand {
     }
 }
 
+impl DapCommand for super::dap_session::CompletionsQuery {
+    type Response = dap::DapCompletionResponse;
+    type DapRequest = dap::requests::Completions;
+    type ProtoRequest = proto::DapCompletionRequest;
+
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        dap::CompletionsArguments {
+            text: self.text.clone(),
+            frame_id: self.frame_id,
+            column: None,
+            line: None,
+        }
+    }
+
+    fn response_from_dap(
+        &self,
+        message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Result<Self::Response> {
+        Ok(message)
+    }
+
+    fn is_supported(&self, capabilities: &Capabilities) -> bool {
+        capabilities
+            .supports_completions_request
+            .unwrap_or_default()
+    }
+
+    fn to_proto(
+        &self,
+        debug_client_id: DebugAdapterClientId,
+        upstream_project_id: u64,
+    ) -> Self::ProtoRequest {
+        proto::DapCompletionRequest {
+            client_id: debug_client_id.to_proto(),
+            project_id: upstream_project_id,
+            frame_id: self.frame_id,
+            query: self.query,
+            column: self.column,
+            line: self.line.map(u64::from),
+        }
+    }
+
+    fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
+        DebugAdapterClientId::from_proto(request.client_id)
+    }
+
+    fn from_proto(request: &Self::ProtoRequest) -> Self {
+        Self {
+            query: request.query,
+            frame_id: request.frame_id,
+            column: request.column,
+            line: request.line,
+        }
+    }
+
+    fn response_from_proto(
+        &self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
+        Ok(dap::DapCompletionResponse {
+            client_id: DebugAdapterClientId::from_proto(message.client_id),
+            completions: Vec::from_proto(message.completions),
+        })
+    }
+
+    fn response_to_proto(
+        _debug_client_id: DebugAdapterClientId,
+        message: Self::Response,
+    ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
+        proto::DapCompletionResponse {
+            client_id: _debug_client_id.to_proto(),
+            completions: Vec::to_proto(message.completions),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct EvaluateCommand {
     pub expression: String,

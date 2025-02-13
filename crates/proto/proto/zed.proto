@@ -363,7 +363,9 @@ message Envelope {
         DapSetVariableValueRequest dap_set_variable_value_request = 339;
         DapSetVariableValueResponse dap_set_variable_value_response = 340;
         DapEvaluateRequest dap_evaluate_request = 341;
-        DapEvaluateResponse dap_evaluate_response = 342; // current max
+        DapEvaluateResponse dap_evaluate_response = 342;
+        DapCompletionRequest dap_completion_request = 343;
+        DapCompletionResponse dap_completion_response = 344; // current max
     }
 
     reserved 87 to 88;
@@ -2778,6 +2780,55 @@ message DapEvaluateResponse {
     optional uint64 named_variables = 4;
     optional uint64 indexed_variables = 5;
     optional string memory_reference = 6;
+}
+
+
+message DapCompletionRequest {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    string query = 3;
+    optional uint64 frame_id = 4;
+    optional uint64 line = 5;
+    uint64 column = 6;
+}
+
+enum DapCompletionItemType {
+    Method = 0;
+    Function = 1;
+    Constructor = 2;
+    Field = 3;
+    Variable = 4;
+    Class = 5;
+    Interface = 6;
+    Module = 7;
+    Property = 8;
+    Unit = 9;
+    Value = 10;
+    Enum = 11;
+    Keyword = 12;
+    Snippet = 13;
+    Text = 14;
+    Color = 15;
+    CompletionItemFile = 16;
+    Reference = 17;
+    Customcolor = 19;
+}
+
+message DapCompletionItem {
+    string label = 1;
+    optional string text = 2;
+    optional string sort_text = 3;
+    optional string detail = 4;
+    optional DapCompletionItemType typ = 5;
+    optional uint64 start = 6;
+    optional uint64 length = 7;
+    optional uint64 selection_start = 8;
+    optional uint64 selection_length = 9;
+}
+
+message DapCompletionResponse {
+    uint64 client_id = 1;
+    repeated DapCompletionItem completions = 2;
 }
 
 message DapScopesRequest {

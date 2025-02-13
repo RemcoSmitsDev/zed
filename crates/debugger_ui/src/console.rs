@@ -2,6 +2,7 @@ use crate::{
     stack_frame_list::{StackFrameList, StackFrameListEvent},
     variable_list::VariableList,
 };
+use anyhow::anyhow;
 use dap::{client::DebugAdapterClientId, OutputEvent, OutputEventGroup};
 use editor::{
     display_map::{Crease, CreaseId},
@@ -11,9 +12,12 @@ use fuzzy::StringMatchCandidate;
 use gpui::{Context, Entity, Render, Subscription, Task, TextStyle, WeakEntity};
 use language::{Buffer, CodeLabel, LanguageServerId, ToOffsetUtf16};
 use menu::Confirm;
-use project::{debugger::dap_session::DebugSession, Completion};
+use project::{
+    debugger::dap_session::{CompletionsQuery, DebugSession},
+    Completion,
+};
 use settings::Settings;
-use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc, usize};
 use theme::ThemeSettings;
 use ui::{prelude::*, ButtonLike, Disclosure, ElevationIndex};
 
@@ -451,7 +455,6 @@ impl ConsoleQueryBarCompletionProvider {
         });
 
         let query = buffer.read(cx).text();
-        let start_position = buffer.read(cx).anchor_before(0);
 
         cx.spawn(|_, cx| async move {
             let matches = fuzzy::match_strings(
@@ -470,14 +473,14 @@ impl ConsoleQueryBarCompletionProvider {
                     let variable_value = variables.get(&string_match.string)?;
 
                     Some(project::Completion {
-                        old_range: start_position..buffer_position,
+                        old_range: buffer_position..buffer_position,
                         new_text: string_match.string.clone(),
                         label: CodeLabel {
                             filter_range: 0..string_match.string.len(),
                             text: format!("{} {}", string_match.string.clone(), variable_value),
                             runs: Vec::new(),
                         },
-                        server_id: LanguageServerId(0), // TODO debugger: read from client
+                        server_id: LanguageServerId(usize::MAX),
                         documentation: None,
                         lsp_completion: Default::default(),
                         confirm: None,
@@ -495,20 +498,18 @@ impl ConsoleQueryBarCompletionProvider {
         buffer_position: language::Anchor,
         cx: &mut Context<Editor>,
     ) -> gpui::Task<gpui::Result<Vec<project::Completion>>> {
-        let text = buffer.read(cx).text();
-        let start_position = buffer.read(cx).anchor_before(0);
-        let snapshot = buffer.read(cx).snapshot();
+        let buffer = buffer.read(cx);
 
         let completion_task = console.update(cx, |console, cx| {
-            console.dap_store.update(cx, |store, cx| {
-                store.completions(
-                    &console.client_id,
-                    console.stack_frame_list.read(cx).current_stack_frame_id(),
-                    text,
-                    buffer_position.to_offset_utf16(&snapshot).0 as u64,
-                    cx,
-                )
-            })
+            if let Some(client_state) = console.session.read(cx).client_state(client_id) {
+                client_state.update(cx, |state, cx| {
+                    let frame_id = Some(console.stack_frame_list.read(cx).current_stack_frame_id());
+
+                    state.completions(CompletionsQuery::new(buffer, buffer_position, frame_id), cx)
+                })
+            } else {
+                Task::ready(Err(anyhow!("failed to fetch completions")))
+            }
         });
 
         cx.background_executor().spawn(async move {
@@ -516,14 +517,14 @@ impl ConsoleQueryBarCompletionProvider {
                 .await?
                 .iter()
                 .map(|completion| project::Completion {
-                    old_range: start_position..buffer_position,
+                    old_range: buffer_position..buffer_position, // TODO(debugger): change this
                     new_text: completion.text.clone().unwrap_or(completion.label.clone()),
                     label: CodeLabel {
                         filter_range: 0..completion.label.len(),
                         text: completion.label.clone(),
                         runs: Vec::new(),
                     },
-                    server_id: LanguageServerId(0), // TODO debugger: read from client
+                    server_id: LanguageServerId(usize::MAX),
                     documentation: None,
                     lsp_completion: Default::default(),
                     confirm: None,
