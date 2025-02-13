@@ -858,7 +858,7 @@ impl DebugPanel {
         event: &ThreadEvent,
         cx: &mut Context<Self>,
     ) {
-        let thread_id = event.thread_id;
+        let thread_id = ThreadId(event.thread_id);
 
         if let Some(thread_state) = self.thread_states.get(&(client_id, thread_id)) {
             if !thread_state.read(cx).stopped && event.reason == ThreadEventReason::Exited {
@@ -899,7 +899,7 @@ impl DebugPanel {
 
         for (_, thread_state) in self
             .thread_states
-            .range_mut(&(client_id, u64::MIN)..&(client_id, u64::MAX))
+            .range_mut(&(client_id, ThreadId::MIN)..&(client_id, ThreadId::MAX))
         {
             thread_state.update(cx, |thread_state, cx| {
                 thread_state.status = ThreadStatus::Ended;
@@ -977,7 +977,7 @@ impl DebugPanel {
     ) {
         if let Some(thread_state) = self.thread_states.get_mut(&(
             DebugAdapterClientId::from_proto(update.client_id),
-            update.thread_id,
+            ThreadId(update.thread_id),
         )) {
             thread_state.update(cx, |thread_state, _| {
                 thread_state.status = ThreadStatus::from_proto(update.status());
@@ -994,7 +994,7 @@ impl DebugPanel {
         cx: &mut Context<Self>,
     ) {
         let client_id = DebugAdapterClientId::from_proto(update.client_id);
-        let thread_id = update.thread_id;
+        let thread_id = update.thread_id.map(|thread_id| ThreadId(thread_id));
 
         let active_item = self
             .pane
@@ -1060,7 +1060,7 @@ impl DebugPanel {
         };
 
         let client_id = DebugAdapterClientId::from_proto(payload.client_id);
-        let thread_id = payload.thread_id;
+        let thread_id = ThreadId(payload.thread_id);
         let thread_state = payload.thread_state.clone().unwrap();
         let thread_state = cx.new(|_| ThreadState::from_proto(thread_state));
 

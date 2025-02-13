@@ -97,9 +97,8 @@ impl StackFrameList {
         &self.entries
     }
 
-    pub fn stack_frames(&self, cx: &mut Context<Self>) -> &Vec<StackFrame> {
-        &self
-            .session
+    pub fn stack_frames(&self, cx: &mut Context<Self>) -> Vec<StackFrame> {
+        self.session
             .read(cx)
             .client_state(self.client_id)
             .map(|state| state.update(cx, |client, cx| client.stack_frames(self.thread_id, cx)))
@@ -121,8 +120,8 @@ impl StackFrameList {
         let mut entries = Vec::new();
         let mut collapsed_entries = Vec::new();
 
-        for stack_frame in self.stack_frames(cx) {
-            match stack_frame.presentation_hint {
+        for stack_frame in &self.stack_frames(cx) {
+            match stack_frame.dap.presentation_hint {
                 Some(dap::StackFramePresentationHint::Deemphasize) => {
                     collapsed_entries.push(stack_frame.dap.clone());
                 }
@@ -248,11 +247,7 @@ impl StackFrameList {
         stack_frame: &dap::StackFrame,
         cx: &mut Context<Self>,
     ) -> Option<ProjectPath> {
-        let path = stack_frame
-            .dap
-            .source
-            .as_ref()
-            .and_then(|s| s.path.as_ref())?;
+        let path = stack_frame.source.as_ref().and_then(|s| s.path.as_ref())?;
 
         self.workspace
             .update(cx, |workspace, cx| {

@@ -17,6 +17,7 @@ use rpc::AnyProtoClient;
 use serde_json::Value;
 use std::borrow::Borrow;
 use std::collections::btree_map::Entry as BTreeMapEntry;
+use std::u64;
 use std::{
     any::Any,
     collections::hash_map::Entry,
@@ -43,6 +44,11 @@ impl DebugSessionId {
 #[derive(Copy, Clone, PartialEq, PartialOrd, Ord, Eq)]
 #[repr(transparent)]
 pub struct ThreadId(pub u64);
+
+impl ThreadId {
+    pub const MIN: ThreadId = ThreadId(u64::MIN);
+    pub const MAX: ThreadId = ThreadId(u64::MAX);
+}
 
 #[derive(Clone)]
 pub struct Variable {
@@ -394,9 +400,15 @@ impl Client {
 
     fn empty_response(&mut self, _: (), _cx: &mut Context<Self>) {}
 
-    pub fn pause_thread(&mut self, thread_id: u64, cx: &mut Context<Self>) {
-        self.request(PauseCommand { thread_id }, Self::empty_response, cx)
-            .detach();
+    pub fn pause_thread(&mut self, thread_id: ThreadId, cx: &mut Context<Self>) {
+        self.request(
+            PauseCommand {
+                thread_id: thread_id.0,
+            },
+            Self::empty_response,
+            cx,
+        )
+        .detach();
     }
 
     pub fn restart_stack_frame(&mut self, stack_frame_id: u64, cx: &mut Context<Self>) {
@@ -460,11 +472,11 @@ impl Client {
         }
     }
 
-    pub fn continue_thread(&mut self, thread_id: u64, cx: &mut Context<Self>) {
+    pub fn continue_thread(&mut self, thread_id: ThreadId, cx: &mut Context<Self>) {
         self.request(
             ContinueCommand {
                 args: ContinueArguments {
-                    thread_id,
+                    thread_id: thread_id.0,
                     single_thread: Some(true),
                 },
             },
@@ -483,7 +495,7 @@ impl Client {
 
     pub fn step_over(
         &mut self,
-        thread_id: u64,
+        thread_id: ThreadId,
         granularity: SteppingGranularity,
         cx: &mut Context<Self>,
     ) {
@@ -496,7 +508,7 @@ impl Client {
 
         let command = NextCommand {
             inner: StepCommand {
-                thread_id,
+                thread_id: thread_id.0,
                 granularity: supports_stepping_granularity.then(|| granularity),
                 single_thread: supports_single_thread_execution_requests,
             },
@@ -507,7 +519,7 @@ impl Client {
 
     pub fn step_in(
         &self,
-        thread_id: u64,
+        thread_id: ThreadId,
         granularity: SteppingGranularity,
         cx: &mut Context<Self>,
     ) {
@@ -520,7 +532,7 @@ impl Client {
 
         let command = StepInCommand {
             inner: StepCommand {
-                thread_id,
+                thread_id: thread_id.0,
                 granularity: supports_stepping_granularity.then(|| granularity),
                 single_thread: supports_single_thread_execution_requests,
             },
@@ -531,7 +543,7 @@ impl Client {
 
     pub fn step_out(
         &self,
-        thread_id: u64,
+        thread_id: ThreadId,
         granularity: SteppingGranularity,
         cx: &mut Context<Self>,
     ) {
@@ -544,7 +556,7 @@ impl Client {
 
         let command = StepOutCommand {
             inner: StepCommand {
-                thread_id,
+                thread_id: thread_id.0,
                 granularity: supports_stepping_granularity.then(|| granularity),
                 single_thread: supports_single_thread_execution_requests,
             },
@@ -555,7 +567,7 @@ impl Client {
 
     pub fn step_back(
         &self,
-        thread_id: u64,
+        thread_id: ThreadId,
         granularity: SteppingGranularity,
         cx: &mut Context<Self>,
     ) {
@@ -568,7 +580,7 @@ impl Client {
 
         let command = StepBackCommand {
             inner: StepCommand {
-                thread_id,
+                thread_id: thread_id.0,
                 granularity: supports_stepping_granularity.then(|| granularity),
                 single_thread: supports_single_thread_execution_requests,
             },

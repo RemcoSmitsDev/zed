@@ -192,26 +192,6 @@ impl DebugPanelItem {
         }
     }
 
-    pub(crate) fn to_proto(&self, project_id: u64, cx: &App) -> SetDebuggerPanelItem {
-        let thread_state = Some(self.thread_state.read(cx).to_proto());
-        let variable_list = Some(self.variable_list.read(cx).to_proto());
-
-        SetDebuggerPanelItem {
-            project_id,
-            session_id: self.session.read(cx).id().to_proto(),
-            client_id: self.client_id.to_proto(),
-            thread_id: self.thread_id,
-            console: None,
-            module_list: None,
-            active_thread_item: self.active_thread_item.to_proto().into(),
-            thread_state,
-            variable_list,
-            stack_frame_list: None,
-            loaded_source_list: None,
-            session_name: self.session.read(cx).name(),
-        }
-    }
-
     pub(crate) fn from_proto(&mut self, state: &SetDebuggerPanelItem, cx: &mut Context<Self>) {
         self.thread_state.update(cx, |thread_state, _| {
             let (status, stopped) = state
@@ -256,7 +236,7 @@ impl DebugPanelItem {
         }
     }
 
-    fn should_skip_event(&self, client_id: &DebugAdapterClientId, thread_id: u64) -> bool {
+    fn should_skip_event(&self, client_id: &DebugAdapterClientId, thread_id: ThreadId) -> bool {
         thread_id != self.thread_id || *client_id != self.client_id
     }
 
@@ -266,7 +246,7 @@ impl DebugPanelItem {
         event: &ContinuedEvent,
         cx: &mut Context<Self>,
     ) {
-        if self.should_skip_event(client_id, event.thread_id) {
+        if self.should_skip_event(client_id, ThreadId(event.thread_id)) {
             return;
         }
 
@@ -280,7 +260,10 @@ impl DebugPanelItem {
         go_to_stack_frame: bool,
         cx: &mut Context<Self>,
     ) {
-        if self.should_skip_event(client_id, event.thread_id.unwrap_or(self.thread_id)) {
+        if self.should_skip_event(
+            client_id,
+            event.thread_id.map(ThreadId).unwrap_or(self.thread_id),
+        ) {
             return;
         }
 
@@ -299,7 +282,7 @@ impl DebugPanelItem {
         event: &ThreadEvent,
         cx: &mut Context<Self>,
     ) {
-        if self.should_skip_event(client_id, event.thread_id) {
+        if self.should_skip_event(client_id, ThreadId(event.thread_id)) {
             return;
         }
 
@@ -524,11 +507,11 @@ impl DebugPanelItem {
             if let Some(stack_frame) = stack_frame_list
                 .stack_frames(cx)
                 .iter()
-                .find(|frame| frame.id == stack_frame_list.current_stack_frame_id())
+                .find(|frame| frame.dap.id == stack_frame_list.current_stack_frame_id())
                 .cloned()
             {
                 stack_frame_list
-                    .select_stack_frame(&stack_frame, true, window, cx)
+                    .select_stack_frame(&stack_frame.dap, true, window, cx)
                     .detach_and_log_err(cx);
             }
         });
@@ -703,7 +686,7 @@ impl Item for DebugPanelItem {
         Label::new(format!(
             "{} - Thread {}",
             self.session.read(cx).name(),
-            self.thread_id
+            self.thread_id.0
         ))
         .color(if params.selected {
             Color::Default
@@ -717,7 +700,7 @@ impl Item for DebugPanelItem {
         Some(SharedString::from(format!(
             "{} Thread {} - {:?}",
             self.session.read(cx).name(),
-            self.thread_id,
+            self.thread_id.0,
             self.thread_state.read(cx).status,
         )))
     }
