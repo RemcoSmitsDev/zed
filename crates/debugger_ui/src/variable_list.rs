@@ -1022,12 +1022,13 @@ impl VariableList {
             new_variable_value
         });
 
-        let Some(state) = self.set_variable_state.take() else {
+        let Some(set_variable_state) = self.set_variable_state.take() else {
             return;
         };
 
-        if new_variable_value == state.value
-            || state.stack_frame_id != self.stack_frame_list.read(cx).current_stack_frame_id()
+        if new_variable_value == set_variable_state.value
+            || set_variable_state.stack_frame_id
+                != self.stack_frame_list.read(cx).current_stack_frame_id()
         {
             return cx.notify();
         }
@@ -1038,8 +1039,8 @@ impl VariableList {
 
         client_state.update(cx, |state, cx| {
             state.set_variable_value(
-                state.parent_variables_reference,
-                state.name,
+                set_variable_state.parent_variables_reference,
+                set_variable_state.name,
                 new_variable_value,
                 cx,
             );

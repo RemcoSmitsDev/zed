@@ -40,10 +40,10 @@ impl DebugSessionId {
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Ord, Eq)]
 #[repr(transparent)]
-struct ThreadId(u64);
+pub struct ThreadId(u64);
 
 #[derive(Clone)]
-struct Variable {
+pub struct Variable {
     dap: dap::Variable,
     variables: Vec<Variable>,
 }
@@ -58,7 +58,7 @@ impl From<dap::Variable> for Variable {
 }
 
 #[derive(Clone)]
-struct Scope {
+pub struct Scope {
     dap: dap::Scope,
     variables: Vec<Variable>,
 }
@@ -73,7 +73,7 @@ impl From<dap::Scope> for Scope {
 }
 
 #[derive(Clone)]
-struct StackFrame {
+pub struct StackFrame {
     dap: dap::StackFrame,
     scopes: Vec<Scope>,
 }
@@ -96,7 +96,7 @@ pub enum ThreadStatus {
     Ended,
 }
 
-struct Thread {
+pub struct Thread {
     _thread: dap::Thread,
     stack_frames: Vec<StackFrame>,
     _status: ThreadStatus,
@@ -138,7 +138,7 @@ impl RemoteConnection {
     }
 }
 
-enum Mode {
+pub enum Mode {
     Local(Arc<DebugAdapterClient>),
     Remote(RemoteConnection),
 }
@@ -358,7 +358,8 @@ impl Client {
                 this.modules = result;
             },
             cx,
-        );
+        )
+        .detach();
         &self.modules
     }
 
@@ -382,14 +383,16 @@ impl Client {
                 this.loaded_sources = result;
             },
             cx,
-        );
+        )
+        .detach();
         &self.loaded_sources
     }
 
     fn empty_response(&mut self, _: ()) {}
 
     pub fn pause_thread(&mut self, thread_id: u64, cx: &mut Context<Self>) {
-        self.request(PauseCommand { thread_id }, Self::empty_response, cx);
+        self.request(PauseCommand { thread_id }, Self::empty_response, cx)
+            .detach();
     }
 
     pub fn restart_stack_frame(&mut self, stack_frame_id: u64, cx: &mut Context<Self>) {
@@ -397,24 +400,31 @@ impl Client {
             RestartStackFrameCommand { stack_frame_id },
             Self::empty_response,
             cx,
-        );
+        )
+        .detach();
     }
 
     pub fn restart(&mut self, args: Option<Value>, cx: &mut Context<Self>) {
         if self.capabilities.supports_restart_request.unwrap_or(false) {
-            let command = RestartCommand {
-                raw: args.unwrap_or(Value::Null),
-            };
-
-            self.request(command, Self::empty_response, cx);
+            self.request(
+                RestartCommand {
+                    raw: args.unwrap_or(Value::Null),
+                },
+                Self::empty_response,
+                cx,
+            )
+            .detach();
         } else {
-            let command = DisconnectCommand {
-                restart: Some(false),
-                terminate_debuggee: Some(true),
-                suspend_debuggee: Some(false),
-            };
-
-            self.request(command, Self::empty_response, cx);
+            self.request(
+                DisconnectCommand {
+                    restart: Some(false),
+                    terminate_debuggee: Some(true),
+                    suspend_debuggee: Some(false),
+                },
+                Self::empty_response,
+                cx,
+            )
+            .detach();
         }
     }
 
