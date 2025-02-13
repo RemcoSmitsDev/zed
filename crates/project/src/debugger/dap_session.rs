@@ -971,6 +971,13 @@ impl DebugSession {
         }
     }
 
+    pub(crate) fn handle_dap_message(
+        &self,
+        client_id: DebugAdapterClientId,
+        message: dap::messages::Message,
+    ) {
+    }
+
     pub fn ignore_breakpoints(&self) -> bool {
         self.ignore_breakpoints
     }

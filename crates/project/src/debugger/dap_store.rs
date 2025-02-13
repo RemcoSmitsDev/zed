@@ -614,7 +614,7 @@ impl DapStore {
 
     fn start_client_internal(
         &mut self,
-        session_id: DebugSessionId,
+        session: Entity<DebugSession>,
         delegate: DapAdapterDelegate,
         config: DebugAdapterConfig,
         cx: &mut Context<Self>,
@@ -624,6 +624,7 @@ impl DapStore {
         };
 
         let client_id = local_store.next_client_id();
+        let session = session.downgrade();
 
         cx.spawn(|this, mut cx| async move {
             let adapter = build_adapter(&config.kind).await?;
@@ -672,15 +673,10 @@ impl DapStore {
             client
                 .start(
                     {
-                        let dap_store = this.clone();
                         move |message, cx| {
-                            dap_store
-                                .update(cx, |_, cx| {
-                                    cx.emit(DapStoreEvent::DebugClientEvent {
-                                        session_id,
-                                        client_id,
-                                        message,
-                                    })
+                            session
+                                .update(cx, |session, cx| {
+                                    session.handle_dap_message(client_id, message);
                                 })
                                 .log_err();
                         }
@@ -716,13 +712,11 @@ impl DapStore {
             }),
         );
 
-        let session_id = local_store.next_session_id();
-        let start_client_task =
-            self.start_client_internal(session_id, delegate, config.clone(), cx);
+        let session =
+            cx.new(|_| DebugSession::new_local(local_store.next_session_id(), config.clone()));
+        let start_client_task = self.start_client_internal(session.clone(), delegate, config, cx);
 
         cx.spawn(|this, mut cx| async move {
-            let session = cx.new(|_| DebugSession::new_local(session_id, config))?;
-
             let client = match start_client_task.await {
                 Ok(client) => client,
                 Err(error) => {
@@ -741,6 +735,7 @@ impl DapStore {
                 });
 
                 let client_id = client.id();
+                let session_id = session.read(cx).id();
 
                 store.client_by_session.insert(client_id, session_id);
                 store.sessions.insert(session_id, session.clone());
