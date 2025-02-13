@@ -355,7 +355,9 @@ message Envelope {
         DapScopesRequest dap_scopes_request = 333;
         DapScopesResponse dap_scopes_response = 334;
         DapSetVariableValueRequest dap_set_variable_value_request = 335;
-        DapSetVariableValueResponse dap_set_variable_value_response = 336; // current max
+        DapSetVariableValueResponse dap_set_variable_value_response = 336;
+        DapEvaluateRequest dap_evaluate_request = 337;
+        DapEvaluateResponse dap_evaluate_response = 338; // current max
     }
 
     reserved 87 to 88;
@@ -2736,6 +2738,32 @@ enum SteppingGranularity {
     Instruction = 2;
 }
 
+enum DapEvaluateContext {
+    Repl = 0;
+    Watch = 1;
+    Hover = 2;
+    Clipboard = 3;
+    EvaluateVariables = 4;
+    EvaluateUnknown = 5;
+}
+
+message DapEvaluateRequest {
+    uint64 project_id = 1;
+    uint64 client_id = 2;
+    string expression = 3;
+    optional uint64 frame_id = 4;
+    optional DapEvaluateContext context = 5;
+}
+
+message DapEvaluateResponse {
+    string result = 1;
+    optional string evaluate_type = 2;
+    uint64 variable_reference = 3;
+    optional uint64 named_variables = 4;
+    optional uint64 indexed_variables = 5;
+    optional string memory_reference = 6;
+}
+
 message DapScopesRequest {
     uint64 project_id = 1;
     uint64 client_id = 2;
@@ -2758,7 +2786,7 @@ message DapSetVariableValueRequest {
 message DapSetVariableValueResponse {
     uint64 client_id = 1;
     string value = 2;
-    optional string type_ = 3;
+    optional string variable_type = 3;
     optional uint64 variables_reference = 4;
     optional uint64 named_variables = 5;
     optional uint64 indexed_variables = 6;

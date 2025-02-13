@@ -420,6 +420,8 @@ messages!(
     (DapScopesResponse, Background),
     (DapSetVariableValueRequest, Background),
     (DapSetVariableValueResponse, Background),
+    (DapEvaluateRequest, Background),
+    (DapEvaluateResponse, Background),
 );
 
 request_messages!(
@@ -572,6 +574,7 @@ request_messages!(
     (DapStackTraceRequest, DapStackTraceResponse),
     (DapScopesRequest, DapScopesResponse),
     (DapSetVariableValueRequest, DapSetVariableValueResponse),
+    (DapEvaluateRequest, DapEvaluateResponse),
 );
 
 entity_messages!(
@@ -692,6 +695,7 @@ entity_messages!(
     DapStackTraceRequest,
     DapScopesRequest,
     DapSetVariableValueRequest,
+    DapEvaluateRequest,
 );
 
 entity_messages!(

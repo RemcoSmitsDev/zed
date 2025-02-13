@@ -983,7 +983,7 @@ impl DapCommand for SetVariableValueCommand {
         proto::DapSetVariableValueResponse {
             client_id: debug_client_id.to_proto(),
             value: message.value,
-            type_: message.type_,
+            variable_type: message.type_,
             named_variables: message.named_variables,
             variables_reference: message.variables_reference,
             indexed_variables: message.indexed_variables,
@@ -997,7 +997,7 @@ impl DapCommand for SetVariableValueCommand {
     ) -> Result<Self::Response> {
         Ok(SetVariableResponse {
             value: message.value,
-            type_: message.type_,
+            type_: message.variable_type,
             variables_reference: message.variables_reference,
             named_variables: message.named_variables,
             indexed_variables: message.indexed_variables,
@@ -1353,6 +1353,102 @@ impl DapCommand for ScopesCommand {
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::DapScopesResponse {
             scopes: message.to_proto(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub(crate) struct EvaluateCommand {
+    expression: String,
+    frame_id: Option<u64>,
+    context: Option<dap::EvaluateArgumentsContext>,
+    source: Option<dap::Source>,
+}
+
+impl DapCommand for EvaluateCommand {
+    type Response = dap::EvaluateResponse;
+    type DapRequest = dap::requests::Evaluate;
+    type ProtoRequest = proto::DapEvaluateRequest;
+
+    fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
+        dap::EvaluateArguments {
+            expression: self.expression.clone(),
+            frame_id: self.frame_id,
+            context: self.context.clone(),
+            source: self.source.clone(),
+            line: None,
+            column: None,
+            format: None,
+        }
+    }
+
+    fn response_from_dap(
+        &self,
+        message: <Self::DapRequest as dap::requests::Request>::Response,
+    ) -> Result<Self::Response> {
+        Ok(message)
+    }
+
+    fn is_supported(&self, _capabilities: &Capabilities) -> bool {
+        true
+    }
+
+    fn to_proto(
+        &self,
+        debug_client_id: DebugAdapterClientId,
+        upstream_project_id: u64,
+    ) -> Self::ProtoRequest {
+        proto::DapEvaluateRequest {
+            client_id: debug_client_id.to_proto(),
+            project_id: upstream_project_id,
+            expression: self.expression.clone(),
+            frame_id: self.frame_id,
+            context: self
+                .context
+                .clone()
+                .map(|context| context.to_proto().into()),
+        }
+    }
+
+    fn client_id_from_proto(request: &Self::ProtoRequest) -> DebugAdapterClientId {
+        DebugAdapterClientId::from_proto(request.client_id)
+    }
+
+    fn from_proto(request: &Self::ProtoRequest) -> Self {
+        Self {
+            expression: request.expression.clone(),
+            frame_id: request.frame_id,
+            context: Some(dap::EvaluateArgumentsContext::from_proto(request.context())),
+            source: None,
+        }
+    }
+
+    fn response_from_proto(
+        &self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
+        Ok(dap::EvaluateResponse {
+            result: message.result.clone(),
+            type_: message.evaluate_type.clone(),
+            presentation_hint: None,
+            variables_reference: message.variable_reference,
+            named_variables: message.named_variables,
+            indexed_variables: message.indexed_variables,
+            memory_reference: message.memory_reference.clone(),
+        })
+    }
+
+    fn response_to_proto(
+        _debug_client_id: DebugAdapterClientId,
+        message: Self::Response,
+    ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
+        proto::DapEvaluateResponse {
+            result: message.result,
+            evaluate_type: message.type_,
+            variable_reference: message.variables_reference,
+            named_variables: message.named_variables,
+            indexed_variables: message.indexed_variables,
+            memory_reference: message.memory_reference,
         }
     }
 }

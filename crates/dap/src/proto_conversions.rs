@@ -1,7 +1,8 @@
 use anyhow::{anyhow, Result};
 use client::proto::{
-    self, DapChecksum, DapChecksumAlgorithm, DapModule, DapScope, DapScopePresentationHint,
-    DapSource, DapSourcePresentationHint, DapStackFrame, DapVariable, SetDebugClientCapabilities,
+    self, DapChecksum, DapChecksumAlgorithm, DapEvaluateContext, DapModule, DapScope,
+    DapScopePresentationHint, DapSource, DapSourcePresentationHint, DapStackFrame, DapVariable,
+    SetDebugClientCapabilities,
 };
 use dap_types::{
     Capabilities, OutputEventCategory, OutputEventGroup, ScopePresentationHint, Source,
@@ -487,6 +488,42 @@ impl ProtoConversion for dap_types::OutputEventGroup {
             proto::DapOutputEventGroup::Start => Self::Start,
             proto::DapOutputEventGroup::StartCollapsed => Self::StartCollapsed,
             proto::DapOutputEventGroup::End => Self::End,
+        }
+    }
+}
+
+impl ProtoConversion for dap_types::EvaluateArgumentsContext {
+    type ProtoType = DapEvaluateContext;
+    type Output = Self;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        match self {
+            dap_types::EvaluateArgumentsContext::Variables => {
+                proto::DapEvaluateContext::EvaluateVariables
+            }
+            dap_types::EvaluateArgumentsContext::Watch => proto::DapEvaluateContext::Watch,
+            dap_types::EvaluateArgumentsContext::Hover => proto::DapEvaluateContext::Hover,
+            dap_types::EvaluateArgumentsContext::Repl => proto::DapEvaluateContext::Repl,
+            dap_types::EvaluateArgumentsContext::Clipboard => proto::DapEvaluateContext::Clipboard,
+            dap_types::EvaluateArgumentsContext::Unknown => {
+                proto::DapEvaluateContext::EvaluateUnknown
+            }
+            _ => proto::DapEvaluateContext::EvaluateUnknown,
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        match payload {
+            proto::DapEvaluateContext::EvaluateVariables => {
+                dap_types::EvaluateArgumentsContext::Variables
+            }
+            proto::DapEvaluateContext::Watch => dap_types::EvaluateArgumentsContext::Watch,
+            proto::DapEvaluateContext::Hover => dap_types::EvaluateArgumentsContext::Hover,
+            proto::DapEvaluateContext::Repl => dap_types::EvaluateArgumentsContext::Repl,
+            proto::DapEvaluateContext::Clipboard => dap_types::EvaluateArgumentsContext::Clipboard,
+            proto::DapEvaluateContext::EvaluateUnknown => {
+                dap_types::EvaluateArgumentsContext::Unknown
+            }
         }
     }
 }
