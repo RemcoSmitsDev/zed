@@ -1,8 +1,8 @@
 use super::dap_command::{
-    self, CompletionsCommand, ContinueCommand, DapCommand, DisconnectCommand, EvaluateCommand,
-    NextCommand, PauseCommand, RestartCommand, RestartStackFrameCommand, ScopesCommand,
-    SetVariableValueCommand, StepBackCommand, StepCommand, StepInCommand, StepOutCommand,
-    TerminateCommand, TerminateThreadsCommand, VariablesCommand,
+    self, ContinueCommand, DapCommand, DisconnectCommand, EvaluateCommand, NextCommand,
+    PauseCommand, RestartCommand, RestartStackFrameCommand, ScopesCommand, SetVariableValueCommand,
+    StepBackCommand, StepCommand, StepInCommand, StepOutCommand, TerminateCommand,
+    TerminateThreadsCommand, VariablesCommand,
 };
 use anyhow::{anyhow, Result};
 use collections::{BTreeMap, HashMap};
@@ -60,7 +60,7 @@ pub struct Variable {
 impl From<dap::Variable> for Variable {
     fn from(dap: dap::Variable) -> Self {
         Self {
-            dap: dap.clone(),
+            dap,
             variables: vec![],
         }
     }
@@ -75,7 +75,7 @@ pub struct Scope {
 impl From<dap::Scope> for Scope {
     fn from(scope: dap::Scope) -> Self {
         Self {
-            dap,
+            dap: scope,
             variables: vec![],
         }
     }
@@ -502,21 +502,19 @@ impl Client {
         }
     }
 
-    pub async fn completions(
+    pub fn completions(
         &mut self,
         query: CompletionsQuery,
         cx: &mut Context<Self>,
-    ) -> Task<Result<dap::CompletionItem>> {
-        let task = self.request(
-            CompletionsCommand(CompletionsQuery),
-            Self::empty_response,
-            cx,
-        );
+    ) -> Task<Result<Vec<dap::CompletionItem>>> {
+        let task = self.request(query, |_, _, _| {}, cx);
 
         cx.background_executor().spawn(async move {
-            Ok(task
-                .await
-                .ok_or_else(anyhow!("failed to fetch completions"))?)
+            anyhow::Ok(
+                task.await
+                    .map(|response| response.targets)
+                    .ok_or_else(|| anyhow!("failed to fetch completions"))?,
+            )
         })
     }
 

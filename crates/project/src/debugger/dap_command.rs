@@ -1358,15 +1358,15 @@ impl DapCommand for ScopesCommand {
 }
 
 impl DapCommand for super::dap_session::CompletionsQuery {
-    type Response = dap::DapCompletionResponse;
+    type Response = dap::CompletionsResponse;
     type DapRequest = dap::requests::Completions;
     type ProtoRequest = proto::DapCompletionRequest;
 
     fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
         dap::CompletionsArguments {
-            text: self.text.clone(),
+            text: self.query.clone(),
             frame_id: self.frame_id,
-            column: None,
+            column: self.column,
             line: None,
         }
     }
@@ -1393,7 +1393,7 @@ impl DapCommand for super::dap_session::CompletionsQuery {
             client_id: debug_client_id.to_proto(),
             project_id: upstream_project_id,
             frame_id: self.frame_id,
-            query: self.query,
+            query: self.query.clone(),
             column: self.column,
             line: self.line.map(u64::from),
         }
@@ -1405,7 +1405,7 @@ impl DapCommand for super::dap_session::CompletionsQuery {
 
     fn from_proto(request: &Self::ProtoRequest) -> Self {
         Self {
-            query: request.query,
+            query: request.query.clone(),
             frame_id: request.frame_id,
             column: request.column,
             line: request.line,
@@ -1416,9 +1416,8 @@ impl DapCommand for super::dap_session::CompletionsQuery {
         &self,
         message: <Self::ProtoRequest as proto::RequestMessage>::Response,
     ) -> Result<Self::Response> {
-        Ok(dap::DapCompletionResponse {
-            client_id: DebugAdapterClientId::from_proto(message.client_id),
-            completions: Vec::from_proto(message.completions),
+        Ok(dap::CompletionsResponse {
+            targets: Vec::from_proto(message.completions),
         })
     }
 
@@ -1428,7 +1427,7 @@ impl DapCommand for super::dap_session::CompletionsQuery {
     ) -> <Self::ProtoRequest as proto::RequestMessage>::Response {
         proto::DapCompletionResponse {
             client_id: _debug_client_id.to_proto(),
-            completions: Vec::to_proto(message.completions),
+            completions: message.targets.to_proto(),
         }
     }
 }

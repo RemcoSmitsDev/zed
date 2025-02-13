@@ -498,14 +498,17 @@ impl ConsoleQueryBarCompletionProvider {
         buffer_position: language::Anchor,
         cx: &mut Context<Editor>,
     ) -> gpui::Task<gpui::Result<Vec<project::Completion>>> {
-        let buffer = buffer.read(cx);
+        let client_id = console.read(cx).client_id;
 
         let completion_task = console.update(cx, |console, cx| {
             if let Some(client_state) = console.session.read(cx).client_state(client_id) {
                 client_state.update(cx, |state, cx| {
                     let frame_id = Some(console.stack_frame_list.read(cx).current_stack_frame_id());
 
-                    state.completions(CompletionsQuery::new(buffer, buffer_position, frame_id), cx)
+                    state.completions(
+                        CompletionsQuery::new(buffer.read(cx), buffer_position, frame_id),
+                        cx,
+                    )
                 })
             } else {
                 Task::ready(Err(anyhow!("failed to fetch completions")))

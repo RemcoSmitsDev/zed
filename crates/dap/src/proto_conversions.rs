@@ -501,7 +501,11 @@ impl ProtoConversion for dap_types::CompletionItem {
             label: self.label.clone(),
             text: self.text.clone(),
             detail: self.detail.clone(),
-            typ: self.type_.as_ref().map(ProtoConversion::to_proto),
+            typ: self
+                .type_
+                .as_ref()
+                .map(ProtoConversion::to_proto)
+                .map(|typ| typ.into()),
             start: self.start,
             length: self.length,
             selection_start: self.selection_start,
@@ -511,12 +515,14 @@ impl ProtoConversion for dap_types::CompletionItem {
     }
 
     fn from_proto(payload: Self::ProtoType) -> Self {
+        let typ = payload.typ(); // todo(debugger): This might be a potential issue/bug because it defaults to a type when it's None
+
         Self {
             label: payload.label,
             detail: payload.detail,
             sort_text: payload.sort_text,
-            text: payload.text,
-            type_: Self::ProtoType::from_proto(payload.typ),
+            text: payload.text.clone(),
+            type_: Some(dap_types::CompletionItemType::from_proto(typ)),
             start: payload.start,
             length: payload.length,
             selection_start: payload.selection_start,
