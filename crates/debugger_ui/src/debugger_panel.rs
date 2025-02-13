@@ -911,9 +911,17 @@ impl DebugPanel {
                 .as_ref()
                 .is_some_and(|v| v.as_bool().unwrap_or(true))
             {
-                store
-                    .restart(client_id, restart_args, cx)
-                    .detach_and_log_err(cx);
+                let Some(session) = store.session_by_client_id(client_id) else {
+                    return;
+                };
+
+                let Some(client_state) = session.read(cx).client_state(client_id) else {
+                    return;
+                };
+
+                client_state.update(cx, |state, cx| {
+                    state.restart(restart_args, cx);
+                });
             } else {
                 store
                     .shutdown_session(&session_id, cx)
