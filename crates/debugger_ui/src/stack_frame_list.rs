@@ -8,7 +8,7 @@ use gpui::{
     list, AnyElement, Entity, EventEmitter, FocusHandle, Focusable, ListState, Subscription, Task,
     WeakEntity,
 };
-use project::debugger::dap_session::DebugSession;
+use project::debugger::dap_session::{DebugSession, StackFrame, ThreadId};
 use project::ProjectPath;
 use rpc::proto::DebuggerStackFrameList;
 use ui::{prelude::*, Tooltip};
@@ -26,8 +26,8 @@ pub enum StackFrameListEvent {
 }
 
 pub struct StackFrameList {
-    thread_id: u64,
     list: ListState,
+    thread_id: ThreadId,
     focus_handle: FocusHandle,
     session: Entity<DebugSession>,
     stack_frames: Vec<StackFrame>,
@@ -52,7 +52,7 @@ impl StackFrameList {
         debug_panel_item: &Entity<DebugPanelItem>,
         session: Entity<DebugSession>,
         client_id: DebugAdapterClientId,
-        thread_id: u64,
+        thread_id: ThreadId,
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -94,7 +94,7 @@ impl StackFrameList {
         }
     }
 
-    pub(crate) fn thread_id(&self) -> u64 {
+    pub(crate) fn thread_id(&self) -> ThreadId {
         self.thread_id
     }
 

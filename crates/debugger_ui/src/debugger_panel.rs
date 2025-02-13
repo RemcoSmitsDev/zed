@@ -16,8 +16,10 @@ use gpui::{
     Focusable, Subscription, Task, WeakEntity,
 };
 use project::{
-    debugger::dap_session::DebugSessionId,
-    debugger::dap_store::{DapStore, DapStoreEvent},
+    debugger::{
+        dap_session::{DebugSessionId, ThreadId},
+        dap_store::{DapStore, DapStoreEvent},
+    },
     terminals::TerminalKind,
 };
 use rpc::proto::{self, SetDebuggerPanelItem, UpdateDebugAdapter};
@@ -767,7 +769,7 @@ impl DebugPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(thread_id) = event.thread_id else {
+        let Some(thread_id) = event.thread_id.map(|thread_id| ThreadId(thread_id)) else {
             return;
         };
 

@@ -14,7 +14,7 @@ use editor::Editor;
 use gpui::{
     AnyElement, App, Entity, EventEmitter, FocusHandle, Focusable, Subscription, Task, WeakEntity,
 };
-use project::debugger::dap_session::DebugSession;
+use project::debugger::dap_session::{DebugSession, ThreadId};
 use rpc::proto::{self, DebuggerThreadStatus, PeerId, SetDebuggerPanelItem};
 use settings::Settings;
 use ui::{prelude::*, Indicator, Tooltip};
@@ -80,7 +80,7 @@ impl DebugPanelItem {
     pub fn new(
         session: Entity<DebugSession>,
         client_id: DebugAdapterClientId,
-        thread_id: u64,
+        thread_id: ThreadId,
         thread_state: Entity<ThreadState>,
         debug_panel: &Entity<DebugPanel>,
         workspace: WeakEntity<Workspace>,
