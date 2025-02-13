@@ -10,7 +10,6 @@ use dap::{
     ContinuedEvent, LoadedSourceEvent, ModuleEvent, OutputEvent, OutputEventCategory, StoppedEvent,
     ThreadEvent,
 };
-use editor::Editor;
 use gpui::{
     AnyElement, App, Entity, EventEmitter, FocusHandle, Focusable, Subscription, Task, WeakEntity,
 };
@@ -20,7 +19,7 @@ use settings::Settings;
 use ui::{prelude::*, Indicator, Tooltip};
 use workspace::{
     item::{self, Item, ItemEvent},
-    FollowableItem, ItemHandle, ViewId, Workspace,
+    FollowableItem, ViewId, Workspace,
 };
 
 #[derive(Debug)]
@@ -206,12 +205,6 @@ impl DebugPanelItem {
         });
 
         self.active_thread_item = ThreadItem::from_proto(state.active_thread_item());
-
-        if let Some(stack_frame_list) = state.stack_frame_list.as_ref() {
-            self.stack_frame_list.update(cx, |this, cx| {
-                this.set_from_proto(stack_frame_list.clone(), cx);
-            });
-        }
 
         if let Some(variable_list_state) = state.variable_list.as_ref() {
             self.variable_list
@@ -483,23 +476,24 @@ impl DebugPanelItem {
     }
 
     fn clear_highlights(&self, cx: &mut Context<Self>) {
-        if let Some((_, project_path, _)) = self.dap_store.read(cx).active_debug_line() {
-            self.workspace
-                .update(cx, |workspace, cx| {
-                    let editor = workspace
-                        .items_of_type::<Editor>(cx)
-                        .find(|editor| Some(project_path.clone()) == editor.project_path(cx));
+        // TODO(debugger): make this work again
+        // if let Some((_, project_path, _)) = self.dap_store.read(cx).active_debug_line() {
+        //     self.workspace
+        //         .update(cx, |workspace, cx| {
+        //             let editor = workspace
+        //                 .items_of_type::<Editor>(cx)
+        //                 .find(|editor| Some(project_path.clone()) == editor.project_path(cx));
 
-                    if let Some(editor) = editor {
-                        editor.update(cx, |editor, cx| {
-                            editor.clear_row_highlights::<editor::DebugCurrentRowHighlight>();
+        //             if let Some(editor) = editor {
+        //                 editor.update(cx, |editor, cx| {
+        //                     editor.clear_row_highlights::<editor::DebugCurrentRowHighlight>();
 
-                            cx.notify();
-                        });
-                    }
-                })
-                .ok();
-        }
+        //                     cx.notify();
+        //                 });
+        //             }
+        //         })
+        //         .ok();
+        // }
     }
 
     pub fn go_to_current_stack_frame(&self, window: &mut Window, cx: &mut Context<Self>) {
