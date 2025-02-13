@@ -919,7 +919,7 @@ impl DapCommand for VariablesCommand {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq)]
-pub struct SetVariableValueCommand {
+pub(crate) struct SetVariableValueCommand {
     pub name: String,
     pub value: String,
     pub variables_reference: u64,
@@ -1359,10 +1359,10 @@ impl DapCommand for ScopesCommand {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct EvaluateCommand {
-    expression: String,
-    frame_id: Option<u64>,
-    context: Option<dap::EvaluateArgumentsContext>,
-    source: Option<dap::Source>,
+    pub expression: String,
+    pub frame_id: Option<u64>,
+    pub context: Option<dap::EvaluateArgumentsContext>,
+    pub source: Option<dap::Source>,
 }
 
 impl DapCommand for EvaluateCommand {

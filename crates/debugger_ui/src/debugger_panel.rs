@@ -985,7 +985,7 @@ impl DebugPanel {
             .active_item()
             .and_then(|item| item.downcast::<DebugPanelItem>());
 
-        let search = self
+        let _search = self
             .pane
             .read(cx)
             .items()
@@ -1007,15 +1007,16 @@ impl DebugPanel {
                 }
             });
 
-        if let Some((debug_panel_item, is_active_item)) = search {
-            debug_panel_item.update(cx, |this, cx| {
-                // this.update_adapter(update, window, cx);
+        // if let Some((debug_panel_item, is_active_item)) = search {
+        // TODO(debugger): make this work again
+        // debug_panel_item.update(cx, |this, cx| {
+        // this.update_adapter(update, window, cx);
 
-                // if is_active_item {
-                //     this.go_to_current_stack_frame(window, cx);
-                // }
-            });
-        }
+        // if is_active_item {
+        //     this.go_to_current_stack_frame(window, cx);
+        // }
+        // });
+        // }
     }
 
     fn handle_remote_has_initialized(&mut self, window: &mut Window, cx: &mut Context<Self>) {

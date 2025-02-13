@@ -1,6 +1,6 @@
 use super::dap_command::{
-    self, ContinueCommand, DapCommand, DisconnectCommand, NextCommand, PauseCommand,
-    RestartCommand, RestartStackFrameCommand, ScopesCommand, SetVariableValueCommand,
+    self, ContinueCommand, DapCommand, DisconnectCommand, EvaluateCommand, NextCommand,
+    PauseCommand, RestartCommand, RestartStackFrameCommand, ScopesCommand, SetVariableValueCommand,
     StepBackCommand, StepCommand, StepInCommand, StepOutCommand, TerminateCommand,
     TerminateThreadsCommand, VariablesCommand,
 };
@@ -8,7 +8,9 @@ use anyhow::{anyhow, Result};
 use collections::{BTreeMap, HashMap};
 use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 use dap::requests::Request;
-use dap::{Capabilities, ContinueArguments, Module, Source, SteppingGranularity};
+use dap::{
+    Capabilities, ContinueArguments, EvaluateArgumentsContext, Module, Source, SteppingGranularity,
+};
 use futures::{future::Shared, FutureExt};
 use gpui::{App, AppContext, Context, Entity, Task};
 use rpc::AnyProtoClient;
@@ -290,7 +292,7 @@ impl Client {
     fn fetch<T: DapCommand + PartialEq + Eq + Hash>(
         &mut self,
         request: T,
-        process_result: impl FnOnce(&mut Self, T::Response) + 'static + Send + Sync,
+        process_result: impl FnOnce(&mut Self, T::Response, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
     ) {
         if let Entry::Vacant(vacant) = self.requests.entry(request.into()) {
@@ -315,15 +317,14 @@ impl Client {
         client_id: DebugAdapterClientId,
         mode: &Mode,
         request: T,
-        process_result: impl FnOnce(&mut Self, T::Response) + 'static + Send + Sync,
+        process_result: impl FnOnce(&mut Self, T::Response, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
     ) -> Task<Option<()>> {
         let request = mode.request_dap(&capabilities, client_id, request, cx);
         cx.spawn(|this, mut cx| async move {
             let result = request.await.log_err()?;
             this.update(&mut cx, |this, cx| {
-                process_result(this, result);
-                cx.notify();
+                process_result(this, result, cx);
             })
             .log_err()
         })
@@ -332,7 +333,7 @@ impl Client {
     fn request<T: DapCommand + PartialEq + Eq + Hash>(
         &self,
         request: T,
-        process_result: impl FnOnce(&mut Self, T::Response) + 'static + Send + Sync,
+        process_result: impl FnOnce(&mut Self, T::Response, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
     ) -> Task<Option<()>> {
         Self::request_inner(
@@ -345,17 +346,19 @@ impl Client {
         )
     }
 
-    pub fn invalidate(&mut self) {
+    pub fn invalidate(&mut self, cx: &mut Context<Self>) {
         self.requests.clear();
         self.modules.clear();
         self.loaded_sources.clear();
+        cx.notify();
     }
 
     pub fn modules(&mut self, cx: &mut Context<Self>) -> &[Module] {
         self.request(
             dap_command::ModulesCommand,
-            |this, result| {
+            |this, result, cx| {
                 this.modules = result;
+                cx.notify();
             },
             cx,
         )
@@ -379,8 +382,9 @@ impl Client {
     pub fn loaded_sources(&mut self, cx: &mut Context<Self>) -> &[Source] {
         self.request(
             dap_command::LoadedSourcesCommand,
-            |this, result| {
+            |this, result, cx| {
                 this.loaded_sources = result;
+                cx.notify();
             },
             cx,
         )
@@ -388,7 +392,7 @@ impl Client {
         &self.loaded_sources
     }
 
-    fn empty_response(&mut self, _: ()) {}
+    fn empty_response(&mut self, _: (), _cx: &mut Context<Self>) {}
 
     pub fn pause_thread(&mut self, thread_id: u64, cx: &mut Context<Self>) {
         self.request(PauseCommand { thread_id }, Self::empty_response, cx)
@@ -464,7 +468,7 @@ impl Client {
                     single_thread: Some(true),
                 },
             },
-            |_, _| {}, // todo: what do we do about the payload here?
+            |_, _, _| {}, // todo: what do we do about the payload here?
             cx,
         )
         .detach();
@@ -614,7 +618,7 @@ impl Client {
                 start_frame: None,
                 levels: None,
             },
-            move |this, stack_frames| {
+            move |this, stack_frames, cx| {
                 let entry = this.threads.entry(thread_id).and_modify(|thread| {
                     thread.stack_frames = stack_frames.into_iter().map(From::from).collect();
                 });
@@ -622,6 +626,8 @@ impl Client {
                     matches!(entry, BTreeMapEntry::Occupied(_)),
                     "Sent request for thread_id that doesn't exist"
                 );
+
+                cx.notify();
             },
             cx,
         );
@@ -643,7 +649,7 @@ impl Client {
                 thread_id: thread_id.0,
                 stack_frame_id,
             },
-            move |this, scopes| {
+            move |this, scopes, cx| {
                 this.threads.entry(thread_id).and_modify(|thread| {
                     if let Some(stack_frame) = thread
                         .stack_frames
@@ -651,6 +657,7 @@ impl Client {
                         .find(|frame| frame.dap.id == stack_frame_id)
                     {
                         stack_frame.scopes = scopes.into_iter().map(From::from).collect();
+                        cx.notify();
                     }
                 });
             },
@@ -706,13 +713,14 @@ impl Client {
 
         self.fetch(
             command,
-            move |this, variables| {
+            move |this, variables, cx| {
                 if let Some(scope) = this.find_scope(thread_id, stack_frame_id, variables_reference)
                 {
                     // This is only valid if scope.variable[x].ref_id == variables_reference
                     // otherwise we have to search the tree for the right index to add variables too
                     // todo(debugger): Fix this ^
                     scope.variables = variables.into_iter().map(From::from).collect();
+                    cx.notify();
                 }
             },
             cx,
@@ -737,13 +745,36 @@ impl Client {
                     value,
                     variables_reference,
                 },
-                |this, _response| {
-                    this.invalidate();
+                |this, _response, cx| {
+                    this.invalidate(cx);
                 },
                 cx,
             )
             .detach()
         }
+    }
+
+    pub fn evaluate(
+        &mut self,
+        expression: String,
+        context: Option<EvaluateArgumentsContext>,
+        frame_id: Option<u64>,
+        source: Option<Source>,
+        cx: &mut Context<Self>,
+    ) {
+        self.request(
+            EvaluateCommand {
+                expression,
+                context,
+                frame_id,
+                source,
+            },
+            |this, response, cx| {
+                this.invalidate(cx);
+            },
+            cx,
+        )
+        .detach()
     }
 
     pub fn disconnect_client(&mut self, cx: &mut Context<Self>) {

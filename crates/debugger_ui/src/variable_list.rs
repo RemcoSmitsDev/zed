@@ -922,23 +922,22 @@ impl VariableList {
 
                 window.handler_for(&this.clone(), move |this, _window, cx| {
                     if support_clipboard_context {
-                        let task = this.dap_store.evaluate(
-                            &this.client_id,
-                            this.stack_frame_list.read(cx).current_stack_frame_id(),
-                            evaluate_name.clone().unwrap_or(variable_name.clone()),
-                            dap::EvaluateArgumentsContext::Clipboard,
-                            source.clone(),
-                            cx,
-                        );
+                        let Some(client_state) = this.session.read(cx).client_state(this.client_id)
+                        else {
+                            return;
+                        };
 
-                        cx.spawn(|_, cx| async move {
-                            let response = task.await?;
-
-                            cx.update(|cx| {
-                                cx.write_to_clipboard(ClipboardItem::new_string(response.result))
-                            })
-                        })
-                        .detach_and_log_err(cx);
+                        client_state.update(cx, |state, cx| {
+                            state.evaluate(
+                                evaluate_name.clone().unwrap_or(variable_name.clone()),
+                                Some(dap::EvaluateArgumentsContext::Clipboard),
+                                Some(this.stack_frame_list.read(cx).current_stack_frame_id()),
+                                source.clone(),
+                                cx,
+                            );
+                        });
+                        // TODO(debugger): make this work again:
+                        // cx.write_to_clipboard(ClipboardItem::new_string(response.result));
                     } else {
                         cx.write_to_clipboard(ClipboardItem::new_string(variable_value.clone()))
                     }

@@ -289,8 +289,7 @@ impl DebugPanelItem {
 
         if let Some(client_state) = self.session.read(cx).client_state(*client_id) {
             client_state.update(cx, |state, cx| {
-                state.invalidate();
-                cx.notify();
+                state.invalidate(cx);
             });
         }
 
@@ -380,9 +379,10 @@ impl DebugPanelItem {
 
         self.update_thread_state_status(ThreadStatus::Stopped, cx);
 
-        self.dap_store.update(cx, |store, cx| {
-            store.remove_active_debug_line_for_client(client_id, cx);
-        });
+        // TODO(debugger): make this work again
+        // self.dap_store.update(cx, |store, cx| {
+        //     store.remove_active_debug_line_for_client(client_id, cx);
+        // });
 
         cx.emit(DebugPanelItemEvent::Close);
     }
