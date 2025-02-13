@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
 use client::proto::{
-    self, DapChecksum, DapChecksumAlgorithm, DapCompletionItemType, DapEvaluateContext, DapModule,
-    DapScope, DapScopePresentationHint, DapSource, DapSourcePresentationHint, DapStackFrame,
-    DapVariable, SetDebugClientCapabilities,
+    self, DapChecksum, DapChecksumAlgorithm, DapEvaluateContext, DapModule, DapScope,
+    DapScopePresentationHint, DapSource, DapSourcePresentationHint, DapStackFrame, DapVariable,
+    SetDebugClientCapabilities,
 };
 use dap_types::{
     Capabilities, OutputEventCategory, OutputEventGroup, ScopePresentationHint, Source,

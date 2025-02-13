@@ -125,7 +125,7 @@ async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut Test
                 debug_panel.update(cx, |this, cx| this.pane().unwrap().read(cx).items_len())
             );
             assert_eq!(client.id(), active_debug_panel_item.read(cx).client_id());
-            assert_eq!(1, active_debug_panel_item.read(cx).thread_id());
+            assert_eq!(1, active_debug_panel_item.read(cx).thread_id().0);
         })
         .unwrap();
 
@@ -248,7 +248,7 @@ async fn test_we_can_only_have_one_panel_per_debug_thread(
                 debug_panel.update(cx, |this, cx| this.pane().unwrap().read(cx).items_len())
             );
             assert_eq!(client.id(), active_debug_panel_item.read(cx).client_id());
-            assert_eq!(1, active_debug_panel_item.read(cx).thread_id());
+            assert_eq!(1, active_debug_panel_item.read(cx).thread_id().0);
         })
         .unwrap();
 
@@ -279,7 +279,7 @@ async fn test_we_can_only_have_one_panel_per_debug_thread(
                 debug_panel.update(cx, |this, cx| this.pane().unwrap().read(cx).items_len())
             );
             assert_eq!(client.id(), active_debug_panel_item.read(cx).client_id());
-            assert_eq!(1, active_debug_panel_item.read(cx).thread_id());
+            assert_eq!(1, active_debug_panel_item.read(cx).thread_id().0);
         })
         .unwrap();
 
@@ -402,7 +402,7 @@ async fn test_client_can_open_multiple_thread_panels(
                 debug_panel.update(cx, |this, cx| this.pane().unwrap().read(cx).items_len())
             );
             assert_eq!(client.id(), active_debug_panel_item.read(cx).client_id());
-            assert_eq!(1, active_debug_panel_item.read(cx).thread_id());
+            assert_eq!(1, active_debug_panel_item.read(cx).thread_id().0);
         })
         .unwrap();
 
@@ -433,7 +433,7 @@ async fn test_client_can_open_multiple_thread_panels(
                 debug_panel.update(cx, |this, cx| this.pane().unwrap().read(cx).items_len())
             );
             assert_eq!(client.id(), active_debug_panel_item.read(cx).client_id());
-            assert_eq!(2, active_debug_panel_item.read(cx).thread_id());
+            assert_eq!(2, active_debug_panel_item.read(cx).thread_id().0);
         })
         .unwrap();
 

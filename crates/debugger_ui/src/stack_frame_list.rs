@@ -97,12 +97,20 @@ impl StackFrameList {
         &self.entries
     }
 
-    pub fn stack_frames(&self, cx: &mut Context<Self>) -> Vec<StackFrame> {
+    pub fn stack_frames(&self, cx: &mut App) -> Vec<StackFrame> {
         self.session
             .read(cx)
             .client_state(self.client_id)
             .map(|state| state.update(cx, |client, cx| client.stack_frames(self.thread_id, cx)))
             .unwrap_or_default()
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn dap_stack_frames(&self, cx: &mut App) -> Vec<dap::StackFrame> {
+        self.stack_frames(cx)
+            .into_iter()
+            .map(|stack_frame| stack_frame.dap.clone())
+            .collect()
     }
 
     pub fn get_main_stack_frame_id(&self, cx: &mut Context<Self>) -> u64 {

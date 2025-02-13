@@ -42,7 +42,7 @@ impl DebugSessionId {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq)]
 #[repr(transparent)]
 pub struct ThreadId(pub u64);
 

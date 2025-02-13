@@ -990,7 +990,7 @@ impl DebugPanel {
     pub(crate) fn handle_debug_adapter_update(
         &mut self,
         update: &UpdateDebugAdapter,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let client_id = DebugAdapterClientId::from_proto(update.client_id);

@@ -10,7 +10,7 @@ use editor::{
 };
 use fuzzy::StringMatchCandidate;
 use gpui::{Context, Entity, Render, Subscription, Task, TextStyle, WeakEntity};
-use language::{Buffer, CodeLabel, LanguageServerId, ToOffsetUtf16};
+use language::{Buffer, CodeLabel, LanguageServerId};
 use menu::Confirm;
 use project::{
     debugger::dap_session::{CompletionsQuery, DebugSession},
