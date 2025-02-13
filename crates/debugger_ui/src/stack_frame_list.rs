@@ -8,11 +8,10 @@ use gpui::{
     list, AnyElement, Entity, EventEmitter, FocusHandle, Focusable, ListState, Subscription, Task,
     WeakEntity,
 };
-use project::debugger::{dap_session::DebugSession, dap_store::DapStore};
+use project::debugger::dap_session::DebugSession;
 use project::ProjectPath;
-use rpc::proto::{DebuggerStackFrameList, UpdateDebugAdapter};
+use rpc::proto::DebuggerStackFrameList;
 use ui::{prelude::*, Tooltip};
-use util::ResultExt;
 use workspace::Workspace;
 
 use crate::debugger_panel_item::DebugPanelItemEvent::Stopped;

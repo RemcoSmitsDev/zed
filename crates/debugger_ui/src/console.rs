@@ -2,9 +2,7 @@ use crate::{
     stack_frame_list::{StackFrameList, StackFrameListEvent},
     variable_list::VariableList,
 };
-use dap::{
-    client::DebugAdapterClientId, proto_conversions::ProtoConversion, OutputEvent, OutputEventGroup,
-};
+use dap::{client::DebugAdapterClientId, OutputEvent, OutputEventGroup};
 use editor::{
     display_map::{Crease, CreaseId},
     Anchor, CompletionProvider, Editor, EditorElement, EditorStyle, FoldPlaceholder,
@@ -13,16 +11,11 @@ use fuzzy::StringMatchCandidate;
 use gpui::{Context, Entity, Render, Subscription, Task, TextStyle, WeakEntity};
 use language::{Buffer, CodeLabel, LanguageServerId, ToOffsetUtf16};
 use menu::Confirm;
-use project::{
-    debugger::{dap_session::DebugSession, dap_store::DapStore},
-    Completion,
-};
-use rpc::proto;
+use project::{debugger::dap_session::DebugSession, Completion};
 use settings::Settings;
 use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 use theme::ThemeSettings;
 use ui::{prelude::*, ButtonLike, Disclosure, ElevationIndex};
-use util::ResultExt;
 
 pub struct OutputGroup {
     pub start: Anchor,

@@ -10,10 +10,10 @@ use gpui::{
     FocusHandle, Focusable, Hsla, ListOffset, ListState, MouseDownEvent, Point, Subscription, Task,
 };
 use menu::{Confirm, SelectFirst, SelectLast, SelectNext, SelectPrev};
-use project::debugger::{dap_session::DebugSession, dap_store::DapStore};
+use project::debugger::dap_session::DebugSession;
 use rpc::proto::{
-    self, DebuggerScopeVariableIndex, DebuggerVariableContainer, UpdateDebugAdapter,
-    VariableListScopes, VariableListVariables,
+    self, DebuggerScopeVariableIndex, DebuggerVariableContainer, VariableListScopes,
+    VariableListVariables,
 };
 use std::{
     collections::{BTreeMap, HashMap, HashSet},

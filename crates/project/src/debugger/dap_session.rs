@@ -107,7 +107,7 @@ pub struct Thread {
 
 type UpstreamProjectId = u64;
 
-struct RemoteConnection {
+pub struct RemoteConnection {
     client: AnyProtoClient,
     upstream_project_id: UpstreamProjectId,
 }
@@ -769,7 +769,7 @@ impl Client {
                 frame_id,
                 source,
             },
-            |this, response, cx| {
+            |this, _response, cx| {
                 this.invalidate(cx);
             },
             cx,
