@@ -230,45 +230,49 @@ impl Console {
             expression
         });
 
-        let evaluate_task = self.dap_store.update(cx, |store, cx| {
-            store.evaluate(
-                &self.client_id,
-                self.stack_frame_list.read(cx).current_stack_frame_id(),
+        let Some(client_state) = self.session.read(cx).client_state(self.client_id) else {
+            return;
+        };
+
+        client_state.update(cx, |state, cx| {
+            state.evaluate(
                 expression,
-                dap::EvaluateArgumentsContext::Variables,
+                Some(dap::EvaluateArgumentsContext::Variables),
+                Some(self.stack_frame_list.read(cx).current_stack_frame_id()),
                 None,
                 cx,
-            )
+            );
         });
 
-        let weak_console = cx.weak_entity();
+        // TODO(debugger): make this work again
+        // let weak_console = cx.weak_entity();
 
-        window
-            .spawn(cx, |mut cx| async move {
-                let response = evaluate_task.await?;
+        // window
+        //     .spawn(cx, |mut cx| async move {
+        //         let response = evaluate_task.await?;
 
-                weak_console.update_in(&mut cx, |console, window, cx| {
-                    console.add_message(
-                        OutputEvent {
-                            category: None,
-                            output: response.result,
-                            group: None,
-                            variables_reference: Some(response.variables_reference),
-                            source: None,
-                            line: None,
-                            column: None,
-                            data: None,
-                        },
-                        window,
-                        cx,
-                    );
+        //         weak_console.update_in(&mut cx, |console, window, cx| {
+        //             console.add_message(
+        //                 OutputEvent {
+        //                     category: None,
+        //                     output: response.result,
+        //                     group: None,
+        //                     variables_reference: Some(response.variables_reference),
+        //                     source: None,
+        //                     line: None,
+        //                     column: None,
+        //                     data: None,
+        //                 },
+        //                 window,
+        //                 cx,
+        //             );
 
-                    console.variable_list.update(cx, |variable_list, cx| {
-                        variable_list.invalidate(window, cx);
-                    })
-                })
-            })
-            .detach_and_log_err(cx);
+        //             console.variable_list.update(cx, |variable_list, cx| {
+        //                 variable_list.invalidate(window, cx);
+        //             })
+        //         })
+        //     })
+        //     .detach_and_log_err(cx);
     }
 
     fn render_console(&self, cx: &Context<Self>) -> impl IntoElement {
