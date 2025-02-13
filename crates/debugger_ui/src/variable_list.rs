@@ -485,34 +485,34 @@ impl VariableList {
         stack_frame_id: StackFrameId,
         cx: &mut Context<Self>,
     ) {
-        if self.scopes.contains_key(&stack_frame_id) {
-            return self.build_entries(true, cx);
-        }
+        // if self.scopes.contains_key(&stack_frame_id) {
+        //     return self.build_entries(true, cx);
+        // }
 
-        self.fetch_variables_task = Some(cx.spawn(|this, mut cx| async move {
-            let task = this.update(&mut cx, |variable_list, cx| {
-                variable_list.fetch_variables_for_stack_frame(stack_frame_id, cx)
-            })?;
+        // self.fetch_variables_task = Some(cx.spawn(|this, mut cx| async move {
+        //     let task = this.update(&mut cx, |variable_list, cx| {
+        //         variable_list.fetch_variables_for_stack_frame(stack_frame_id, cx)
+        //     })?;
 
-            let (scopes, variables) = task.await?;
+        //     let (scopes, variables) = task.await?;
 
-            this.update(&mut cx, |variable_list, cx| {
-                variable_list.scopes.insert(stack_frame_id, scopes);
+        //     this.update(&mut cx, |variable_list, cx| {
+        //         variable_list.scopes.insert(stack_frame_id, scopes);
 
-                for (scope_id, variables) in variables.into_iter() {
-                    let mut variable_index = ScopeVariableIndex::new();
-                    variable_index.add_variables(scope_id, variables);
+        //         for (scope_id, variables) in variables.into_iter() {
+        //             let mut variable_index = ScopeVariableIndex::new();
+        //             variable_index.add_variables(scope_id, variables);
 
-                    variable_list
-                        .variables
-                        .insert((stack_frame_id, scope_id), variable_index);
-                }
+        //             variable_list
+        //                 .variables
+        //                 .insert((stack_frame_id, scope_id), variable_index);
+        //         }
 
-                variable_list.build_entries(true, cx);
+        //         variable_list.build_entries(true, cx);
 
-                variable_list.fetch_variables_task.take();
-            })
-        }));
+        //         variable_list.fetch_variables_task.take();
+        //     })
+        // }));
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -625,24 +625,27 @@ impl VariableList {
             return self.toggle_entry(&entry_id, cx);
         }
 
-        let fetch_variables_task = self.dap_store.update(cx, |store, cx| {
-            let thread_id = self.stack_frame_list.read(cx).thread_id();
-            store.variables(
-                &self.client_id,
-                thread_id,
-                stack_frame_id,
-                scope_id,
-                self.session.read(cx).id(),
-                variable.variables_reference,
-                cx,
-            )
-        });
+        // let fetch_variables_task = self.dap_store.update(cx, |store, cx| {
+        //     let thread_id = self.stack_frame_list.read(cx).thread_id();
+        //     store.variables(
+        //         &self.client_id,
+        //         thread_id,
+        //         stack_frame_id,
+        //         scope_id,
+        //         self.session.read(cx).id(),
+        //         variable.variables_reference,
+        //         cx,
+        //     )
+        // });
+        let fetch_variables_task = Task::ready(anyhow::Result::Err(anyhow!(
+            "Toggling variables isn't supported yet (dued to refactor)"
+        )));
 
         let container_reference = variable.variables_reference;
         let entry_id = entry_id.clone();
 
         self.fetch_variables_task = Some(cx.spawn(|this, mut cx| async move {
-            let new_variables = fetch_variables_task.await?;
+            let new_variables: Vec<Variable> = fetch_variables_task.await?;
 
             this.update(&mut cx, |this, cx| {
                 let Some(index) = this.variables.get_mut(&(stack_frame_id, scope_id)) else {
@@ -827,60 +830,7 @@ impl VariableList {
         open_entries: &Vec<OpenEntry>,
         cx: &mut Context<Self>,
     ) -> Task<Result<Vec<VariableContainer>>> {
-        let stack_frame_list = self.stack_frame_list.read(cx);
-        let thread_id = stack_frame_list.thread_id();
-        let stack_frame_id = stack_frame_list.current_stack_frame_id();
-
-        let variables_task = self.dap_store.update(cx, |store, cx| {
-            store.variables(
-                &self.client_id,
-                thread_id,
-                stack_frame_id,
-                scope.variables_reference,
-                self.session.read(cx).id(),
-                container_reference,
-                cx,
-            )
-        });
-
-        cx.spawn({
-            let scope = scope.clone();
-            let open_entries = open_entries.clone();
-            |this, mut cx| async move {
-                let mut variables = Vec::new();
-
-                for variable in variables_task.await? {
-                    variables.push(VariableContainer {
-                        depth,
-                        container_reference,
-                        variable: variable.clone(),
-                    });
-
-                    if open_entries
-                        .binary_search(&OpenEntry::Variable {
-                            depth,
-                            name: variable.name,
-                            scope_name: scope.name.clone(),
-                        })
-                        .is_ok()
-                    {
-                        let task = this.update(&mut cx, |this, cx| {
-                            this.fetch_nested_variables(
-                                &scope,
-                                variable.variables_reference,
-                                depth + 1,
-                                &open_entries,
-                                cx,
-                            )
-                        })?;
-
-                        variables.extend(task.await?);
-                    }
-                }
-
-                anyhow::Ok(variables)
-            }
-        })
+        Task::ready(Ok(vec![]))
     }
 
     fn deploy_variable_context_menu(

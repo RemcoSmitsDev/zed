@@ -800,6 +800,34 @@ impl DapStore {
         })
     }
 
+    pub fn configuration_done(
+        &self,
+        client_id: DebugAdapterClientId,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<()>> {
+        let Some(client) = self
+            .client_by_id(client_id, cx)
+            .and_then(|(_, client)| client.read(cx).adapter_client())
+        else {
+            return Task::ready(Err(anyhow!("Could not find client: {:?}", client_id)));
+        };
+
+        if self
+            .capabilities_by_id(client_id, cx)
+            .map(|caps| caps.supports_configuration_done_request)
+            .flatten()
+            .unwrap_or_default()
+        {
+            cx.background_executor().spawn(async move {
+                client
+                    .request::<dap::requests::ConfigurationDone>(dap::ConfigurationDoneArguments)
+                    .await
+            })
+        } else {
+            Task::ready(Ok(()))
+        }
+    }
+
     pub fn launch(
         &mut self,
         session_id: &DebugSessionId,
