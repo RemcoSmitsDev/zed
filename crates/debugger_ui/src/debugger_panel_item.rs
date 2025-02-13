@@ -58,7 +58,7 @@ impl ThreadItem {
 }
 
 pub struct DebugPanelItem {
-    thread_id: u64,
+    thread_id: ThreadId,
     console: Entity<Console>,
     focus_handle: FocusHandle,
     remote_id: Option<ViewId>,
@@ -88,12 +88,10 @@ impl DebugPanelItem {
         cx: &mut Context<Self>,
     ) -> Self {
         let focus_handle = cx.focus_handle();
-        let this = cx.entity();
 
         let stack_frame_list = cx.new(|cx| {
             StackFrameList::new(
                 workspace.clone(),
-                &this,
                 session.clone(),
                 client_id,
                 thread_id,
@@ -197,7 +195,6 @@ impl DebugPanelItem {
     pub(crate) fn to_proto(&self, project_id: u64, cx: &App) -> SetDebuggerPanelItem {
         let thread_state = Some(self.thread_state.read(cx).to_proto());
         let variable_list = Some(self.variable_list.read(cx).to_proto());
-        let stack_frame_list = Some(self.stack_frame_list.read(cx).to_proto());
 
         SetDebuggerPanelItem {
             project_id,
@@ -209,7 +206,7 @@ impl DebugPanelItem {
             active_thread_item: self.active_thread_item.to_proto().into(),
             thread_state,
             variable_list,
-            stack_frame_list,
+            stack_frame_list: None,
             loaded_source_list: None,
             session_name: self.session.read(cx).name(),
         }
@@ -455,7 +452,7 @@ impl DebugPanelItem {
         self.client_id
     }
 
-    pub fn thread_id(&self) -> u64 {
+    pub fn thread_id(&self) -> ThreadId {
         self.thread_id
     }
 
@@ -525,7 +522,7 @@ impl DebugPanelItem {
     pub fn go_to_current_stack_frame(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.stack_frame_list.update(cx, |stack_frame_list, cx| {
             if let Some(stack_frame) = stack_frame_list
-                .stack_frames()
+                .stack_frames(cx)
                 .iter()
                 .find(|frame| frame.id == stack_frame_list.current_stack_frame_id())
                 .cloned()

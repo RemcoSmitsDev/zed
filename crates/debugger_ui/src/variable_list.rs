@@ -553,7 +553,9 @@ impl VariableList {
     }
 
     pub fn completion_variables(&self, cx: &mut Context<Self>) -> Vec<VariableContainer> {
-        let stack_frame_id = self.stack_frame_list.read(cx).first_stack_frame_id();
+        let stack_frame_id = self
+            .stack_frame_list
+            .update(cx, |this, cx| this.get_main_stack_frame_id(cx));
 
         self.variables
             .range((stack_frame_id, u64::MIN)..(stack_frame_id, u64::MAX))
@@ -1043,17 +1045,6 @@ impl VariableList {
                 new_variable_value,
                 cx,
             );
-        });
-    }
-
-    // TODO(debugger): remove this
-    pub fn invalidate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.variables.clear();
-        self.scopes.clear();
-        self.entries.clear();
-
-        self.stack_frame_list.update(cx, |stack_frame_list, cx| {
-            stack_frame_list.invalidate(window, cx);
         });
     }
 

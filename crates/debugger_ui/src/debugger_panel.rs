@@ -120,7 +120,7 @@ pub struct DebugPanel {
     workspace: WeakEntity<Workspace>,
     _subscriptions: Vec<Subscription>,
     message_queue: HashMap<DebugAdapterClientId, VecDeque<OutputEvent>>,
-    thread_states: BTreeMap<(DebugAdapterClientId, u64), Entity<ThreadState>>,
+    thread_states: BTreeMap<(DebugAdapterClientId, ThreadId), Entity<ThreadState>>,
 }
 
 impl DebugPanel {
@@ -338,7 +338,7 @@ impl DebugPanel {
     pub fn debug_panel_item_by_client(
         &self,
         client_id: DebugAdapterClientId,
-        thread_id: u64,
+        thread_id: ThreadId,
         cx: &mut Context<Self>,
     ) -> Option<Entity<DebugPanelItem>> {
         self.pane

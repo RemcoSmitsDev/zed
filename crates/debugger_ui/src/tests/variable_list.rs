@@ -194,7 +194,7 @@ async fn test_basic_fetch_initial_scope_and_variables(
         let stack_frame_list = debug_panel_item.stack_frame_list().read(cx);
 
         assert_eq!(1, stack_frame_list.current_stack_frame_id());
-        assert_eq!(stack_frames, stack_frame_list.stack_frames().clone());
+        assert_eq!(stack_frames, stack_frame_list.stack_frames(cx).clone());
 
         debug_panel_item
             .variable_list()
@@ -447,7 +447,7 @@ async fn test_fetch_variables_for_multiple_scopes(
         let stack_frame_list = debug_panel_item.stack_frame_list().read(cx);
 
         assert_eq!(1, stack_frame_list.current_stack_frame_id());
-        assert_eq!(stack_frames, stack_frame_list.stack_frames().clone());
+        assert_eq!(stack_frames, stack_frame_list.stack_frames(cx).clone());
 
         debug_panel_item
             .variable_list()
@@ -1328,7 +1328,7 @@ async fn test_it_only_fetches_scopes_and_variables_for_the_first_stack_frame(
         let variable_list = debug_panel_item.variable_list().read(cx);
 
         assert_eq!(1, stack_frame_list.current_stack_frame_id());
-        assert_eq!(stack_frames, stack_frame_list.stack_frames().clone());
+        assert_eq!(stack_frames, stack_frame_list.stack_frames(cx).clone());
 
         assert_eq!(
             frame_1_variables
@@ -1564,7 +1564,7 @@ async fn test_it_fetches_scopes_variables_when_you_select_a_stack_frame(
         let variable_list = debug_panel_item.variable_list().read(cx);
 
         assert_eq!(1, stack_frame_list.current_stack_frame_id());
-        assert_eq!(stack_frames, stack_frame_list.stack_frames().clone());
+        assert_eq!(stack_frames, stack_frame_list.stack_frames(cx).clone());
 
         assert_eq!(
             frame_1_variables
@@ -1667,7 +1667,7 @@ async fn test_it_fetches_scopes_variables_when_you_select_a_stack_frame(
         let variable_list = debug_panel_item.variable_list().read(cx);
 
         assert_eq!(2, stack_frame_list.current_stack_frame_id());
-        assert_eq!(stack_frames, stack_frame_list.stack_frames().clone());
+        assert_eq!(stack_frames, stack_frame_list.stack_frames(cx).clone());
 
         assert_eq!(
             frame_1_variables

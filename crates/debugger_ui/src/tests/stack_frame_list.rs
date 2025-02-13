@@ -165,7 +165,7 @@ async fn test_fetch_initial_stack_frames_and_go_to_stack_frame(
                 let stack_frame_list = debug_panel_item.stack_frame_list().read(cx);
 
                 assert_eq!(1, stack_frame_list.current_stack_frame_id());
-                assert_eq!(stack_frames, stack_frame_list.stack_frames().clone());
+                assert_eq!(stack_frames, stack_frame_list.stack_frames(cx).clone());
             });
         })
         .unwrap();
@@ -327,7 +327,7 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
                 let stack_frame_list = debug_panel_item.stack_frame_list().read(cx);
 
                 assert_eq!(1, stack_frame_list.current_stack_frame_id());
-                assert_eq!(stack_frames, stack_frame_list.stack_frames().clone());
+                assert_eq!(stack_frames, stack_frame_list.stack_frames(cx).clone());
             });
 
             let editors = workspace.items_of_type::<Editor>(cx).collect::<Vec<_>>();
@@ -386,7 +386,7 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
                 let stack_frame_list = debug_panel_item.stack_frame_list().read(cx);
 
                 assert_eq!(2, stack_frame_list.current_stack_frame_id());
-                assert_eq!(stack_frames, stack_frame_list.stack_frames().clone());
+                assert_eq!(stack_frames, stack_frame_list.stack_frames(cx).clone());
             });
 
             let editors = workspace.items_of_type::<Editor>(cx).collect::<Vec<_>>();

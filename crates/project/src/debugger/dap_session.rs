@@ -42,7 +42,7 @@ impl DebugSessionId {
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Ord, Eq)]
 #[repr(transparent)]
-pub struct ThreadId(u64);
+pub struct ThreadId(pub u64);
 
 #[derive(Clone)]
 pub struct Variable {
@@ -61,8 +61,8 @@ impl From<dap::Variable> for Variable {
 
 #[derive(Clone)]
 pub struct Scope {
-    dap: dap::Scope,
-    variables: Vec<Variable>,
+    pub dap: dap::Scope,
+    pub variables: Vec<Variable>,
 }
 
 impl From<dap::Scope> for Scope {
@@ -76,8 +76,8 @@ impl From<dap::Scope> for Scope {
 
 #[derive(Clone)]
 pub struct StackFrame {
-    dap: dap::StackFrame,
-    scopes: Vec<Scope>,
+    pub dap: dap::StackFrame,
+    pub scopes: Vec<Scope>,
 }
 
 impl From<dap::StackFrame> for StackFrame {
@@ -787,14 +787,16 @@ impl Client {
         self.request(command, Self::empty_response, cx).detach()
     }
 
-    pub fn terminate_threads(&mut self, thread_ids: Option<Vec<u64>>, cx: &mut Context<Self>) {
+    pub fn terminate_threads(&mut self, thread_ids: Option<Vec<ThreadId>>, cx: &mut Context<Self>) {
         if self
             .capabilities
             .supports_terminate_threads_request
             .unwrap_or_default()
         {
             self.request(
-                TerminateThreadsCommand { thread_ids },
+                TerminateThreadsCommand {
+                    thread_ids: thread_ids.map(|ids| ids.into_iter().map(|id| id.0).collect()),
+                },
                 Self::empty_response,
                 cx,
             )
