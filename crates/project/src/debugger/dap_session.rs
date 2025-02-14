@@ -412,6 +412,7 @@ impl Client {
                         .iter()
                         .map(|thread| (ThreadId(thread.id), Thread::from(thread.clone()))),
                 );
+                cx.notify();
             },
             cx,
         );
