@@ -1184,8 +1184,8 @@ impl ProjectPanel {
                                 path: new_entry.path.clone()
                             };
 
-                            project.breakpoint_store().update(cx, |breakpoint_store, _| {
-                                breakpoint_store.on_file_rename(old_path, new_path);
+                            project.breakpoint_store().update(cx, |breakpoint_store, cx| {
+                                breakpoint_store.on_file_rename(old_path, new_path, cx);
                             });
                         });
 

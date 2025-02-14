@@ -1,13 +1,14 @@
-use crate::ProjectPath;
-
+use crate::{ProjectItem as _, ProjectPath};
+use anyhow::Result;
 use collections::{BTreeMap, HashSet};
 use dap::SourceBreakpoint;
-use gpui::{Context, Entity};
+use gpui::{AsyncApp, Context, Entity, EventEmitter};
 use language::{
     proto::{deserialize_anchor, serialize_anchor as serialize_text_anchor},
     Buffer, BufferSnapshot,
 };
 use rpc::{proto, AnyProtoClient};
+use settings::WorktreeId;
 use std::{
     hash::{Hash, Hasher},
     path::Path,
@@ -138,13 +139,18 @@ impl BreakpointStore {
         cx.notify();
     }
 
-    pub fn on_file_rename(&mut self, old_project_path: ProjectPath, new_project_path: ProjectPath) {
+    pub fn on_file_rename(
+        &mut self,
+        old_project_path: ProjectPath,
+        new_project_path: ProjectPath,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(breakpoints) = self.breakpoints.remove(&old_project_path) {
             self.breakpoints
                 .insert(new_project_path.clone(), breakpoints);
 
             cx.emit(BreakpointStoreEvent::BreakpointsChanged {
-                project_path,
+                project_path: new_project_path,
                 source_changed: false,
             });
             cx.notify();

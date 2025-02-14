@@ -2739,16 +2739,17 @@ impl Project {
                     return;
                 };
 
-                self.dap_store
-                    .read(cx)
-                    .send_changed_breakpoints(
-                        project_path,
-                        absolute_path,
-                        buffer_snapshot,
-                        *source_changed,
-                        cx,
-                    )
-                    .detach_and_log_err(cx);
+                self.dap_store.read_with(cx, |dap_store, cx| {
+                    dap_store
+                        .send_changed_breakpoints(
+                            project_path,
+                            absolute_path,
+                            buffer_snapshot,
+                            *source_changed,
+                            cx,
+                        )
+                        .detach_and_log_err(cx)
+                });
             }
         }
     }

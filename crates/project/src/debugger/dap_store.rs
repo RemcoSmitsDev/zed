@@ -9,7 +9,7 @@ use super::{
     dap_command::DapCommand,
     dap_session::{self, DebugSession, DebugSessionId},
 };
-use crate::{project_settings::ProjectSettings, ProjectEnvironment, ProjectItem as _, ProjectPath};
+use crate::{project_settings::ProjectSettings, ProjectEnvironment, ProjectPath};
 use anyhow::{anyhow, bail, Context as _, Result};
 use async_trait::async_trait;
 use collections::HashMap;
@@ -32,7 +32,7 @@ use fs::Fs;
 use futures::future::Shared;
 use gpui::{App, AppContext, AsyncApp, Context, Entity, EventEmitter, SharedString, Task};
 use http_client::HttpClient;
-use language::{BinaryStatus, Buffer, BufferSnapshot, LanguageRegistry, LanguageToolchainStore};
+use language::{BinaryStatus, BufferSnapshot, LanguageRegistry, LanguageToolchainStore};
 use lsp::LanguageServerName;
 use node_runtime::NodeRuntime;
 use rpc::{
@@ -44,7 +44,7 @@ use settings::{Settings as _, WorktreeId};
 use smol::lock::Mutex;
 use std::{
     borrow::Borrow,
-    collections::{BTreeMap, HashSet},
+    collections::HashSet,
     ffi::OsStr,
     hash::Hash,
     path::{Path, PathBuf},
