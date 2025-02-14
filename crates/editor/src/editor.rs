@@ -7356,8 +7356,12 @@ impl Editor {
             .summary_for_anchor::<Point>(&breakpoint_position)
             .row;
 
-        let bp = self.dap_store.clone()?.read_with(cx, |store, _cx| {
-            store.breakpoint_at_row(row, &project_path, buffer_snapshot)
+        let bp = self.dap_store.clone()?.read_with(cx, |dap_store, _cx| {
+            dap_store
+                .breakpoint_store()
+                .update(cx, |breakpoint_store, cx| {
+                    breakpoint_store.breakpoint_at_row(row, &project_path, buffer_snapshot);
+                });
         })?;
 
         Some((bp.active_position?, bp.kind))

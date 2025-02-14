@@ -1562,8 +1562,17 @@ impl Project {
         };
 
         if let Some(project_path) = buffer.read(cx).project_path(cx) {
-            self.dap_store.update(cx, |store, cx| {
-                store.toggle_breakpoint_for_buffer(&project_path, breakpoint, edit_action, cx)
+            self.dap_store.update(cx, |dap_store, cx| {
+                dap_store
+                    .breakpoint_store()
+                    .update(cx, |breakpoint_store, cx| {
+                        breakpoint_store.toggle_breakpoint_for_buffer(
+                            &project_path,
+                            breakpoint,
+                            edit_action,
+                            cx,
+                        )
+                    })
             });
         }
     }
@@ -2078,6 +2087,9 @@ impl Project {
             self.client
                 .subscribe_to_entity(project_id)?
                 .set_entity(&self.dap_store, &mut cx.to_async()),
+            self.client
+                .subscribe_to_entity(project_id)?
+                .set_entity(&self.breakpoint_store, &mut cx.to_async()),
             self.client
                 .subscribe_to_entity(project_id)?
                 .set_entity(&self.git_store, &mut cx.to_async()),

@@ -32,7 +32,20 @@ pub struct BreakpointStore {
     mode: BreakpointMode,
 }
 
+pub enum BreakpointStoreEvent {
+    BreakpointsChanged {
+        project_path: ProjectPath,
+        source_changed: bool,
+    },
+}
+
+impl EventEmitter<BreakpointStoreEvent> for BreakpointStore {}
+
 impl BreakpointStore {
+    pub fn init(client: &AnyProtoClient) {
+        client.add_entity_message_handler(Self::handle_synchronize_breakpoints);
+    }
+
     pub fn local() -> Self {
         BreakpointStore {
             breakpoints: BTreeMap::new(),
@@ -118,13 +131,173 @@ impl BreakpointStore {
 
         self.breakpoints.insert(project_path.clone(), set_bp);
 
+        cx.emit(BreakpointStoreEvent::BreakpointsChanged {
+            project_path: project_path.clone(),
+            source_changed: true,
+        });
         cx.notify();
     }
 
     pub fn on_file_rename(&mut self, old_project_path: ProjectPath, new_project_path: ProjectPath) {
         if let Some(breakpoints) = self.breakpoints.remove(&old_project_path) {
-            self.breakpoints.insert(new_project_path, breakpoints);
+            self.breakpoints
+                .insert(new_project_path.clone(), breakpoints);
+
+            cx.emit(BreakpointStoreEvent::BreakpointsChanged {
+                project_path,
+                source_changed: false,
+            });
+            cx.notify();
         }
+    }
+
+    pub fn sync_open_breakpoints_to_closed_breakpoints(
+        &mut self,
+        buffer: &Entity<Buffer>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project_path) = buffer.read(cx).project_path(cx) else {
+            return;
+        };
+
+        if let Some(breakpoint_set) = self.breakpoints.remove(&project_path) {
+            let breakpoint_iter = breakpoint_set.into_iter().map(|mut breakpoint| {
+                breakpoint.cached_position = breakpoint.point_for_buffer(buffer.read(cx)).row;
+                breakpoint.active_position = None;
+                breakpoint
+            });
+
+            self.breakpoints.insert(
+                project_path.clone(),
+                breakpoint_iter.collect::<HashSet<_>>(),
+            );
+
+            cx.emit(BreakpointStoreEvent::BreakpointsChanged {
+                project_path,
+                source_changed: false,
+            });
+            cx.notify();
+        }
+    }
+
+    pub fn breakpoint_at_row(
+        &self,
+        row: u32,
+        project_path: &ProjectPath,
+        buffer_snapshot: BufferSnapshot,
+    ) -> Option<Breakpoint> {
+        let breakpoint_set = self.breakpoints.get(project_path)?;
+
+        breakpoint_set
+            .iter()
+            .find(|breakpoint| breakpoint.point_for_buffer_snapshot(&buffer_snapshot).row == row)
+            .cloned()
+    }
+
+    pub fn toggle_breakpoint_for_buffer(
+        &mut self,
+        project_path: &ProjectPath,
+        mut breakpoint: Breakpoint,
+        edit_action: BreakpointEditAction,
+        cx: &mut Context<Self>,
+    ) {
+        let upstream_client = self.upstream_client();
+
+        let breakpoint_set = self.breakpoints.entry(project_path.clone()).or_default();
+
+        match edit_action {
+            BreakpointEditAction::Toggle => {
+                if !breakpoint_set.remove(&breakpoint) {
+                    breakpoint_set.insert(breakpoint);
+                }
+            }
+            BreakpointEditAction::EditLogMessage(log_message) => {
+                if !log_message.is_empty() {
+                    breakpoint.kind = BreakpointKind::Log(log_message.clone());
+                    breakpoint_set.remove(&breakpoint);
+                    breakpoint_set.insert(breakpoint);
+                } else if matches!(&breakpoint.kind, BreakpointKind::Log(_)) {
+                    breakpoint_set.remove(&breakpoint);
+                }
+            }
+        }
+
+        if let Some((client, project_id)) = upstream_client.or(self.downstream_client.clone()) {
+            client
+                .send(client::proto::SynchronizeBreakpoints {
+                    project_id,
+                    project_path: Some(project_path.to_proto()),
+                    breakpoints: breakpoint_set
+                        .iter()
+                        .filter_map(|breakpoint| breakpoint.to_proto())
+                        .collect(),
+                })
+                .log_err();
+        }
+
+        if breakpoint_set.is_empty() {
+            self.breakpoints.remove(project_path);
+        }
+
+        cx.emit(BreakpointStoreEvent::BreakpointsChanged {
+            project_path: project_path.clone(),
+            source_changed: false,
+        });
+        cx.notify();
+    }
+
+    pub fn deserialize_breakpoints(
+        &mut self,
+        worktree_id: WorktreeId,
+        serialize_breakpoints: Vec<SerializedBreakpoint>,
+    ) {
+        for serialize_breakpoint in serialize_breakpoints {
+            self.breakpoints
+                .entry(ProjectPath {
+                    worktree_id,
+                    path: serialize_breakpoint.path.clone(),
+                })
+                .or_default()
+                .insert(Breakpoint {
+                    active_position: None,
+                    cached_position: serialize_breakpoint.position,
+                    kind: serialize_breakpoint.kind,
+                });
+        }
+    }
+
+    async fn handle_synchronize_breakpoints(
+        this: Entity<Self>,
+        envelope: TypedEnvelope<proto::SynchronizeBreakpoints>,
+        mut cx: AsyncApp,
+    ) -> Result<()> {
+        let project_path = ProjectPath::from_proto(
+            envelope
+                .payload
+                .project_path
+                .context("Invalid Breakpoint call")?,
+        );
+
+        this.update(&mut cx, |store, cx| {
+            let breakpoints = envelope
+                .payload
+                .breakpoints
+                .into_iter()
+                .filter_map(Breakpoint::from_proto)
+                .collect::<HashSet<_>>();
+
+            if breakpoints.is_empty() {
+                store.breakpoints.remove(&project_path);
+            } else {
+                store.breakpoints.insert(project_path.clone(), breakpoints);
+            }
+
+            cx.emit(BreakpointStoreEvent::BreakpointsChanged {
+                project_path,
+                source_changed: false,
+            });
+            cx.notify();
+        })
     }
 }
 
