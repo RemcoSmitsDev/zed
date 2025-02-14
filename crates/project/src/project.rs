@@ -50,7 +50,10 @@ use dap::{
 use collections::{BTreeSet, HashMap, HashSet};
 use debounced_delay::DebouncedDelay;
 use debugger::{
-    breakpoint_store::{Breakpoint, BreakpointEditAction, BreakpointStore, SerializedBreakpoint},
+    breakpoint_store::{
+        Breakpoint, BreakpointEditAction, BreakpointStore, BreakpointStoreEvent,
+        SerializedBreakpoint,
+    },
     dap_store::{DapStore, DapStoreEvent},
 };
 pub use environment::ProjectEnvironment;
@@ -704,6 +707,8 @@ impl Project {
                 )
             });
             cx.subscribe(&dap_store, Self::on_dap_store_event).detach();
+            cx.subscribe(&breakpoint_store, Self::on_breakpoint_store_event)
+                .detach();
 
             let buffer_store = cx
                 .new(|cx| BufferStore::local(worktree_store.clone(), breakpoint_store.clone(), cx));
@@ -1160,6 +1165,8 @@ impl Project {
                 .detach();
 
             cx.subscribe(&dap_store, Self::on_dap_store_event).detach();
+            cx.subscribe(&breakpoint_store, Self::on_breakpoint_store_event)
+                .detach();
 
             let mut this = Self {
                 buffer_ordered_messages_tx: tx,
@@ -2709,6 +2716,43 @@ impl Project {
         }
     }
 
+    fn on_breakpoint_store_event(
+        &mut self,
+        _: Entity<BreakpointStore>,
+        event: &BreakpointStoreEvent,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            BreakpointStoreEvent::BreakpointsChanged {
+                project_path,
+                source_changed,
+            } => {
+                cx.notify(); // so the UI updates
+
+                let buffer_snapshot = self
+                    .buffer_store
+                    .read(cx)
+                    .get_by_path(&project_path, cx)
+                    .map(|buffer| buffer.read(cx).snapshot());
+
+                let Some(absolute_path) = self.absolute_path(project_path, cx) else {
+                    return;
+                };
+
+                self.dap_store
+                    .read(cx)
+                    .send_changed_breakpoints(
+                        project_path,
+                        absolute_path,
+                        buffer_snapshot,
+                        *source_changed,
+                        cx,
+                    )
+                    .detach_and_log_err(cx);
+            }
+        }
+    }
+
     fn on_dap_store_event(
         &mut self,
         _: Entity<DapStore>,
@@ -2737,34 +2781,6 @@ impl Project {
                 cx.emit(Event::Toast {
                     notification_id: "dap".into(),
                     message: message.clone(),
-                });
-            }
-            DapStoreEvent::BreakpointsChanged {
-                project_path,
-                source_changed,
-            } => {
-                cx.notify(); // so the UI updates
-
-                let buffer_snapshot = self
-                    .buffer_store
-                    .read(cx)
-                    .get_by_path(&project_path, cx)
-                    .map(|buffer| buffer.read(cx).snapshot());
-
-                let Some(absolute_path) = self.absolute_path(project_path, cx) else {
-                    return;
-                };
-
-                self.dap_store.update(cx, |store, cx| {
-                    store
-                        .send_changed_breakpoints(
-                            project_path,
-                            absolute_path,
-                            buffer_snapshot,
-                            *source_changed,
-                            cx,
-                        )
-                        .detach_and_log_err(cx);
                 });
             }
             DapStoreEvent::ActiveDebugLineChanged => {
