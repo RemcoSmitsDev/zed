@@ -4712,7 +4712,7 @@ impl Workspace {
                             {
                                 dap_store
                                     .breakpoint_store()
-                                    .update(cx, |breakpoint_store, cx| {
+                                    .update(cx, |breakpoint_store, _| {
                                         breakpoint_store.deserialize_breakpoints(
                                             worktree_id,
                                             serialized_breakpoints,

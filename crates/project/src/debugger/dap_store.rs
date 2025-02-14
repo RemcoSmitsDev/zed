@@ -299,7 +299,7 @@ impl DapStore {
     pub fn client_by_id(
         &self,
         client_id: impl Borrow<DebugAdapterClientId>,
-        cx: &Context<Self>,
+        cx: &App,
     ) -> Option<(Entity<DebugSession>, Entity<dap_session::Client>)> {
         let client_id = client_id.borrow();
         let session = self.session_by_client_id(client_id)?;
@@ -1403,7 +1403,7 @@ impl DapStore {
         mut breakpoints: Vec<SourceBreakpoint>,
         ignore: bool,
         source_changed: bool,
-        cx: &Context<Self>,
+        cx: &App,
     ) -> Task<Result<()>> {
         let Some(client) = self
             .client_by_id(client_id, cx)
@@ -1447,7 +1447,7 @@ impl DapStore {
         absolute_path: PathBuf,
         buffer_snapshot: Option<BufferSnapshot>,
         source_changed: bool,
-        cx: &Context<Self>,
+        cx: &App,
     ) -> Task<Result<()>> {
         let source_breakpoints = self
             .breakpoint_store

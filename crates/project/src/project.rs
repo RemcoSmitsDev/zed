@@ -1302,8 +1302,7 @@ impl Project {
     ) -> HashMap<Arc<Path>, Vec<SerializedBreakpoint>> {
         let mut all_breakpoints: HashMap<Arc<Path>, Vec<SerializedBreakpoint>> = Default::default();
 
-        let open_breakpoints = self.dap_store.read(cx).breakpoints();
-        for (project_path, breakpoints) in open_breakpoints.iter() {
+        for (project_path, breakpoints) in &self.breakpoint_store.read(cx).breakpoints {
             let buffer = maybe!({
                 let buffer_store = self.buffer_store.read(cx);
                 let buffer_id = buffer_store.buffer_id_for_project_path(project_path)?;
@@ -1414,11 +1413,11 @@ impl Project {
             .read(cx)
             .abs_path();
 
-        let breakpoints = self.dap_store.read(cx).breakpoints();
-
         Some((
             worktree_path,
-            breakpoints
+            self.breakpoint_store
+                .read(cx)
+                .breakpoints
                 .get(&project_path)?
                 .iter()
                 .map(|bp| bp.to_serialized(buffer, project_path.path.clone()))
@@ -1442,10 +1441,9 @@ impl Project {
             return result;
         }
 
-        let breakpoints = self.dap_store.read(cx).breakpoints();
-        for project_path in breakpoints.keys() {
+        for project_path in self.breakpoint_store.read(cx).breakpoints.keys() {
             if let Some((worktree_path, mut serialized_breakpoint)) =
-                self.serialize_breakpoints_for_project_path(&project_path, cx)
+                self.serialize_breakpoints_for_project_path(project_path, cx)
             {
                 result
                     .entry(worktree_path.clone())
@@ -1510,15 +1508,15 @@ impl Project {
 
             let mut tasks = Vec::new();
 
-            for (project_path, breakpoints) in store.breakpoints() {
+            for (project_path, breakpoints) in &self.breakpoint_store.read(cx).breakpoints {
                 let Some((buffer, buffer_path)) = maybe!({
                     let buffer = self
                         .buffer_store
-                        .read_with(cx, |store, cx| store.get_by_path(project_path, cx))?;
+                        .read_with(cx, |store, cx| store.get_by_path(&project_path, cx))?;
 
                     let buffer = buffer.read(cx);
                     let project_path = buffer.project_path(cx)?;
-                    let worktree = self.worktree_for_id(project_path.clone().worktree_id, cx)?;
+                    let worktree = self.worktree_for_id(project_path.worktree_id, cx)?;
                     Some((
                         buffer,
                         worktree.read(cx).absolutize(&project_path.path).ok()?,

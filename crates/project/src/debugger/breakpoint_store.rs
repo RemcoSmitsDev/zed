@@ -1,5 +1,5 @@
 use crate::{ProjectItem as _, ProjectPath};
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use collections::{BTreeMap, HashSet};
 use dap::SourceBreakpoint;
 use gpui::{AsyncApp, Context, Entity, EventEmitter};
@@ -7,7 +7,7 @@ use language::{
     proto::{deserialize_anchor, serialize_anchor as serialize_text_anchor},
     Buffer, BufferSnapshot,
 };
-use rpc::{proto, AnyProtoClient};
+use rpc::{proto, AnyProtoClient, TypedEnvelope};
 use settings::WorktreeId;
 use std::{
     hash::{Hash, Hasher},
@@ -17,14 +17,14 @@ use std::{
 use text::Point;
 use util::ResultExt as _;
 
-struct Remote {
+struct RemoteBreakpointStore {
     upstream_client: Option<AnyProtoClient>,
     upstream_project_id: u64,
 }
 
 enum BreakpointMode {
     Local,
-    Remote(Remote),
+    Remote(RemoteBreakpointStore),
 }
 
 pub struct BreakpointStore {
@@ -58,7 +58,7 @@ impl BreakpointStore {
     pub(crate) fn remote(upstream_project_id: u64, upstream_client: AnyProtoClient) -> Self {
         BreakpointStore {
             breakpoints: BTreeMap::new(),
-            mode: BreakpointMode::Remote(Remote {
+            mode: BreakpointMode::Remote(RemoteBreakpointStore {
                 upstream_client: Some(upstream_client),
                 upstream_project_id,
             }),
@@ -87,6 +87,22 @@ impl BreakpointStore {
         self.downstream_client.take();
 
         cx.notify();
+    }
+
+    pub fn upstream_client(&self) -> Option<(AnyProtoClient, u64)> {
+        match &self.mode {
+            BreakpointMode::Remote(RemoteBreakpointStore {
+                upstream_client: Some(upstream_client),
+                upstream_project_id,
+                ..
+            }) => Some((upstream_client.clone(), *upstream_project_id)),
+
+            BreakpointMode::Remote(RemoteBreakpointStore {
+                upstream_client: None,
+                ..
+            }) => None,
+            BreakpointMode::Local => None,
+        }
     }
 
     pub fn set_breakpoints_from_proto(
