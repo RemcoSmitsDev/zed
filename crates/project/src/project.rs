@@ -49,8 +49,9 @@ use dap::{
 
 use collections::{BTreeSet, HashMap, HashSet};
 use debounced_delay::DebouncedDelay;
-use debugger::dap_store::{
-    Breakpoint, BreakpointEditAction, DapStore, DapStoreEvent, SerializedBreakpoint,
+use debugger::{
+    breakpoint_store::{Breakpoint, BreakpointEditAction, BreakpointStore, SerializedBreakpoint},
+    dap_store::{DapStore, DapStoreEvent},
 };
 pub use environment::ProjectEnvironment;
 use futures::{
@@ -175,6 +176,7 @@ pub struct Project {
     buffer_ordered_messages_tx: mpsc::UnboundedSender<BufferOrderedMessage>,
     languages: Arc<LanguageRegistry>,
     dap_store: Entity<DapStore>,
+    breakpoint_store: Entity<BreakpointStore>,
     client: Arc<client::Client>,
     join_project_response_message_id: u32,
     task_store: Entity<TaskStore>,
@@ -687,6 +689,8 @@ impl Project {
                 )
             });
 
+            let breakpoint_store = cx.new(|_| BreakpointStore::local());
+
             let dap_store = cx.new(|cx| {
                 DapStore::new_local(
                     client.http_client(),
@@ -695,13 +699,14 @@ impl Project {
                     languages.clone(),
                     environment.clone(),
                     toolchain_store.read(cx).as_language_toolchain_store(),
+                    breakpoint_store.clone(),
                     cx,
                 )
             });
             cx.subscribe(&dap_store, Self::on_dap_store_event).detach();
 
-            let buffer_store =
-                cx.new(|cx| BufferStore::local(worktree_store.clone(), dap_store.clone(), cx));
+            let buffer_store = cx
+                .new(|cx| BufferStore::local(worktree_store.clone(), breakpoint_store.clone(), cx));
             cx.subscribe(&buffer_store, Self::on_buffer_store_event)
                 .detach();
 
@@ -782,6 +787,7 @@ impl Project {
                 settings_observer,
                 fs,
                 ssh_client: None,
+                breakpoint_store,
                 dap_store,
                 buffers_needing_diff: Default::default(),
                 git_diff_debouncer: DebouncedDelay::new(),
@@ -878,7 +884,16 @@ impl Project {
             });
             cx.subscribe(&lsp_store, Self::on_lsp_store_event).detach();
 
-            let dap_store = cx.new(|_| DapStore::new_remote(SSH_PROJECT_ID, client.clone().into()));
+            let breakpoint_store =
+                cx.new(|_| BreakpointStore::remote(SSH_PROJECT_ID, client.clone().into()));
+
+            let dap_store = cx.new(|_| {
+                DapStore::new_remote(
+                    SSH_PROJECT_ID,
+                    client.clone().into(),
+                    breakpoint_store.clone(),
+                )
+            });
 
             let git_store = cx.new(|cx| {
                 GitStore::new(
@@ -900,6 +915,7 @@ impl Project {
                 buffer_store,
                 image_store,
                 lsp_store,
+                breakpoint_store,
                 dap_store,
                 join_project_response_message_id: 0,
                 client_state: ProjectClientState::Local,
@@ -1059,10 +1075,16 @@ impl Project {
 
         let environment = cx.update(|cx| ProjectEnvironment::new(&worktree_store, None, cx))?;
 
-        let dap_store = cx.new(|cx| {
-            let mut dap_store = DapStore::new_remote(remote_id, client.clone().into());
+        let breakpoint_store = cx.new(|cx| {
+            let mut bp_store = BreakpointStore::remote(SSH_PROJECT_ID, client.clone().into());
+            bp_store.set_breakpoints_from_proto(response.payload.breakpoints, cx);
+            bp_store
+        })?;
 
-            dap_store.set_breakpoints_from_proto(response.payload.breakpoints, cx);
+        let dap_store = cx.new(|cx| {
+            let mut dap_store =
+                DapStore::new_remote(remote_id, client.clone().into(), breakpoint_store.clone());
+
             dap_store.request_active_debug_sessions(cx);
             dap_store
         })?;
@@ -1164,6 +1186,7 @@ impl Project {
                     remote_id,
                     replica_id,
                 },
+                breakpoint_store,
                 dap_store: dap_store.clone(),
                 git_store,
                 buffers_needing_diff: Default::default(),
@@ -1630,6 +1653,10 @@ impl Project {
         self.dap_store.clone()
     }
 
+    pub fn breakpoint_store(&self) -> Entity<BreakpointStore> {
+        self.breakpoint_store.clone()
+    }
+
     pub fn lsp_store(&self) -> Entity<LspStore> {
         self.lsp_store.clone()
     }
@@ -2065,6 +2092,9 @@ impl Project {
         self.lsp_store.update(cx, |lsp_store, cx| {
             lsp_store.shared(project_id, self.client.clone().into(), cx)
         });
+        self.breakpoint_store.update(cx, |breakpoint_store, _| {
+            breakpoint_store.shared(project_id, self.client.clone().into())
+        });
         self.dap_store.update(cx, |dap_store, cx| {
             dap_store.shared(project_id, self.client.clone().into(), cx);
         });
@@ -2123,8 +2153,8 @@ impl Project {
         self.lsp_store.update(cx, |lsp_store, _| {
             lsp_store.set_language_server_statuses_from_proto(message.language_servers)
         });
-        self.dap_store.update(cx, |dap_store, cx| {
-            dap_store.set_breakpoints_from_proto(message.breakpoints, cx);
+        self.breakpoint_store.update(cx, |breakpoint_store, cx| {
+            breakpoint_store.set_breakpoints_from_proto(message.breakpoints, cx);
         });
         self.enqueue_buffer_ordered_message(BufferOrderedMessage::Resync)
             .unwrap();
@@ -2157,6 +2187,9 @@ impl Project {
             });
             self.task_store.update(cx, |task_store, cx| {
                 task_store.unshared(cx);
+            });
+            self.breakpoint_store.update(cx, |breakpoint_store, cx| {
+                breakpoint_store.unshared(cx);
             });
             self.dap_store.update(cx, |dap_store, cx| {
                 dap_store.unshared(cx);
