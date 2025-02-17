@@ -8,6 +8,8 @@ use anyhow::{anyhow, Result};
 use collections::{BTreeMap, HashMap, IndexMap};
 use dap::client::{DebugAdapterClient, DebugAdapterClientId};
 use dap::{
+    messages::{self, Events, Message},
+    requests::{RunInTerminal, StartDebugging},
     Capabilities, ContinueArguments, EvaluateArgumentsContext, Module, Source, SteppingGranularity,
 };
 use futures::{future::Shared, FutureExt};
@@ -961,6 +963,40 @@ impl DebugSession {
         match &self.mode {
             DebugSessionMode::Local(local) => local.configuration.label.clone(),
             DebugSessionMode::Remote(remote) => remote.label.clone(),
+        }
+    }
+
+    fn handle_dap_event(&mut self, client_id: DebugAdapterClientId, event: Box<Events>) {}
+
+    fn handle_start_debugging_request(
+        &mut self,
+        client_id: DebugAdapterClientId,
+        request: messages::Request,
+    ) {
+    }
+
+    fn handle_run_in_terminal_request(
+        &mut self,
+        client_id: DebugAdapterClientId,
+        request: messages::Request,
+    ) {
+    }
+
+    pub(crate) fn handle_dap_message(&mut self, client_id: DebugAdapterClientId, message: Message) {
+        match message {
+            Message::Event(event) => {
+                self.handle_dap_event(client_id, event);
+            }
+            Message::Request(request) => {
+                if StartDebugging::COMMAND == request.command {
+                    self.handle_start_debugging_request(client_id, request);
+                } else if RunInTerminal::COMMAND == request.command {
+                    self.handle_run_in_terminal_request(client_id, request);
+                } else {
+                    debug_assert!(false, "Encountered unexpected command type");
+                }
+            }
+            _ => unreachable!(),
         }
     }
 
