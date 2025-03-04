@@ -888,7 +888,8 @@ impl Session {
     }
 
     pub fn threads(&mut self, cx: &mut Context<Self>) -> Vec<(dap::Thread, ThreadStatus)> {
-        if self.thread_states.any_stopped_thread() {
+        dbg!("fetch threads");
+        if self.thread_states.any_stopped_thread() || true {
             self.fetch(
                 dap_command::ThreadsCommand,
                 |this, result, cx| {
@@ -896,6 +897,8 @@ impl Session {
                         .iter()
                         .map(|thread| (ThreadId(thread.id), Thread::from(thread.clone())))
                         .collect();
+
+                    dbg!(&this.threads);
 
                     this.invalidate_command_type(StackTraceCommand::command_id());
                     cx.notify();
@@ -1211,8 +1214,9 @@ impl Session {
     }
 
     pub fn stack_frames(&mut self, thread_id: ThreadId, cx: &mut Context<Self>) -> Vec<StackFrame> {
-        if self.thread_states.thread_status(thread_id) == ThreadStatus::Stopped
-            && self.requests.contains_key(&ThreadsCommand::command_id())
+        dbg!("fetch stack frames");
+        if self.thread_states.thread_status(thread_id) == ThreadStatus::Stopped || true
+        // && self.requests.contains_key(&ThreadsCommand::command_id())
         {
             self.fetch(
                 super::dap_command::StackTraceCommand {

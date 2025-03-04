@@ -1,14 +1,14 @@
 use crate::{
     debugger_panel::DebugPanel,
-    stack_frame_list::StackFrameEntry,
+    session::running::stack_frame_list::StackFrameEntry,
     tests::{active_debug_session_panel, init_test, init_test_workspace},
 };
 use dap::{
-    requests::{Disconnect, Initialize, Launch, StackTrace},
+    requests::{Disconnect, StackTrace, Threads},
     StackFrame,
 };
 use editor::{Editor, ToPoint as _};
-use gpui::{BackgroundExecutor, TestAppContext, VisualTestContext};
+use gpui::{BackgroundExecutor, Render, TestAppContext, VisualTestContext};
 use project::{FakeFs, Project};
 use serde_json::json;
 use std::sync::Arc;
@@ -54,18 +54,19 @@ async fn test_fetch_initial_stack_frames_and_go_to_stack_frame(
         project.start_debug_session(dap::test_config(), cx)
     });
 
-    let (session, client) = task.await.unwrap();
+    let session = task.await.unwrap();
+    let client = session.update(cx, |session, _| session.adapter_client().unwrap());
 
     client
-        .on_request::<Initialize, _>(move |_, _| {
-            Ok(dap::Capabilities {
-                supports_step_back: Some(false),
-                ..Default::default()
+        .on_request::<Threads, _>(move |_, _| {
+            Ok(dap::ThreadsResponse {
+                threads: vec![dap::Thread {
+                    id: 1,
+                    name: "Thread 1".into(),
+                }],
             })
         })
         .await;
-
-    client.on_request::<Launch, _>(move |_, _| Ok(())).await;
 
     let stack_frames = vec![
         StackFrame {
@@ -144,34 +145,62 @@ async fn test_fetch_initial_stack_frames_and_go_to_stack_frame(
 
     cx.run_until_parked();
 
-    workspace
+    workspace.update(cx, |workspace, window, cx| {
+        let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
+        debug_panel.update(cx, |panel, cx| {
+            panel.render(window, cx);
+        });
+    });
+
+    let stack_frame_list = workspace
         .update(cx, |workspace, _window, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
             let active_debug_panel_item = debug_panel
-                .update(cx, |this, cx| this.active_debug_panel_item(cx))
+                .update(cx, |this, cx| this.active_session(cx))
                 .unwrap();
 
-            active_debug_panel_item.update(cx, |debug_panel_item, cx| {
-                let (stack_frame_list, stack_frame_id) =
-                    debug_panel_item.stack_frame_list().update(cx, |list, cx| {
-                        (
-                            list.stack_frames(cx)
-                                .into_iter()
-                                .map(|frame| frame.dap)
-                                .collect::<Vec<_>>(),
-                            list.current_stack_frame_id(),
-                        )
-                    });
+            active_debug_panel_item
+                .read(cx)
+                .mode()
+                .as_running()
+                .unwrap()
+                .read(cx)
+                .stack_frame_list();
 
-                assert_eq!(1, stack_frame_id);
-                assert_eq!(stack_frames, stack_frame_list);
-            });
+            active_debug_panel_item.update(cx, |debug_panel_item, cx| {
+                let stack_frame_list = debug_panel_item
+                    .mode()
+                    .as_running()
+                    .unwrap()
+                    .update(cx, |state, _| state.stack_frame_list().clone());
+
+                stack_frame_list.update(cx, |list, cx| {
+                    list.stack_frames(cx);
+                });
+
+                stack_frame_list
+            })
         })
         .unwrap();
 
+    cx.run_until_parked();
+
+    let (stack_frame_list, stack_frame_id) = stack_frame_list.update(cx, |list, cx| {
+        (
+            list.stack_frames(cx)
+                .into_iter()
+                .map(|frame| frame.dap)
+                .collect::<Vec<_>>(),
+            list.current_stack_frame_id(),
+        )
+    });
+
+    assert_eq!(Some(1), stack_frame_id);
+    assert_eq!(stack_frames, stack_frame_list);
+
     let shutdown_session = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
-            dap_store.shutdown_session(&session.read(cx).id(), cx)
+            dap_store.shutdown_session(&session.read(cx).session_id(), cx)
         })
     });
 
@@ -209,24 +238,29 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
 
     let project = Project::test(fs, ["/project".as_ref()], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
+    workspace.update(cx, |workspace, window, cx| {
+        workspace.toggle_dock(workspace::dock::DockPosition::Bottom, window, cx);
+    });
+
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
         project.start_debug_session(dap::test_config(), cx)
     });
 
-    let (session, client) = task.await.unwrap();
+    let session = task.await.unwrap();
+    let client = session.update(cx, |session, _| session.adapter_client().unwrap());
 
     client
-        .on_request::<Initialize, _>(move |_, _| {
-            Ok(dap::Capabilities {
-                supports_step_back: Some(false),
-                ..Default::default()
+        .on_request::<Threads, _>(move |_, _| {
+            Ok(dap::ThreadsResponse {
+                threads: vec![dap::Thread {
+                    id: 1,
+                    name: "Thread 1".into(),
+                }],
             })
         })
         .await;
-
-    client.on_request::<Launch, _>(move |_, _| Ok(())).await;
 
     let stack_frames = vec![
         StackFrame {
@@ -309,23 +343,28 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
         .update(cx, |workspace, window, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
             let active_debug_panel_item = debug_panel
-                .update(cx, |this, cx| this.active_debug_panel_item(cx))
+                .update(cx, |this, cx| this.active_session(cx))
                 .unwrap();
 
             active_debug_panel_item.update(cx, |debug_panel_item, cx| {
-                let (stack_frame_list, stack_frame_id) =
-                    debug_panel_item.stack_frame_list().update(cx, |list, cx| {
-                        (
-                            list.stack_frames(cx)
-                                .into_iter()
-                                .map(|frame| frame.dap)
-                                .collect::<Vec<_>>(),
-                            list.current_stack_frame_id(),
-                        )
-                    });
+                let stack_frame_list = debug_panel_item
+                    .mode()
+                    .as_running()
+                    .unwrap()
+                    .update(cx, |state, _| state.stack_frame_list().clone());
 
-                assert_eq!(1, stack_frame_id);
+                let (stack_frame_list, stack_frame_id) = stack_frame_list.update(cx, |list, cx| {
+                    (
+                        list.stack_frames(cx)
+                            .into_iter()
+                            .map(|frame| frame.dap)
+                            .collect::<Vec<_>>(),
+                        list.current_stack_frame_id(),
+                    )
+                });
+
                 assert_eq!(stack_frames, stack_frame_list);
+                assert_eq!(Some(1), stack_frame_id);
             });
 
             let editors = workspace.items_of_type::<Editor>(cx).collect::<Vec<_>>();
@@ -358,10 +397,17 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
         .update(cx, |workspace, _window, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
             let active_debug_panel_item = debug_panel
-                .update(cx, |this, cx| this.active_debug_panel_item(cx))
+                .update(cx, |this, cx| this.active_session(cx))
                 .unwrap();
 
-            active_debug_panel_item.read(cx).stack_frame_list().clone()
+            active_debug_panel_item
+                .read(cx)
+                .mode()
+                .as_running()
+                .unwrap()
+                .read(cx)
+                .stack_frame_list()
+                .clone()
         })
         .unwrap();
 
@@ -377,22 +423,27 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
         .update(cx, |workspace, window, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
             let active_debug_panel_item = debug_panel
-                .update(cx, |this, cx| this.active_debug_panel_item(cx))
+                .update(cx, |this, cx| this.active_session(cx))
                 .unwrap();
 
             active_debug_panel_item.update(cx, |debug_panel_item, cx| {
-                let (stack_frame_list, stack_frame_id) =
-                    debug_panel_item.stack_frame_list().update(cx, |list, cx| {
-                        (
-                            list.stack_frames(cx)
-                                .into_iter()
-                                .map(|frame| frame.dap)
-                                .collect::<Vec<_>>(),
-                            list.current_stack_frame_id(),
-                        )
+                let (stack_frame_list, stack_frame_id) = debug_panel_item
+                    .mode()
+                    .as_running()
+                    .unwrap()
+                    .update(cx, |state, cx| {
+                        state.stack_frame_list().update(cx, |list, cx| {
+                            (
+                                list.stack_frames(cx)
+                                    .into_iter()
+                                    .map(|frame| frame.dap)
+                                    .collect::<Vec<_>>(),
+                                list.current_stack_frame_id(),
+                            )
+                        })
                     });
 
-                assert_eq!(2, stack_frame_id);
+                assert_eq!(Some(2), stack_frame_id);
                 assert_eq!(stack_frames, stack_frame_list);
             });
 
@@ -424,7 +475,7 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
 
     let shutdown_session = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
-            dap_store.shutdown_session(&session.read(cx).id(), cx)
+            dap_store.shutdown_session(&session.read(cx).session_id(), cx)
         })
     });
 
@@ -468,18 +519,8 @@ async fn test_collapsed_entries(executor: BackgroundExecutor, cx: &mut TestAppCo
         project.start_debug_session(dap::test_config(), cx)
     });
 
-    let (session, client) = task.await.unwrap();
-
-    client
-        .on_request::<Initialize, _>(move |_, _| {
-            Ok(dap::Capabilities {
-                supports_step_back: Some(false),
-                ..Default::default()
-            })
-        })
-        .await;
-
-    client.on_request::<Launch, _>(move |_, _| Ok(())).await;
+    let session = task.await.unwrap();
+    let client = session.update(cx, |session, _| session.adapter_client().unwrap());
 
     let stack_frames = vec![
         StackFrame {
@@ -604,40 +645,44 @@ async fn test_collapsed_entries(executor: BackgroundExecutor, cx: &mut TestAppCo
 
     active_debug_session_panel(workspace, cx).update(cx, |debug_panel_item, cx| {
         debug_panel_item
-            .stack_frame_list()
-            .update(cx, |stack_frame_list, cx| {
-                assert_eq!(
-                    &vec![
-                        StackFrameEntry::Normal(stack_frames[0].clone()),
-                        StackFrameEntry::Collapsed(vec![
-                            stack_frames[1].clone(),
-                            stack_frames[2].clone()
-                        ]),
-                        StackFrameEntry::Normal(stack_frames[3].clone()),
-                    ],
-                    stack_frame_list.entries()
-                );
+            .mode()
+            .as_running()
+            .unwrap()
+            .update(cx, |state, cx| {
+                state.stack_frame_list().update(cx, |stack_frame_list, cx| {
+                    assert_eq!(
+                        &vec![
+                            StackFrameEntry::Normal(stack_frames[0].clone()),
+                            StackFrameEntry::Collapsed(vec![
+                                stack_frames[1].clone(),
+                                stack_frames[2].clone()
+                            ]),
+                            StackFrameEntry::Normal(stack_frames[3].clone()),
+                        ],
+                        stack_frame_list.entries()
+                    );
 
-                stack_frame_list.expand_collapsed_entry(
-                    1,
-                    &vec![stack_frames[1].clone(), stack_frames[2].clone()],
-                    cx,
-                );
+                    stack_frame_list.expand_collapsed_entry(
+                        1,
+                        &vec![stack_frames[1].clone(), stack_frames[2].clone()],
+                        cx,
+                    );
 
-                assert_eq!(
-                    &vec![
-                        StackFrameEntry::Normal(stack_frames[0].clone()),
-                        StackFrameEntry::Normal(stack_frames[1].clone()),
-                        StackFrameEntry::Normal(stack_frames[2].clone()),
-                        StackFrameEntry::Normal(stack_frames[3].clone()),
-                    ],
-                    stack_frame_list.entries()
-                );
+                    assert_eq!(
+                        &vec![
+                            StackFrameEntry::Normal(stack_frames[0].clone()),
+                            StackFrameEntry::Normal(stack_frames[1].clone()),
+                            StackFrameEntry::Normal(stack_frames[2].clone()),
+                            StackFrameEntry::Normal(stack_frames[3].clone()),
+                        ],
+                        stack_frame_list.entries()
+                    );
+                })
             });
     });
     let shutdown_session = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
-            dap_store.shutdown_session(&session.read(cx).id(), cx)
+            dap_store.shutdown_session(&session.read(cx).session_id(), cx)
         })
     });
 

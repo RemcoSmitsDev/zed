@@ -1,7 +1,7 @@
 mod console;
 mod loaded_source_list;
 mod module_list;
-mod stack_frame_list;
+pub mod stack_frame_list;
 pub mod variable_list;
 
 use super::{DebugPanelItemEvent, ThreadItem};
@@ -42,6 +42,7 @@ pub struct RunningState {
 
 impl Render for RunningState {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        dbg!("Rendering running state");
         let threads = self.session.update(cx, |this, cx| this.threads(cx));
         if let Some((thread, _)) = threads.first().filter(|_| self.thread.is_none()) {
             self.select_thread(ThreadId(thread.id), thread.name.clone(), window, cx);
@@ -490,6 +491,7 @@ impl RunningState {
         cx: &mut Context<Self>,
     ) {
         self.thread = Some((thread_id, thread_name));
+        dbg!("Selecting thread id");
 
         self.stack_frame_list
             .update(cx, |list, cx| list.refresh(window, cx))
@@ -521,7 +523,7 @@ impl RunningState {
             if let Some(stack_frame) = stack_frame_list
                 .stack_frames(cx)
                 .iter()
-                .find(|frame| frame.dap.id == stack_frame_list.current_stack_frame_id())
+                .find(|frame| Some(frame.dap.id) == stack_frame_list.current_stack_frame_id())
                 .cloned()
             {
                 stack_frame_list
