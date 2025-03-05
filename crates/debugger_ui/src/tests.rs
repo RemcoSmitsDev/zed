@@ -6,12 +6,12 @@ use workspace::Workspace;
 
 use crate::{debugger_panel::DebugPanel, session::DebugSession};
 
-mod attach_modal;
-mod console;
-mod debugger_panel;
-mod module_list;
+// mod attach_modal;
+// mod console;
+// mod debugger_panel;
+// mod module_list;
 mod stack_frame_list;
-mod variable_list;
+// mod variable_list;
 
 pub fn init_test(cx: &mut gpui::TestAppContext) {
     if std::env::var("RUST_LOG").is_ok() {

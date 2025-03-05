@@ -393,3 +393,13 @@ impl Render for DebugPanel {
             .into_any()
     }
 }
+l Render for DebugPanel {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .key_context("DebugPanel")
+            .track_focus(&self.focus_handle(cx))
+            .size_full()
+            .child(self.pane.clone())
+            .into_any()
+    }
+}

@@ -92,7 +92,7 @@ impl StackFrameList {
         &self.entries
     }
 
-    pub fn stack_frames(&self, cx: &mut App) -> Vec<StackFrame> {
+    fn stack_frames(&self, cx: &mut App) -> Vec<StackFrame> {
         self.state
             .read_with(cx, |state, _| state.thread.as_ref().map(|(id, _)| *id))
             .log_err()
