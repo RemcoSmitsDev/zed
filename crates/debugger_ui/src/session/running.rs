@@ -10,7 +10,7 @@ use dap::{client::SessionId, debugger_settings::DebuggerSettings, Capabilities, 
 use gpui::{AppContext, Entity, EventEmitter, FocusHandle, Focusable, Subscription, WeakEntity};
 use loaded_source_list::LoadedSourceList;
 use module_list::ModuleList;
-use project::debugger::session::{Session, ThreadId, ThreadStatus};
+use project::debugger::session::{Session, SessionEvent, ThreadId, ThreadStatus};
 use rpc::proto::ViewId;
 use settings::Settings;
 use stack_frame_list::{StackFrameList, StackFrameListEvent};
@@ -388,12 +388,24 @@ impl RunningState {
         cx.observe(&module_list, |_, _, cx| cx.notify()).detach();
         cx.observe(&session, |_, _, cx| cx.notify()).detach();
 
-        let _subscriptions = vec![cx.subscribe(
-            &stack_frame_list,
-            move |this: &mut Self, _, event: &StackFrameListEvent, cx| match event {
-                StackFrameListEvent::SelectedStackFrameChanged(_) => this.clear_highlights(cx),
-            },
-        )];
+        let _subscriptions = vec![
+            cx.subscribe(
+                &stack_frame_list,
+                move |this: &mut Self, _, event: &StackFrameListEvent, cx| match event {
+                    StackFrameListEvent::SelectedStackFrameChanged(_) => this.clear_highlights(cx),
+                },
+            ),
+            cx.subscribe(
+                &session,
+                move |this: &mut Self, _, event: &SessionEvent, cx| match event {
+                    SessionEvent::Stopped => {
+                        this.thread.take();
+                        cx.notify();
+                    }
+                    _ => {}
+                },
+            ),
+        ];
 
         Self {
             session,
