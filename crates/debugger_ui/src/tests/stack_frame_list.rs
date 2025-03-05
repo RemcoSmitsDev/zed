@@ -741,7 +741,7 @@ async fn test_collapsed_entries(executor: BackgroundExecutor, cx: &mut TestAppCo
     cx.run_until_parked();
 
     // trigger stack frames to loaded
-    active_debug_session_panel(workspace, cx).update_in(cx, |debug_panel_item, window, cx| {
+    active_debug_session_panel(workspace, cx).update(cx, |debug_panel_item, cx| {
         let stack_frame_list = debug_panel_item
             .mode()
             .as_running()
