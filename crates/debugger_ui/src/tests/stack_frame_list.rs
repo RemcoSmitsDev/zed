@@ -333,7 +333,7 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
 
     cx.run_until_parked();
 
-    // trigger threads are loaded
+    // trigger threads to load
     active_debug_session_panel(workspace, cx).update(cx, |session, cx| {
         session
             .mode()
@@ -412,6 +412,11 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
                 .clone()
         })
         .unwrap();
+
+    stack_frame_list.update(cx, |stack_frame_list, cx| {
+        assert_eq!(Some(1), stack_frame_list.current_stack_frame_id());
+        assert_eq!(stack_frames, stack_frame_list.dap_stack_frames(cx));
+    });
 
     // select second stack frame
     stack_frame_list
@@ -503,6 +508,17 @@ async fn test_collapsed_entries(executor: BackgroundExecutor, cx: &mut TestAppCo
     let session = task.await.unwrap();
     let client = session.update(cx, |session, _| session.adapter_client().unwrap());
 
+    client
+        .on_request::<Threads, _>(move |_, _| {
+            Ok(dap::ThreadsResponse {
+                threads: vec![dap::Thread {
+                    id: 1,
+                    name: "Thread 1".into(),
+                }],
+            })
+        })
+        .await;
+
     let stack_frames = vec![
         StackFrame {
             id: 1,
@@ -592,6 +608,72 @@ async fn test_collapsed_entries(executor: BackgroundExecutor, cx: &mut TestAppCo
             module_id: None,
             presentation_hint: None,
         },
+        StackFrame {
+            id: 5,
+            name: "Stack Frame 5".into(),
+            source: Some(dap::Source {
+                name: Some("module.js".into()),
+                path: Some("/project/src/module.js".into()),
+                source_reference: None,
+                presentation_hint: None,
+                origin: None,
+                sources: None,
+                adapter_data: None,
+                checksums: None,
+            }),
+            line: 1,
+            column: 1,
+            end_line: None,
+            end_column: None,
+            can_restart: None,
+            instruction_pointer_reference: None,
+            module_id: None,
+            presentation_hint: Some(dap::StackFramePresentationHint::Deemphasize),
+        },
+        StackFrame {
+            id: 6,
+            name: "Stack Frame 6".into(),
+            source: Some(dap::Source {
+                name: Some("module.js".into()),
+                path: Some("/project/src/module.js".into()),
+                source_reference: None,
+                presentation_hint: None,
+                origin: None,
+                sources: None,
+                adapter_data: None,
+                checksums: None,
+            }),
+            line: 1,
+            column: 1,
+            end_line: None,
+            end_column: None,
+            can_restart: None,
+            instruction_pointer_reference: None,
+            module_id: None,
+            presentation_hint: Some(dap::StackFramePresentationHint::Deemphasize),
+        },
+        StackFrame {
+            id: 7,
+            name: "Stack Frame 7".into(),
+            source: Some(dap::Source {
+                name: Some("module.js".into()),
+                path: Some("/project/src/module.js".into()),
+                source_reference: None,
+                presentation_hint: None,
+                origin: None,
+                sources: None,
+                adapter_data: None,
+                checksums: None,
+            }),
+            line: 1,
+            column: 1,
+            end_line: None,
+            end_column: None,
+            can_restart: None,
+            instruction_pointer_reference: None,
+            module_id: None,
+            presentation_hint: None,
+        },
     ];
 
     client
@@ -624,43 +706,124 @@ async fn test_collapsed_entries(executor: BackgroundExecutor, cx: &mut TestAppCo
 
     cx.run_until_parked();
 
-    active_debug_session_panel(workspace, cx).update(cx, |debug_panel_item, cx| {
-        debug_panel_item
+    // trigger threads to load
+    active_debug_session_panel(workspace, cx).update(cx, |session, cx| {
+        session
             .mode()
             .as_running()
             .unwrap()
-            .update(cx, |state, cx| {
-                state.stack_frame_list().update(cx, |stack_frame_list, cx| {
-                    assert_eq!(
-                        &vec![
-                            StackFrameEntry::Normal(stack_frames[0].clone()),
-                            StackFrameEntry::Collapsed(vec![
-                                stack_frames[1].clone(),
-                                stack_frames[2].clone()
-                            ]),
-                            StackFrameEntry::Normal(stack_frames[3].clone()),
-                        ],
-                        stack_frame_list.entries()
-                    );
-
-                    stack_frame_list.expand_collapsed_entry(
-                        1,
-                        &vec![stack_frames[1].clone(), stack_frames[2].clone()],
-                        cx,
-                    );
-
-                    assert_eq!(
-                        &vec![
-                            StackFrameEntry::Normal(stack_frames[0].clone()),
-                            StackFrameEntry::Normal(stack_frames[1].clone()),
-                            StackFrameEntry::Normal(stack_frames[2].clone()),
-                            StackFrameEntry::Normal(stack_frames[3].clone()),
-                        ],
-                        stack_frame_list.entries()
-                    );
-                })
+            .update(cx, |running_state, cx| {
+                running_state
+                    .session()
+                    .update(cx, |session, cx| session.threads(cx));
             });
     });
+
+    cx.run_until_parked();
+
+    // select first thread
+    active_debug_session_panel(workspace, cx).update_in(cx, |session, window, cx| {
+        session
+            .mode()
+            .as_running()
+            .unwrap()
+            .update(cx, |running_state, cx| {
+                running_state.select_first_thread(
+                    &running_state
+                        .session()
+                        .update(cx, |session, cx| session.threads(cx)),
+                    window,
+                    cx,
+                );
+            });
+    });
+
+    cx.run_until_parked();
+
+    // trigger stack frames to loaded
+    active_debug_session_panel(workspace, cx).update_in(cx, |debug_panel_item, window, cx| {
+        let stack_frame_list = debug_panel_item
+            .mode()
+            .as_running()
+            .unwrap()
+            .update(cx, |state, _| state.stack_frame_list().clone());
+
+        stack_frame_list.update(cx, |stack_frame_list, cx| {
+            stack_frame_list.dap_stack_frames(cx);
+        });
+    });
+
+    cx.run_until_parked();
+
+    active_debug_session_panel(workspace, cx).update_in(cx, |debug_panel_item, window, cx| {
+        let stack_frame_list = debug_panel_item
+            .mode()
+            .as_running()
+            .unwrap()
+            .update(cx, |state, _| state.stack_frame_list().clone());
+
+        stack_frame_list.update(cx, |stack_frame_list, cx| {
+            stack_frame_list.build_entries(true, window, cx);
+
+            assert_eq!(
+                &vec![
+                    StackFrameEntry::Normal(stack_frames[0].clone()),
+                    StackFrameEntry::Collapsed(vec![
+                        stack_frames[1].clone(),
+                        stack_frames[2].clone()
+                    ]),
+                    StackFrameEntry::Normal(stack_frames[3].clone()),
+                    StackFrameEntry::Collapsed(vec![
+                        stack_frames[4].clone(),
+                        stack_frames[5].clone()
+                    ]),
+                    StackFrameEntry::Normal(stack_frames[6].clone()),
+                ],
+                stack_frame_list.entries()
+            );
+
+            stack_frame_list.expand_collapsed_entry(
+                1,
+                &vec![stack_frames[1].clone(), stack_frames[2].clone()],
+                cx,
+            );
+
+            assert_eq!(
+                &vec![
+                    StackFrameEntry::Normal(stack_frames[0].clone()),
+                    StackFrameEntry::Normal(stack_frames[1].clone()),
+                    StackFrameEntry::Normal(stack_frames[2].clone()),
+                    StackFrameEntry::Normal(stack_frames[3].clone()),
+                    StackFrameEntry::Collapsed(vec![
+                        stack_frames[4].clone(),
+                        stack_frames[5].clone()
+                    ]),
+                    StackFrameEntry::Normal(stack_frames[6].clone()),
+                ],
+                stack_frame_list.entries()
+            );
+
+            stack_frame_list.expand_collapsed_entry(
+                4,
+                &vec![stack_frames[4].clone(), stack_frames[5].clone()],
+                cx,
+            );
+
+            assert_eq!(
+                &vec![
+                    StackFrameEntry::Normal(stack_frames[0].clone()),
+                    StackFrameEntry::Normal(stack_frames[1].clone()),
+                    StackFrameEntry::Normal(stack_frames[2].clone()),
+                    StackFrameEntry::Normal(stack_frames[3].clone()),
+                    StackFrameEntry::Normal(stack_frames[4].clone()),
+                    StackFrameEntry::Normal(stack_frames[5].clone()),
+                    StackFrameEntry::Normal(stack_frames[6].clone()),
+                ],
+                stack_frame_list.entries()
+            );
+        });
+    });
+
     let shutdown_session = project.update(cx, |project, cx| {
         project.dap_store().update(cx, |dap_store, cx| {
             dap_store.shutdown_session(&session.read(cx).session_id(), cx)

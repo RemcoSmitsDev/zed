@@ -961,21 +961,19 @@ impl Session {
     }
 
     pub fn threads(&mut self, cx: &mut Context<Self>) -> Vec<(dap::Thread, ThreadStatus)> {
-        if self.thread_states.any_stopped_thread() {
-            self.fetch(
-                dap_command::ThreadsCommand,
-                |this, result, cx| {
-                    this.threads = result
-                        .iter()
-                        .map(|thread| (ThreadId(thread.id), Thread::from(thread.clone())))
-                        .collect();
+        self.fetch(
+            dap_command::ThreadsCommand,
+            |this, result, cx| {
+                this.threads = result
+                    .iter()
+                    .map(|thread| (ThreadId(thread.id), Thread::from(thread.clone())))
+                    .collect();
 
-                    this.invalidate_command_type(StackTraceCommand::command_id());
-                    cx.notify();
-                },
-                cx,
-            );
-        }
+                this.invalidate_command_type(StackTraceCommand::command_id());
+                cx.notify();
+            },
+            cx,
+        );
 
         self.threads
             .values()

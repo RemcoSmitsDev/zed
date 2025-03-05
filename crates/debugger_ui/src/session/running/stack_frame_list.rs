@@ -129,7 +129,7 @@ impl StackFrameList {
         });
     }
 
-    fn build_entries(
+    pub fn build_entries(
         &mut self,
         select_first_stack_frame: bool,
         window: &mut Window,
