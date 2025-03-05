@@ -145,13 +145,6 @@ async fn test_fetch_initial_stack_frames_and_go_to_stack_frame(
 
     cx.run_until_parked();
 
-    workspace.update(cx, |workspace, window, cx| {
-        let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
-        debug_panel.update(cx, |panel, cx| {
-            panel.render(window, cx);
-        });
-    });
-
     let stack_frame_list = workspace
         .update(cx, |workspace, _window, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();

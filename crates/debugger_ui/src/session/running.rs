@@ -43,7 +43,6 @@ pub struct RunningState {
 
 impl Render for RunningState {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        dbg!("Rendering running state");
         let threads = self.session.update(cx, |this, cx| this.threads(cx));
         if let Some((thread, _)) = threads.first().filter(|_| self.thread.is_none()) {
             self.select_thread(ThreadId(thread.id), thread.name.clone(), window, cx);
@@ -500,7 +499,6 @@ impl RunningState {
         cx: &mut Context<Self>,
     ) {
         self.thread = Some((thread_id, thread_name));
-        dbg!("Selecting thread id");
 
         self.stack_frame_list
             .update(cx, |list, cx| list.refresh(window, cx));

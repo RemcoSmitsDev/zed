@@ -1286,9 +1286,8 @@ impl Session {
     }
 
     pub fn stack_frames(&mut self, thread_id: ThreadId, cx: &mut Context<Self>) -> Vec<StackFrame> {
-        dbg!("fetch stack frames");
-        if self.thread_states.thread_status(thread_id) == ThreadStatus::Stopped || true
-        // && self.requests.contains_key(&ThreadsCommand::command_id())
+        if self.thread_states.thread_status(thread_id) == ThreadStatus::Stopped
+            && self.requests.contains_key(&ThreadsCommand::command_id())
         {
             self.fetch(
                 super::dap_command::StackTraceCommand {
