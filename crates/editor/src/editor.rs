@@ -112,7 +112,7 @@ use linked_editing_ranges::refresh_linked_ranges;
 use mouse_context_menu::MouseContextMenu;
 use persistence::DB;
 use project::{
-    debugger::breakpoint_store::{BreakpointEditAction, BreakpointEvent, BreakpointStore},
+    debugger::breakpoint_store::{BreakpointEditAction, BreakpointStore, BreakpointStoreEvent},
     ProjectPath,
 };
 
@@ -1315,9 +1315,10 @@ impl Editor {
                     &project.read(cx).breakpoint_store(),
                     window,
                     |editor, _, event, window, cx| match event {
-                        BreakpointEvent::ActiveDebugLineChanged => {
+                        BreakpointStoreEvent::ActiveDebugLineChanged => {
                             editor.go_to_active_debug_line(window, cx);
                         }
+                        BreakpointStoreEvent::BreakpointsUpdated(_) => {}
                     },
                 ));
             }
@@ -14842,7 +14843,12 @@ impl Editor {
         let _ = maybe!({
             let breakpoint_store = self.breakpoint_store.as_ref()?;
 
-            let (_, active_position) = breakpoint_store.read(cx).active_position().cloned()?;
+            let Some((_, active_position)) = breakpoint_store.read(cx).active_position().cloned()
+            else {
+                self.clear_row_highlights::<DebugCurrentRowHighlight>();
+                return None;
+            };
+
             let snapshot = self
                 .project
                 .as_ref()?

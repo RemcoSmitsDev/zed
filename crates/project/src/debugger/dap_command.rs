@@ -1266,6 +1266,10 @@ impl DapCommand for StackTraceCommand {
     type ProtoRequest = proto::DapStackTraceRequest;
     const CACHEABLE: bool = true;
 
+    fn is_generic() -> bool {
+        true
+    }
+
     fn to_proto(&self, debug_client_id: SessionId, upstream_project_id: u64) -> Self::ProtoRequest {
         proto::DapStackTraceRequest {
             project_id: upstream_project_id,
@@ -1557,10 +1561,6 @@ impl LocalDapCommand for ThreadsCommand {
 impl DapCommand for ThreadsCommand {
     type ProtoRequest = proto::DapThreadsRequest;
     const CACHEABLE: bool = true;
-
-    fn is_generic() -> bool {
-        true
-    }
 
     fn to_proto(&self, debug_client_id: SessionId, upstream_project_id: u64) -> Self::ProtoRequest {
         proto::DapThreadsRequest {
