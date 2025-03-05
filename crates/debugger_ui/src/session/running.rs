@@ -385,9 +385,6 @@ impl RunningState {
             )
         });
 
-        cx.observe(&module_list, |_, _, cx| cx.notify()).detach();
-        cx.observe(&session, |_, _, cx| cx.notify()).detach();
-
         let _subscriptions = vec![
             cx.subscribe(
                 &stack_frame_list,
@@ -405,6 +402,8 @@ impl RunningState {
                     _ => {}
                 },
             ),
+            cx.observe(&module_list, |_, _, cx| cx.notify()),
+            cx.observe(&session, |_, _, cx| cx.notify()),
         ];
 
         Self {
