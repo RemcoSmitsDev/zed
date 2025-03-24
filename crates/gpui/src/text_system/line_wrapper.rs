@@ -2,6 +2,33 @@ use crate::{px, FontId, FontRun, Pixels, PlatformTextSystem, SharedString, TextR
 use collections::HashMap;
 use std::{iter, sync::Arc};
 
+use std::sync::LazyLock;
+
+static ASCII_WORD_CHARS: LazyLock<[bool; 128]> = LazyLock::new(|| {
+    let mut chars = [false; 128];
+
+    // Mark alphanumeric characters as word characters
+    for c in b'a'..=b'z' {
+        chars[c as usize] = true;
+    }
+    for c in b'A'..=b'Z' {
+        chars[c as usize] = true;
+    }
+    for c in b'0'..=b'9' {
+        chars[c as usize] = true;
+    }
+
+    // Mark special characters used in programming/URLs as word characters
+    for &c in &[
+        b'-', b'_', b'.', b'\'', b'$', b'%', b'@', b'#', b'^', b'~', b',', b'/', b':', b'?', b'&',
+        b'=',
+    ] {
+        chars[c as usize] = true;
+    }
+
+    chars
+});
+
 /// The GPUI line wrapper, used to wrap lines of text to a given width.
 pub struct LineWrapper {
     platform_text_system: Arc<dyn PlatformTextSystem>,
@@ -137,28 +164,27 @@ impl LineWrapper {
     }
 
     pub(crate) fn is_word_char(c: char) -> bool {
-        // ASCII alphanumeric characters, for English, numbers: `Hello123`, etc.
-        c.is_ascii_alphanumeric() ||
-        // Latin script in Unicode for French, German, Spanish, etc.
-        // Latin-1 Supplement
-        // https://en.wikipedia.org/wiki/Latin-1_Supplement
-        matches!(c, '\u{00C0}'..='\u{00FF}') ||
-        // Latin Extended-A
-        // https://en.wikipedia.org/wiki/Latin_Extended-A
-        matches!(c, '\u{0100}'..='\u{017F}') ||
-        // Latin Extended-B
-        // https://en.wikipedia.org/wiki/Latin_Extended-B
-        matches!(c, '\u{0180}'..='\u{024F}') ||
-        // Cyrillic for Russian, Ukrainian, etc.
-        // https://en.wikipedia.org/wiki/Cyrillic_script_in_Unicode
-        matches!(c, '\u{0400}'..='\u{04FF}') ||
-        // Some other known special characters that should be treated as word characters,
-        // e.g. `a-b`, `var_name`, `I'm`, '@mention`, `#hashtag`, `100%`, `3.1415`, `2^3`, `a~b`, etc.
-        matches!(c, '-' | '_' | '.' | '\'' | '$' | '%' | '@' | '#' | '^' | '~' | ',') ||
-        // Characters that used in URL, e.g. `https://github.com/zed-industries/zed?a=1&b=2` for better wrapping a long URL.
-        matches!(c,  '/' | ':' | '?' | '&' | '=') ||
-        // `⋯` character is special used in Zed, to keep this at the end of the line.
-        matches!(c, '⋯')
+        // Fast path for ASCII (most common case in English/code)
+        if c.is_ascii() {
+            return ASCII_WORD_CHARS[c as usize];
+        }
+
+        // For non-ASCII, check Unicode ranges
+        // These are all combined into a single match expression
+        matches!(c,
+            // Has special use in Zed to keep this at the end of the line.
+            '⋯' |
+            // Latin scripts in Unicode for French, German, Spanish, etc.
+            //
+            // Latin-1 Supplement (https://en.wikipedia.org/wiki/Latin-1_Supplement)
+            '\u{00C0}'..='\u{00FF}' |
+            // Latin Extended-A (https://en.wikipedia.org/wiki/Latin_Extended-A)
+            '\u{0100}'..='\u{017F}' |
+            // Latin Extended-B (https://en.wikipedia.org/wiki/Latin_Extended-B)
+            '\u{0180}'..='\u{024F}' |
+            // Cyrillic for Russian, Ukrainian, etc. (https://en.wikipedia.org/wiki/Cyrillic_script_in_Unicode)
+            '\u{0400}'..='\u{04FF}'
+        )
     }
 
     #[inline(always)]
