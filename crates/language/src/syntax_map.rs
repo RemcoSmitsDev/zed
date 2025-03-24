@@ -393,7 +393,10 @@ impl SyntaxSnapshot {
             .edits_since::<usize>(&self.parsed_version)
             .map(|edit| edit.new)
             .collect::<Vec<_>>();
-        self.reparse_with_ranges(text, root_language.clone(), edit_ranges, registry.as_ref());
+
+        if !edit_ranges.is_empty() {
+            self.reparse_with_ranges(text, root_language.clone(), edit_ranges, registry.as_ref());
+        }
 
         if let Some(registry) = registry {
             if registry.version() != self.language_registry_version {
