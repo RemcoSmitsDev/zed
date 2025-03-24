@@ -395,6 +395,7 @@ impl Rope {
         cursor.seek(&offset, Bias::Left, &());
         if let Some(chunk) = cursor.item() {
             let mut ix = offset - cursor.start();
+            drop(cursor);
             while !chunk.text.is_char_boundary(ix) {
                 match bias {
                     Bias::Left => {
