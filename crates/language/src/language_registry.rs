@@ -895,6 +895,7 @@ impl LanguageRegistry {
             tx.send(Err(Arc::new(anyhow!("no such grammar {}", name))))
                 .ok();
         }
+        drop(state);
 
         async move { rx.await?.map_err(|e| anyhow!(e)) }
     }
