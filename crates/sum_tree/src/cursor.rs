@@ -471,6 +471,7 @@ where
             });
         }
 
+        let mut child_end = D::zero(cx);
         let mut ascending = false;
         'outer: while let Some(entry) = self.stack.last_mut() {
             match *entry.tree.0 {
@@ -481,24 +482,24 @@ where
                 } => {
                     if ascending {
                         entry.index += 1;
-                        entry.position = self.position.clone();
+                        entry.position.clone_from(&self.position);
                     }
 
                     for (child_tree, child_summary) in child_trees[entry.index..]
                         .iter()
                         .zip(&child_summaries[entry.index..])
                     {
-                        let mut child_end = self.position.clone();
+                        child_end.clone_from(&self.position);
                         child_end.add_summary(child_summary, cx);
 
                         let comparison = target.cmp(&child_end, cx);
                         if comparison == Ordering::Greater
                             || (comparison == Ordering::Equal && bias == Bias::Right)
                         {
-                            self.position = child_end;
+                            std::mem::swap(&mut self.position, &mut child_end);
                             aggregate.push_tree(child_tree, child_summary, cx);
                             entry.index += 1;
-                            entry.position = self.position.clone();
+                            entry.position.clone_from(&self.position);
                         } else {
                             self.stack.push(StackEntry {
                                 tree: child_tree,
@@ -521,14 +522,14 @@ where
                         .iter()
                         .zip(&item_summaries[entry.index..])
                     {
-                        let mut child_end = self.position.clone();
+                        child_end.clone_from(&self.position);
                         child_end.add_summary(item_summary, cx);
 
                         let comparison = target.cmp(&child_end, cx);
                         if comparison == Ordering::Greater
                             || (comparison == Ordering::Equal && bias == Bias::Right)
                         {
-                            self.position = child_end;
+                            std::mem::swap(&mut self.position, &mut child_end);
                             aggregate.push_item(item, item_summary, cx);
                             entry.index += 1;
                         } else {
@@ -548,14 +549,14 @@ where
         self.at_end = self.stack.is_empty();
         debug_assert!(self.stack.is_empty() || self.stack.last().unwrap().tree.0.is_leaf());
 
-        let mut end = self.position.clone();
+        child_end.clone_from(&self.position);
         if bias == Bias::Left {
             if let Some(summary) = self.item_summary() {
-                end.add_summary(summary, cx);
+                child_end.add_summary(summary, cx);
             }
         }
 
-        target.cmp(&end, cx) == Ordering::Equal
+        target.cmp(&child_end, cx) == Ordering::Equal
     }
 }
 
