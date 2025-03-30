@@ -315,8 +315,11 @@ pub(crate) fn refresh_enabled_in_any_buffer(
         let multi_buffer = multi_buffer.read(cx);
         let mut found_enabled = false;
         multi_buffer.for_each_buffer(|buffer| {
-            let buffer = buffer.read(cx);
-            let snapshot = buffer.snapshot();
+            if found_enabled {
+                return;
+            }
+
+            let snapshot = buffer.read(cx).snapshot();
             for syntax_layer in snapshot.syntax_layers() {
                 let language = syntax_layer.language;
                 if language.config().jsx_tag_auto_close.is_none() {
