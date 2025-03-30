@@ -411,7 +411,7 @@ impl WrapSnapshot {
         }
 
         let mut tab_edits_iter = tab_edits.iter().peekable();
-        let mut row_edits = Vec::new();
+        let mut row_edits = Vec::with_capacity(tab_edits_iter.len());
         while let Some(edit) = tab_edits_iter.next() {
             let mut row_edit = RowEdit {
                 old_rows: edit.old.start.row()..edit.old.end.row() + 1,
@@ -578,6 +578,8 @@ impl WrapSnapshot {
                 new: new_start.row..new_end.row,
             });
         }
+        drop(old_cursor);
+        drop(new_cursor);
 
         wrap_edits = consolidate_wrap_edits(wrap_edits);
         Patch::new(wrap_edits)
