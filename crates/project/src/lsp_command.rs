@@ -262,8 +262,8 @@ pub(crate) struct LinkedEditingRange {
 #[derive(Debug)]
 pub(crate) struct InlineValue {
     pub range: Range<Anchor>,
-    pub stackFrameId: i32,
-    pub stoppedLocation: Range<Anchor>,
+    pub stack_frame_id: i32,
+    pub stopped_location: Range<Anchor>,
 }
 
 #[async_trait(?Send)]
@@ -3633,6 +3633,18 @@ impl LspCommand for InlineValue {
         "Inline Value"
     }
 
+    fn check_capabilities(&self, capabilities: AdapterServerCapabilities) -> bool {
+        let Some(inline_value_provider) =
+            dbg!(&capabilities.server_capabilities.inline_value_provider)
+        else {
+            return false;
+        };
+        if let OneOf::Left(false) = inline_value_provider {
+            return false;
+        }
+        true
+    }
+
     fn to_lsp(
         &self,
         path: &Path,
@@ -3645,13 +3657,13 @@ impl LspCommand for InlineValue {
             text_document: make_text_document_identifier(path)?,
             range: range_to_lsp(self.range.to_point_utf16(buffer))?,
             context: lsp::InlineValueContext {
-                frame_id: self.stackFrameId,
-                stopped_location: range_to_lsp(self.stoppedLocation.to_point_utf16(buffer))?,
+                frame_id: self.stack_frame_id,
+                stopped_location: range_to_lsp(self.stopped_location.to_point_utf16(buffer))?,
             },
         })
     }
 
-    fn response_from_lsp(
+    async fn response_from_lsp(
         self,
         message: Option<lsp::InlineValue>,
         _lsp_store: Entity<LspStore>,
@@ -3667,14 +3679,12 @@ impl LspCommand for InlineValue {
             project_id,
             version: serialize_version(&buffer.version()),
             buffer_id: buffer.remote_id().into(),
-            start: Some(language::proto::serialize_anchor(&self.range.start)),
-            end: Some(language::proto::serialize_anchor(&self.range.end)),
+            start: Some(serialize_anchor(&self.range.start)),
+            end: Some(serialize_anchor(&self.range.end)),
             context: Some(proto::InlineValueContext {
-                stack_frame_id: self.stackFrameId as u32,
-                start: Some(language::proto::serialize_anchor(
-                    &self.stoppedLocation.start,
-                )),
-                end: Some(language::proto::serialize_anchor(&self.stoppedLocation.end)),
+                stack_frame_id: self.stack_frame_id as u32,
+                start: Some(serialize_anchor(&self.stopped_location.start)),
+                end: Some(serialize_anchor(&self.stopped_location.end)),
             }),
         }
     }
@@ -3712,42 +3722,136 @@ impl LspCommand for InlineValue {
 
         Ok(Self {
             range: buffer_start..buffer_end,
-            stackFrameId: context.stack_frame_id as i32,
-            stoppedLocation: context_start..context_end,
+            stack_frame_id: context.stack_frame_id as i32,
+            stopped_location: context_start..context_end,
         })
     }
 
     fn response_to_proto(
         response: Self::Response,
-        lsp_store: &mut LspStore,
-        peer_id: PeerId,
-        buffer_version: &clock::Global,
-        cx: &mut App,
+        _lsp_store: &mut LspStore,
+        _peer_id: PeerId,
+        _buffer_version: &clock::Global,
+        _cx: &mut App,
     ) -> proto::InlineValueResponse {
         proto::InlineValueResponse {
-            inline_value: todo!(),
+            inline_value: response.map(|inline_value| match inline_value {
+                lsp::InlineValue::Text(text) => {
+                    let range = range_from_lsp(text.range);
+                    proto::inline_value_response::InlineValue::InlineValueText(
+                        proto::InlineValueText {
+                            start: Some(proto::PointUtf16 {
+                                row: range.start.0.row,
+                                column: range.start.0.column,
+                            }),
+                            end: Some(proto::PointUtf16 {
+                                row: range.end.0.row,
+                                column: range.end.0.column,
+                            }),
+                            text: text.text.clone(),
+                        },
+                    )
+                }
+                lsp::InlineValue::VariableLookup(lookup) => {
+                    let range = range_from_lsp(lookup.range);
+                    proto::inline_value_response::InlineValue::InlineValueVariableLookup(
+                        proto::InlineValueVariableLookup {
+                            start: Some(proto::PointUtf16 {
+                                row: range.start.0.row,
+                                column: range.start.0.column,
+                            }),
+                            end: Some(proto::PointUtf16 {
+                                row: range.end.0.row,
+                                column: range.end.0.column,
+                            }),
+                            variable_name: lookup.variable_name.clone(),
+                            case_sensitive_lookup: lookup.case_sensitive_lookup,
+                        },
+                    )
+                }
+                lsp::InlineValue::EvaluatableExpression(expression) => {
+                    let range = range_from_lsp(expression.range);
+                    proto::inline_value_response::InlineValue::InlineValueEvaluateExpression(
+                        proto::InlineValueEvaluateExpression {
+                            start: Some(proto::PointUtf16 {
+                                row: range.start.0.row,
+                                column: range.start.0.column,
+                            }),
+                            end: Some(proto::PointUtf16 {
+                                row: range.end.0.row,
+                                column: range.end.0.column,
+                            }),
+                            expression: expression.expression.clone(),
+                        },
+                    )
+                }
+            }),
         }
     }
 
     async fn response_from_proto(
         self,
         message: proto::InlineValueResponse,
-        lsp_store: Entity<LspStore>,
-        buffer: Entity<Buffer>,
-        cx: AsyncApp,
+        _lsp_store: Entity<LspStore>,
+        _buffer: Entity<Buffer>,
+        _cx: AsyncApp,
     ) -> anyhow::Result<Self::Response> {
         let Some(inline_value) = message.inline_value else {
-            return Err(anyhow!("Failed to get valid inline value"));
+            return Err(anyhow!("missing inline value"));
         };
 
         Ok(match inline_value {
-            proto::InlineValueResponse::InlineValueText(fields) => {
-                lsp::InlineValue(lsp::InlineValueText {
-                    range: todo!(),
-                    text: todo!(),
-                })
+            proto::inline_value_response::InlineValue::InlineValueText(text) => {
+                let start = text
+                    .start
+                    .ok_or_else(|| anyhow!("missing inline value text start"))?;
+                let end = text
+                    .end
+                    .ok_or_else(|| anyhow!("missing inline value text end"))?;
+
+                Some(lsp::InlineValue::Text(lsp::InlineValueText {
+                    range: range_to_lsp(
+                        PointUtf16::new(start.row, start.column)
+                            ..PointUtf16::new(end.row, end.column),
+                    )?,
+                    text: text.text,
+                }))
             }
-            _ => todo!(),
+            proto::inline_value_response::InlineValue::InlineValueVariableLookup(lookup) => {
+                let start = lookup
+                    .start
+                    .ok_or_else(|| anyhow!("missing variable lookup start"))?;
+                let end = lookup
+                    .end
+                    .ok_or_else(|| anyhow!("missing variable lookup end"))?;
+
+                Some(lsp::InlineValue::VariableLookup(
+                    lsp::InlineValueVariableLookup {
+                        range: range_to_lsp(
+                            PointUtf16::new(start.row, start.column)
+                                ..PointUtf16::new(end.row, end.column),
+                        )?,
+                        variable_name: lookup.variable_name,
+                        case_sensitive_lookup: lookup.case_sensitive_lookup,
+                    },
+                ))
+            }
+            proto::inline_value_response::InlineValue::InlineValueEvaluateExpression(expr) => {
+                let start = expr
+                    .start
+                    .ok_or_else(|| anyhow!("missing expression start"))?;
+                let end = expr.end.ok_or_else(|| anyhow!("missing expression end"))?;
+
+                Some(lsp::InlineValue::EvaluatableExpression(
+                    lsp::InlineValueEvaluatableExpression {
+                        range: range_to_lsp(
+                            PointUtf16::new(start.row, start.column)
+                                ..PointUtf16::new(end.row, end.column),
+                        )?,
+                        expression: expr.expression,
+                    },
+                ))
+            }
         })
     }
 

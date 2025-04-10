@@ -18799,6 +18799,19 @@ impl SemanticsProvider for Entity<Project> {
     ) -> Option<Task<anyhow::Result<Vec<InlayHint>>>> {
         Some(self.update(cx, |project, cx| {
             if let Some(session) = project.active_debug_session(cx) {
+                project
+                    .lsp_store()
+                    .update(cx, |lsp_store, cx| {
+                        lsp_store.inline_values(
+                            buffer_handle.clone(),
+                            range.clone(),
+                            1,
+                            range.clone(), // TODO: should be current stack frame line
+                            cx,
+                        )
+                    })
+                    .detach_and_log_err(cx);
+
                 return project.dap_store().update(cx, |dap_store, cx| {
                     dap_store.inlay_hints(session, buffer_handle, range, cx)
                 });

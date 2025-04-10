@@ -716,20 +716,21 @@ message InlineValueContext {
 }
 
 message InlineValueText {
-    Anchor start = 1;
-    Anchor end = 2;
+    PointUtf16 start = 1;
+    PointUtf16 end = 2;
+    string text = 3;
 }
 
 message InlineValueVariableLookup {
-    Anchor start = 1;
-    Anchor end = 2;
+    PointUtf16 start = 1;
+    PointUtf16 end = 2;
     optional string variable_name = 3;
     bool case_sensitive_lookup = 4;
 }
 
-message InlineValueEvaluatableExpression {
-    Anchor start = 1;
-    Anchor end = 2;
+message InlineValueEvaluateExpression {
+    PointUtf16 start = 1;
+    PointUtf16 end = 2;
     optional string expression = 3;
 }
 
@@ -737,6 +738,6 @@ message InlineValueResponse {
     oneof inline_value {
         InlineValueText inline_value_text = 1;
         InlineValueVariableLookup inline_value_variable_lookup = 2;
-        InlineValueEvaluatableExpression inline_value_evaluate_expression = 3;
+        InlineValueEvaluateExpression inline_value_evaluate_expression = 3;
     }
 }
