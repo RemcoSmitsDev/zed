@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ::lsp::LanguageServerName;
-use anyhow::{anyhow, bail, Context as _, Result};
+use anyhow::{Context as _, Result, anyhow, bail};
 use async_trait::async_trait;
 use fs::normalize_path;
 use gpui::{App, Task};
@@ -76,6 +76,20 @@ pub trait Extension: Send + Sync + 'static {
         worktree: Arc<dyn WorktreeDelegate>,
     ) -> Result<Option<String>>;
 
+    async fn language_server_additional_initialization_options(
+        &self,
+        language_server_id: LanguageServerName,
+        target_language_server_id: LanguageServerName,
+        worktree: Arc<dyn WorktreeDelegate>,
+    ) -> Result<Option<String>>;
+
+    async fn language_server_additional_workspace_configuration(
+        &self,
+        language_server_id: LanguageServerName,
+        target_language_server_id: LanguageServerName,
+        worktree: Arc<dyn WorktreeDelegate>,
+    ) -> Result<Option<String>>;
+
     async fn labels_for_completions(
         &self,
         language_server_id: LanguageServerName,
@@ -107,6 +121,12 @@ pub trait Extension: Send + Sync + 'static {
         project: Arc<dyn ProjectDelegate>,
     ) -> Result<Command>;
 
+    async fn context_server_configuration(
+        &self,
+        context_server_id: Arc<str>,
+        project: Arc<dyn ProjectDelegate>,
+    ) -> Result<Option<ContextServerConfiguration>>;
+
     async fn suggest_docs_packages(&self, provider: Arc<str>) -> Result<Vec<String>>;
 
     async fn index_docs(
@@ -115,6 +135,13 @@ pub trait Extension: Send + Sync + 'static {
         package_name: Arc<str>,
         kv_store: Arc<dyn KeyValueStoreDelegate>,
     ) -> Result<()>;
+
+    async fn get_dap_binary(
+        &self,
+        dap_name: Arc<str>,
+        config: DebugTaskDefinition,
+        user_installed_path: Option<PathBuf>,
+    ) -> Result<DebugAdapterBinary>;
 }
 
 pub fn parse_wasm_extension_version(

@@ -1,21 +1,22 @@
 pub mod wit;
 
 use crate::ExtensionManifest;
-use anyhow::{anyhow, bail, Context as _, Result};
+use anyhow::{Context as _, Result, anyhow, bail};
 use async_trait::async_trait;
 use extension::{
-    CodeLabel, Command, Completion, ExtensionHostProxy, KeyValueStoreDelegate, ProjectDelegate,
-    SlashCommand, SlashCommandArgumentCompletion, SlashCommandOutput, Symbol, WorktreeDelegate,
+    CodeLabel, Command, Completion, ContextServerConfiguration, DebugAdapterBinary,
+    DebugTaskDefinition, ExtensionHostProxy, KeyValueStoreDelegate, ProjectDelegate, SlashCommand,
+    SlashCommandArgumentCompletion, SlashCommandOutput, Symbol, WorktreeDelegate,
 };
-use fs::{normalize_path, Fs};
+use fs::{Fs, normalize_path};
 use futures::future::LocalBoxFuture;
 use futures::{
+    Future, FutureExt, StreamExt as _,
     channel::{
         mpsc::{self, UnboundedSender},
         oneshot,
     },
     future::BoxFuture,
-    Future, FutureExt, StreamExt as _,
 };
 use gpui::{App, AsyncApp, BackgroundExecutor, Task};
 use http_client::HttpClient;
@@ -29,8 +30,8 @@ use std::{
     sync::{Arc, OnceLock},
 };
 use wasmtime::{
-    component::{Component, ResourceTable},
     Engine, Store,
+    component::{Component, ResourceTable},
 };
 use wasmtime_wasi::{self as wasi, WasiView};
 use wit::Extension;
@@ -129,6 +130,56 @@ impl extension::Extension for WasmExtension {
                     .call_language_server_workspace_configuration(
                         store,
                         &language_server_id,
+                        resource,
+                    )
+                    .await?
+                    .map_err(|err| anyhow!("{err}"))?;
+                anyhow::Ok(options)
+            }
+            .boxed()
+        })
+        .await
+    }
+
+    async fn language_server_additional_initialization_options(
+        &self,
+        language_server_id: LanguageServerName,
+        target_language_server_id: LanguageServerName,
+        worktree: Arc<dyn WorktreeDelegate>,
+    ) -> Result<Option<String>> {
+        self.call(|extension, store| {
+            async move {
+                let resource = store.data_mut().table().push(worktree)?;
+                let options = extension
+                    .call_language_server_additional_initialization_options(
+                        store,
+                        &language_server_id,
+                        &target_language_server_id,
+                        resource,
+                    )
+                    .await?
+                    .map_err(|err| anyhow!("{err}"))?;
+                anyhow::Ok(options)
+            }
+            .boxed()
+        })
+        .await
+    }
+
+    async fn language_server_additional_workspace_configuration(
+        &self,
+        language_server_id: LanguageServerName,
+        target_language_server_id: LanguageServerName,
+        worktree: Arc<dyn WorktreeDelegate>,
+    ) -> Result<Option<String>> {
+        self.call(|extension, store| {
+            async move {
+                let resource = store.data_mut().table().push(worktree)?;
+                let options = extension
+                    .call_language_server_additional_workspace_configuration(
+                        store,
+                        &language_server_id,
+                        &target_language_server_id,
                         resource,
                     )
                     .await?
@@ -256,6 +307,33 @@ impl extension::Extension for WasmExtension {
         .await
     }
 
+    async fn context_server_configuration(
+        &self,
+        context_server_id: Arc<str>,
+        project: Arc<dyn ProjectDelegate>,
+    ) -> Result<Option<ContextServerConfiguration>> {
+        self.call(|extension, store| {
+            async move {
+                let project_resource = store.data_mut().table().push(project)?;
+                let Some(configuration) = extension
+                    .call_context_server_configuration(
+                        store,
+                        context_server_id.clone(),
+                        project_resource,
+                    )
+                    .await?
+                    .map_err(|err| anyhow!("{err}"))?
+                else {
+                    return Ok(None);
+                };
+
+                Ok(Some(configuration.try_into()?))
+            }
+            .boxed()
+        })
+        .await
+    }
+
     async fn suggest_docs_packages(&self, provider: Arc<str>) -> Result<Vec<String>> {
         self.call(|extension, store| {
             async move {
@@ -291,6 +369,25 @@ impl extension::Extension for WasmExtension {
                     .map_err(|err| anyhow!("{err:?}"))?;
 
                 anyhow::Ok(())
+            }
+            .boxed()
+        })
+        .await
+    }
+    async fn get_dap_binary(
+        &self,
+        dap_name: Arc<str>,
+        config: DebugTaskDefinition,
+        user_installed_path: Option<PathBuf>,
+    ) -> Result<DebugAdapterBinary> {
+        self.call(|extension, store| {
+            async move {
+                let dap_binary = extension
+                    .call_get_dap_binary(store, dap_name, config, user_installed_path)
+                    .await?
+                    .map_err(|err| anyhow!("{err:?}"))?;
+                let dap_binary = dap_binary.try_into()?;
+                Ok(dap_binary)
             }
             .boxed()
         })

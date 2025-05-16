@@ -1,11 +1,14 @@
-use anyhow::{anyhow, Result};
-use assistant_tool::{ActionLog, Tool};
-use gpui::{App, AppContext, Entity, Task};
-use language_model::LanguageModelRequestMessage;
+use crate::schema::json_schema_for;
+use anyhow::{Result, anyhow};
+use assistant_tool::{ActionLog, Tool, ToolResult};
+use gpui::{AnyWindowHandle, App, AppContext, Entity, Task};
+use language_model::{LanguageModel, LanguageModelRequest, LanguageModelToolSchemaFormat};
 use project::Project;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::{path::Path, sync::Arc};
+use ui::IconName;
+use util::markdown::MarkdownInlineCode;
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct MovePathToolInput {
@@ -36,39 +39,43 @@ pub struct MovePathTool;
 
 impl Tool for MovePathTool {
     fn name(&self) -> String {
-        "move-path".into()
+        "move_path".into()
     }
 
-    fn needs_confirmation(&self) -> bool {
-        true
+    fn needs_confirmation(&self, _: &serde_json::Value, _: &App) -> bool {
+        false
     }
 
     fn description(&self) -> String {
         include_str!("./move_path_tool/description.md").into()
     }
 
-    fn input_schema(&self) -> serde_json::Value {
-        let schema = schemars::schema_for!(MovePathToolInput);
-        serde_json::to_value(&schema).unwrap()
+    fn icon(&self) -> IconName {
+        IconName::ArrowRightLeft
+    }
+
+    fn input_schema(&self, format: LanguageModelToolSchemaFormat) -> Result<serde_json::Value> {
+        json_schema_for::<MovePathToolInput>(format)
     }
 
     fn ui_text(&self, input: &serde_json::Value) -> String {
         match serde_json::from_value::<MovePathToolInput>(input.clone()) {
             Ok(input) => {
-                let src = input.source_path.as_str();
-                let dest = input.destination_path.as_str();
-                let src_path = Path::new(src);
-                let dest_path = Path::new(dest);
+                let src = MarkdownInlineCode(&input.source_path);
+                let dest = MarkdownInlineCode(&input.destination_path);
+                let src_path = Path::new(&input.source_path);
+                let dest_path = Path::new(&input.destination_path);
 
                 match dest_path
                     .file_name()
                     .and_then(|os_str| os_str.to_os_string().into_string().ok())
                 {
                     Some(filename) if src_path.parent() == dest_path.parent() => {
-                        format!("Rename `{src}` to `{filename}`")
+                        let filename = MarkdownInlineCode(&filename);
+                        format!("Rename {src} to {filename}")
                     }
                     _ => {
-                        format!("Move `{src}` to `{dest}`")
+                        format!("Move {src} to {dest}")
                     }
                 }
             }
@@ -79,14 +86,16 @@ impl Tool for MovePathTool {
     fn run(
         self: Arc<Self>,
         input: serde_json::Value,
-        _messages: &[LanguageModelRequestMessage],
+        _request: Arc<LanguageModelRequest>,
         project: Entity<Project>,
         _action_log: Entity<ActionLog>,
+        _model: Arc<dyn LanguageModel>,
+        _window: Option<AnyWindowHandle>,
         cx: &mut App,
-    ) -> Task<Result<String>> {
+    ) -> ToolResult {
         let input = match serde_json::from_value::<MovePathToolInput>(input) {
             Ok(input) => input,
-            Err(err) => return Task::ready(Err(anyhow!(err))),
+            Err(err) => return Task::ready(Err(anyhow!(err))).into(),
         };
         let rename_task = project.update(cx, |project, cx| {
             match project
@@ -109,10 +118,9 @@ impl Tool for MovePathTool {
 
         cx.background_spawn(async move {
             match rename_task.await {
-                Ok(_) => Ok(format!(
-                    "Moved {} to {}",
-                    input.source_path, input.destination_path
-                )),
+                Ok(_) => {
+                    Ok(format!("Moved {} to {}", input.source_path, input.destination_path).into())
+                }
                 Err(err) => Err(anyhow!(
                     "Failed to move {} to {}: {}",
                     input.source_path,
@@ -121,5 +129,6 @@ impl Tool for MovePathTool {
                 )),
             }
         })
+        .into()
     }
 }
