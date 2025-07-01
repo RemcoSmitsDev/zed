@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Ok, Result};
 use dap::{
-    Capabilities, ContinueArguments, ExceptionFilterOptions, InitializeRequestArguments,
-    InitializeRequestArgumentsPathFormat, NextArguments, SetVariableResponse, SourceBreakpoint,
-    StepInArguments, StepOutArguments, SteppingGranularity, ValueFormat, Variable,
-    VariablesArgumentsFilter,
+    Breakpoint, Capabilities, ContinueArguments, ExceptionFilterOptions, ExceptionOptions,
+    InitializeRequestArguments, InitializeRequestArgumentsPathFormat, NextArguments,
+    SetVariableResponse, SourceBreakpoint, StepInArguments, StepOutArguments, SteppingGranularity,
+    ValueFormat, Variable, VariablesArgumentsFilter,
     client::SessionId,
     proto_conversions::ProtoConversion,
     requests::{Continue, Next},
@@ -31,23 +31,19 @@ pub trait LocalDapCommand: 'static + Send + Sync + std::fmt::Debug {
 }
 
 pub trait DapCommand: LocalDapCommand {
-    type ProtoRequest: 'static + Send;
+    type ProtoRequest: 'static + Send + proto::RequestMessage;
     type ProtoResponse: 'static + Send;
     const CACHEABLE: bool = false;
 
-    #[allow(dead_code)]
     fn session_id_from_proto(request: &Self::ProtoRequest) -> SessionId;
 
-    #[allow(dead_code)]
     fn from_proto(request: &Self::ProtoRequest) -> Self;
 
     #[allow(unused)]
     fn to_proto(&self, session_id: SessionId, upstream_project_id: u64) -> Self::ProtoRequest;
 
-    #[allow(dead_code)]
     fn response_to_proto(session_id: SessionId, message: Self::Response) -> Self::ProtoResponse;
 
-    #[allow(unused)]
     fn response_from_proto(&self, message: Self::ProtoResponse) -> Result<Self::Response>;
 }
 
@@ -796,7 +792,7 @@ impl LocalDapCommand for VariablesCommand {
 
 impl DapCommand for VariablesCommand {
     type ProtoRequest = proto::DapVariablesRequest;
-    type ProtoResponse = proto::DapVariables;
+    type ProtoResponse = proto::DapVariablesResponse;
     const CACHEABLE: bool = true;
 
     fn session_id_from_proto(request: &Self::ProtoRequest) -> SessionId {
@@ -826,7 +822,7 @@ impl DapCommand for VariablesCommand {
     }
 
     fn response_to_proto(session_id: SessionId, message: Self::Response) -> Self::ProtoResponse {
-        proto::DapVariables {
+        proto::DapVariablesResponse {
             session_id: session_id.to_proto(),
             variables: message.to_proto(),
         }
@@ -1587,14 +1583,12 @@ impl LocalDapCommand for SetBreakpoints {
         Ok(message.breakpoints)
     }
 }
-#[derive(Clone, Debug, Hash, PartialEq)]
-pub(super) enum SetExceptionBreakpoints {
-    Plain {
-        filters: Vec<String>,
-    },
-    WithOptions {
-        filters: Vec<ExceptionFilterOptions>,
-    },
+
+#[derive(Clone, Debug)]
+pub(super) struct SetExceptionBreakpoints {
+    pub filters: Vec<String>,
+    pub filter_options: Vec<ExceptionFilterOptions>,
+    pub exception_filters: Vec<ExceptionOptions>,
 }
 
 impl LocalDapCommand for SetExceptionBreakpoints {
@@ -1602,19 +1596,10 @@ impl LocalDapCommand for SetExceptionBreakpoints {
     type DapRequest = dap::requests::SetExceptionBreakpoints;
 
     fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
-        match self {
-            SetExceptionBreakpoints::Plain { filters } => dap::SetExceptionBreakpointsArguments {
-                filters: filters.clone(),
-                exception_options: None,
-                filter_options: None,
-            },
-            SetExceptionBreakpoints::WithOptions { filters } => {
-                dap::SetExceptionBreakpointsArguments {
-                    filters: vec![],
-                    filter_options: Some(filters.clone()),
-                    exception_options: None,
-                }
-            }
+        dap::SetExceptionBreakpointsArguments {
+            filters: self.filters.clone(),
+            exception_options: Some(self.exception_filters.clone()),
+            filter_options: Some(self.filter_options.clone()),
         }
     }
 
@@ -1637,40 +1622,53 @@ impl DapCommand for SetExceptionBreakpoints {
     fn from_proto(message: &Self::ProtoRequest) -> Self {
         Self {
             filters: message.filters.clone(),
-            filter_options: message.filter_options.clone(),
-            exception_options: message.exception_options.clone(),
+            filter_options: message
+                .filter_options
+                .clone()
+                .into_iter()
+                .map(ExceptionFilterOptions::from_proto)
+                .collect(),
+            exception_filters: message
+                .exception_options
+                .clone()
+                .into_iter()
+                .map(ExceptionOptions::from_proto)
+                .collect(),
         }
     }
 
     fn to_proto(&self, session_id: SessionId, project_id: u64) -> Self::ProtoRequest {
-        proto::DapLocationsRequest {
+        proto::DapSetExceptionBreakpointsRequest {
             project_id,
             session_id: session_id.to_proto(),
-            location_reference: self.reference,
+            filters: self.filters.clone(),
+            exception_options: self
+                .exception_filters
+                .clone()
+                .into_iter()
+                .map(|filter| filter.to_proto())
+                .collect(),
+            filter_options: self
+                .filter_options
+                .clone()
+                .into_iter()
+                .map(|filter| filter.to_proto())
+                .collect(),
         }
     }
 
     fn response_to_proto(_: SessionId, response: Self::Response) -> Self::ProtoResponse {
-        proto::DapLocationsResponse {
-            source: Some(response.source.to_proto()),
-            line: response.line,
-            column: response.column,
-            end_line: response.end_line,
-            end_column: response.end_column,
+        proto::DapSetExceptionBreakpointsResponse {
+            breakpoints: response.to_proto(),
         }
     }
 
     fn response_from_proto(&self, response: Self::ProtoResponse) -> Result<Self::Response> {
-        Ok(dap::LocationsResponse {
-            source: response
-                .source
-                .map(<dap::Source as ProtoConversion>::from_proto)
-                .context("Missing `source` field in Locations proto")?,
-            line: response.line,
-            column: response.column,
-            end_line: response.end_line,
-            end_column: response.end_column,
-        })
+        Ok(response
+            .breakpoints
+            .into_iter()
+            .map(Breakpoint::from_proto)
+            .collect())
     }
 }
 

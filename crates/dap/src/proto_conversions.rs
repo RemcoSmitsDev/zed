@@ -589,3 +589,167 @@ impl ProtoConversion for dap_types::Thread {
         }
     }
 }
+
+impl ProtoConversion for dap_types::ExceptionBreakMode {
+    type ProtoType = proto::ExceptionBreakMode;
+    type Output = Self;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        match self {
+            dap_types::ExceptionBreakMode::Never => proto::ExceptionBreakMode::Never,
+            dap_types::ExceptionBreakMode::Always => proto::ExceptionBreakMode::Always,
+            dap_types::ExceptionBreakMode::Unhandled => proto::ExceptionBreakMode::Unhandled,
+            dap_types::ExceptionBreakMode::UserUnhandled => {
+                proto::ExceptionBreakMode::AlwaysUnhandled
+            }
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        match payload {
+            proto::ExceptionBreakMode::Never => dap_types::ExceptionBreakMode::Never,
+            proto::ExceptionBreakMode::Always => dap_types::ExceptionBreakMode::Always,
+            proto::ExceptionBreakMode::Unhandled => dap_types::ExceptionBreakMode::Unhandled,
+            proto::ExceptionBreakMode::AlwaysUnhandled => {
+                dap_types::ExceptionBreakMode::UserUnhandled
+            }
+        }
+    }
+}
+
+impl ProtoConversion for dap_types::ExceptionPathSegment {
+    type ProtoType = proto::ExceptionPathSegment;
+    type Output = Self;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        proto::ExceptionPathSegment {
+            negate: self.negate,
+            names: self.names.clone(),
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        Self {
+            negate: payload.negate,
+            names: payload.names,
+        }
+    }
+}
+
+impl ProtoConversion for dap_types::ExceptionOptions {
+    type ProtoType = proto::ExceptionOptions;
+    type Output = Self;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        proto::ExceptionOptions {
+            path: self.path.as_ref().map(|p| p.to_proto()).unwrap_or_default(),
+            break_mode: self.break_mode.to_proto() as i32,
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        Self {
+            path: if payload.path.is_empty() {
+                None
+            } else {
+                Some(
+                    payload
+                        .path
+                        .into_iter()
+                        .map(|p| dap_types::ExceptionPathSegment::from_proto(p))
+                        .collect(),
+                )
+            },
+            break_mode: match payload.break_mode {
+                0 => dap_types::ExceptionBreakMode::Never,
+                1 => dap_types::ExceptionBreakMode::Always,
+                2 => dap_types::ExceptionBreakMode::Unhandled,
+                3 => dap_types::ExceptionBreakMode::UserUnhandled,
+                _ => dap_types::ExceptionBreakMode::Never,
+            },
+        }
+    }
+}
+
+impl ProtoConversion for dap_types::ExceptionFilterOptions {
+    type ProtoType = proto::ExceptionFilterOptions;
+    type Output = Self;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        proto::ExceptionFilterOptions {
+            filter_id: self.filter_id.clone(),
+            condition: self.condition.clone(),
+            mode: self.mode.clone(),
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        Self {
+            filter_id: payload.filter_id,
+            condition: payload.condition,
+            mode: payload.mode,
+        }
+    }
+}
+
+impl ProtoConversion for dap_types::BreakpointReason {
+    type ProtoType = proto::DapBreakpointReason;
+    type Output = Self;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        match self {
+            dap_types::BreakpointReason::Pending => proto::DapBreakpointReason::Pending,
+            dap_types::BreakpointReason::Failed => proto::DapBreakpointReason::Failed,
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        match payload {
+            proto::DapBreakpointReason::Pending => dap_types::BreakpointReason::Pending,
+            proto::DapBreakpointReason::Failed => dap_types::BreakpointReason::Failed,
+        }
+    }
+}
+
+impl ProtoConversion for dap_types::Breakpoint {
+    type ProtoType = proto::DapBreakpoint;
+    type Output = Self;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        proto::DapBreakpoint {
+            id: self.id.map(|id| id as i64),
+            verified: self.verified,
+            message: self.message.clone(),
+            source: self.source.as_ref().map(|source| source.to_proto()),
+            line: self.line.map(|line| line as u32),
+            column: self.column.map(|column| column as u32),
+            end_line: self.end_line.map(|line| line as u32),
+            end_column: self.end_column.map(|column| column as u32),
+            instruction_reference: self.instruction_reference.clone(),
+            offset: self.offset.map(|offset| offset as u32),
+            reason: self.reason.as_ref().map(|reason| reason.to_proto() as i32),
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        Self {
+            id: payload.id.map(|id| id as u64),
+            verified: payload.verified,
+            message: payload.message,
+            source: payload
+                .source
+                .map(|source| dap_types::Source::from_proto(source)),
+            line: payload.line.map(|line| line as u64),
+            column: payload.column.map(|column| column as u64),
+            end_line: payload.end_line.map(|line| line as u64),
+            end_column: payload.end_column.map(|column| column as u64),
+            instruction_reference: payload.instruction_reference,
+            offset: payload.offset.map(|offset| offset as u64),
+            reason: payload.reason.and_then(|reason| match reason {
+                0 => Some(dap_types::BreakpointReason::Pending),
+                1 => Some(dap_types::BreakpointReason::Failed),
+                _ => None,
+            }),
+        }
+    }
+}

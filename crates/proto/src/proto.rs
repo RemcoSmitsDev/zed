@@ -324,6 +324,7 @@ messages!(
     (DapTerminateRequest, Background),
     (DapRestartRequest, Background),
     (DapVariablesRequest, Background),
+    (DapVariablesResponse, Background),
     (DapSetVariableValueRequest, Background),
     (DapSetVariableValueResponse, Background),
     (DapRestartStackFrameRequest, Background),
@@ -345,6 +346,7 @@ messages!(
     (DapLocationsResponse, Background),
     (DapSetExceptionBreakpointsRequest, Background),
     (DapSetExceptionBreakpointsResponse, Background),
+    (DapTerminateThreadsRequest, Background),
 );
 
 request_messages!(
@@ -511,7 +513,6 @@ request_messages!(
     (RunDebugLocators, DebugRequest),
     (GetDocumentDiagnostics, GetDocumentDiagnosticsResponse),
     (PullWorkspaceDiagnostics, Ack),
-    // debugger
     (DapNextRequest, Ack),
     (DapStepInRequest, Ack),
     (DapStepOutRequest, Ack),
@@ -521,7 +522,7 @@ request_messages!(
     (DapDisconnectRequest, Ack),
     (DapTerminateRequest, Ack),
     (DapRestartRequest, Ack),
-    (VariablesRequest, DapVariables), // TODO:
+    (DapVariablesRequest, DapVariablesResponse),
     (DapSetVariableValueRequest, DapSetVariableValueResponse),
     (DapRestartStackFrameRequest, Ack),
     (DapModulesRequest, DapModulesResponse),
@@ -536,6 +537,7 @@ request_messages!(
         DapSetExceptionBreakpointsRequest,
         DapSetExceptionBreakpointsResponse
     ),
+    (DapTerminateThreadsRequest, Ack),
 );
 
 entity_messages!(
