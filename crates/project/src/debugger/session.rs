@@ -555,11 +555,7 @@ impl RemoteMode {
         &self,
         session_id: SessionId,
         request: R,
-    ) -> Task<Result<R::Response>>
-    where
-        <R::DapRequest as dap::requests::Request>::Response: 'static,
-        <R::DapRequest as dap::requests::Request>::Arguments: 'static + Send,
-    {
+    ) -> Task<Result<R::Response>> {
         let request = Arc::new(request);
 
         let request_clone = request.clone();
@@ -567,7 +563,7 @@ impl RemoteMode {
         let project_id = self.upstream_project_id;
         self.executor.spawn(async move {
             let args = request_clone.to_proto(session_id, project_id);
-            let response = client.request::<R::DapRequest>(args).await?;
+            let response = client.request(args).await?;
             request.response_from_proto(response)
         })
     }
@@ -578,11 +574,7 @@ impl Mode {
         &self,
         session_id: SessionId,
         request: R,
-    ) -> Task<Result<R::Response>>
-    where
-        <R::DapRequest as dap::requests::Request>::Response: 'static,
-        <R::DapRequest as dap::requests::Request>::Arguments: 'static + Send,
-    {
+    ) -> Task<Result<R::Response>> {
         match self {
             Mode::Running(debug_adapter_client) => debug_adapter_client.request(request),
             Mode::Building => Task::ready(Err(anyhow!(

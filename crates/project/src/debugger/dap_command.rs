@@ -39,12 +39,14 @@ pub trait DapCommand: LocalDapCommand {
 
     fn from_proto(request: &Self::ProtoRequest) -> Self;
 
-    #[allow(unused)]
     fn to_proto(&self, session_id: SessionId, upstream_project_id: u64) -> Self::ProtoRequest;
 
     fn response_to_proto(session_id: SessionId, message: Self::Response) -> Self::ProtoResponse;
 
-    fn response_from_proto(&self, message: Self::ProtoResponse) -> Result<Self::Response>;
+    fn response_from_proto(
+        &self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response>;
 }
 
 impl<T: LocalDapCommand> LocalDapCommand for Arc<T> {
@@ -87,7 +89,10 @@ impl<T: DapCommand> DapCommand for Arc<T> {
         T::response_to_proto(session_id, message)
     }
 
-    fn response_from_proto(&self, message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         T::response_from_proto(self, message)
     }
 }
@@ -170,7 +175,10 @@ impl DapCommand for NextCommand {
         }
     }
 
-    fn response_from_proto(&self, _message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(())
     }
 }
@@ -236,7 +244,10 @@ impl DapCommand for StepInCommand {
         }
     }
 
-    fn response_from_proto(&self, _message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(())
     }
 }
@@ -304,7 +315,10 @@ impl DapCommand for StepOutCommand {
         }
     }
 
-    fn response_from_proto(&self, _message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(())
     }
 }
@@ -375,7 +389,10 @@ impl DapCommand for StepBackCommand {
         }
     }
 
-    fn response_from_proto(&self, _message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(())
     }
 }
@@ -431,7 +448,10 @@ impl DapCommand for ContinueCommand {
         }
     }
 
-    fn response_from_proto(&self, message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(Self::Response {
             all_threads_continued: message.all_threads_continued,
         })
@@ -493,7 +513,10 @@ impl DapCommand for PauseCommand {
         proto::Ack {}
     }
 
-    fn response_from_proto(&self, _message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(())
     }
 }
@@ -559,7 +582,10 @@ impl DapCommand for DisconnectCommand {
         proto::Ack {}
     }
 
-    fn response_from_proto(&self, _message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(())
     }
 }
@@ -627,7 +653,10 @@ impl DapCommand for TerminateThreadsCommand {
         proto::Ack {}
     }
 
-    fn response_from_proto(&self, _message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(())
     }
 }
@@ -688,7 +717,10 @@ impl DapCommand for TerminateCommand {
         proto::Ack {}
     }
 
-    fn response_from_proto(&self, _message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(())
     }
 }
@@ -754,7 +786,10 @@ impl DapCommand for RestartCommand {
         proto::Ack {}
     }
 
-    fn response_from_proto(&self, _message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(())
     }
 }
@@ -828,7 +863,10 @@ impl DapCommand for VariablesCommand {
         }
     }
 
-    fn response_from_proto(&self, message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(Vec::from_proto(message.variables))
     }
 }
@@ -899,7 +937,10 @@ impl DapCommand for SetVariableValueCommand {
         }
     }
 
-    fn response_from_proto(&self, message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(SetVariableResponse {
             value: message.value,
             type_: message.variable_type,
@@ -969,7 +1010,10 @@ impl DapCommand for RestartStackFrameCommand {
         proto::Ack {}
     }
 
-    fn response_from_proto(&self, _message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        _message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(())
     }
 }
@@ -1034,7 +1078,10 @@ impl DapCommand for ModulesCommand {
         }
     }
 
-    fn response_from_proto(&self, message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(message
             .modules
             .into_iter()
@@ -1101,7 +1148,10 @@ impl DapCommand for LoadedSourcesCommand {
         }
     }
 
-    fn response_from_proto(&self, message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(message
             .sources
             .into_iter()
@@ -1165,7 +1215,10 @@ impl DapCommand for StackTraceCommand {
         SessionId::from_proto(request.session_id)
     }
 
-    fn response_from_proto(&self, message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(message
             .frames
             .into_iter()
@@ -1226,7 +1279,10 @@ impl DapCommand for ScopesCommand {
         SessionId::from_proto(request.session_id)
     }
 
-    fn response_from_proto(&self, message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(Vec::from_proto(message.scopes))
     }
 
@@ -1293,7 +1349,10 @@ impl DapCommand for super::session::CompletionsQuery {
         }
     }
 
-    fn response_from_proto(&self, message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(dap::CompletionsResponse {
             targets: Vec::from_proto(message.completions),
         })
@@ -1367,7 +1426,10 @@ impl DapCommand for EvaluateCommand {
         }
     }
 
-    fn response_from_proto(&self, message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(dap::EvaluateResponse {
             result: message.result.clone(),
             type_: message.evaluate_type.clone(),
@@ -1431,7 +1493,10 @@ impl DapCommand for ThreadsCommand {
         SessionId::from_proto(request.session_id)
     }
 
-    fn response_from_proto(&self, message: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        message: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(Vec::from_proto(message.threads))
     }
 
@@ -1673,7 +1738,10 @@ impl DapCommand for SetExceptionBreakpoints {
         }
     }
 
-    fn response_from_proto(&self, response: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        response: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(response
             .breakpoints
             .into_iter()
@@ -1739,7 +1807,10 @@ impl DapCommand for LocationsCommand {
         }
     }
 
-    fn response_from_proto(&self, response: Self::ProtoResponse) -> Result<Self::Response> {
+    fn response_from_proto(
+        &self,
+        response: <Self::ProtoRequest as proto::RequestMessage>::Response,
+    ) -> Result<Self::Response> {
         Ok(dap::LocationsResponse {
             source: response
                 .source
