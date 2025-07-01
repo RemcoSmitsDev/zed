@@ -1,5 +1,3 @@
-use crate::debugger::breakpoint_store::BreakpointSessionState;
-
 use super::breakpoint_store::{
     BreakpointStore, BreakpointStoreEvent, BreakpointUpdatedReason, SourceBreakpoint,
 };
@@ -12,6 +10,8 @@ use super::dap_command::{
     TerminateThreadsCommand, ThreadsCommand, VariablesCommand,
 };
 use super::dap_store::DapStore;
+use crate::debugger::breakpoint_store::BreakpointSessionState;
+use crate::debugger::session;
 use anyhow::{Context as _, Result, anyhow};
 use collections::{HashMap, HashSet, IndexMap};
 use dap::adapters::{DebugAdapterBinary, DebugAdapterName};
@@ -36,8 +36,7 @@ use gpui::{
     App, AppContext, AsyncApp, BackgroundExecutor, Context, Entity, EventEmitter, SharedString,
     Task, WeakEntity,
 };
-
-use rpc::ErrorExt;
+use rpc::{AnyProtoClient, ErrorExt};
 use serde_json::Value;
 use smol::stream::StreamExt;
 use std::any::TypeId;
@@ -137,6 +136,7 @@ pub struct Watcher {
 pub enum Mode {
     Building,
     Running(RunningMode),
+    Remote(RemoteMode),
 }
 
 #[derive(Clone)]
@@ -149,6 +149,15 @@ pub struct RunningMode {
     is_started: bool,
     has_ever_stopped: bool,
     messages_tx: UnboundedSender<Message>,
+}
+
+#[derive(Clone)]
+pub struct RemoteMode {
+    client: AnyProtoClient,
+    has_ever_stopped: bool,
+    upstream_project_id: u64,
+    executor: BackgroundExecutor,
+    building: bool,
 }
 
 fn client_source(abs_path: &Path) -> dap::Source {
@@ -525,8 +534,49 @@ impl RunningMode {
     }
 }
 
+impl RemoteMode {
+    pub fn new(
+        client: AnyProtoClient,
+        upstream_project_id: u64,
+        executor: BackgroundExecutor,
+    ) -> Self {
+        Self {
+            client,
+            executor,
+            upstream_project_id,
+            has_ever_stopped: false,
+            building: true,
+        }
+    }
+
+    pub fn request<R: DapCommand>(
+        &self,
+        session_id: SessionId,
+        request: R,
+    ) -> Task<Result<R::Response>>
+    where
+        <R::DapRequest as dap::requests::Request>::Response: 'static,
+        <R::DapRequest as dap::requests::Request>::Arguments: 'static + Send,
+    {
+        let request = Arc::new(request);
+
+        let request_clone = request.clone();
+        let client = self.client.clone();
+        let project_id = self.upstream_project_id;
+        self.executor.spawn(async move {
+            let args = request_clone.to_proto(session_id, project_id);
+            let response = client.request::<R::DapRequest>(args).await?;
+            request.response_from_proto(response)
+        })
+    }
+}
+
 impl Mode {
-    pub(super) fn request_dap<R: DapCommand>(&self, request: R) -> Task<Result<R::Response>>
+    pub(super) fn request_dap<R: DapCommand>(
+        &self,
+        session_id: SessionId,
+        request: R,
+    ) -> Task<Result<R::Response>>
     where
         <R::DapRequest as dap::requests::Request>::Response: 'static,
         <R::DapRequest as dap::requests::Request>::Arguments: 'static + Send,
@@ -536,6 +586,7 @@ impl Mode {
             Mode::Building => Task::ready(Err(anyhow!(
                 "no adapter running to send request: {request:?}"
             ))),
+            Mode::Remote(remote_mode) => remote_mode.request(session_id, request),
         }
     }
 
@@ -544,6 +595,7 @@ impl Mode {
         match self {
             Mode::Building => false,
             Mode::Running(running_mode) => running_mode.has_ever_stopped,
+            Mode::Remote(remote_mode) => remote_mode.has_ever_stopped,
         }
     }
 
@@ -829,7 +881,7 @@ impl Session {
 
     pub fn worktree(&self) -> Option<Entity<Worktree>> {
         match &self.mode {
-            Mode::Building => None,
+            Mode::Building | Mode::Remote(_) => None,
             Mode::Running(local_mode) => local_mode.worktree.upgrade(),
         }
     }
@@ -951,7 +1003,7 @@ impl Session {
 
     pub fn binary(&self) -> Option<&DebugAdapterBinary> {
         match &self.mode {
-            Mode::Building => None,
+            Mode::Building | Mode::Remote(_) => None,
             Mode::Running(running_mode) => Some(&running_mode.binary),
         }
     }
@@ -999,6 +1051,7 @@ impl Session {
         match &self.mode {
             Mode::Building => false,
             Mode::Running(running) => running.is_started,
+            Mode::Remote(_) => true,
         }
     }
 
@@ -1013,14 +1066,14 @@ impl Session {
     pub fn as_running_mut(&mut self) -> Option<&mut RunningMode> {
         match &mut self.mode {
             Mode::Running(local_mode) => Some(local_mode),
-            Mode::Building => None,
+            Mode::Building | Mode::Remote(_) => None,
         }
     }
 
     pub fn as_running(&self) -> Option<&RunningMode> {
         match &self.mode {
             Mode::Running(local_mode) => Some(local_mode),
-            Mode::Building => None,
+            Mode::Building | Mode::Remote(_) => None,
         }
     }
 
@@ -1226,6 +1279,7 @@ impl Session {
                 local_mode.initialize_sequence(&self.capabilities, initialize_rx, dap_store, cx)
             }
             Mode::Building => Task::ready(Err(anyhow!("cannot initialize, still building"))),
+            Mode::Remote(_) => Task::ready(Err(anyhow!("cannot initialize on remote side"))),
         }
     }
 
@@ -1260,7 +1314,7 @@ impl Session {
                 })
                 .detach();
             }
-            Mode::Building => {}
+            Mode::Building | Mode::Remote(_) => {}
         }
     }
 
@@ -1494,6 +1548,7 @@ impl Session {
             let command = vacant.key().0.clone().as_any_arc().downcast::<T>().unwrap();
 
             let task = Self::request_inner::<Arc<T>>(
+                &self.session_id(),
                 &self.capabilities,
                 &self.mode,
                 command,
@@ -1517,6 +1572,7 @@ impl Session {
     }
 
     fn request_inner<T: DapCommand + PartialEq + Eq + Hash>(
+        session_id: SessionId,
         capabilities: &Capabilities,
         mode: &Mode,
         request: T,
@@ -1543,7 +1599,7 @@ impl Session {
             });
         }
 
-        let request = mode.request_dap(request);
+        let request = mode.request_dap(session_id, request);
         cx.spawn(async move |this, cx| {
             let result = request.await;
             this.update(cx, |this, cx| process_result(this, result, cx))
@@ -1552,7 +1608,7 @@ impl Session {
         })
     }
 
-    fn request<T: DapCommand + PartialEq + Eq + Hash>(
+    pub fn request<T: DapCommand + PartialEq + Eq + Hash>(
         &self,
         request: T,
         process_result: impl FnOnce(
@@ -1563,7 +1619,14 @@ impl Session {
         + 'static,
         cx: &mut Context<Self>,
     ) -> Task<Option<T::Response>> {
-        Self::request_inner(&self.capabilities, &self.mode, request, process_result, cx)
+        Self::request_inner(
+            &self.id,
+            &self.capabilities,
+            &self.mode,
+            request,
+            process_result,
+            cx,
+        )
     }
 
     fn invalidate_command_type<Command: DapCommand>(&mut self) {
@@ -1904,7 +1967,7 @@ impl Session {
     pub fn adapter_client(&self) -> Option<Arc<DebugAdapterClient>> {
         match self.mode {
             Mode::Running(ref local) => Some(local.client.clone()),
-            Mode::Building => None,
+            Mode::Building | Mode::Remote(_) => None,
         }
     }
 
@@ -2176,12 +2239,16 @@ impl Session {
         frame_id: u64,
         cx: &mut Context<Self>,
     ) -> Task<Result<()>> {
-        let request = self.mode.request_dap(EvaluateCommand {
-            expression: expression.to_string(),
-            context: Some(EvaluateArgumentsContext::Watch),
-            frame_id: Some(frame_id),
-            source: None,
-        });
+        let request = self.request(
+            EvaluateCommand {
+                expression: expression.to_string(),
+                context: Some(EvaluateArgumentsContext::Watch),
+                frame_id: Some(frame_id),
+                source: None,
+            },
+            |_, result, _| result,
+            cx,
+        );
 
         cx.spawn(async move |this, cx| {
             let response = request.await?;
@@ -2295,12 +2362,17 @@ impl Session {
             location_reference: None,
         };
         self.push_output(event, cx);
-        let request = self.mode.request_dap(EvaluateCommand {
-            expression,
-            context,
-            frame_id,
-            source,
-        });
+
+        let request = self.request(
+            EvaluateCommand {
+                expression,
+                context,
+                frame_id,
+                source,
+            },
+            |_, result, _| result,
+            cx,
+        );
         cx.spawn(async move |this, cx| {
             let response = request.await;
             this.update(cx, |this, cx| {

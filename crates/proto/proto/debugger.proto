@@ -546,3 +546,17 @@ message LogToDebugConsole {
     uint64 session_id = 2;
     string message = 3;
 }
+
+message SessionStarted {
+    uint64 project_id = 1;
+    uint64 session_id = 2;
+}
+
+message InvalidateSessionRequest {
+    uint64 project_id = 1;
+    uint64 session_id = 2;
+}
+
+message InvalidateSessionResponse {
+    uint64 session_id = 1;
+}

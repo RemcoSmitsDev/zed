@@ -368,6 +368,7 @@ message View {
         Editor editor = 3;
         ChannelView channel_view = 4;
         ContextEditor context_editor = 5;
+        DebugSession debug_session = 7;
     }
 
     message Editor {
@@ -389,6 +390,10 @@ message View {
     message ContextEditor {
         string context_id = 1;
         Editor editor = 2;
+    }
+
+    message DebugSession {
+        uint64 session_id = 1;
     }
 }
 

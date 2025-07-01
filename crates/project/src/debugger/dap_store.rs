@@ -69,7 +69,7 @@ pub enum DapStoreEvent {
 enum DapStoreMode {
     Local(LocalDapStore),
     Ssh(SshDapStore),
-    Collab,
+    Collab(CollabDapStore),
 }
 
 pub struct LocalDapStore {
@@ -84,6 +84,11 @@ pub struct SshDapStore {
     ssh_client: Entity<SshRemoteClient>,
     upstream_client: AnyProtoClient,
     upstream_project_id: u64,
+}
+
+pub struct CollabDapStore {
+    upstream_client: AnyProtoClient,
+    project_id: u64,
 }
 
 pub struct DapStore {
@@ -151,13 +156,21 @@ impl DapStore {
     }
 
     pub fn new_collab(
-        _project_id: u64,
-        _upstream_client: AnyProtoClient,
+        project_id: u64,
+        upstream_client: AnyProtoClient,
         breakpoint_store: Entity<BreakpointStore>,
         worktree_store: Entity<WorktreeStore>,
         cx: &mut Context<Self>,
     ) -> Self {
-        Self::new(DapStoreMode::Collab, breakpoint_store, worktree_store, cx)
+        Self::new(
+            DapStoreMode::Collab(CollabDapStore {
+                upstream_client,
+                project_id,
+            }),
+            breakpoint_store,
+            worktree_store,
+            cx,
+        )
     }
 
     fn new(
@@ -275,8 +288,17 @@ impl DapStore {
                     })
                 })
             }
-            DapStoreMode::Collab => {
-                Task::ready(Err(anyhow!("Debugging is not yet supported via collab")))
+            DapStoreMode::Collab(collab) => {
+                let request = collab
+                    .upstream_client
+                    .request(proto::GetDebugAdapterBinary {
+                        session_id: session_id.to_proto(),
+                        project_id: collab.project_id,
+                        worktree_id: worktree.read(cx).id().to_proto(),
+                        definition: Some(definition.to_proto()),
+                    });
+
+                cx.background_spawn(async move { DebugAdapterBinary::from_proto(request.await?) })
             }
         }
     }
@@ -345,8 +367,13 @@ impl DapStore {
                     DebugRequest::from_proto(response)
                 })
             }
-            DapStoreMode::Collab => {
-                Task::ready(Err(anyhow!("Debugging is not yet supported via collab")))
+            DapStoreMode::Collab(collab) => {
+                let request = collab.upstream_client.request(proto::RunDebugLocators {
+                    project_id: collab.project_id,
+                    build_command: Some(build_command.to_proto()),
+                    locator: locator_name.to_owned(),
+                });
+                cx.background_spawn(async move { DebugRequest::from_proto(request.await?) })
             }
         }
     }
@@ -629,18 +656,22 @@ impl DapStore {
                         });
                     }
                     VariableLookupKind::Expression => {
-                        let Ok(eval_task) = session.read_with(cx, |session, _| {
-                            session.mode.request_dap(EvaluateCommand {
-                                expression: inline_value_location.variable_name.clone(),
-                                frame_id: Some(stack_frame_id),
-                                source: None,
-                                context: Some(EvaluateArgumentsContext::Variables),
-                            })
+                        let Ok(eval_task) = session.update(cx, |session, cx| {
+                            session.request(
+                                EvaluateCommand {
+                                    expression: inline_value_location.variable_name.clone(),
+                                    frame_id: Some(stack_frame_id),
+                                    source: None,
+                                    context: Some(EvaluateArgumentsContext::Variables),
+                                },
+                                |_, result, _| result,
+                                cx,
+                            )
                         }) else {
                             continue;
                         };
 
-                        if let Some(response) = eval_task.await.log_err() {
+                        if let Some(response) = eval_task.await {
                             inlay_hints.push(InlayHint {
                                 position,
                                 label: InlayHintLabel::String(format_value(response.result)),
