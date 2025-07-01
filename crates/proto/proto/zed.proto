@@ -396,7 +396,7 @@ message Envelope {
         GetDocumentColor get_document_color = 353;
         GetDocumentColorResponse get_document_color_response = 354;
         GetColorPresentation get_color_presentation = 355;
-        GetColorPresentationResponse get_color_presentation_response = 356; // current max
+        GetColorPresentationResponse get_color_presentation_response = 356;
 
         DapNextRequest dap_next_request = 357;
         DapStepInRequest dap_step_in_request = 358;
@@ -431,7 +431,7 @@ message Envelope {
         DapLocationsRequest dap_locations_request = 387;
         DapLocationsResponse dap_locations_response = 388;
         DapSetExceptionBreakpointsRequest dap_set_exception_breakpoints_request = 389;
-        DapSetExceptionBreakpointsResponse dap_set_exception_breakpoints_response = 390;
+        DapSetExceptionBreakpointsResponse dap_set_exception_breakpoints_response = 390; // current max
     }
 
     reserved 87 to 88;
