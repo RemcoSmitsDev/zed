@@ -566,7 +566,7 @@ impl RemoteMode {
         let client = self.client.clone();
         let project_id = self.upstream_project_id;
         self.executor.spawn(async move {
-            let args = request_clone.(session_id, project_id);
+            let args = request_clone.to_proto(session_id, project_id);
             let response = client.request::<R::DapRequest>(args).await?;
             request.response_from_proto(response)
         })
