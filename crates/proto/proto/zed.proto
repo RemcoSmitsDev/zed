@@ -398,6 +398,39 @@ message Envelope {
         GetColorPresentation get_color_presentation = 355;
         GetColorPresentationResponse get_color_presentation_response = 356; // current max
 
+        DapNextRequest dap_next_request = 357;
+        DapStepInRequest dap_step_in_request = 358;
+        DapStepOutRequest dap_step_out_request = 359;
+        DapStepBackRequest dap_step_back_request = 360;
+        DapContinueRequest dap_continue_request = 361;
+        DapPauseRequest dap_pause_request = 362;
+        DapDisconnectRequest dap_disconnect_request = 363;
+        DapTerminateThreadsRequest dap_terminate_threads_request = 364;
+        DapTerminateRequest dap_terminate_request = 365;
+        DapRestartRequest dap_restart_request = 366;
+        DapVariablesRequest dap_variables_request = 367;
+        DapVariablesResponse dap_variables_response = 368;
+        DapSetVariableValueRequest dap_set_variable_value_request = 369;
+        DapSetVariableValueResponse dap_set_variable_value_response = 370;
+        DapRestartStackFrameRequest dap_restart_stack_frame_request = 371;
+        DapModulesRequest dap_modules_request = 372;
+        DapModulesResponse dap_modules_response = 373;
+        DapLoadedSourcesRequest dap_loaded_sources_request = 374;
+        DapLoadedSourcesResponse dap_loaded_sources_response = 375;
+        DapStackTraceRequest dap_stack_trace_request = 376;
+        DapStackTraceResponse dap_stack_trace_response = 377;
+        DapScopesRequest dap_scopes_request = 378;
+        DapScopesResponse dap_scopes_response = 379;
+        DapCompletionRequest dap_completion_request = 380;
+        DapCompletionResponse dap_completion_response = 381;
+        DapEvaluateRequest dap_evaluate_request = 382;
+        DapEvaluateResponse dap_evaluate_response = 383;
+        DapThreadsRequest dap_threads_request = 384;
+        DapThreadsResponse dap_threads_response = 385;
+        DapLocationsRequest dap_locations_request = 386;
+        DapLocationsResponse dap_locations_response = 387;
+        DapSetExceptionBreakpointsRequest dap_set_exception_breakpoints_request = 388;
+        DapSetExceptionBreakpointsResponse dap_set_exception_breakpoints_response = 389;
     }
 
     reserved 87 to 88;

@@ -11,7 +11,6 @@ use super::dap_command::{
 };
 use super::dap_store::DapStore;
 use crate::debugger::breakpoint_store::BreakpointSessionState;
-use crate::debugger::session;
 use anyhow::{Context as _, Result, anyhow};
 use collections::{HashMap, HashSet, IndexMap};
 use dap::adapters::{DebugAdapterBinary, DebugAdapterName};
@@ -1539,6 +1538,7 @@ impl Session {
             return;
         }
 
+        let session_id = self.session_id();
         let request_map = self
             .requests
             .entry(std::any::TypeId::of::<T>())
@@ -1548,7 +1548,7 @@ impl Session {
             let command = vacant.key().0.clone().as_any_arc().downcast::<T>().unwrap();
 
             let task = Self::request_inner::<Arc<T>>(
-                &self.session_id(),
+                session_id,
                 &self.capabilities,
                 &self.mode,
                 command,
@@ -1620,7 +1620,7 @@ impl Session {
         cx: &mut Context<Self>,
     ) -> Task<Option<T::Response>> {
         Self::request_inner(
-            &self.id,
+            self.id.clone(),
             &self.capabilities,
             &self.mode,
             request,
@@ -2246,24 +2246,26 @@ impl Session {
                 frame_id: Some(frame_id),
                 source: None,
             },
-            |_, result, _| result,
+            |_, result, _| result.ok(),
             cx,
         );
 
         cx.spawn(async move |this, cx| {
-            let response = request.await?;
+            let response = request.await;
 
             this.update(cx, |session, cx| {
-                session.watchers.insert(
-                    expression.clone(),
-                    Watcher {
-                        expression,
-                        value: response.result.into(),
-                        variables_reference: response.variables_reference,
-                        presentation_hint: response.presentation_hint,
-                    },
-                );
-                cx.emit(SessionEvent::Watchers);
+                if let Some(response) = response {
+                    session.watchers.insert(
+                        expression.clone(),
+                        Watcher {
+                            expression,
+                            value: response.result.into(),
+                            variables_reference: response.variables_reference,
+                            presentation_hint: response.presentation_hint,
+                        },
+                    );
+                    cx.emit(SessionEvent::Watchers);
+                }
             })
         })
     }
@@ -2370,15 +2372,15 @@ impl Session {
                 frame_id,
                 source,
             },
-            |_, result, _| result,
+            |_, result, _| result.ok(),
             cx,
         );
         cx.spawn(async move |this, cx| {
             let response = request.await;
             this.update(cx, |this, cx| {
-                match response {
-                    Ok(response) => {
-                        let event = dap::OutputEvent {
+                if let Some(response) = response {
+                    this.push_output(
+                        dap::OutputEvent {
                             category: None,
                             output: format!("< {}", &response.result),
                             group: None,
@@ -2388,25 +2390,11 @@ impl Session {
                             column: None,
                             data: None,
                             location_reference: None,
-                        };
-                        this.push_output(event, cx);
-                    }
-                    Err(e) => {
-                        let event = dap::OutputEvent {
-                            category: None,
-                            output: format!("{}", e),
-                            group: None,
-                            variables_reference: None,
-                            source: None,
-                            line: None,
-                            column: None,
-                            data: None,
-                            location_reference: None,
-                        };
-                        this.push_output(event, cx);
-                    }
-                };
-                cx.notify();
+                        },
+                        cx,
+                    );
+                    cx.notify();
+                }
             })
             .ok();
         })

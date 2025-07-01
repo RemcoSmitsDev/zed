@@ -664,7 +664,7 @@ impl DapStore {
                                     source: None,
                                     context: Some(EvaluateArgumentsContext::Variables),
                                 },
-                                |_, result, _| result,
+                                |_, result, _| result.ok(),
                                 cx,
                             )
                         }) else {

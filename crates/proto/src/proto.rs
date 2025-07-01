@@ -313,7 +313,38 @@ messages!(
     (LogToDebugConsole, Background),
     (GetDocumentDiagnostics, Background),
     (GetDocumentDiagnosticsResponse, Background),
-    (PullWorkspaceDiagnostics, Background)
+    (PullWorkspaceDiagnostics, Background),
+    (DapNextRequest, Background),
+    (DapStepInRequest, Background),
+    (DapStepOutRequest, Background),
+    (DapStepBackRequest, Background),
+    (DapContinueRequest, Background),
+    (DapPauseRequest, Background),
+    (DapDisconnectRequest, Background),
+    (DapTerminateRequest, Background),
+    (DapRestartRequest, Background),
+    (DapVariablesRequest, Background),
+    (DapSetVariableValueRequest, Background),
+    (DapSetVariableValueResponse, Background),
+    (DapRestartStackFrameRequest, Background),
+    (DapModulesRequest, Background),
+    (DapModulesResponse, Background),
+    (DapLoadedSourcesRequest, Background),
+    (DapLoadedSourcesResponse, Background),
+    (DapStackTraceRequest, Background),
+    (DapStackTraceResponse, Background),
+    (DapScopesRequest, Background),
+    (DapScopesResponse, Background),
+    (DapCompletionRequest, Background),
+    (DapCompletionResponse, Background),
+    (DapEvaluateRequest, Background),
+    (DapEvaluateResponse, Background),
+    (DapThreadsRequest, Background),
+    (DapThreadsResponse, Background),
+    (DapLocationsRequest, Background),
+    (DapLocationsResponse, Background),
+    (DapSetExceptionBreakpointsRequest, Background),
+    (DapSetExceptionBreakpointsResponse, Background),
 );
 
 request_messages!(
@@ -479,7 +510,32 @@ request_messages!(
     (GetDebugAdapterBinary, DebugAdapterBinary),
     (RunDebugLocators, DebugRequest),
     (GetDocumentDiagnostics, GetDocumentDiagnosticsResponse),
-    (PullWorkspaceDiagnostics, Ack)
+    (PullWorkspaceDiagnostics, Ack),
+    // debugger
+    (DapNextRequest, Ack),
+    (DapStepInRequest, Ack),
+    (DapStepOutRequest, Ack),
+    (DapStepBackRequest, Ack),
+    (DapContinueRequest, Ack),
+    (DapPauseRequest, Ack),
+    (DapDisconnectRequest, Ack),
+    (DapTerminateRequest, Ack),
+    (DapRestartRequest, Ack),
+    (VariablesRequest, DapVariables), // TODO:
+    (DapSetVariableValueRequest, DapSetVariableValueResponse),
+    (DapRestartStackFrameRequest, Ack),
+    (DapModulesRequest, DapModulesResponse),
+    (DapLoadedSourcesRequest, DapLoadedSourcesResponse),
+    (DapStackTraceRequest, DapStackTraceResponse),
+    (DapScopesRequest, DapScopesResponse),
+    (DapCompletionRequest, DapCompletionResponse),
+    (DapEvaluateRequest, DapEvaluateResponse),
+    (DapThreadsRequest, DapThreadsResponse),
+    (DapLocationsRequest, DapLocationsResponse),
+    (
+        DapSetExceptionBreakpointsRequest,
+        DapSetExceptionBreakpointsResponse
+    ),
 );
 
 entity_messages!(
