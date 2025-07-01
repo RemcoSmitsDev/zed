@@ -1595,6 +1595,16 @@ impl LocalDapCommand for SetExceptionBreakpoints {
     type Response = Vec<dap::Breakpoint>;
     type DapRequest = dap::requests::SetExceptionBreakpoints;
 
+    fn is_supported(capabilities: &Capabilities) -> bool {
+        capabilities.exception_breakpoint_filters.is_some()
+            || capabilities
+                .supports_exception_filter_options
+                .is_some_and(|supported| supported)
+            || capabilities
+                .supports_exception_options
+                .is_some_and(|supported| supported)
+    }
+
     fn to_dap(&self) -> <Self::DapRequest as dap::requests::Request>::Arguments {
         dap::SetExceptionBreakpointsArguments {
             filters: self.filters.clone(),
