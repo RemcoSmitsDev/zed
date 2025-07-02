@@ -396,8 +396,44 @@ message Envelope {
         GetDocumentColor get_document_color = 353;
         GetDocumentColorResponse get_document_color_response = 354;
         GetColorPresentation get_color_presentation = 355;
-        GetColorPresentationResponse get_color_presentation_response = 356; // current max
+        GetColorPresentationResponse get_color_presentation_response = 356;
 
+        DapNextRequest dap_next_request = 357;
+        DapStepInRequest dap_step_in_request = 358;
+        DapStepOutRequest dap_step_out_request = 359;
+        DapStepBackRequest dap_step_back_request = 360;
+        DapContinueRequest dap_continue_request = 361;
+        DapContinueResponse dap_continue_response = 362;
+        DapPauseRequest dap_pause_request = 363;
+        DapDisconnectRequest dap_disconnect_request = 364;
+        DapTerminateThreadsRequest dap_terminate_threads_request = 365;
+        DapTerminateRequest dap_terminate_request = 366;
+        DapRestartRequest dap_restart_request = 367;
+        DapVariablesRequest dap_variables_request = 368;
+        DapVariablesResponse dap_variables_response = 369;
+        DapSetVariableValueRequest dap_set_variable_value_request = 370;
+        DapSetVariableValueResponse dap_set_variable_value_response = 371;
+        DapRestartStackFrameRequest dap_restart_stack_frame_request = 372;
+        DapModulesRequest dap_modules_request = 373;
+        DapModulesResponse dap_modules_response = 374;
+        DapLoadedSourcesRequest dap_loaded_sources_request = 375;
+        DapLoadedSourcesResponse dap_loaded_sources_response = 376;
+        DapStackTraceRequest dap_stack_trace_request = 377;
+        DapStackTraceResponse dap_stack_trace_response = 378;
+        DapScopesRequest dap_scopes_request = 379;
+        DapScopesResponse dap_scopes_response = 380;
+        DapCompletionRequest dap_completion_request = 381;
+        DapCompletionResponse dap_completion_response = 382;
+        DapEvaluateRequest dap_evaluate_request = 383;
+        DapEvaluateResponse dap_evaluate_response = 384;
+        DapThreadsRequest dap_threads_request = 385;
+        DapThreadsResponse dap_threads_response = 386;
+        DapLocationsRequest dap_locations_request = 387;
+        DapLocationsResponse dap_locations_response = 388;
+        DapSetExceptionBreakpointsRequest dap_set_exception_breakpoints_request = 389;
+        DapSetExceptionBreakpointsResponse dap_set_exception_breakpoints_response = 390;
+        DapNewSession dap_new_session = 391;
+        DapSessionUpdated dap_session_updated = 392; // current max
     }
 
     reserved 87 to 88;

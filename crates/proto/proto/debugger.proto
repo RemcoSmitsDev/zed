@@ -52,9 +52,9 @@ message ValueFormat {
     optional bool hex = 1;
 }
 
-message VariablesRequest {
+message DapVariablesRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
     uint64 variables_reference = 3;
     optional VariablesArgumentsFilter filter = 4;
     optional uint64 start = 5;
@@ -93,7 +93,7 @@ enum DapEvaluateContext {
 
 message DapEvaluateRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
     string expression = 3;
     optional uint64 frame_id = 4;
     optional DapEvaluateContext context = 5;
@@ -111,7 +111,7 @@ message DapEvaluateResponse {
 
 message DapCompletionRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
     string query = 3;
     optional uint64 frame_id = 4;
     optional uint64 line = 5;
@@ -153,13 +153,13 @@ message DapCompletionItem {
 }
 
 message DapCompletionResponse {
-    uint64 client_id = 1;
+    uint64 session_id = 1;
     repeated DapCompletionItem completions = 2;
 }
 
 message DapScopesRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
     uint64 stack_frame_id = 3;
 }
 
@@ -169,14 +169,14 @@ message DapScopesResponse {
 
 message DapSetVariableValueRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
     string name = 3;
     string value = 4;
     uint64 variables_reference = 5;
 }
 
 message DapSetVariableValueResponse {
-    uint64 client_id = 1;
+    uint64 session_id = 1;
     string value = 2;
     optional string variable_type = 3;
     optional uint64 variables_reference = 4;
@@ -187,13 +187,13 @@ message DapSetVariableValueResponse {
 
 message DapPauseRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
     uint64 thread_id = 3;
 }
 
 message DapDisconnectRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
     optional bool restart = 3;
     optional bool terminate_debuggee = 4;
     optional bool suspend_debuggee = 5;
@@ -201,13 +201,13 @@ message DapDisconnectRequest {
 
 message DapTerminateThreadsRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
     repeated uint64 thread_ids = 3;
 }
 
 message DapThreadsRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
 }
 
 message DapThreadsResponse {
@@ -216,19 +216,19 @@ message DapThreadsResponse {
 
 message DapTerminateRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
     optional bool restart = 3;
 }
 
 message DapRestartRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
     bytes raw_args = 3;
 }
 
 message DapRestartStackFrameRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
     uint64 stack_frame_id = 3;
 }
 
@@ -245,7 +245,7 @@ message IgnoreBreakpointState {
 
 message DapNextRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
     uint64 thread_id = 3;
     optional bool single_thread = 4;
     optional SteppingGranularity granularity = 5;
@@ -253,7 +253,7 @@ message DapNextRequest {
 
 message DapStepInRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
     uint64 thread_id = 3;
     optional uint64 target_id = 4;
     optional bool single_thread = 5;
@@ -262,7 +262,7 @@ message DapStepInRequest {
 
 message DapStepOutRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
     uint64 thread_id = 3;
     optional bool single_thread = 4;
     optional SteppingGranularity granularity = 5;
@@ -270,7 +270,7 @@ message DapStepOutRequest {
 
 message DapStepBackRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
     uint64 thread_id = 3;
     optional bool single_thread = 4;
     optional SteppingGranularity granularity = 5;
@@ -278,39 +278,39 @@ message DapStepBackRequest {
 
 message DapContinueRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
     uint64 thread_id = 3;
     optional bool single_thread = 4;
 }
 
 message DapContinueResponse {
-    uint64 client_id = 1;
+    uint64 session_id = 1;
     optional bool all_threads_continued = 2;
 }
 
 message DapModulesRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
 }
 
 message DapModulesResponse {
-    uint64 client_id = 1;
+    uint64 session_id = 1;
     repeated DapModule modules = 2;
 }
 
 message DapLoadedSourcesRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
 }
 
 message DapLoadedSourcesResponse {
-    uint64 client_id = 1;
+    uint64 session_id = 1;
     repeated DapSource sources = 2;
 }
 
 message DapStackTraceRequest {
     uint64 project_id = 1;
-    uint64 client_id = 2;
+    uint64 session_id = 2;
     uint64 thread_id = 3;
     optional uint64 start_frame = 4;
     optional uint64 stack_trace_levels = 5;
@@ -334,13 +334,25 @@ message DapStackFrame {
     optional DapStackPresentationHint presentation_hint = 11;
 }
 
+message DapSetExceptionBreakpointsRequest {
+    uint64 project_id = 1;
+    uint64 session_id = 2;
+    repeated string filters = 3;
+    repeated ExceptionFilterOptions filter_options = 4;
+    repeated ExceptionOptions exception_options = 5;
+}
+
+message DapSetExceptionBreakpointsResponse {
+    repeated DapBreakpoint breakpoints = 1;
+}
+
 message DebuggerLoadedSourceList {
-    uint64 client_id = 1;
+    uint64 session_id = 1;
     repeated DapSource sources = 2;
 }
 
-message DapVariables {
-    uint64 client_id = 1;
+message DapVariablesResponse {
+    uint64 session_id = 1;
     repeated DapVariable variables = 2;
 }
 
@@ -393,6 +405,7 @@ enum DapOutputCategory {
     Stdout = 2;
     Stderr = 3;
     Unknown = 4;
+    Telemetry = 5;
 }
 
 enum DapOutputEventGroup {
@@ -445,6 +458,49 @@ enum DapStackPresentationHint {
     Subtle = 2;
     StackUnknown = 3;
 }
+
+enum ExceptionBreakMode {
+    Never = 0;
+    Always = 1;
+    Unhandled = 2;
+    AlwaysUnhandled = 3;
+}
+
+message ExceptionPathSegment {
+    optional bool negate = 1;
+    repeated string names = 2;
+}
+
+message ExceptionOptions {
+    repeated ExceptionPathSegment path = 1;
+    ExceptionBreakMode break_mode = 2;
+}
+
+message ExceptionFilterOptions {
+    string filter_id = 1;
+    optional string condition = 2;
+    optional string mode = 3;
+}
+
+enum DapBreakpointReason {
+    Pending = 0;
+    Failed = 1;
+}
+
+message DapBreakpoint {
+    optional int64 id = 1;
+    bool verified = 2;
+    optional string message = 3;
+    optional DapSource source = 4;
+    optional uint32 line = 5;
+    optional uint32 column = 6;
+    optional uint32 end_line = 7;
+    optional uint32 end_column = 8;
+    optional string instruction_reference = 9;
+    optional uint32 offset = 10;
+    optional DapBreakpointReason reason = 11;
+}
+
 message DapModule {
     DapModuleId id = 1;
     string name = 2;
@@ -545,4 +601,95 @@ message LogToDebugConsole {
     uint64 project_id = 1;
     uint64 session_id = 2;
     string message = 3;
+}
+
+message DapNewSession {
+    uint64 project_id = 1;
+    uint64 session_id = 2;
+    optional uint64 parent_session_id = 3;
+    string label = 4;
+    string adapter_name = 5;
+}
+
+message DapSessionUpdated {
+    uint64 project_id = 1;
+    uint64 session_id = 2;
+    Capabilities capabilities = 3;
+    bool building = 4;
+    bool has_ever_stopped = 5;
+    bool is_started = 6;
+}
+
+message Capabilities {
+    optional bool supports_configuration_done_request = 1;
+    optional bool supports_function_breakpoints = 2;
+    optional bool supports_conditional_breakpoints = 3;
+    optional bool supports_hit_conditional_breakpoints = 4;
+    optional bool supports_evaluate_for_hovers = 5;
+    repeated ExceptionBreakpointsFilter exception_breakpoint_filters = 6;
+    optional bool supports_step_back = 7;
+    optional bool supports_set_variable = 8;
+    optional bool supports_restart_frame = 9;
+    optional bool supports_goto_targets_request = 10;
+    optional bool supports_step_in_targets_request = 11;
+    optional bool supports_completions_request = 12;
+    repeated string completion_trigger_characters = 13;
+    optional bool supports_modules_request = 14;
+    repeated string additional_module_columns = 15;
+    repeated string supported_checksum_algorithms = 16;
+    optional bool supports_restart_request = 17;
+    optional bool supports_exception_options = 18;
+    optional bool supports_value_formatting_options = 19;
+    optional bool supports_exception_info_request = 20;
+    optional bool support_terminate_debuggee = 21;
+    optional bool support_suspend_debuggee = 22;
+    optional bool supports_delayed_stack_trace_loading = 23;
+    optional bool supports_loaded_sources_request = 24;
+    optional bool supports_log_points = 25;
+    optional bool supports_terminate_threads_request = 26;
+    optional bool supports_set_expression = 27;
+    optional bool supports_terminate_request = 28;
+    optional bool supports_data_breakpoints = 29;
+    optional bool supports_read_memory_request = 30;
+    optional bool supports_write_memory_request = 31;
+    optional bool supports_disassemble_request = 32;
+    optional bool supports_cancel_request = 33;
+    optional bool supports_breakpoint_locations_request = 34;
+    optional bool supports_clipboard_context = 35;
+    optional bool supports_stepping_granularity = 36;
+    optional bool supports_instruction_breakpoints = 37;
+    optional bool supports_exception_filter_options = 38;
+    optional bool supports_single_thread_execution_requests = 39;
+    optional bool supports_data_breakpoint_bytes = 40;
+    repeated BreakpointMode breakpoint_modes = 41;
+    optional bool supports_ansistyling = 42;
+}
+
+message ExceptionBreakpointsFilter {
+    string filter = 1;
+    string label = 2;
+    optional string description = 3;
+    optional bool default_value = 4;
+    optional bool supports_condition = 5;
+    optional string condition_description = 6;
+}
+
+enum BreakpointModeApplicability {
+    Source = 0;
+    Exception = 1;
+    Data = 2;
+    InstructionBreakpoint = 3;
+    BreakpointModeUnknown = 4;
+}
+
+message BreakpointMode {
+    string mode = 1;
+    string label = 2;
+    optional string description = 3;
+    repeated BreakpointModeApplicability applies_to = 4;
+}
+
+message InvalidateSessionRequest {
+    uint64 project_id = 1;
+    uint64 session_id = 2;
 }

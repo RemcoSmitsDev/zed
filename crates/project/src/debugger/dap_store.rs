@@ -69,7 +69,7 @@ pub enum DapStoreEvent {
 enum DapStoreMode {
     Local(LocalDapStore),
     Ssh(SshDapStore),
-    Collab,
+    Collab(CollabDapStore),
 }
 
 pub struct LocalDapStore {
@@ -84,6 +84,11 @@ pub struct SshDapStore {
     ssh_client: Entity<SshRemoteClient>,
     upstream_client: AnyProtoClient,
     upstream_project_id: u64,
+}
+
+pub struct CollabDapStore {
+    upstream_client: AnyProtoClient,
+    project_id: u64,
 }
 
 pub struct DapStore {
@@ -110,6 +115,7 @@ impl DapStore {
         client.add_entity_request_handler(Self::handle_run_debug_locator);
         client.add_entity_request_handler(Self::handle_get_debug_adapter_binary);
         client.add_entity_message_handler(Self::handle_log_to_debug_console);
+        client.add_entity_message_handler(Self::handle_new_session);
     }
 
     #[expect(clippy::too_many_arguments)]
@@ -151,13 +157,21 @@ impl DapStore {
     }
 
     pub fn new_collab(
-        _project_id: u64,
-        _upstream_client: AnyProtoClient,
+        project_id: u64,
+        upstream_client: AnyProtoClient,
         breakpoint_store: Entity<BreakpointStore>,
         worktree_store: Entity<WorktreeStore>,
         cx: &mut Context<Self>,
     ) -> Self {
-        Self::new(DapStoreMode::Collab, breakpoint_store, worktree_store, cx)
+        Self::new(
+            DapStoreMode::Collab(CollabDapStore {
+                upstream_client,
+                project_id,
+            }),
+            breakpoint_store,
+            worktree_store,
+            cx,
+        )
     }
 
     fn new(
@@ -281,8 +295,17 @@ impl DapStore {
                     })
                 })
             }
-            DapStoreMode::Collab => {
-                Task::ready(Err(anyhow!("Debugging is not yet supported via collab")))
+            DapStoreMode::Collab(collab) => {
+                let request = collab
+                    .upstream_client
+                    .request(proto::GetDebugAdapterBinary {
+                        session_id: session_id.to_proto(),
+                        project_id: collab.project_id,
+                        worktree_id: worktree.read(cx).id().to_proto(),
+                        definition: Some(definition.to_proto()),
+                    });
+
+                cx.background_spawn(async move { DebugAdapterBinary::from_proto(request.await?) })
             }
         }
     }
@@ -351,8 +374,13 @@ impl DapStore {
                     DebugRequest::from_proto(response)
                 })
             }
-            DapStoreMode::Collab => {
-                Task::ready(Err(anyhow!("Debugging is not yet supported via collab")))
+            DapStoreMode::Collab(collab) => {
+                let request = collab.upstream_client.request(proto::RunDebugLocators {
+                    project_id: collab.project_id,
+                    build_command: Some(build_command.to_proto()),
+                    locator: locator_name.to_owned(),
+                });
+                cx.background_spawn(async move { DebugRequest::from_proto(request.await?) })
             }
         }
     }
@@ -360,6 +388,13 @@ impl DapStore {
     fn as_local(&self) -> Option<&LocalDapStore> {
         match &self.mode {
             DapStoreMode::Local(local_dap_store) => Some(local_dap_store),
+            _ => None,
+        }
+    }
+
+    fn as_collab(&self) -> Option<&CollabDapStore> {
+        match &self.mode {
+            DapStoreMode::Collab(collab_dap_store) => Some(collab_dap_store),
             _ => None,
         }
     }
@@ -382,6 +417,7 @@ impl DapStore {
 
         let session = Session::new(
             self.breakpoint_store.clone(),
+            self.downstream_client.clone(),
             session_id,
             parent_session,
             label,
@@ -447,11 +483,9 @@ impl DapStore {
         &self,
         session_id: impl Borrow<SessionId>,
     ) -> Option<Entity<session::Session>> {
-        let session_id = session_id.borrow();
-        let client = self.sessions.get(session_id).cloned();
-
-        client
+        self.sessions.get(session_id.borrow()).cloned()
     }
+
     pub fn sessions(&self) -> impl Iterator<Item = &Entity<Session>> {
         self.sessions.values()
     }
@@ -652,18 +686,22 @@ impl DapStore {
                         });
                     }
                     VariableLookupKind::Expression => {
-                        let Ok(eval_task) = session.read_with(cx, |session, _| {
-                            session.mode.request_dap(EvaluateCommand {
-                                expression: inline_value_location.variable_name.clone(),
-                                frame_id: Some(stack_frame_id),
-                                source: None,
-                                context: Some(EvaluateArgumentsContext::Variables),
-                            })
+                        let Ok(eval_task) = session.update(cx, |session, cx| {
+                            session.request(
+                                EvaluateCommand {
+                                    expression: inline_value_location.variable_name.clone(),
+                                    frame_id: Some(stack_frame_id),
+                                    source: None,
+                                    context: Some(EvaluateArgumentsContext::Variables),
+                                },
+                                |_, result, _| result.ok(),
+                                cx,
+                            )
                         }) else {
                             continue;
                         };
 
-                        if let Some(response) = eval_task.await.log_err() {
+                        if let Some(response) = eval_task.await {
                             inlay_hints.push(InlayHint {
                                 position,
                                 label: InlayHintLabel::String(format_value(response.result)),
@@ -852,6 +890,49 @@ impl DapStore {
                     .ok();
             })
         })
+    }
+
+    async fn handle_new_session(
+        this: Entity<Self>,
+        envelope: TypedEnvelope<proto::DapNewSession>,
+        mut cx: AsyncApp,
+    ) -> Result<()> {
+        let session_id = SessionId::from_proto(envelope.payload.session_id);
+        let parent_session_id = envelope
+            .payload
+            .parent_session_id
+            .map(SessionId::from_proto);
+
+        this.update(&mut cx, |this, cx| {
+            let Some(collab) = this.as_collab() else {
+                anyhow::bail!("expected that dap store is in collab mode");
+            };
+
+            let parent_session = parent_session_id.and_then(|id| this.session_by_id(id));
+
+            if let Some(parent_session) = &parent_session {
+                parent_session.update(cx, |session, _| {
+                    session.add_child_session_id(session_id);
+                });
+            }
+
+            let session = Session::new_remote(
+                session_id,
+                parent_session,
+                DebugAdapterName(envelope.payload.adapter_name.into()),
+                envelope.payload.label.into(),
+                this.breakpoint_store.clone(),
+                collab.upstream_client.clone(),
+                collab.project_id,
+                cx.background_executor().clone(),
+                cx,
+            );
+
+            this.sessions.insert(session_id, session);
+            cx.notify();
+
+            Ok(())
+        })?
     }
 }
 

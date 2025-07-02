@@ -192,18 +192,31 @@ impl FollowableItem for DebugSession {
         self.remote_id
     }
 
-    fn to_state_proto(&self, _window: &Window, _cx: &App) -> Option<proto::view::Variant> {
-        None
+    fn to_state_proto(&self, _window: &Window, cx: &App) -> Option<proto::view::Variant> {
+        let session_id = self.running_state.read(cx).session_id().to_proto();
+
+        dbg!("here");
+
+        Some(proto::view::Variant::DebugSession(
+            proto::view::DebugSession { session_id },
+        ))
     }
 
     fn from_state_proto(
         _workspace: Entity<Workspace>,
         _remote_id: ViewId,
-        _state: &mut Option<proto::view::Variant>,
+        state: &mut Option<proto::view::Variant>,
         _window: &mut Window,
         _cx: &mut App,
     ) -> Option<gpui::Task<anyhow::Result<Entity<Self>>>> {
-        None
+        let proto::view::Variant::DebugSession(_) = state.as_ref()? else {
+            return None;
+        };
+        let Some(proto::view::Variant::DebugSession(_state)) = state.take() else {
+            unreachable!()
+        };
+
+        todo!()
     }
 
     fn add_event_to_update_proto(
@@ -225,6 +238,7 @@ impl FollowableItem for DebugSession {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> gpui::Task<anyhow::Result<()>> {
+        dbg!("here");
         Task::ready(Ok(()))
     }
 

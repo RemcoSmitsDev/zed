@@ -1,7 +1,8 @@
 use anyhow::{Context as _, Result};
 use client::proto::{
-    self, DapChecksum, DapChecksumAlgorithm, DapEvaluateContext, DapModule, DapScope,
-    DapScopePresentationHint, DapSource, DapSourcePresentationHint, DapStackFrame, DapVariable,
+    self, BreakpointMode, BreakpointModeApplicability, Capabilities, DapChecksum,
+    DapChecksumAlgorithm, DapEvaluateContext, DapModule, DapScope, DapScopePresentationHint,
+    DapSource, DapSourcePresentationHint, DapStackFrame, DapVariable, ExceptionBreakpointsFilter,
 };
 use dap_types::{OutputEventCategory, OutputEventGroup, ScopePresentationHint, Source};
 
@@ -120,7 +121,7 @@ impl ProtoConversion for dap_types::ScopePresentationHint {
             dap_types::ScopePresentationHint::Registers => DapScopePresentationHint::Registers,
             dap_types::ScopePresentationHint::ReturnValue => DapScopePresentationHint::ReturnValue,
             dap_types::ScopePresentationHint::Unknown => DapScopePresentationHint::ScopeUnknown,
-            &_ => unreachable!(),
+            _ => unreachable!(),
         }
     }
 
@@ -361,11 +362,13 @@ impl ProtoConversion for dap_types::OutputEventCategory {
 
     fn to_proto(&self) -> Self::ProtoType {
         match self {
-            Self::Console => proto::DapOutputCategory::ConsoleOutput,
-            Self::Important => proto::DapOutputCategory::Important,
-            Self::Stdout => proto::DapOutputCategory::Stdout,
-            Self::Stderr => proto::DapOutputCategory::Stderr,
-            _ => proto::DapOutputCategory::Unknown,
+            OutputEventCategory::Console => proto::DapOutputCategory::ConsoleOutput,
+            OutputEventCategory::Important => proto::DapOutputCategory::Important,
+            OutputEventCategory::Stdout => proto::DapOutputCategory::Stdout,
+            OutputEventCategory::Stderr => proto::DapOutputCategory::Stderr,
+            OutputEventCategory::Unknown => proto::DapOutputCategory::Unknown,
+            OutputEventCategory::Telemetry => proto::DapOutputCategory::Telemetry,
+            _ => unreachable!(),
         }
     }
 
@@ -376,6 +379,7 @@ impl ProtoConversion for dap_types::OutputEventCategory {
             proto::DapOutputCategory::Stdout => Self::Stdout,
             proto::DapOutputCategory::Stderr => Self::Stderr,
             proto::DapOutputCategory::Unknown => Self::Unknown,
+            proto::DapOutputCategory::Telemetry => Self::Telemetry,
         }
     }
 }
@@ -498,7 +502,7 @@ impl ProtoConversion for dap_types::EvaluateArgumentsContext {
             dap_types::EvaluateArgumentsContext::Unknown => {
                 proto::DapEvaluateContext::EvaluateUnknown
             }
-            _ => proto::DapEvaluateContext::EvaluateUnknown,
+            _ => unreachable!(),
         }
     }
 
@@ -586,6 +590,438 @@ impl ProtoConversion for dap_types::Thread {
         Self {
             id: payload.id,
             name: payload.name,
+        }
+    }
+}
+
+impl ProtoConversion for dap_types::ExceptionBreakMode {
+    type ProtoType = proto::ExceptionBreakMode;
+    type Output = Self;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        match self {
+            dap_types::ExceptionBreakMode::Never => proto::ExceptionBreakMode::Never,
+            dap_types::ExceptionBreakMode::Always => proto::ExceptionBreakMode::Always,
+            dap_types::ExceptionBreakMode::Unhandled => proto::ExceptionBreakMode::Unhandled,
+            dap_types::ExceptionBreakMode::UserUnhandled => {
+                proto::ExceptionBreakMode::AlwaysUnhandled
+            }
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        match payload {
+            proto::ExceptionBreakMode::Never => dap_types::ExceptionBreakMode::Never,
+            proto::ExceptionBreakMode::Always => dap_types::ExceptionBreakMode::Always,
+            proto::ExceptionBreakMode::Unhandled => dap_types::ExceptionBreakMode::Unhandled,
+            proto::ExceptionBreakMode::AlwaysUnhandled => {
+                dap_types::ExceptionBreakMode::UserUnhandled
+            }
+        }
+    }
+}
+
+impl ProtoConversion for dap_types::ExceptionPathSegment {
+    type ProtoType = proto::ExceptionPathSegment;
+    type Output = Self;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        proto::ExceptionPathSegment {
+            negate: self.negate,
+            names: self.names.clone(),
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        Self {
+            negate: payload.negate,
+            names: payload.names,
+        }
+    }
+}
+
+impl ProtoConversion for dap_types::ExceptionOptions {
+    type ProtoType = proto::ExceptionOptions;
+    type Output = Self;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        proto::ExceptionOptions {
+            path: self.path.as_ref().map(|p| p.to_proto()).unwrap_or_default(),
+            break_mode: self.break_mode.to_proto() as i32,
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        Self {
+            path: if payload.path.is_empty() {
+                None
+            } else {
+                Some(
+                    payload
+                        .path
+                        .into_iter()
+                        .map(dap_types::ExceptionPathSegment::from_proto)
+                        .collect(),
+                )
+            },
+            break_mode: match payload.break_mode {
+                0 => dap_types::ExceptionBreakMode::Never,
+                1 => dap_types::ExceptionBreakMode::Always,
+                2 => dap_types::ExceptionBreakMode::Unhandled,
+                3 => dap_types::ExceptionBreakMode::UserUnhandled,
+                _ => dap_types::ExceptionBreakMode::Never,
+            },
+        }
+    }
+}
+
+impl ProtoConversion for dap_types::ExceptionFilterOptions {
+    type ProtoType = proto::ExceptionFilterOptions;
+    type Output = Self;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        proto::ExceptionFilterOptions {
+            filter_id: self.filter_id.clone(),
+            condition: self.condition.clone(),
+            mode: self.mode.clone(),
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        Self {
+            filter_id: payload.filter_id,
+            condition: payload.condition,
+            mode: payload.mode,
+        }
+    }
+}
+
+impl ProtoConversion for dap_types::BreakpointReason {
+    type ProtoType = proto::DapBreakpointReason;
+    type Output = Self;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        match self {
+            dap_types::BreakpointReason::Pending => proto::DapBreakpointReason::Pending,
+            dap_types::BreakpointReason::Failed => proto::DapBreakpointReason::Failed,
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        match payload {
+            proto::DapBreakpointReason::Pending => dap_types::BreakpointReason::Pending,
+            proto::DapBreakpointReason::Failed => dap_types::BreakpointReason::Failed,
+        }
+    }
+}
+
+impl ProtoConversion for dap_types::Breakpoint {
+    type ProtoType = proto::DapBreakpoint;
+    type Output = Self;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        proto::DapBreakpoint {
+            id: self.id.map(|id| id as i64),
+            verified: self.verified,
+            message: self.message.clone(),
+            source: self.source.as_ref().map(|source| source.to_proto()),
+            line: self.line.map(|line| line as u32),
+            column: self.column.map(|column| column as u32),
+            end_line: self.end_line.map(|line| line as u32),
+            end_column: self.end_column.map(|column| column as u32),
+            instruction_reference: self.instruction_reference.clone(),
+            offset: self.offset.map(|offset| offset as u32),
+            reason: self.reason.as_ref().map(|reason| reason.to_proto() as i32),
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        Self {
+            id: payload.id.map(|id| id as u64),
+            verified: payload.verified,
+            message: payload.message,
+            source: payload.source.map(dap_types::Source::from_proto),
+            line: payload.line.map(|line| line as u64),
+            column: payload.column.map(|column| column as u64),
+            end_line: payload.end_line.map(|line| line as u64),
+            end_column: payload.end_column.map(|column| column as u64),
+            instruction_reference: payload.instruction_reference,
+            offset: payload.offset.map(|offset| offset as u64),
+            reason: payload.reason.and_then(|reason| match reason {
+                0 => Some(dap_types::BreakpointReason::Pending),
+                1 => Some(dap_types::BreakpointReason::Failed),
+                _ => None,
+            }),
+        }
+    }
+}
+
+impl ProtoConversion for dap_types::BreakpointModeApplicability {
+    type ProtoType = BreakpointModeApplicability;
+    type Output = Self;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        match self {
+            dap_types::BreakpointModeApplicability::Source => BreakpointModeApplicability::Source,
+            dap_types::BreakpointModeApplicability::Exception => {
+                BreakpointModeApplicability::Exception
+            }
+            dap_types::BreakpointModeApplicability::Data => BreakpointModeApplicability::Data,
+            dap_types::BreakpointModeApplicability::Instruction => {
+                BreakpointModeApplicability::InstructionBreakpoint
+            }
+            dap_types::BreakpointModeApplicability::Unknown => {
+                BreakpointModeApplicability::BreakpointModeUnknown
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        match payload {
+            BreakpointModeApplicability::Source => dap_types::BreakpointModeApplicability::Source,
+            BreakpointModeApplicability::Exception => {
+                dap_types::BreakpointModeApplicability::Exception
+            }
+            BreakpointModeApplicability::Data => dap_types::BreakpointModeApplicability::Data,
+            BreakpointModeApplicability::InstructionBreakpoint => {
+                dap_types::BreakpointModeApplicability::Instruction
+            }
+            BreakpointModeApplicability::BreakpointModeUnknown => {
+                dap_types::BreakpointModeApplicability::Unknown
+            }
+        }
+    }
+}
+
+impl ProtoConversion for dap_types::BreakpointMode {
+    type ProtoType = BreakpointMode;
+    type Output = Self;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        BreakpointMode {
+            mode: self.mode.clone(),
+            label: self.label.clone(),
+            description: self.description.clone(),
+            applies_to: self
+                .applies_to
+                .iter()
+                .map(|a| a.to_proto() as i32)
+                .collect(),
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        Self {
+            mode: payload.mode,
+            label: payload.label,
+            description: payload.description,
+            applies_to: payload
+                .applies_to
+                .into_iter()
+                .filter_map(BreakpointModeApplicability::from_i32)
+                .map(dap_types::BreakpointModeApplicability::from_proto)
+                .collect(),
+        }
+    }
+}
+
+impl ProtoConversion for dap_types::ExceptionBreakpointsFilter {
+    type ProtoType = ExceptionBreakpointsFilter;
+    type Output = Self;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        ExceptionBreakpointsFilter {
+            filter: self.filter.clone(),
+            label: self.label.clone(),
+            description: self.description.clone(),
+            default_value: self.default,
+            supports_condition: self.supports_condition,
+            condition_description: self.condition_description.clone(),
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        Self {
+            filter: payload.filter,
+            label: payload.label,
+            description: payload.description,
+            default: payload.default_value,
+            supports_condition: payload.supports_condition,
+            condition_description: payload.condition_description,
+        }
+    }
+}
+
+impl ProtoConversion for dap_types::Capabilities {
+    type ProtoType = Capabilities;
+    type Output = Self;
+
+    fn to_proto(&self) -> Self::ProtoType {
+        Capabilities {
+            supports_configuration_done_request: self.supports_configuration_done_request,
+            supports_function_breakpoints: self.supports_function_breakpoints,
+            supports_conditional_breakpoints: self.supports_conditional_breakpoints,
+            supports_hit_conditional_breakpoints: self.supports_hit_conditional_breakpoints,
+            supports_evaluate_for_hovers: self.supports_evaluate_for_hovers,
+            exception_breakpoint_filters: self
+                .exception_breakpoint_filters
+                .as_ref()
+                .map(|filters| filters.to_proto())
+                .unwrap_or_default(),
+            supports_step_back: self.supports_step_back,
+            supports_set_variable: self.supports_set_variable,
+            supports_restart_frame: self.supports_restart_frame,
+            supports_goto_targets_request: self.supports_goto_targets_request,
+            supports_step_in_targets_request: self.supports_step_in_targets_request,
+            supports_completions_request: self.supports_completions_request,
+            completion_trigger_characters: self
+                .completion_trigger_characters
+                .clone()
+                .unwrap_or_default(),
+            supports_modules_request: self.supports_modules_request,
+            additional_module_columns: self
+                .additional_module_columns
+                .as_ref()
+                .map(|columns| {
+                    columns
+                        .iter()
+                        .map(|col| col.attribute_name.clone())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            supported_checksum_algorithms: self
+                .supported_checksum_algorithms
+                .as_ref()
+                .map(|algorithms| algorithms.iter().map(|alg| format!("{:?}", alg)).collect())
+                .unwrap_or_default(),
+            supports_restart_request: self.supports_restart_request,
+            supports_exception_options: self.supports_exception_options,
+            supports_value_formatting_options: self.supports_value_formatting_options,
+            supports_exception_info_request: self.supports_exception_info_request,
+            support_terminate_debuggee: self.support_terminate_debuggee,
+            support_suspend_debuggee: self.support_suspend_debuggee,
+            supports_delayed_stack_trace_loading: self.supports_delayed_stack_trace_loading,
+            supports_loaded_sources_request: self.supports_loaded_sources_request,
+            supports_log_points: self.supports_log_points,
+            supports_terminate_threads_request: self.supports_terminate_threads_request,
+            supports_set_expression: self.supports_set_expression,
+            supports_terminate_request: self.supports_terminate_request,
+            supports_data_breakpoints: self.supports_data_breakpoints,
+            supports_read_memory_request: self.supports_read_memory_request,
+            supports_write_memory_request: self.supports_write_memory_request,
+            supports_disassemble_request: self.supports_disassemble_request,
+            supports_cancel_request: self.supports_cancel_request,
+            supports_breakpoint_locations_request: self.supports_breakpoint_locations_request,
+            supports_clipboard_context: self.supports_clipboard_context,
+            supports_stepping_granularity: self.supports_stepping_granularity,
+            supports_instruction_breakpoints: self.supports_instruction_breakpoints,
+            supports_exception_filter_options: self.supports_exception_filter_options,
+            supports_single_thread_execution_requests: self
+                .supports_single_thread_execution_requests,
+            supports_data_breakpoint_bytes: self.supports_data_breakpoint_bytes,
+            breakpoint_modes: self
+                .breakpoint_modes
+                .as_ref()
+                .map(|modes| modes.to_proto())
+                .unwrap_or_default(),
+            supports_ansistyling: self.supports_ansistyling,
+        }
+    }
+
+    fn from_proto(payload: Self::ProtoType) -> Self {
+        Self {
+            supports_configuration_done_request: payload.supports_configuration_done_request,
+            supports_function_breakpoints: payload.supports_function_breakpoints,
+            supports_conditional_breakpoints: payload.supports_conditional_breakpoints,
+            supports_hit_conditional_breakpoints: payload.supports_hit_conditional_breakpoints,
+            supports_evaluate_for_hovers: payload.supports_evaluate_for_hovers,
+            exception_breakpoint_filters: if payload.exception_breakpoint_filters.is_empty() {
+                None
+            } else {
+                Some(Vec::<dap_types::ExceptionBreakpointsFilter>::from_proto(
+                    payload.exception_breakpoint_filters,
+                ))
+            },
+            supports_step_back: payload.supports_step_back,
+            supports_set_variable: payload.supports_set_variable,
+            supports_restart_frame: payload.supports_restart_frame,
+            supports_goto_targets_request: payload.supports_goto_targets_request,
+            supports_step_in_targets_request: payload.supports_step_in_targets_request,
+            supports_completions_request: payload.supports_completions_request,
+            completion_trigger_characters: if payload.completion_trigger_characters.is_empty() {
+                None
+            } else {
+                Some(payload.completion_trigger_characters)
+            },
+            supports_modules_request: payload.supports_modules_request,
+            additional_module_columns: if payload.additional_module_columns.is_empty() {
+                None
+            } else {
+                Some(
+                    payload
+                        .additional_module_columns
+                        .into_iter()
+                        .map(|name| dap_types::ColumnDescriptor {
+                            attribute_name: name,
+                            label: String::new(),
+                            format: None,
+                            type_: None,
+                            width: None,
+                        })
+                        .collect(),
+                )
+            },
+            supported_checksum_algorithms: if payload.supported_checksum_algorithms.is_empty() {
+                None
+            } else {
+                Some(
+                    payload
+                        .supported_checksum_algorithms
+                        .into_iter()
+                        .filter_map(|alg| match alg.as_str() {
+                            "Md5" => Some(dap_types::ChecksumAlgorithm::Md5),
+                            "Sha1" => Some(dap_types::ChecksumAlgorithm::Sha1),
+                            "Sha256" => Some(dap_types::ChecksumAlgorithm::Sha256),
+                            "Timestamp" => Some(dap_types::ChecksumAlgorithm::Timestamp),
+                            _ => None,
+                        })
+                        .collect(),
+                )
+            },
+            supports_restart_request: payload.supports_restart_request,
+            supports_exception_options: payload.supports_exception_options,
+            supports_value_formatting_options: payload.supports_value_formatting_options,
+            supports_exception_info_request: payload.supports_exception_info_request,
+            support_terminate_debuggee: payload.support_terminate_debuggee,
+            support_suspend_debuggee: payload.support_suspend_debuggee,
+            supports_delayed_stack_trace_loading: payload.supports_delayed_stack_trace_loading,
+            supports_loaded_sources_request: payload.supports_loaded_sources_request,
+            supports_log_points: payload.supports_log_points,
+            supports_terminate_threads_request: payload.supports_terminate_threads_request,
+            supports_set_expression: payload.supports_set_expression,
+            supports_terminate_request: payload.supports_terminate_request,
+            supports_data_breakpoints: payload.supports_data_breakpoints,
+            supports_read_memory_request: payload.supports_read_memory_request,
+            supports_write_memory_request: payload.supports_write_memory_request,
+            supports_disassemble_request: payload.supports_disassemble_request,
+            supports_cancel_request: payload.supports_cancel_request,
+            supports_breakpoint_locations_request: payload.supports_breakpoint_locations_request,
+            supports_clipboard_context: payload.supports_clipboard_context,
+            supports_stepping_granularity: payload.supports_stepping_granularity,
+            supports_instruction_breakpoints: payload.supports_instruction_breakpoints,
+            supports_exception_filter_options: payload.supports_exception_filter_options,
+            supports_single_thread_execution_requests: payload
+                .supports_single_thread_execution_requests,
+            supports_data_breakpoint_bytes: payload.supports_data_breakpoint_bytes,
+            breakpoint_modes: if payload.breakpoint_modes.is_empty() {
+                None
+            } else {
+                Some(Vec::<dap_types::BreakpointMode>::from_proto(
+                    payload.breakpoint_modes,
+                ))
+            },
+            supports_ansistyling: payload.supports_ansistyling,
         }
     }
 }
