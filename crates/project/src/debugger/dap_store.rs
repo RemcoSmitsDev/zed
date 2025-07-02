@@ -115,6 +115,7 @@ impl DapStore {
         client.add_entity_request_handler(Self::handle_run_debug_locator);
         client.add_entity_request_handler(Self::handle_get_debug_adapter_binary);
         client.add_entity_message_handler(Self::handle_log_to_debug_console);
+        client.add_entity_message_handler(Self::handle_new_session);
     }
 
     #[expect(clippy::too_many_arguments)]
@@ -385,6 +386,13 @@ impl DapStore {
         }
     }
 
+    fn as_collab(&self) -> Option<&CollabDapStore> {
+        match &self.mode {
+            DapStoreMode::Collab(collab_dap_store) => Some(collab_dap_store),
+            _ => None,
+        }
+    }
+
     pub fn new_session(
         &mut self,
         label: SharedString,
@@ -468,11 +476,9 @@ impl DapStore {
         &self,
         session_id: impl Borrow<SessionId>,
     ) -> Option<Entity<session::Session>> {
-        let session_id = session_id.borrow();
-        let client = self.sessions.get(session_id).cloned();
-
-        client
+        self.sessions.get(session_id.borrow()).cloned()
     }
+
     pub fn sessions(&self) -> impl Iterator<Item = &Entity<Session>> {
         self.sessions.values()
     }
@@ -860,6 +866,46 @@ impl DapStore {
                     .ok();
             })
         })
+    }
+
+    async fn handle_new_session(
+        this: Entity<Self>,
+        envelope: TypedEnvelope<proto::DapNewSession>,
+        mut cx: AsyncApp,
+    ) -> Result<()> {
+        let session_id = SessionId::from_proto(envelope.payload.session_id);
+        let parent_session_id = envelope
+            .payload
+            .parent_session_id
+            .map(SessionId::from_proto);
+
+        this.update(&mut cx, |this, cx| {
+            let Some(collab) = this.as_collab() else {
+                anyhow::bail!("expected that dap store is in collab mode");
+            };
+
+            let parent_session = parent_session_id.and_then(|id| this.session_by_id(id));
+
+            let session = Session::new_remote(
+                session_id,
+                parent_session,
+                DebugAdapterName(envelope.payload.adapter_name.into()),
+                envelope.payload.label.into(),
+                this.breakpoint_store.clone(),
+                collab.upstream_client.clone(),
+                collab.project_id,
+                cx.background_executor().clone(),
+                cx,
+            );
+
+            this.sessions.insert(session_id, session);
+
+            // TODO(debugger): update the parent session to have the child session id
+
+            cx.notify();
+
+            Ok(())
+        })?
     }
 }
 

@@ -840,7 +840,7 @@ impl Session {
             .detach();
             cx.on_app_quit(Self::on_app_quit).detach();
 
-            let this = Self {
+            Self {
                 mode: Mode::Building,
                 id: session_id,
                 child_session_ids: HashSet::default(),
@@ -865,9 +865,53 @@ impl Session {
                 label,
                 adapter,
                 task_context,
-            };
+            }
+        })
+    }
 
-            this
+    pub(crate) fn new_remote(
+        session_id: SessionId,
+        parent_session: Option<Entity<Session>>,
+        adapter: DebugAdapterName,
+        label: SharedString,
+        breakpoint_store: Entity<BreakpointStore>,
+        client: AnyProtoClient,
+        upstream_project_id: u64,
+        executor: BackgroundExecutor,
+        cx: &mut App,
+    ) -> Entity<Self> {
+        cx.new(|_| Self {
+            mode: Mode::Remote(RemoteMode {
+                client,
+                has_ever_stopped: false,
+                upstream_project_id,
+                executor,
+                is_building: true,
+                is_started: false,
+            }),
+            id: session_id,
+            child_session_ids: HashSet::default(),
+            parent_session,
+            capabilities: Capabilities::default(),
+            watchers: HashMap::default(),
+            variables: Default::default(),
+            stack_frames: Default::default(),
+            thread_states: ThreadStates::default(),
+            output_token: OutputToken(0),
+            output: circular_buffer::CircularBuffer::boxed(),
+            requests: HashMap::default(),
+            modules: Vec::default(),
+            loaded_sources: Vec::default(),
+            threads: IndexMap::default(),
+            background_tasks: Vec::default(),
+            locations: Default::default(),
+            is_session_terminated: false,
+            ignore_breakpoints: false,
+            breakpoint_store,
+            exception_breakpoints: Default::default(),
+            label,
+            adapter,
+            task_context: Default::default(), // TODO(debugger): fix this
         })
     }
 

@@ -606,6 +606,9 @@ message LogToDebugConsole {
 message DapNewSession {
     uint64 project_id = 1;
     uint64 session_id = 2;
+    optional uint64 parent_session_id = 3;
+    string label = 4;
+    string adapter_name = 5;
 }
 
 message DapSessionUpdated {
