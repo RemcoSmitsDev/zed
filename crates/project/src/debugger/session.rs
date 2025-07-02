@@ -432,6 +432,15 @@ impl RunningMode {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        // From spec (on initialization sequence):
+        // client sends a setExceptionBreakpoints request if one or more exceptionBreakpointFilters have been defined (or if supportsConfigurationDoneRequest is not true)
+        //
+        // Thus we should send setExceptionBreakpoints even if `exceptionFilters` variable is empty (as long as there were some options in the first place).
+        let should_send_exception_breakpoints = capabilities
+            .exception_breakpoint_filters
+            .as_ref()
+            .map_or(false, |filters| !filters.is_empty())
+            || !configuration_done_supported;
         let supports_exception_filters = capabilities
             .supports_exception_filter_options
             .unwrap_or_default();
@@ -473,9 +482,12 @@ impl RunningMode {
                     }
                 })?;
 
-                this.send_exception_breakpoints(exception_filters, supports_exception_filters)
-                    .await
-                    .ok();
+                if should_send_exception_breakpoints {
+                    this.send_exception_breakpoints(exception_filters, supports_exception_filters)
+                        .await
+                        .ok();
+                }
+
                 let ret = if configuration_done_supported {
                     this.request(ConfigurationDone {})
                 } else {
@@ -838,7 +850,7 @@ impl Session {
                 BreakpointStoreEvent::SetDebugLine | BreakpointStoreEvent::ClearDebugLines => {}
             })
             .detach();
-            cx.on_app_quit(Self::on_app_quit).detach();
+            // cx.on_app_quit(Self::on_app_quit).detach();
 
             Self {
                 mode: Mode::Building,
@@ -1035,6 +1047,37 @@ impl Session {
 
     pub fn parent_session(&self) -> Option<&Entity<Self>> {
         self.parent_session.as_ref()
+    }
+
+    pub fn on_app_quit(&mut self, cx: &mut Context<Self>) -> Task<()> {
+        let Some(client) = self.adapter_client() else {
+            return Task::ready(());
+        };
+
+        let supports_terminate = self
+            .capabilities
+            .support_terminate_debuggee
+            .unwrap_or(false);
+
+        cx.background_spawn(async move {
+            if supports_terminate {
+                client
+                    .request::<dap::requests::Terminate>(dap::TerminateArguments {
+                        restart: Some(false),
+                    })
+                    .await
+                    .ok();
+            } else {
+                client
+                    .request::<dap::requests::Disconnect>(dap::DisconnectArguments {
+                        restart: Some(false),
+                        terminate_debuggee: Some(true),
+                        suspend_debuggee: Some(false),
+                    })
+                    .await
+                    .ok();
+            }
+        })
     }
 
     pub fn capabilities(&self) -> &Capabilities {
@@ -1554,6 +1597,28 @@ impl Session {
             }
             Events::Capabilities(event) => {
                 self.capabilities = self.capabilities.merge(event.capabilities);
+
+                // The adapter might've enabled new exception breakpoints (or disabled existing ones).
+                let recent_filters = self
+                    .capabilities
+                    .exception_breakpoint_filters
+                    .iter()
+                    .flatten()
+                    .map(|filter| (filter.filter.clone(), filter.clone()))
+                    .collect::<BTreeMap<_, _>>();
+                for filter in recent_filters.values() {
+                    let default = filter.default.unwrap_or_default();
+                    self.exception_breakpoints
+                        .entry(filter.filter.clone())
+                        .or_insert_with(|| (filter.clone(), default));
+                }
+                self.exception_breakpoints
+                    .retain(|k, _| recent_filters.contains_key(k));
+                if self.is_started() {
+                    self.send_exception_breakpoints(cx);
+                }
+
+                // Remove the ones that no longer exist.
                 cx.notify();
             }
             Events::Memory(_) => {}
@@ -1930,17 +1995,11 @@ impl Session {
         }
     }
 
-    fn on_app_quit(&mut self, cx: &mut Context<Self>) -> Task<()> {
-        let debug_adapter = self.adapter_client();
-
-        cx.background_spawn(async move {
-            if let Some(client) = debug_adapter {
-                client.shutdown().await.log_err();
-            }
-        })
-    }
-
     pub fn shutdown(&mut self, cx: &mut Context<Self>) -> Task<()> {
+        if self.is_session_terminated {
+            return Task::ready(());
+        }
+
         self.is_session_terminated = true;
         self.thread_states.exit_all_threads();
         cx.notify();
@@ -1971,14 +2030,8 @@ impl Session {
 
         cx.emit(SessionStateEvent::Shutdown);
 
-        let debug_client = self.adapter_client();
-
-        cx.background_spawn(async move {
-            let _ = task.await;
-
-            if let Some(client) = debug_client {
-                client.shutdown().await.log_err();
-            }
+        cx.spawn(async move |_, _| {
+            task.await;
         })
     }
 
@@ -2264,7 +2317,12 @@ impl Session {
             .unwrap_or_default()
     }
 
-    pub fn variables_by_stack_frame_id(&self, stack_frame_id: StackFrameId) -> Vec<dap::Variable> {
+    pub fn variables_by_stack_frame_id(
+        &self,
+        stack_frame_id: StackFrameId,
+        globals: bool,
+        locals: bool,
+    ) -> Vec<dap::Variable> {
         let Some(stack_frame) = self.stack_frames.get(&stack_frame_id) else {
             return Vec::new();
         };
@@ -2272,6 +2330,10 @@ impl Session {
         stack_frame
             .scopes
             .iter()
+            .filter(|scope| {
+                (scope.name.to_lowercase().contains("local") && locals)
+                    || (scope.name.to_lowercase().contains("global") && globals)
+            })
             .filter_map(|scope| self.variables.get(&scope.variables_reference))
             .flatten()
             .cloned()
