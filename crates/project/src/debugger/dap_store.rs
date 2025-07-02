@@ -886,6 +886,12 @@ impl DapStore {
 
             let parent_session = parent_session_id.and_then(|id| this.session_by_id(id));
 
+            if let Some(parent_session) = &parent_session {
+                parent_session.update(cx, |session, _| {
+                    session.add_child_session_id(session_id);
+                });
+            }
+
             let session = Session::new_remote(
                 session_id,
                 parent_session,
@@ -899,9 +905,6 @@ impl DapStore {
             );
 
             this.sessions.insert(session_id, session);
-
-            // TODO(debugger): update the parent session to have the child session id
-
             cx.notify();
 
             Ok(())
