@@ -348,6 +348,8 @@ messages!(
     (DapSetExceptionBreakpointsRequest, Background),
     (DapSetExceptionBreakpointsResponse, Background),
     (DapTerminateThreadsRequest, Background),
+    (DapNewSession, Background),
+    (DapSessionUpdated, Background),
 );
 
 request_messages!(
@@ -539,6 +541,8 @@ request_messages!(
         DapSetExceptionBreakpointsResponse
     ),
     (DapTerminateThreadsRequest, Ack),
+    (DapNewSession, Ack),
+    (DapSessionUpdated, Ack),
 );
 
 entity_messages!(
@@ -668,7 +672,9 @@ entity_messages!(
     GetDebugAdapterBinary,
     LogToDebugConsole,
     GetDocumentDiagnostics,
-    PullWorkspaceDiagnostics
+    PullWorkspaceDiagnostics,
+    DapNewSession,
+    DapSessionUpdated,
 );
 
 entity_messages!(

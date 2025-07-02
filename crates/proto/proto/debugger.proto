@@ -405,6 +405,7 @@ enum DapOutputCategory {
     Stdout = 2;
     Stderr = 3;
     Unknown = 4;
+    Telemetry = 5;
 }
 
 enum DapOutputEventGroup {
@@ -602,9 +603,87 @@ message LogToDebugConsole {
     string message = 3;
 }
 
-message SessionStarted {
+message DapNewSession {
     uint64 project_id = 1;
     uint64 session_id = 2;
+}
+
+message DapSessionUpdated {
+    uint64 project_id = 1;
+    uint64 session_id = 2;
+    Capabilities capabilities = 3;
+    bool building = 4;
+    bool has_ever_stopped = 5;
+    bool is_started = 6;
+}
+
+message Capabilities {
+    optional bool supports_configuration_done_request = 1;
+    optional bool supports_function_breakpoints = 2;
+    optional bool supports_conditional_breakpoints = 3;
+    optional bool supports_hit_conditional_breakpoints = 4;
+    optional bool supports_evaluate_for_hovers = 5;
+    repeated ExceptionBreakpointsFilter exception_breakpoint_filters = 6;
+    optional bool supports_step_back = 7;
+    optional bool supports_set_variable = 8;
+    optional bool supports_restart_frame = 9;
+    optional bool supports_goto_targets_request = 10;
+    optional bool supports_step_in_targets_request = 11;
+    optional bool supports_completions_request = 12;
+    repeated string completion_trigger_characters = 13;
+    optional bool supports_modules_request = 14;
+    repeated string additional_module_columns = 15;
+    repeated string supported_checksum_algorithms = 16;
+    optional bool supports_restart_request = 17;
+    optional bool supports_exception_options = 18;
+    optional bool supports_value_formatting_options = 19;
+    optional bool supports_exception_info_request = 20;
+    optional bool support_terminate_debuggee = 21;
+    optional bool support_suspend_debuggee = 22;
+    optional bool supports_delayed_stack_trace_loading = 23;
+    optional bool supports_loaded_sources_request = 24;
+    optional bool supports_log_points = 25;
+    optional bool supports_terminate_threads_request = 26;
+    optional bool supports_set_expression = 27;
+    optional bool supports_terminate_request = 28;
+    optional bool supports_data_breakpoints = 29;
+    optional bool supports_read_memory_request = 30;
+    optional bool supports_write_memory_request = 31;
+    optional bool supports_disassemble_request = 32;
+    optional bool supports_cancel_request = 33;
+    optional bool supports_breakpoint_locations_request = 34;
+    optional bool supports_clipboard_context = 35;
+    optional bool supports_stepping_granularity = 36;
+    optional bool supports_instruction_breakpoints = 37;
+    optional bool supports_exception_filter_options = 38;
+    optional bool supports_single_thread_execution_requests = 39;
+    optional bool supports_data_breakpoint_bytes = 40;
+    repeated BreakpointMode breakpoint_modes = 41;
+    optional bool supports_ansistyling = 42;
+}
+
+message ExceptionBreakpointsFilter {
+    string filter = 1;
+    string label = 2;
+    optional string description = 3;
+    optional bool default_value = 4;
+    optional bool supports_condition = 5;
+    optional string condition_description = 6;
+}
+
+enum BreakpointModeApplicability {
+    Source = 0;
+    Exception = 1;
+    Data = 2;
+    InstructionBreakpoint = 3;
+    BreakpointModeUnknown = 4;
+}
+
+message BreakpointMode {
+    string mode = 1;
+    string label = 2;
+    optional string description = 3;
+    repeated BreakpointModeApplicability applies_to = 4;
 }
 
 message InvalidateSessionRequest {

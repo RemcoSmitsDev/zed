@@ -156,7 +156,8 @@ pub struct RemoteMode {
     has_ever_stopped: bool,
     upstream_project_id: u64,
     executor: BackgroundExecutor,
-    building: bool,
+    is_building: bool,
+    is_started: bool,
 }
 
 fn client_source(abs_path: &Path) -> dap::Source {
@@ -547,7 +548,8 @@ impl RemoteMode {
             executor,
             upstream_project_id,
             has_ever_stopped: false,
-            building: true,
+            is_building: true,
+            is_started: false,
         }
     }
 
@@ -1045,16 +1047,24 @@ impl Session {
         match &self.mode {
             Mode::Building => false,
             Mode::Running(running) => running.is_started,
-            Mode::Remote(_) => true,
+            Mode::Remote(remote) => remote.is_started,
         }
     }
 
     pub fn is_building(&self) -> bool {
-        matches!(self.mode, Mode::Building)
+        match &self.mode {
+            Mode::Building => true,
+            Mode::Running(_) => false,
+            Mode::Remote(remote_mode) => remote_mode.is_building,
+        }
     }
 
     pub fn is_running(&self) -> bool {
-        matches!(self.mode, Mode::Running(_))
+        match &self.mode {
+            Mode::Building => false,
+            Mode::Running(_) => true,
+            Mode::Remote(remote_mode) => !remote_mode.is_building,
+        }
     }
 
     pub fn as_running_mut(&mut self) -> Option<&mut RunningMode> {
@@ -1615,7 +1625,7 @@ impl Session {
         cx: &mut Context<Self>,
     ) -> Task<Option<T::Response>> {
         Self::request_inner(
-            self.id.clone(),
+            self.id,
             &self.capabilities,
             &self.mode,
             request,

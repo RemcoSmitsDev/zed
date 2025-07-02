@@ -431,7 +431,9 @@ message Envelope {
         DapLocationsRequest dap_locations_request = 387;
         DapLocationsResponse dap_locations_response = 388;
         DapSetExceptionBreakpointsRequest dap_set_exception_breakpoints_request = 389;
-        DapSetExceptionBreakpointsResponse dap_set_exception_breakpoints_response = 390; // current max
+        DapSetExceptionBreakpointsResponse dap_set_exception_breakpoints_response = 390;
+        DapNewSession dap_new_session = 391;
+        DapSessionUpdated dap_session_updated = 392; // current max
     }
 
     reserved 87 to 88;
