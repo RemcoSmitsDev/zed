@@ -71,7 +71,7 @@ pub struct DebugPanel {
     pub(crate) session_picker_menu_handle: PopoverMenuHandle<ContextMenu>,
     fs: Arc<dyn Fs>,
     is_zoomed: bool,
-    _subscriptions: [Subscription; 1],
+    _subscriptions: Vec<Subscription>,
     breakpoint_list: Entity<BreakpointList>,
 }
 
@@ -87,13 +87,41 @@ impl DebugPanel {
             let thread_picker_menu_handle = PopoverMenuHandle::default();
             let session_picker_menu_handle = PopoverMenuHandle::default();
 
-            let focus_subscription = cx.on_focus(
-                &focus_handle,
-                window,
-                |this: &mut DebugPanel, window, cx| {
-                    this.focus_active_item(window, cx);
-                },
-            );
+            let _subscriptions = vec![
+                cx.on_focus(
+                    &focus_handle,
+                    window,
+                    |this: &mut DebugPanel, window, cx| {
+                        this.focus_active_item(window, cx);
+                    },
+                ),
+                cx.subscribe_in(
+                    &project.read(cx).dap_store(),
+                    window,
+                    |debug_panel, dap_store, event, window, cx| match event {
+                        project::debugger::dap_store::DapStoreEvent::DebugClientStarted(
+                            session_id,
+                        ) => {
+                            cx.notify();
+                            let has_session = debug_panel
+                                .sessions
+                                .iter()
+                                .any(|session| session.read(cx).session_id(cx) == *session_id);
+                            dbg!(has_session, debug_panel.sessions.len());
+                            if let Some(session) = dap_store.read(cx).session_by_id(session_id) {
+                                cx.spawn_in(window, async move |this, cx| {
+                                    Self::register_session(this.clone(), session.clone(), true, cx)
+                                        .await?;
+
+                                    anyhow::Ok(())
+                                })
+                                .detach();
+                            }
+                        }
+                        _ => {}
+                    },
+                ),
+            ];
 
             Self {
                 size: px(300.),
@@ -114,7 +142,7 @@ impl DebugPanel {
                 thread_picker_menu_handle,
                 session_picker_menu_handle,
                 is_zoomed: false,
-                _subscriptions: [focus_subscription],
+                _subscriptions,
                 debug_scenario_scheduled_last: true,
             }
         })

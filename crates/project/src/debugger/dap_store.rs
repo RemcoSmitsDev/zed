@@ -417,6 +417,7 @@ impl DapStore {
 
         let session = Session::new(
             self.breakpoint_store.clone(),
+            self.downstream_client.clone(),
             session_id,
             parent_session,
             label,

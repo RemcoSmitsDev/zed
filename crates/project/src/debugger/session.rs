@@ -15,6 +15,7 @@ use anyhow::{Context as _, Result, anyhow};
 use collections::{HashMap, HashSet, IndexMap};
 use dap::adapters::{DebugAdapterBinary, DebugAdapterName};
 use dap::messages::Response;
+use dap::proto_conversions::ProtoConversion;
 use dap::requests::{Request, RunInTerminal, StartDebugging};
 use dap::{
     Capabilities, ContinueArguments, EvaluateArgumentsContext, Module, Source, StackFrameId,
@@ -35,7 +36,7 @@ use gpui::{
     App, AppContext, AsyncApp, BackgroundExecutor, Context, Entity, EventEmitter, SharedString,
     Task, WeakEntity,
 };
-use rpc::{AnyProtoClient, ErrorExt};
+use rpc::{AnyProtoClient, ErrorExt, proto};
 use serde_json::Value;
 use smol::stream::StreamExt;
 use std::any::TypeId;
@@ -705,6 +706,7 @@ pub struct Session {
     is_session_terminated: bool,
     requests: HashMap<TypeId, HashMap<RequestSlot, Shared<Task<Option<()>>>>>,
     pub(crate) breakpoint_store: Entity<BreakpointStore>,
+    upstream_client: Option<(AnyProtoClient, u64)>,
     ignore_breakpoints: bool,
     exception_breakpoints: BTreeMap<String, (ExceptionBreakpointsFilter, IsEnabled)>,
     background_tasks: Vec<Task<()>>,
@@ -820,6 +822,7 @@ impl EventEmitter<SessionStateEvent> for Session {}
 impl Session {
     pub(crate) fn new(
         breakpoint_store: Entity<BreakpointStore>,
+        upstream_client: Option<(AnyProtoClient, u64)>,
         session_id: SessionId,
         parent_session: Option<Entity<Session>>,
         label: SharedString,
@@ -873,6 +876,7 @@ impl Session {
                 is_session_terminated: false,
                 ignore_breakpoints: false,
                 breakpoint_store,
+                upstream_client,
                 exception_breakpoints: Default::default(),
                 label,
                 adapter,
@@ -920,6 +924,7 @@ impl Session {
             is_session_terminated: false,
             ignore_breakpoints: false,
             breakpoint_store,
+            upstream_client: None,
             exception_breakpoints: Default::default(),
             label,
             adapter,
@@ -948,7 +953,7 @@ impl Session {
         let (message_tx, mut message_rx) = futures::channel::mpsc::unbounded();
         let (initialized_tx, initialized_rx) = futures::channel::oneshot::channel();
 
-        let background_tasks = vec![cx.spawn(async move |this: WeakEntity<Session>, cx| {
+        self.background_tasks = vec![cx.spawn(async move |this: WeakEntity<Session>, cx| {
             let mut initialized_tx = Some(initialized_tx);
             while let Some(message) = message_rx.next().await {
                 if let Message::Event(event) = message {
@@ -978,13 +983,29 @@ impl Session {
                 }
             }
         })];
-        self.background_tasks = background_tasks;
-        let id = self.id;
+
+        let session_id = self.id;
         let parent_session = self.parent_session.clone();
 
         cx.spawn(async move |this, cx| {
+            let upstream_client = this.update(cx, |this, _| this.upstream_client.clone())?;
+
+            if let Some((client, project_id)) = &upstream_client {
+                let _ = client.send(proto::DapNewSession {
+                    project_id: *project_id,
+                    session_id: session_id.to_proto(),
+                    parent_session_id: parent_session.as_ref().and_then(|session| {
+                        session
+                            .update(cx, |session, _| session.session_id().to_proto())
+                            .ok()
+                    }),
+                    label: "python main".to_string(),
+                    adapter_name: "Python".to_string(),
+                });
+            }
+
             let mode = RunningMode::new(
-                id,
+                session_id,
                 parent_session,
                 worktree.downgrade(),
                 binary.clone(),
@@ -992,10 +1013,22 @@ impl Session {
                 cx,
             )
             .await?;
+
             this.update(cx, |this, cx| {
                 this.mode = Mode::Running(mode);
                 cx.emit(SessionStateEvent::Running);
             })?;
+
+            if let Some((client, project_id)) = upstream_client {
+                let _ = client.send(proto::DapSessionUpdated {
+                    project_id,
+                    session_id: session_id.to_proto(),
+                    capabilities: Some(Capabilities::default().to_proto()),
+                    building: false,
+                    has_ever_stopped: false,
+                    is_started: false,
+                });
+            }
 
             this.update(cx, |session, cx| session.request_initialize(cx))?
                 .await?;
