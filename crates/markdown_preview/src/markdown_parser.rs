@@ -938,6 +938,49 @@ impl<'a> MarkdownParser<'a> {
                     }));
 
                     self.consume_paragraph(source_range, node, paragraph, highlights, elements);
+                } else if local_name!("kbd") == name.local {
+                    let mut child_paragraph = Vec::with_capacity(1);
+                    self.consume_paragraph(
+                        source_range.clone(),
+                        node,
+                        &mut child_paragraph,
+                        highlights,
+                        &mut Vec::new(),
+                    );
+
+                    for (index, child) in child_paragraph.iter().enumerate() {
+                        match child {
+                            MarkdownParagraphChunk::Text(text) => {
+                                paragraph.push(MarkdownParagraphChunk::KeyboardShortcut(
+                                    ParsedKeyboardShortcut {
+                                        shortcut: text.contents.clone(),
+                                        source_range: source_range.clone(),
+                                    },
+                                ));
+                            }
+                            MarkdownParagraphChunk::KeyboardShortcut(shortcut) => {
+                                paragraph.push(MarkdownParagraphChunk::KeyboardShortcut(
+                                    shortcut.clone(),
+                                ));
+
+                                // supporting nested "kbd" elements, that should added " + " between each child
+                                if let Some(MarkdownParagraphChunk::KeyboardShortcut(_)) =
+                                    child_paragraph.get(index + 1)
+                                {
+                                    paragraph.push(MarkdownParagraphChunk::Text(
+                                        ParsedMarkdownText {
+                                            source_range: source_range.clone(),
+                                            contents: " + ".into(),
+                                            highlights: Vec::default(),
+                                            region_ranges: Vec::default(),
+                                            regions: Vec::default(),
+                                        },
+                                    ));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
                 } else {
                     self.consume_paragraph(source_range, node, paragraph, highlights, elements);
 
@@ -1630,6 +1673,118 @@ mod tests {
                                 emphasized: false
                             })
                         )],
+                        region_ranges: Default::default(),
+                        regions: Default::default()
+                    }),
+                ])]
+            },
+            parsed
+        );
+    }
+
+    #[gpui::test]
+    async fn test_html_keyboard_shortcut() {
+        let parsed = parse(
+            "<p>Some text <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>C</kbd> some more text</p>",
+        )
+        .await;
+
+        assert_eq!(
+            ParsedMarkdown {
+                children: vec![ParsedMarkdownElement::Paragraph(vec![
+                    MarkdownParagraphChunk::Text(ParsedMarkdownText {
+                        source_range: 0..81,
+                        contents: "Some text ".into(),
+                        highlights: Default::default(),
+                        region_ranges: Default::default(),
+                        regions: Default::default()
+                    }),
+                    MarkdownParagraphChunk::KeyboardShortcut(ParsedKeyboardShortcut {
+                        source_range: 0..81,
+                        shortcut: "Ctrl".into(),
+                    }),
+                    MarkdownParagraphChunk::Text(ParsedMarkdownText {
+                        source_range: 0..81,
+                        contents: " + ".into(),
+                        highlights: Default::default(),
+                        region_ranges: Default::default(),
+                        regions: Default::default()
+                    }),
+                    MarkdownParagraphChunk::KeyboardShortcut(ParsedKeyboardShortcut {
+                        source_range: 0..81,
+                        shortcut: "Shift".into(),
+                    }),
+                    MarkdownParagraphChunk::Text(ParsedMarkdownText {
+                        source_range: 0..81,
+                        contents: " + ".into(),
+                        highlights: Default::default(),
+                        region_ranges: Default::default(),
+                        regions: Default::default()
+                    }),
+                    MarkdownParagraphChunk::KeyboardShortcut(ParsedKeyboardShortcut {
+                        source_range: 0..81,
+                        shortcut: "C".into(),
+                    }),
+                    MarkdownParagraphChunk::Text(ParsedMarkdownText {
+                        source_range: 0..81,
+                        contents: " some more text".into(),
+                        highlights: Default::default(),
+                        region_ranges: Default::default(),
+                        regions: Default::default()
+                    }),
+                ])]
+            },
+            parsed
+        );
+    }
+
+    #[gpui::test]
+    async fn test_html_nested_keyboard_shortcut() {
+        let parsed = parse(
+            "<p>Some text <kbd><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>C</kbd></kbd> some more text</p>",
+        )
+        .await;
+
+        assert_eq!(
+            ParsedMarkdown {
+                children: vec![ParsedMarkdownElement::Paragraph(vec![
+                    MarkdownParagraphChunk::Text(ParsedMarkdownText {
+                        source_range: 0..86,
+                        contents: "Some text ".into(),
+                        highlights: Default::default(),
+                        region_ranges: Default::default(),
+                        regions: Default::default()
+                    }),
+                    MarkdownParagraphChunk::KeyboardShortcut(ParsedKeyboardShortcut {
+                        source_range: 0..86,
+                        shortcut: "Ctrl".into(),
+                    }),
+                    MarkdownParagraphChunk::Text(ParsedMarkdownText {
+                        source_range: 0..86,
+                        contents: " + ".into(),
+                        highlights: Default::default(),
+                        region_ranges: Default::default(),
+                        regions: Default::default()
+                    }),
+                    MarkdownParagraphChunk::KeyboardShortcut(ParsedKeyboardShortcut {
+                        source_range: 0..86,
+                        shortcut: "Shift".into(),
+                    }),
+                    MarkdownParagraphChunk::Text(ParsedMarkdownText {
+                        source_range: 0..86,
+                        contents: " + ".into(),
+                        highlights: Default::default(),
+                        region_ranges: Default::default(),
+                        regions: Default::default()
+                    }),
+                    MarkdownParagraphChunk::KeyboardShortcut(ParsedKeyboardShortcut {
+                        source_range: 0..86,
+                        shortcut: "C".into(),
+                    }),
+                    MarkdownParagraphChunk::Text(ParsedMarkdownText {
+                        source_range: 0..86,
+                        contents: " some more text".into(),
+                        highlights: Default::default(),
                         region_ranges: Default::default(),
                         regions: Default::default()
                     }),
