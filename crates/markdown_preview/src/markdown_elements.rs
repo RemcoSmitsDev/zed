@@ -294,7 +294,7 @@ impl Display for Link {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct ParsedKeyboardShortcut {
     pub shortcut: SharedString,
