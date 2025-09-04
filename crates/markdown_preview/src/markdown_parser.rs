@@ -938,6 +938,29 @@ impl<'a> MarkdownParser<'a> {
                     }));
 
                     self.consume_paragraph(source_range, node, paragraph, highlights, elements);
+                } else if local_name!("kbd") == name.local {
+                    let mut child_paragraph = Vec::with_capacity(1);
+                    self.consume_paragraph(
+                        source_range.clone(),
+                        node,
+                        &mut child_paragraph,
+                        highlights,
+                        &mut Vec::new(),
+                    );
+
+                    let shortcut = child_paragraph.iter().find_map(|child| match child {
+                        MarkdownParagraphChunk::Text(text) => Some(text.contents.clone()),
+                        _ => None,
+                    });
+
+                    if let Some(shortcut) = shortcut {
+                        paragraph.push(MarkdownParagraphChunk::KeyboardShortcut(
+                            ParsedKeyboardShortcut {
+                                shortcut,
+                                source_range,
+                            },
+                        ));
+                    }
                 } else {
                     self.consume_paragraph(source_range, node, paragraph, highlights, elements);
 
@@ -1630,6 +1653,62 @@ mod tests {
                                 emphasized: false
                             })
                         )],
+                        region_ranges: Default::default(),
+                        regions: Default::default()
+                    }),
+                ])]
+            },
+            parsed
+        );
+    }
+
+    #[gpui::test]
+    async fn test_html_keyboard_shortcut() {
+        let parsed = parse(
+            "<p>Some text <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>C</kbd> some more text</p>",
+        )
+        .await;
+
+        assert_eq!(
+            ParsedMarkdown {
+                children: vec![ParsedMarkdownElement::Paragraph(vec![
+                    MarkdownParagraphChunk::Text(ParsedMarkdownText {
+                        source_range: 0..81,
+                        contents: "Some text ".into(),
+                        highlights: Default::default(),
+                        region_ranges: Default::default(),
+                        regions: Default::default()
+                    }),
+                    MarkdownParagraphChunk::KeyboardShortcut(ParsedKeyboardShortcut {
+                        source_range: 0..81,
+                        shortcut: "Ctrl".into(),
+                    }),
+                    MarkdownParagraphChunk::Text(ParsedMarkdownText {
+                        source_range: 0..81,
+                        contents: " + ".into(),
+                        highlights: Default::default(),
+                        region_ranges: Default::default(),
+                        regions: Default::default()
+                    }),
+                    MarkdownParagraphChunk::KeyboardShortcut(ParsedKeyboardShortcut {
+                        source_range: 0..81,
+                        shortcut: "Shift".into(),
+                    }),
+                    MarkdownParagraphChunk::Text(ParsedMarkdownText {
+                        source_range: 0..81,
+                        contents: " + ".into(),
+                        highlights: Default::default(),
+                        region_ranges: Default::default(),
+                        regions: Default::default()
+                    }),
+                    MarkdownParagraphChunk::KeyboardShortcut(ParsedKeyboardShortcut {
+                        source_range: 0..81,
+                        shortcut: "C".into(),
+                    }),
+                    MarkdownParagraphChunk::Text(ParsedMarkdownText {
+                        source_range: 0..81,
+                        contents: " some more text".into(),
+                        highlights: Default::default(),
                         region_ranges: Default::default(),
                         regions: Default::default()
                     }),

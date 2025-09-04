@@ -1,6 +1,6 @@
 use crate::markdown_elements::{
-    HeadingLevel, Image, Link, MarkdownParagraph, MarkdownParagraphChunk, ParsedMarkdown,
-    ParsedMarkdownBlockQuote, ParsedMarkdownCodeBlock, ParsedMarkdownElement,
+    HeadingLevel, Image, Link, MarkdownParagraph, MarkdownParagraphChunk, ParsedKeyboardShortcut,
+    ParsedMarkdown, ParsedMarkdownBlockQuote, ParsedMarkdownCodeBlock, ParsedMarkdownElement,
     ParsedMarkdownHeading, ParsedMarkdownListItem, ParsedMarkdownListItemType, ParsedMarkdownTable,
     ParsedMarkdownTableAlignment, ParsedMarkdownTableRow,
 };
@@ -451,6 +451,7 @@ fn paragraph_len(paragraphs: &MarkdownParagraph) -> usize {
             MarkdownParagraphChunk::Text(text) => text.contents.len(),
             // TODO: Scale column width based on image size
             MarkdownParagraphChunk::Image(_) => 1,
+            MarkdownParagraphChunk::KeyboardShortcut(shortcut) => shortcut.shortcut.len(),
         })
         .sum()
 }
@@ -719,9 +720,11 @@ fn render_markdown_text(parsed_new: &MarkdownParagraph, cx: &mut RenderContext) 
                     .into_any();
                 any_element.push(element);
             }
-
             MarkdownParagraphChunk::Image(image) => {
                 any_element.push(render_markdown_image(image, cx));
+            }
+            MarkdownParagraphChunk::KeyboardShortcut(keyboard_shortcut) => {
+                any_element.push(render_markdown_keyboard_shortcut(keyboard_shortcut, cx));
             }
         }
     }
@@ -795,6 +798,25 @@ fn render_markdown_image(image: &Image, cx: &mut RenderContext) -> AnyElement {
                 }
             }
         })
+        .into_any()
+}
+
+fn render_markdown_keyboard_shortcut(
+    keyboard_shortcut: &ParsedKeyboardShortcut,
+    cx: &mut RenderContext,
+) -> AnyElement {
+    let element_id = cx.next_id(&keyboard_shortcut.source_range);
+
+    div()
+        .id(element_id.clone())
+        .border_1()
+        .rounded_md()
+        .bg(cx.code_block_background_color)
+        .p_1()
+        .child(InteractiveText::new(
+            element_id,
+            StyledText::new(keyboard_shortcut.shortcut.clone()),
+        ))
         .into_any()
 }
 
