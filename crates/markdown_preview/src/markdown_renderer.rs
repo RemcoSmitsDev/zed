@@ -812,7 +812,10 @@ fn render_markdown_keyboard_shortcut(
         .border_1()
         .rounded_md()
         .bg(cx.code_block_background_color)
-        .p_1()
+        .px_2()
+        .text_xs()
+        .border_1()
+        .border_color(cx.border_color)
         .child(InteractiveText::new(
             element_id,
             StyledText::new(keyboard_shortcut.shortcut.clone()),
