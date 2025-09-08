@@ -30,6 +30,7 @@ impl ParsedMarkdownElement {
             Self::Paragraph(text) => match text.get(0)? {
                 MarkdownParagraphChunk::Text(t) => t.source_range.clone(),
                 MarkdownParagraphChunk::Image(image) => image.source_range.clone(),
+                MarkdownParagraphChunk::KeyboardShortcut(shortcut) => shortcut.source_range.clone(),
             },
             Self::HorizontalRule(range) => range.clone(),
             Self::Image(image) => image.source_range.clone(),
@@ -48,6 +49,7 @@ pub type MarkdownParagraph = Vec<MarkdownParagraphChunk>;
 pub enum MarkdownParagraphChunk {
     Text(ParsedMarkdownText),
     Image(Image),
+    KeyboardShortcut(ParsedKeyboardShortcut),
 }
 
 #[derive(Debug)]
@@ -292,8 +294,15 @@ impl Display for Link {
     }
 }
 
-/// A Markdown Image
 #[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
+pub struct ParsedKeyboardShortcut {
+    pub shortcut: SharedString,
+    pub source_range: Range<usize>,
+}
+
+/// A Markdown Image
+#[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct Image {
     pub link: Link,
