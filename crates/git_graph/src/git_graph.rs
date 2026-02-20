@@ -8,15 +8,15 @@ use git::{
 use git_ui::{commit_tooltip::CommitAvatar, commit_view::CommitView};
 use gpui::{
     AnyElement, App, Bounds, ClickEvent, ClipboardItem, Context, Corner, DefiniteLength,
-    DragMoveEvent, ElementId, Entity, EventEmitter, FocusHandle, Focusable, FontWeight, Hsla,
-    InteractiveElement, ParentElement, PathBuilder, Pixels, Point, Render, ScrollStrategy,
+    DragMoveEvent, ElementId, Empty, Entity, EventEmitter, FocusHandle, Focusable, FontWeight,
+    Hsla, InteractiveElement, ParentElement, PathBuilder, Pixels, Point, Render, ScrollStrategy,
     ScrollWheelEvent, SharedString, Styled, Subscription, Task, WeakEntity, Window, actions,
     anchored, deferred, point, px,
 };
 use menu::{SelectNext, SelectPrevious};
 use project::{
     Project,
-    git_store::{CommitDataState, GitStoreEvent, Repository, RepositoryEvent},
+    git_store::{CommitDataState, GitStoreEvent, Repository, RepositoryEvent, RepositoryId},
 };
 use settings::Settings;
 use smallvec::{SmallVec, smallvec};
@@ -647,6 +647,7 @@ pub struct GitGraph {
     _commit_diff_task: Option<Task<()>>,
     _load_task: Option<Task<()>>,
     commit_details_split_state: Entity<SplitState>,
+    repo_id: Option<RepositoryId>,
 }
 
 impl GitGraph {
@@ -677,23 +678,32 @@ impl GitGraph {
         let log_order = LogOrder::default();
 
         cx.subscribe(&git_store, |this, _, event, cx| match event {
-            GitStoreEvent::RepositoryUpdated(_, repo_event, is_active) => {
-                if *is_active {
-                    if let Some(repository) = this.project.read(cx).active_repository(cx) {
+            GitStoreEvent::RepositoryUpdated(updated_repo_id, repo_event, _) => {
+                if this
+                    .repo_id
+                    .is_some_and(|selected_repo_id| selected_repo_id == *updated_repo_id)
+                {
+                    if let Some(repository) = this.get_selected_repository(cx) {
                         this.on_repository_event(repository, repo_event, cx);
                     }
                 }
             }
-            GitStoreEvent::ActiveRepositoryChanged(_) => {
-                this.graph_data.clear();
-                cx.notify();
+            GitStoreEvent::ActiveRepositoryChanged(repo_id) => {
+                // todo(git_graph): Make this selectable from UI so we don't have to always use active repository
+                if this.repo_id.is_some() && this.repo_id != *repo_id {
+                    this.invalidate_graph_data(cx);
+                }
+
+                this.repo_id = *repo_id;
             }
             _ => {}
         })
         .detach();
 
+        let mut repo_id = None;
         if let Some(repository) = project.read(cx).active_repository(cx) {
             repository.update(cx, |repository, cx| {
+                repo_id = Some(repository.id);
                 // This won't overlap with loading commits from the repository because
                 // we either have all commits or commits loaded in chunks and loading commits
                 // from the repository event is always adding the last chunk of commits.
@@ -738,6 +748,7 @@ impl GitGraph {
             log_source,
             log_order,
             commit_details_split_state: cx.new(|_cx| SplitState::new()),
+            repo_id,
         }
     }
 
@@ -762,14 +773,23 @@ impl GitGraph {
                 });
 
                 self.graph_data.max_commit_count = AllCommitCount::Loaded(*commit_count);
-            }
-            RepositoryEvent::BranchChanged => {
-                self.graph_data.clear();
                 cx.notify();
             }
             _ => {}
         }
+    }
 
+    fn get_selected_repository(&self, cx: &App) -> Option<Entity<Repository>> {
+        let project = self.project.read(cx);
+
+        match &self.repo_id {
+            Some(repo_id) => project.repositories(cx).get(repo_id).cloned(),
+            None => project.active_repository(cx),
+        }
+    }
+
+    fn invalidate_graph_data(&mut self, cx: &mut Context<Self>) {
+        self.graph_data.clear();
         cx.notify();
     }
 
@@ -799,9 +819,7 @@ impl GitGraph {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Vec<Vec<AnyElement>> {
-        let repository = self
-            .project
-            .read_with(cx, |project, cx| project.active_repository(cx));
+        let repository = self.get_selected_repository(cx);
 
         let row_height = self.row_height;
 
@@ -943,11 +961,8 @@ impl GitGraph {
         };
 
         let sha = commit.data.sha.to_string();
-        let repository = self
-            .project
-            .read_with(cx, |project, cx| project.active_repository(cx));
 
-        let Some(repository) = repository else {
+        let Some(repository) = self.get_selected_repository(cx) else {
             return;
         };
 
@@ -984,11 +999,7 @@ impl GitGraph {
             return;
         };
 
-        let repository = self
-            .project
-            .read_with(cx, |project, cx| project.active_repository(cx));
-
-        let Some(repository) = repository else {
+        let Some(repository) = self.get_selected_repository(cx) else {
             return;
         };
 
@@ -1034,19 +1045,15 @@ impl GitGraph {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let Some(selected_idx) = self.selected_entry_idx else {
-            return div().into_any_element();
+            return Empty.into_any_element();
         };
 
         let Some(commit_entry) = self.graph_data.commits.get(selected_idx) else {
-            return div().into_any_element();
+            return Empty.into_any_element();
         };
 
-        let repository = self
-            .project
-            .read_with(cx, |project, cx| project.active_repository(cx));
-
-        let Some(repository) = repository else {
-            return div().into_any_element();
+        let Some(repository) = self.get_selected_repository(cx) else {
+            return Empty.into_any_element();
         };
 
         let data = repository.update(cx, |repository, cx| {
@@ -1634,24 +1641,27 @@ impl Render for GitGraph {
         let (commit_count, is_loading) = match self.graph_data.max_commit_count {
             AllCommitCount::Loaded(count) => (count, true),
             AllCommitCount::NotLoaded => {
-                let is_loading = self.project.update(cx, |project, cx| {
-                    if let Some(repository) = project.active_repository(cx) {
+                let (commit_count, is_loading) =
+                    if let Some(repository) = self.get_selected_repository(cx) {
                         repository.update(cx, |repository, cx| {
                             // Start loading the graph data if we haven't started already
-                            repository
-                                .graph_data(self.log_source.clone(), self.log_order, 0..0, cx)
-                                .1
+                            let (commits, is_loading) = repository.graph_data(
+                                self.log_source.clone(),
+                                self.log_order,
+                                0..0,
+                                cx,
+                            );
+                            (commits.len(), is_loading && commits.is_empty())
                         })
                     } else {
-                        false
-                    }
-                }) && self.graph_data.commits.is_empty();
+                        (0, false)
+                    };
 
-                (self.graph_data.commits.len(), is_loading)
+                (commit_count, is_loading)
             }
         };
 
-        let content = if self.graph_data.commits.is_empty() {
+        let content = if commit_count == 0 {
             let message = if is_loading {
                 "Loading"
             } else {

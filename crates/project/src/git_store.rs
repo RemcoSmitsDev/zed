@@ -3744,9 +3744,12 @@ impl Repository {
             })
             .shared();
 
-        cx.subscribe_self(|this, event: &RepositoryEvent, _| match event {
+        cx.subscribe_self(|_this, event: &RepositoryEvent, _| match event {
             RepositoryEvent::BranchChanged | RepositoryEvent::MergeHeadsChanged => {
-                this.initial_graph_data.clear();
+                // todo(git_graph): This clears the initial graph data when the graph hasn't changed,
+                // e.g. when Zed is loading, the BranchChanged and MergeHeadsChanged event will be fired
+                // but that causes us loading the graph data multiple times
+                // this.initial_graph_data.clear();
             }
             _ => {}
         })
