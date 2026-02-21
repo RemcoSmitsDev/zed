@@ -811,7 +811,7 @@ impl GitGraph {
             repository.update(cx, |repository, cx| {
                 let (commits, _) = repository.graph_data(
                     self.log_source.clone(),
-                    self.log_order.clone(),
+                    self.log_order,
                     0..usize::MAX,
                     cx,
                 );
