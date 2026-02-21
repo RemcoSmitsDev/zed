@@ -3744,6 +3744,16 @@ impl Repository {
             })
             .shared();
 
+        cx.subscribe_self(move |this, event: &RepositoryEvent, _| match event {
+            RepositoryEvent::BranchChanged | RepositoryEvent::MergeHeadsChanged => {
+                if this.scan_id > 1 {
+                    this.initial_graph_data.clear();
+                }
+            }
+            _ => {}
+        })
+        .detach();
+
         Repository {
             this: cx.weak_entity(),
             git_store,

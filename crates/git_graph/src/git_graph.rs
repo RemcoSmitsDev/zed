@@ -16,7 +16,7 @@ use gpui::{
 use menu::{SelectNext, SelectPrevious};
 use project::{
     Project,
-    git_store::{CommitDataState, GitStoreEvent, Repository, RepositoryEvent, RepositorySnapshot},
+    git_store::{CommitDataState, GitStoreEvent, Repository, RepositoryEvent, RepositoryId},
 };
 use settings::Settings;
 use smallvec::{SmallVec, smallvec};
@@ -648,7 +648,7 @@ pub struct GitGraph {
     selected_commit_diff: Option<CommitDiff>,
     _commit_diff_task: Option<Task<()>>,
     commit_details_split_state: Entity<SplitState>,
-    active_repository_snapshot: Option<RepositorySnapshot>,
+    selected_repo_id: Option<RepositoryId>,
 }
 
 impl GitGraph {
@@ -678,12 +678,12 @@ impl GitGraph {
         let log_source = LogSource::default();
         let log_order = LogOrder::default();
 
-        cx.subscribe(&git_store, |this, git_store, event, cx| match event {
+        cx.subscribe(&git_store, |this, _, event, cx| match event {
             GitStoreEvent::RepositoryUpdated(updated_repo_id, repo_event, _) => {
                 if this
-                    .active_repository_snapshot
+                    .selected_repo_id
                     .as_ref()
-                    .is_some_and(|snapshot| snapshot.id == *updated_repo_id)
+                    .is_some_and(|repo_id| repo_id == updated_repo_id)
                 {
                     if let Some(repository) = this.get_selected_repository(cx) {
                         this.on_repository_event(repository, repo_event, cx);
@@ -692,17 +692,9 @@ impl GitGraph {
             }
             GitStoreEvent::ActiveRepositoryChanged(changed_repo_id) => {
                 // todo(git_graph): Make this selectable from UI so we don't have to always use active repository
-                let current_id = this
-                    .active_repository_snapshot
-                    .as_ref()
-                    .map(|snapshot| snapshot.id);
-                if current_id != *changed_repo_id {
-                    let repo = changed_repo_id
-                        .and_then(|id| git_store.read(cx).repositories().get(&id).cloned());
-
-                    this.active_repository_snapshot = repo.map(|repo| repo.read(cx).snapshot());
+                if this.selected_repo_id != *changed_repo_id {
+                    this.selected_repo_id = *changed_repo_id;
                     this.graph_data.clear();
-                    this.fetch_initial_graph_data(cx);
                     cx.notify();
                 }
             }
@@ -710,10 +702,10 @@ impl GitGraph {
         })
         .detach();
 
-        let active_repository_snapshot = project
+        let active_repository = project
             .read(cx)
             .active_repository(cx)
-            .map(|repo| repo.read(cx).snapshot());
+            .map(|repo| repo.read(cx).id);
 
         let table_interaction_state = cx.new(|cx| TableInteractionState::new(cx));
         let table_column_widths = cx.new(|cx| TableColumnWidths::new(4, cx));
@@ -749,7 +741,7 @@ impl GitGraph {
             log_source,
             log_order,
             commit_details_split_state: cx.new(|_cx| SplitState::new()),
-            active_repository_snapshot,
+            selected_repo_id: active_repository,
         };
 
         this.fetch_initial_graph_data(cx);
@@ -764,6 +756,10 @@ impl GitGraph {
     ) {
         match event {
             RepositoryEvent::GitGraphCountUpdated((order, source), commit_count) => {
+                if order != &self.log_order || source != &self.log_source {
+                    return;
+                }
+
                 let old_count = self.graph_data.commits.len();
 
                 repository.update(cx, |repository, cx| {
@@ -774,33 +770,13 @@ impl GitGraph {
                 cx.notify();
             }
             RepositoryEvent::BranchChanged | RepositoryEvent::MergeHeadsChanged => {
-                let Some(old_snapshot) = self.active_repository_snapshot.as_ref() else {
-                    return;
-                };
-
-                let new_snapshot = repository.read(cx).snapshot();
-
-                // if there was no branch/head commit before it means we don't need to clear the graph data,
-                // because we are still receiving initial repository loading events
+                // Only invalidate if we scanned atleast once,
+                // meaning we are not inside the initial repo loading state
                 // NOTE: this fixes an loading performance regression
-                if old_snapshot
-                    .branch
-                    .as_ref()
-                    .is_some_and(|branch| Some(branch) != new_snapshot.branch.as_ref())
-                    || old_snapshot
-                        .head_commit
-                        .as_ref()
-                        .is_some_and(|commit| Some(commit) != new_snapshot.head_commit.as_ref())
-                {
-                    repository.update(cx, |repository, cx| {
-                        repository.initial_graph_data.clear();
-                        cx.notify();
-                    });
+                if repository.read(cx).scan_id > 1 {
                     self.graph_data.clear();
+                    cx.notify();
                 }
-
-                self.active_repository_snapshot = Some(new_snapshot);
-                cx.notify();
             }
             _ => {}
         }
@@ -822,9 +798,9 @@ impl GitGraph {
 
     fn get_selected_repository(&self, cx: &App) -> Option<Entity<Repository>> {
         let project = self.project.read(cx);
-        self.active_repository_snapshot
+        self.selected_repo_id
             .as_ref()
-            .and_then(|snapshot| project.repositories(cx).get(&snapshot.id).cloned())
+            .and_then(|repo_id| project.repositories(cx).get(&repo_id).cloned())
     }
 
     fn render_badge(&self, name: &SharedString, accent_color: gpui::Hsla) -> impl IntoElement {
@@ -1682,9 +1658,10 @@ impl Render for GitGraph {
                             let (commits, is_loading) = repository.graph_data(
                                 self.log_source.clone(),
                                 self.log_order,
-                                0..0,
+                                0..usize::MAX,
                                 cx,
                             );
+                            self.graph_data.add_commits(&commits);
                             (commits.len(), is_loading)
                         })
                     } else {
@@ -1729,6 +1706,7 @@ impl Render for GitGraph {
                             div()
                                 .p_2()
                                 .border_b_1()
+                                .whitespace_nowrap()
                                 .border_color(cx.theme().colors().border)
                                 .child(Label::new("Graph").color(Color::Muted)),
                         )
