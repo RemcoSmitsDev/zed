@@ -691,10 +691,11 @@ impl GitGraph {
             GitStoreEvent::ActiveRepositoryChanged(repo_id) => {
                 // todo(git_graph): Make this selectable from UI so we don't have to always use active repository
                 if this.repo_id.is_some() && this.repo_id != *repo_id {
-                    this.invalidate_graph_data(cx);
+                    this.graph_data.clear();
                 }
 
                 this.repo_id = *repo_id;
+                cx.notify();
             }
             _ => {}
         })
@@ -725,8 +726,8 @@ impl GitGraph {
                     state.scroll_handle.0.borrow_mut().last_item_size = None;
                 });
                 row_height = new_row_height;
+                cx.notify();
             }
-            cx.notify();
         })
         .detach();
 
@@ -775,6 +776,18 @@ impl GitGraph {
                 self.graph_data.max_commit_count = AllCommitCount::Loaded(*commit_count);
                 cx.notify();
             }
+            RepositoryEvent::BranchChanged | RepositoryEvent::MergeHeadsChanged => {
+                // todo(git_graph): This clears the initial graph data when the graph hasn't changed,
+                // e.g. when Zed is loading, the BranchChanged and MergeHeadsChanged event will be fired
+                // but that causes us loading the graph data multiple times
+                // this.initial_graph_data.clear();
+                // repository.update(cx, |repository, cx| {
+                //     repository.initial_graph_data.clear();
+                //     cx.notify();
+                // });
+                // self.graph_data.clear();
+                // cx.notify();
+            }
             _ => {}
         }
     }
@@ -784,13 +797,8 @@ impl GitGraph {
 
         match &self.repo_id {
             Some(repo_id) => project.repositories(cx).get(repo_id).cloned(),
-            None => project.active_repository(cx),
+            None => None,
         }
-    }
-
-    fn invalidate_graph_data(&mut self, cx: &mut Context<Self>) {
-        self.graph_data.clear();
-        cx.notify();
     }
 
     fn render_badge(&self, name: &SharedString, accent_color: gpui::Hsla) -> impl IntoElement {
