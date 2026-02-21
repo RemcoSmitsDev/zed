@@ -541,6 +541,8 @@ impl GraphData {
                 color_idx: commit_color.0 as usize,
             }));
         }
+
+        self.max_commit_count = AllCommitCount::Loaded(self.commits.len());
     }
 }
 
@@ -645,7 +647,6 @@ pub struct GitGraph {
     log_order: LogOrder,
     selected_commit_diff: Option<CommitDiff>,
     _commit_diff_task: Option<Task<()>>,
-    _load_task: Option<Task<()>>,
     commit_details_split_state: Entity<SplitState>,
     active_repository_snapshot: Option<RepositorySnapshot>,
 }
@@ -673,7 +674,7 @@ impl GitGraph {
 
         let git_store = project.read(cx).git_store().clone();
         let accent_colors = cx.theme().accents();
-        let mut graph = GraphData::new(accent_colors_count(accent_colors));
+        let graph = GraphData::new(accent_colors_count(accent_colors));
         let log_source = LogSource::default();
         let log_order = LogOrder::default();
 
@@ -696,17 +697,12 @@ impl GitGraph {
                     .as_ref()
                     .map(|snapshot| snapshot.id);
                 if current_id != *changed_repo_id {
-                    this.active_repository_snapshot = changed_repo_id.and_then(|id| {
-                        Some(
-                            git_store
-                                .read(cx)
-                                .repositories()
-                                .get(&id)?
-                                .read(cx)
-                                .snapshot(),
-                        )
-                    });
+                    let repo = changed_repo_id
+                        .and_then(|id| git_store.read(cx).repositories().get(&id).cloned());
+
+                    this.active_repository_snapshot = repo.map(|repo| repo.read(cx).snapshot());
                     this.graph_data.clear();
+                    this.fetch_initial_graph_data(cx);
                     cx.notify();
                 }
             }
@@ -714,18 +710,10 @@ impl GitGraph {
         })
         .detach();
 
-        let mut active_repository_snapshot = None;
-        if let Some(active_repository) = project.read(cx).active_repository(cx) {
-            active_repository.update(cx, |active_repository, cx| {
-                active_repository_snapshot = Some(active_repository.snapshot());
-                // This won't overlap with loading commits from the repository because
-                // we either have all commits or commits loaded in chunks and loading commits
-                // from the repository event is always adding the last chunk of commits.
-                let (commits, _) =
-                    active_repository.graph_data(log_source.clone(), log_order, 0..usize::MAX, cx);
-                graph.add_commits(commits);
-            });
-        }
+        let active_repository_snapshot = project
+            .read(cx)
+            .active_repository(cx)
+            .map(|repo| repo.read(cx).snapshot());
 
         let table_interaction_state = cx.new(|cx| TableInteractionState::new(cx));
         let table_column_widths = cx.new(|cx| TableColumnWidths::new(4, cx));
@@ -744,12 +732,11 @@ impl GitGraph {
         })
         .detach();
 
-        GitGraph {
+        let mut this = GitGraph {
             focus_handle,
             project,
             workspace,
             graph_data: graph,
-            _load_task: None,
             _commit_diff_task: None,
             context_menu: None,
             row_height,
@@ -763,7 +750,10 @@ impl GitGraph {
             log_order,
             commit_details_split_state: cx.new(|_cx| SplitState::new()),
             active_repository_snapshot,
-        }
+        };
+
+        this.fetch_initial_graph_data(cx);
+        this
     }
 
     fn on_repository_event(
@@ -773,20 +763,14 @@ impl GitGraph {
         cx: &mut Context<Self>,
     ) {
         match event {
-            RepositoryEvent::GitGraphCountUpdated(_, commit_count) => {
+            RepositoryEvent::GitGraphCountUpdated((order, source), commit_count) => {
                 let old_count = self.graph_data.commits.len();
 
                 repository.update(cx, |repository, cx| {
-                    let (commits, _) = repository.graph_data(
-                        self.log_source.clone(),
-                        self.log_order,
-                        old_count..*commit_count,
-                        cx,
-                    );
+                    let (commits, _) =
+                        repository.graph_data(source.clone(), *order, old_count..*commit_count, cx);
                     self.graph_data.add_commits(commits);
                 });
-
-                self.graph_data.max_commit_count = AllCommitCount::Loaded(*commit_count);
                 cx.notify();
             }
             RepositoryEvent::BranchChanged | RepositoryEvent::MergeHeadsChanged => {
@@ -819,6 +803,20 @@ impl GitGraph {
                 cx.notify();
             }
             _ => {}
+        }
+    }
+
+    fn fetch_initial_graph_data(&mut self, cx: &mut App) {
+        if let Some(repository) = self.get_selected_repository(cx) {
+            repository.update(cx, |repository, cx| {
+                let (commits, _) = repository.graph_data(
+                    self.log_source.clone(),
+                    self.log_order.clone(),
+                    0..usize::MAX,
+                    cx,
+                );
+                self.graph_data.add_commits(commits);
+            });
         }
     }
 
