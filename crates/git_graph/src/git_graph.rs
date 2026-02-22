@@ -2768,8 +2768,182 @@ mod tests {
         }
     }
 
-    // The full integration test has less iterations because it's significantly slower
-    // than the random commit test
+    #[test]
+    fn test_get_related_commit_rows_linear() {
+        // Test that get_related_commit_rows returns all commits on a linear branch
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let oid1 = Oid::random(&mut rng);
+        let oid2 = Oid::random(&mut rng);
+        let oid3 = Oid::random(&mut rng);
+        let oid4 = Oid::random(&mut rng);
+
+        // Linear history: oid1 -> oid2 -> oid3 -> oid4
+        let commits = vec![
+            Arc::new(InitialGraphCommitData {
+                sha: oid1,
+                parents: smallvec![oid2],
+                ref_names: vec!["HEAD".into()],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: oid2,
+                parents: smallvec![oid3],
+                ref_names: vec![],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: oid3,
+                parents: smallvec![oid4],
+                ref_names: vec![],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: oid4,
+                parents: smallvec![],
+                ref_names: vec![],
+            }),
+        ];
+
+        let mut graph_data = GraphData::new(8);
+        graph_data.add_commits(&commits);
+
+        // All commits should be on the same lane with the same color
+        assert!(graph_data.commits.len() == 4);
+        let color_idx = graph_data.commits[0].color_idx;
+
+        // When hovering over the first line segment, all commits should be highlighted
+        let first_line = &graph_data.lines[0];
+        let related = graph_data.get_related_commit_rows(&first_line.full_interval, color_idx);
+
+        // All 4 commits should be related
+        assert_eq!(related.len(), 4, "Expected all 4 commits to be related");
+        assert!(related.contains(&0), "Row 0 should be related");
+        assert!(related.contains(&1), "Row 1 should be related");
+        assert!(related.contains(&2), "Row 2 should be related");
+        assert!(related.contains(&3), "Row 3 should be related");
+    }
+
+    #[test]
+    fn test_get_related_commit_rows_with_branch() {
+        // Test that get_related_commit_rows only returns commits on the same branch
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let oid1 = Oid::random(&mut rng);
+        let oid2 = Oid::random(&mut rng);
+        let oid3 = Oid::random(&mut rng);
+        let oid4 = Oid::random(&mut rng);
+
+        // Graph with a merge:
+        // oid1 (merge commit) -> oid2 (first parent) -> oid4
+        //                    \-> oid3 (second parent) -> oid4
+        let commits = vec![
+            Arc::new(InitialGraphCommitData {
+                sha: oid1,
+                parents: smallvec![oid2, oid3],
+                ref_names: vec!["HEAD".into()],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: oid2,
+                parents: smallvec![oid4],
+                ref_names: vec![],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: oid3,
+                parents: smallvec![oid4],
+                ref_names: vec![],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: oid4,
+                parents: smallvec![],
+                ref_names: vec![],
+            }),
+        ];
+
+        let mut graph_data = GraphData::new(8);
+        graph_data.add_commits(&commits);
+
+        // The main branch (oid1 -> oid2 -> oid4) should have one color
+        // The side branch (oid3) should have a different color
+        let main_color = graph_data.commits[0].color_idx;
+        let side_color = graph_data.commits[2].color_idx;
+
+        // Main branch and side branch should have different colors
+        assert_ne!(
+            main_color, side_color,
+            "Main branch and side branch should have different colors"
+        );
+
+        // When hovering over the main branch, only main branch commits should be highlighted
+        // Find a line on the main branch
+        let main_line = graph_data
+            .lines
+            .iter()
+            .find(|l| l.color_idx == main_color)
+            .expect("Should have a main branch line");
+        let main_related = graph_data.get_related_commit_rows(&main_line.full_interval, main_color);
+
+        // Main branch commits (rows 0, 1, 3) should be related, but not the side branch (row 2)
+        assert!(
+            main_related.contains(&0),
+            "Merge commit (row 0) should be on main branch"
+        );
+        assert!(
+            main_related.contains(&1),
+            "First parent (row 1) should be on main branch"
+        );
+        assert!(
+            !main_related.contains(&2),
+            "Side branch commit (row 2) should NOT be on main branch"
+        );
+    }
+
+    #[test]
+    fn test_get_related_commit_rows_connected_segments() {
+        // Test that connected line segments are properly joined
+        let mut rng = StdRng::seed_from_u64(123);
+
+        // Create a longer linear history to ensure multiple line segments
+        let num_commits = 10;
+        let oids: Vec<Oid> = (0..num_commits).map(|_| Oid::random(&mut rng)).collect();
+
+        let commits: Vec<Arc<InitialGraphCommitData>> = (0..num_commits)
+            .map(|i| {
+                Arc::new(InitialGraphCommitData {
+                    sha: oids[i],
+                    parents: if i == num_commits - 1 {
+                        smallvec![]
+                    } else {
+                        smallvec![oids[i + 1]]
+                    },
+                    ref_names: if i == 0 { vec!["HEAD".into()] } else { vec![] },
+                })
+            })
+            .collect();
+
+        let mut graph_data = GraphData::new(8);
+        graph_data.add_commits(&commits);
+
+        // All commits should have the same color on a linear branch
+        let color_idx = graph_data.commits[0].color_idx;
+        for (i, commit) in graph_data.commits.iter().enumerate() {
+            assert_eq!(
+                commit.color_idx, color_idx,
+                "Commit {} should have the same color as the first commit",
+                i
+            );
+        }
+
+        // When hovering over any line segment, all commits should be highlighted
+        let related = graph_data
+            .get_related_commit_rows(&graph_data.lines.first().unwrap().full_interval, color_idx);
+
+        // All commits should be related
+        assert_eq!(
+            related.len(),
+            num_commits,
+            "All {} commits should be related when hovering over connected lane",
+            num_commits
+        );
+    }
+
     #[gpui::test(iterations = 10)]
     async fn test_git_graph_random_integration(mut rng: StdRng, cx: &mut TestAppContext) {
         init_test(cx);
