@@ -20,7 +20,13 @@ use project::{
 };
 use settings::Settings;
 use smallvec::{SmallVec, smallvec};
-use std::{ops::Range, rc::Rc, sync::Arc, sync::OnceLock};
+use std::{
+    cell::RefCell,
+    ops::Range,
+    rc::Rc,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 use theme::{AccentColors, ThemeSettings};
 use time::{OffsetDateTime, UtcOffset, format_description::BorrowedFormatItem};
 use ui::{
@@ -37,6 +43,7 @@ const COMMIT_CIRCLE_STROKE_WIDTH: Pixels = px(1.5);
 const LANE_WIDTH: Pixels = px(16.0);
 const LEFT_PADDING: Pixels = px(12.0);
 const LINE_WIDTH: Pixels = px(1.5);
+const LINE_HIT_RADIUS: Pixels = px(8.0);
 const RESIZE_HANDLE_WIDTH: f32 = 8.0;
 
 struct DraggedSplitHandle;
@@ -544,6 +551,125 @@ impl GraphData {
 
         self.max_commit_count = AllCommitCount::Loaded(self.commits.len());
     }
+
+    fn get_related_commit_rows(
+        &self,
+        interval: &Range<usize>,
+        color_idx: usize,
+    ) -> collections::HashSet<usize> {
+        let mut related_rows = collections::HashSet::default();
+
+        // Track the combined interval range as we expand through connected lines
+        let mut min_row = interval.start;
+        let mut max_row = interval.end;
+
+        // Pre-filter lines by color
+        let matching_lines: Vec<_> = self
+            .lines
+            .iter()
+            .filter(|line| line.color_idx == color_idx)
+            .collect();
+
+        // Keep expanding until no more connected lines are found
+        loop {
+            let prev_min = min_row;
+            let prev_max = max_row;
+
+            for line in &matching_lines {
+                // Check if this line connects to our current range
+                // Lines connect if their intervals overlap or are adjacent (touch at endpoints)
+                if line.full_interval.start <= max_row + 1 && line.full_interval.end + 1 >= min_row
+                {
+                    // Expand our range to include this line
+                    min_row = min_row.min(line.full_interval.start);
+                    max_row = max_row.max(line.full_interval.end);
+                }
+            }
+
+            // If the range didn't expand, we're done
+            if min_row == prev_min && max_row == prev_max {
+                break;
+            }
+        }
+
+        // Include all commits in the combined range with the matching color
+        for row in min_row..=max_row {
+            if let Some(commit) = self.commits.get(row) {
+                if commit.color_idx == color_idx {
+                    related_rows.insert(row);
+                }
+            }
+        }
+
+        related_rows
+    }
+
+    fn get_line_at_position(
+        &self,
+        row: usize,
+        x_position: Pixels,
+    ) -> Option<(Range<usize>, usize)> {
+        // Helper to check if x_position is within hit radius of a lane center
+        let is_near_lane = |lane: usize| -> bool {
+            let lane_center = LEFT_PADDING + lane as f32 * LANE_WIDTH + LANE_WIDTH / 2.0;
+            (x_position - lane_center).abs() <= LINE_HIT_RADIUS
+        };
+
+        // Check if there's a commit at this row near the x position
+        if let Some(commit) = self.commits.get(row) {
+            if is_near_lane(commit.lane) {
+                // Find the line that contains this commit
+                for line in &self.lines {
+                    if line.full_interval.start <= row
+                        && row <= line.full_interval.end
+                        && line.color_idx == commit.color_idx
+                    {
+                        return Some((line.full_interval.clone(), line.color_idx));
+                    }
+                }
+                // If no line found, return just this row
+                return Some((row..row, commit.color_idx));
+            }
+        }
+
+        // Check if there's a line passing through this row near the x position
+        for line in &self.lines {
+            if row < line.full_interval.start || row > line.full_interval.end {
+                continue;
+            }
+
+            // Track which column the line is at for this row
+            let mut current_column = line.child_column;
+
+            for segment in &line.segments {
+                match segment {
+                    CommitLineSegment::Straight { to_row } => {
+                        // Line stays in current column from current position to to_row
+                        if is_near_lane(current_column) && row <= *to_row {
+                            return Some((line.full_interval.clone(), line.color_idx));
+                        }
+                    }
+                    CommitLineSegment::Curve {
+                        to_column, on_row, ..
+                    } => {
+                        // Before the curve row, line is at current_column
+                        if row < *on_row && is_near_lane(current_column) {
+                            return Some((line.full_interval.clone(), line.color_idx));
+                        }
+                        // At or after the curve, line moves to to_column
+                        if row >= *on_row {
+                            current_column = *to_column;
+                            if is_near_lane(current_column) {
+                                return Some((line.full_interval.clone(), line.color_idx));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
 }
 
 pub fn init(cx: &mut App) {
@@ -643,6 +769,9 @@ pub struct GitGraph {
     horizontal_scroll_offset: Pixels,
     graph_viewport_width: Pixels,
     selected_entry_idx: Option<usize>,
+    hovered_line: Option<(Range<usize>, usize)>,
+    hovered_graph_task: Task<()>,
+    graph_canvas_bounds: Rc<RefCell<Bounds<Pixels>>>,
     log_source: LogSource,
     log_order: LogOrder,
     selected_commit_diff: Option<CommitDiff>,
@@ -742,6 +871,10 @@ impl GitGraph {
             log_order,
             commit_details_split_state: cx.new(|_cx| SplitState::new()),
             selected_repo_id: active_repository,
+            // hover graph show related commits
+            hovered_line: None,
+            hovered_graph_task: Task::ready(()),
+            graph_canvas_bounds: Rc::new(RefCell::new(Bounds::default())),
         };
 
         this.fetch_initial_graph_data(cx);
@@ -848,6 +981,15 @@ impl GitGraph {
             });
         }
 
+        let related_rows = self
+            .hovered_line
+            .as_ref()
+            .map(|(interval, color_idx)| {
+                self.graph_data
+                    .get_related_commit_rows(interval, *color_idx)
+            })
+            .unwrap_or_default();
+
         range
             .map(|idx| {
                 let Some((commit, repository)) =
@@ -886,11 +1028,14 @@ impl GitGraph {
                     .copied()
                     .unwrap_or_else(|| accent_colors.0.first().copied().unwrap_or_default());
                 let is_selected = self.selected_entry_idx == Some(idx);
+                let is_related = related_rows.contains(&idx);
+                let should_fade = self.hovered_line.is_some() && !is_related;
                 let text_color = if is_selected {
                     Color::Default
                 } else {
                     Color::Muted
                 };
+                let opacity = if should_fade { 0.4 } else { 1.0 };
 
                 vec![
                     div()
@@ -918,18 +1063,19 @@ impl GitGraph {
                                         .single_line(),
                                 ),
                         )
+                        .opacity(opacity)
                         .into_any_element(),
-                    Label::new(formatted_time)
-                        .color(text_color)
-                        .single_line()
+                    div()
+                        .child(Label::new(formatted_time).color(text_color).single_line())
+                        .opacity(opacity)
                         .into_any_element(),
-                    Label::new(author_name)
-                        .color(text_color)
-                        .single_line()
+                    div()
+                        .child(Label::new(author_name).color(text_color).single_line())
+                        .opacity(opacity)
                         .into_any_element(),
-                    Label::new(short_sha)
-                        .color(text_color)
-                        .single_line()
+                    div()
+                        .child(Label::new(short_sha).color(text_color).single_line())
+                        .opacity(opacity)
                         .into_any_element(),
                 ]
             })
@@ -1391,8 +1537,12 @@ impl GitGraph {
 
         let mut lines: BTreeMap<usize, Vec<_>> = BTreeMap::new();
 
+        let canvas_bounds = self.graph_canvas_bounds.clone();
+
         gpui::canvas(
-            move |_bounds, _window, _cx| {},
+            move |bounds, _window, _cx| {
+                *canvas_bounds.borrow_mut() = bounds;
+            },
             move |bounds: Bounds<Pixels>, _: (), window: &mut Window, cx: &mut App| {
                 window.paint_layer(bounds, |window| {
                     let accent_colors = cx.theme().accents();
@@ -1606,6 +1756,56 @@ impl GitGraph {
         }
     }
 
+    fn hover_graph_task(&self, position: Point<Pixels>, cx: &mut Context<Self>) -> Task<()> {
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(15))
+                .await;
+
+            let _ = this.update(cx, |this, cx| {
+                let bounds = *this.graph_canvas_bounds.borrow();
+
+                // Convert window coordinates to element-relative coordinates
+                let relative_x = position.x - bounds.origin.x;
+                let relative_y = position.y - bounds.origin.y;
+
+                // Check if mouse is outside element bounds
+                if relative_x < px(0.)
+                    || relative_y < px(0.)
+                    || relative_x > bounds.size.width
+                    || relative_y > bounds.size.height
+                {
+                    if this.hovered_line.is_some() {
+                        this.hovered_line = None;
+                        cx.notify();
+                    }
+                    return;
+                }
+
+                // Read scroll offset fresh (not captured)
+                let scroll_offset_y = -this.table_interaction_state.read(cx).scroll_offset().y;
+
+                // Account for scroll offset to get content coordinates
+                let content_y = relative_y + scroll_offset_y;
+                let row_idx = (content_y / this.row_height).floor() as usize;
+
+                // Calculate x position relative to content (accounting for horizontal scroll)
+                let content_x = relative_x + this.horizontal_scroll_offset;
+
+                let new_hovered = if row_idx < this.graph_data.commits.len() {
+                    this.graph_data.get_line_at_position(row_idx, content_x)
+                } else {
+                    None
+                };
+
+                if this.hovered_line != new_hovered {
+                    this.hovered_line = new_hovered;
+                    cx.notify();
+                }
+            });
+        })
+    }
+
     fn render_commit_view_resize_handle(
         &self,
         _window: &mut Window,
@@ -1716,7 +1916,19 @@ impl Render for GitGraph {
                                 .flex_1()
                                 .overflow_hidden()
                                 .child(self.render_graph(cx))
-                                .on_scroll_wheel(cx.listener(Self::handle_graph_scroll)),
+                                .on_scroll_wheel(cx.listener(Self::handle_graph_scroll))
+                                .on_mouse_move(cx.listener(
+                                    move |this, event: &gpui::MouseMoveEvent, _window, cx| {
+                                        this.hovered_graph_task =
+                                            this.hover_graph_task(event.position, cx);
+                                    },
+                                ))
+                                .on_mouse_down_out(cx.listener(|this, _, _window, cx| {
+                                    if this.hovered_line.is_some() {
+                                        this.hovered_line = None;
+                                        cx.notify();
+                                    }
+                                })),
                         ),
                 )
                 .child({
