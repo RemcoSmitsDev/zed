@@ -1050,8 +1050,11 @@ impl Dock {
         let max_size = (max_size - RESIZE_HANDLE_SIZE).abs();
         let mut clamped = false;
         for entry in &mut self.panel_entries {
-            let use_flexible = entry.panel.has_flexible_size(window, cx);
-            if use_flexible {
+            // Only horizontal docks lay flexible panels out with flex-grow/shrink and ignore the
+            // stored size; a vertical (bottom) dock always renders at its fixed stored height even
+            // when the panel is "flexible", so its size must still be clamped or it overflows past
+            // the window's bottom edge when the window shrinks.
+            if panel_uses_flexible_width(self.position, entry.panel.as_ref(), window, cx) {
                 continue;
             }
 
